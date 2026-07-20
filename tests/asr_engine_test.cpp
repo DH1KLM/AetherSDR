@@ -3,8 +3,8 @@
 // orchestration — async load, audio -> segment -> transcribe -> finalText,
 // enabled-gating, and load-failure — is verified without any model or whisper.
 
-#include "core/asr/AsrEngine.h"
-#include "core/asr/IAsrBackend.h"
+#include "asr/AsrEngine.h"
+#include "asr/IAsrBackend.h"
 
 #include <QCoreApplication>
 #include <QSignalSpy>

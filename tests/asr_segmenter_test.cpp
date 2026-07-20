@@ -3,7 +3,7 @@
 // utterance boundaries, the minimum-speech drop, multi-utterance splitting, and
 // flush().
 
-#include "core/asr/AsrSegmenter.h"
+#include "asr/AsrSegmenter.h"
 
 #include <cmath>
 #include <cstdio>

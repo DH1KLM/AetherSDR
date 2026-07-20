@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core/asr/AsrSegmenter.h"
-#include "core/asr/IAsrBackend.h"
+#include "asr/AsrSegmenter.h"
+#include "asr/IAsrBackend.h"
 
 #include <QObject>
 #include <QString>

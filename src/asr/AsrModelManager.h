@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/asr/AsrModelCatalog.h"
+#include "asr/AsrModelCatalog.h"
 
 #include <QObject>
 #include <QString>

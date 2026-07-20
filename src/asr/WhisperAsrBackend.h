@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/asr/IAsrBackend.h"
+#include "asr/IAsrBackend.h"
 
 #include <QString>
 

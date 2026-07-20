@@ -1,4 +1,4 @@
-#include "core/asr/WhisperAsrBackend.h"
+#include "asr/WhisperAsrBackend.h"
 
 #include <QFileInfo>
 #include <QLoggingCategory>

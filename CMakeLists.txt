@@ -1130,25 +1130,37 @@ if (ENABLE_ASR)
             METAL OPENVINO RPC CANN ZDNN ZENDNN HEXAGON)
         set(GGML_${_ggml_backend} OFF CACHE BOOL "" FORCE)
     endforeach()
-    # Build whisper/ggml as static objects folded into libaethercore, not .so's.
+    # Build whisper/ggml as static objects, not .so's.
     set(_aether_saved_shared_libs ${BUILD_SHARED_LIBS})
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
     add_subdirectory(third_party/whisper.cpp EXCLUDE_FROM_ALL)
     set(BUILD_SHARED_LIBS ${_aether_saved_shared_libs} CACHE BOOL "" FORCE)
 
-    target_link_libraries(aethercore PRIVATE whisper)  # transitively links ggml
-    target_compile_definitions(aethercore PRIVATE AETHER_ASR_ENABLED=1)
-    # ASR engine-side sources (model catalog + download/verify manager). Qt
-    # Core/Network only — no whisper dependency — but ASR-specific, so gated
-    # here rather than in the unconditional CORE_SOURCES list.
-    target_sources(aethercore PRIVATE
-        src/core/asr/AsrModelCatalog.cpp
-        src/core/asr/AsrModelManager.cpp
-        src/core/asr/AsrSegmenter.cpp
-        src/core/asr/AsrEngine.cpp
-        src/core/asr/WhisperAsrBackend.cpp
+    # ASR ships as its OWN static library, deliberately NOT part of libaethercore.
+    # Per the aetherd direction (RFC #3849/#4333), speech processing belongs on
+    # the engine/headless side and streams only the resulting text to a thin UI;
+    # the base engine and any thin client must not carry whisper/ggml. aetherasr
+    # depends on nothing but Qt Core/Network + whisper, so it can be linked by the
+    # processing host today (the monolith app) and by aetherd tomorrow — while
+    # aethercore stays whisper-free. AsrEngine::finalText is the stream seam the
+    # UI subscribes to (a direct signal now; over the wire later).
+    add_library(aetherasr STATIC
+        src/asr/AsrModelCatalog.cpp
+        src/asr/AsrModelManager.cpp
+        src/asr/AsrSegmenter.cpp
+        src/asr/AsrEngine.cpp
+        src/asr/WhisperAsrBackend.cpp
     )
-    message(STATUS "ASR: whisper.cpp enabled (CPU backend); model weights download-on-demand")
+    target_include_directories(aetherasr PUBLIC src)
+    target_link_libraries(aetherasr PUBLIC Qt6::Core Qt6::Network PRIVATE whisper)
+    target_compile_definitions(aetherasr PUBLIC AETHER_ASR_ENABLED=1)
+    set_target_properties(aetherasr PROPERTIES AUTOMOC ON)
+
+    # The desktop app links ASR today; the compile define propagates PUBLICly so
+    # the GUI can conditionally compile the audio tap + Copy Assist wiring.
+    target_link_libraries(AetherSDR PRIVATE aetherasr)
+
+    message(STATUS "ASR: whisper.cpp enabled (CPU backend), separate aetherasr lib; weights download-on-demand")
 else()
     message(STATUS "ASR: disabled (-DENABLE_ASR=OFF)")
 endif()
@@ -2928,8 +2940,8 @@ if (ENABLE_ASR)
     # Model manager: offline download/verify/failover test (file:// sources).
     add_executable(asr_model_manager_test
         tests/asr_model_manager_test.cpp
-        src/core/asr/AsrModelCatalog.cpp
-        src/core/asr/AsrModelManager.cpp
+        src/asr/AsrModelCatalog.cpp
+        src/asr/AsrModelManager.cpp
     )
     target_include_directories(asr_model_manager_test PRIVATE src)
     target_link_libraries(asr_model_manager_test PRIVATE Qt6::Core Qt6::Network)
@@ -2939,7 +2951,7 @@ if (ENABLE_ASR)
     # VAD segmenter: pure C++, synthetic audio, no Qt/model.
     add_executable(asr_segmenter_test
         tests/asr_segmenter_test.cpp
-        src/core/asr/AsrSegmenter.cpp
+        src/asr/AsrSegmenter.cpp
     )
     target_include_directories(asr_segmenter_test PRIVATE src)
     add_test(NAME asr_segmenter_test COMMAND asr_segmenter_test)
@@ -2947,8 +2959,8 @@ if (ENABLE_ASR)
     # Engine orchestration: fake backend, worker thread, no whisper/model.
     add_executable(asr_engine_test
         tests/asr_engine_test.cpp
-        src/core/asr/AsrEngine.cpp
-        src/core/asr/AsrSegmenter.cpp
+        src/asr/AsrEngine.cpp
+        src/asr/AsrSegmenter.cpp
     )
     target_include_directories(asr_engine_test PRIVATE src)
     target_link_libraries(asr_engine_test PRIVATE Qt6::Core Qt6::Test)
@@ -2959,7 +2971,7 @@ if (ENABLE_ASR)
     # AETHER_ASR_TEST_MODEL and AETHER_ASR_TEST_PCM are set, so CI stays offline.
     add_executable(asr_whisper_backend_test
         tests/asr_whisper_backend_test.cpp
-        src/core/asr/WhisperAsrBackend.cpp
+        src/asr/WhisperAsrBackend.cpp
     )
     target_include_directories(asr_whisper_backend_test PRIVATE src)
     target_link_libraries(asr_whisper_backend_test PRIVATE Qt6::Core whisper)

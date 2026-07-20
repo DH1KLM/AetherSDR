@@ -1,4 +1,4 @@
-#include "core/asr/AsrModelManager.h"
+#include "asr/AsrModelManager.h"
 
 #include <QCryptographicHash>
 #include <QDir>

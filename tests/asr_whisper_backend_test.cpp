@@ -8,7 +8,7 @@
 // text — the end-to-end "fixture clip -> text" check. Produce a PCM fixture with:
 //   ffmpeg -i clip.wav -f f32le -ac 1 -ar 16000 clip.pcm
 
-#include "core/asr/WhisperAsrBackend.h"
+#include "asr/WhisperAsrBackend.h"
 
 #include <QByteArray>
 #include <QFile>

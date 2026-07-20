@@ -7,8 +7,8 @@
 // missing source, hash-mismatch rejection, failover after a corrupt mirror,
 // and all-sources-failed.
 
-#include "core/asr/AsrModelCatalog.h"
-#include "core/asr/AsrModelManager.h"
+#include "asr/AsrModelCatalog.h"
+#include "asr/AsrModelManager.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
