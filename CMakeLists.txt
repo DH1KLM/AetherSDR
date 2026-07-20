@@ -1144,6 +1144,9 @@ if (ENABLE_ASR)
     target_sources(aethercore PRIVATE
         src/core/asr/AsrModelCatalog.cpp
         src/core/asr/AsrModelManager.cpp
+        src/core/asr/AsrSegmenter.cpp
+        src/core/asr/AsrEngine.cpp
+        src/core/asr/WhisperAsrBackend.cpp
     )
     message(STATUS "ASR: whisper.cpp enabled (CPU backend); model weights download-on-demand")
 else()
@@ -2932,6 +2935,35 @@ if (ENABLE_ASR)
     target_link_libraries(asr_model_manager_test PRIVATE Qt6::Core Qt6::Network)
     set_target_properties(asr_model_manager_test PROPERTIES AUTOMOC ON)
     add_test(NAME asr_model_manager_test COMMAND asr_model_manager_test)
+
+    # VAD segmenter: pure C++, synthetic audio, no Qt/model.
+    add_executable(asr_segmenter_test
+        tests/asr_segmenter_test.cpp
+        src/core/asr/AsrSegmenter.cpp
+    )
+    target_include_directories(asr_segmenter_test PRIVATE src)
+    add_test(NAME asr_segmenter_test COMMAND asr_segmenter_test)
+
+    # Engine orchestration: fake backend, worker thread, no whisper/model.
+    add_executable(asr_engine_test
+        tests/asr_engine_test.cpp
+        src/core/asr/AsrEngine.cpp
+        src/core/asr/AsrSegmenter.cpp
+    )
+    target_include_directories(asr_engine_test PRIVATE src)
+    target_link_libraries(asr_engine_test PRIVATE Qt6::Core Qt6::Test)
+    set_target_properties(asr_engine_test PROPERTIES AUTOMOC ON)
+    add_test(NAME asr_engine_test COMMAND asr_engine_test)
+
+    # Real whisper inference on a model+clip. Skips (exit 0) unless
+    # AETHER_ASR_TEST_MODEL and AETHER_ASR_TEST_PCM are set, so CI stays offline.
+    add_executable(asr_whisper_backend_test
+        tests/asr_whisper_backend_test.cpp
+        src/core/asr/WhisperAsrBackend.cpp
+    )
+    target_include_directories(asr_whisper_backend_test PRIVATE src)
+    target_link_libraries(asr_whisper_backend_test PRIVATE Qt6::Core whisper)
+    add_test(NAME asr_whisper_backend_test COMMAND asr_whisper_backend_test)
 endif()
 
 # Approved V12 cross-needle meter construction: versioned face resource,
