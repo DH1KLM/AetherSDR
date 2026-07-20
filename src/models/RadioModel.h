@@ -334,6 +334,14 @@ public:
     // detection and forensics always run.
     bool staleSessionEvictionEnabled() const;
     QString ourStationName() const;
+    // #4320: the `client program <name>` string advertised to the radio, which
+    // the radio reflects into its `gui_client_programs` discovery field. Third-
+    // party Flex apps (SliceMaster, etc.) that slave to the GUI client key off
+    // the canonical "SmartSDR" name and do not recognize "AetherSDR"; advertise
+    // the SmartSDR-compatible name by default, overridable via the nested
+    // AppSettings["Interop"] config so the operator can keep the AetherSDR
+    // identity in Multi-Flex rosters if they prefer.
+    QString advertisedProgramName() const;
     void    setKnownGuiClients(const QStringList& handles,
                                const QStringList& programs,
                                const QStringList& stations,

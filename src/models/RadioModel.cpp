@@ -3327,7 +3327,13 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
     // into the client session.  Sending these out of order — as we did
     // previously — caused the radio to silently ignore low_bw_connect
     // (#2447: "Low Bandwidth checkbox doesn't do anything meaningful").
-    sendCmd("client program AetherSDR");
+    // #4320: advertise a SmartSDR-recognizable program name so third-party Flex
+    // apps (SliceMaster) that key off `gui_client_programs` recognize us. The
+    // self/peer identification in the stale-session guard below is decoupled from
+    // this string (it compares against our OWN radio-reported program, not a
+    // literal), so changing the advertised name here does not break two AetherSDR
+    // instances recognizing each other (#3977/#3951).
+    sendCmd(QString("client program %1").arg(advertisedProgramName()));
     if (AppSettings::instance().value("LowBandwidthConnect", "False").toString() == "True")
         sendCmd("client low_bw_connect");
 
@@ -5028,6 +5034,28 @@ QString RadioModel::ourStationName() const
     return station;
 }
 
+QString RadioModel::advertisedProgramName() const
+{
+    // #4320: SliceMaster and other third-party Flex apps enumerate the radio's
+    // GUI clients from the `gui_client_programs` field of its discovery
+    // broadcast, which the radio populates verbatim from each GUI client's
+    // `client program <name>`. They recognize the canonical "SmartSDR" name and
+    // do not attach to a client that advertises "AetherSDR" — hence "Slice
+    // Master cannot connect to Aether SDR". The program name is effectively the
+    // only discovery field we control, so advertise the SmartSDR-compatible name
+    // by default for interop. Feature-owned nested config per Principle V lets an
+    // operator opt back into the "AetherSDR" identity (e.g. to tell our client
+    // apart from a genuine SmartSDR in a Multi-Flex roster) without a flag day.
+    const QString json = AppSettings::instance()
+                             .value(QStringLiteral("Interop"), QString())
+                             .toString();
+    const QJsonObject obj = QJsonDocument::fromJson(json.toUtf8()).object();
+    if (!obj.value(QStringLiteral("AdvertiseAsSmartSDR")).toBool(true)) {
+        return QStringLiteral("AetherSDR");
+    }
+    return QStringLiteral("SmartSDR");
+}
+
 bool RadioModel::staleSessionEvictionEnabled() const
 {
     // #3977: force-disconnecting another radio client is opt-in — detection
@@ -5112,21 +5140,35 @@ void RadioModel::noteForeignPanWriteIfAny(const QString& object,
     }
 
     // Evidence-based eviction (#3951): three strikes AND the offender is
-    // provably a stale instance of us (same program + station). Anything
-    // else — SmartSDR, a differently-named station, a non-GUI client absent
-    // from the roster — is the user's business; we log and leave it alone.
+    // provably a stale instance of us (same program + station + client_id).
+    // Anything else — SmartSDR, a differently-named station, a non-GUI client
+    // absent from the roster — is the user's business; we log and leave it alone.
     constexpr int kEvictAfterForeignWrites = 3;
     if (rec.count < kEvictAfterForeignWrites
         || m_evictedPredecessorHandles.contains(sourceHandle)) {
         return;
     }
-    // Identity must be radio-authoritative on BOTH sides: compare against the
-    // station the radio reports for OUR handle, not our local settings (the
-    // registered station can differ from the persisted preference).
+    // Identity must be radio-authoritative on BOTH sides: compare against what
+    // the radio reports for OUR handle, not our local settings (the registered
+    // station can differ from the persisted preference).
+    //
+    // #4320: self-recognition must NOT key off the literal "AetherSDR" — with
+    // SmartSDR-compatible advertising (advertisedProgramName(), default) our own
+    // program string is "SmartSDR", which a genuine SmartSDR client also carries.
+    // A stale instance of US is by definition running the same program AND
+    // station the radio reports for our own handle, so compare against those.
+    // The decisive fingerprint that excludes a real SmartSDR is the GUIClientID:
+    // the #3951 zombie is a duplicate-client_id session of THIS install (the fw
+    // <4.2 case this eviction targets), so a differing, known client_id means the
+    // offender is someone else's client and is left alone. When the firmware
+    // omits client_id we fall back to program+station (unchanged #3951 behavior).
     const ClientInfo info = m_clientInfoMap.value(sourceHandle);
-    const QString ourStation = m_clientInfoMap.value(clientHandle()).station;
-    if (info.program != QLatin1String("AetherSDR")
-        || ourStation.isEmpty() || info.station != ourStation) {
+    const ClientInfo self = m_clientInfoMap.value(clientHandle());
+    const QString ourStation = self.station;
+    const bool clientIdKnown = !self.clientId.isEmpty() && !info.clientId.isEmpty();
+    if (self.program.isEmpty() || info.program != self.program
+        || ourStation.isEmpty() || info.station != ourStation
+        || (clientIdKnown && info.clientId != self.clientId)) {
         return;
     }
     if (!staleSessionEvictionEnabled()) {
