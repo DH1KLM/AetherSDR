@@ -1150,8 +1150,9 @@ if (ENABLE_ASR)
         src/asr/AsrSegmenter.cpp
         src/asr/AsrEngine.cpp
         src/asr/WhisperAsrBackend.cpp
+        src/core/Resampler.cpp   # standalone r8brain wrapper (24k->16k on the ASR worker)
     )
-    target_include_directories(aetherasr PUBLIC src)
+    target_include_directories(aetherasr PUBLIC src PRIVATE ${CMAKE_SOURCE_DIR}/third_party/r8brain)
     target_link_libraries(aetherasr PUBLIC Qt6::Core Qt6::Network PRIVATE whisper)
     target_compile_definitions(aetherasr PUBLIC AETHER_ASR_ENABLED=1)
     set_target_properties(aetherasr PROPERTIES AUTOMOC ON)
@@ -1159,6 +1160,9 @@ if (ENABLE_ASR)
     # The desktop app links ASR today; the compile define propagates PUBLICly so
     # the GUI can conditionally compile the audio tap + Copy Assist wiring.
     target_link_libraries(AetherSDR PRIVATE aetherasr)
+    # App-layer glue (Phase 4 audio tap): connects AudioEngine's post-NR RX audio
+    # to AsrEngine. Gated here so it only builds when ASR is enabled.
+    target_sources(AetherSDR PRIVATE src/gui/AsrAudioTap.cpp)
 
     message(STATUS "ASR: whisper.cpp enabled (CPU backend), separate aetherasr lib; weights download-on-demand")
 else()
@@ -2961,8 +2965,9 @@ if (ENABLE_ASR)
         tests/asr_engine_test.cpp
         src/asr/AsrEngine.cpp
         src/asr/AsrSegmenter.cpp
+        src/core/Resampler.cpp
     )
-    target_include_directories(asr_engine_test PRIVATE src)
+    target_include_directories(asr_engine_test PRIVATE src ${CMAKE_SOURCE_DIR}/third_party/r8brain)
     target_link_libraries(asr_engine_test PRIVATE Qt6::Core Qt6::Test)
     set_target_properties(asr_engine_test PROPERTIES AUTOMOC ON)
     add_test(NAME asr_engine_test COMMAND asr_engine_test)

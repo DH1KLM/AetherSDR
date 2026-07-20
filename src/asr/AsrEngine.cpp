@@ -1,13 +1,26 @@
 #include "asr/AsrEngine.h"
 
+#include "core/Resampler.h"
+
 #include <QLoggingCategory>
 #include <QThread>
 
+#include <algorithm>
 #include <utility>
 
 namespace AetherSDR {
 
 Q_LOGGING_CATEGORY(lcAsrEngine, "aether.asr.engine")
+
+namespace {
+constexpr int kAsrRate = 16000;      // whisper's required rate
+constexpr int kResampleBlock = 4096; // max samples per r8brain process() call
+// Wide transition band -> short FIR -> low latency. Speech lives well below the
+// 8 kHz downsampled Nyquist, so a 10%-of-Nyquist guard is ample and keeps the
+// resampler's group delay small (important for live copy and for prompt segment
+// close-out).
+constexpr double kResampleTransBand = 10.0;
+} // namespace
 
 // ---- AsrWorker -------------------------------------------------------------
 
@@ -48,14 +61,48 @@ void AsrWorker::loadModel(const QString& modelPath)
     }
 }
 
-void AsrWorker::processAudio(const QVector<float>& samples16k)
+std::vector<float> AsrWorker::toSixteenK(const QVector<float>& monoSamples, int sampleRate)
 {
-    if (samples16k.isEmpty()) {
+    const int rate = sampleRate > 0 ? sampleRate : kAsrRate;
+    if (rate == kAsrRate) {
+        return std::vector<float>(monoSamples.constBegin(), monoSamples.constEnd());
+    }
+
+    // Rebuild the resampler if the source rate changed (or first use).
+    if (!m_resampler || m_resamplerSrcRate != rate) {
+        m_resampler = std::make_unique<Resampler>(static_cast<double>(rate),
+                                                  static_cast<double>(kAsrRate), kResampleBlock,
+                                                  kResampleTransBand);
+        m_resamplerSrcRate = rate;
+    }
+
+    // r8brain processes at most kResampleBlock samples per call; chunk the input.
+    const int total = static_cast<int>(monoSamples.size());
+    std::vector<float> out;
+    out.reserve(static_cast<size_t>(total) * kAsrRate / rate + 16);
+    for (int off = 0; off < total; off += kResampleBlock) {
+        const int n = std::min(kResampleBlock, total - off);
+        const QByteArray block = m_resampler->process(monoSamples.constData() + off, n);
+        const auto* f = reinterpret_cast<const float*>(block.constData());
+        const int count = block.size() / static_cast<int>(sizeof(float));
+        out.insert(out.end(), f, f + count);
+    }
+    return out;
+}
+
+void AsrWorker::processAudio(const QVector<float>& monoSamples, int sampleRate)
+{
+    if (monoSamples.isEmpty()) {
+        return;
+    }
+
+    const std::vector<float> pcm16k = toSixteenK(monoSamples, sampleRate);
+    if (pcm16k.empty()) {
         return;
     }
 
     std::vector<std::vector<float>> segments =
-        m_segmenter.feed(samples16k.constData(), samples16k.size());
+        m_segmenter.feed(pcm16k.data(), static_cast<int>(pcm16k.size()));
     if (segments.empty()) {
         return;
     }
@@ -84,6 +131,8 @@ void AsrWorker::processAudio(const QVector<float>& samples16k)
 void AsrWorker::reset()
 {
     m_segmenter.reset();
+    m_resampler.reset();
+    m_resamplerSrcRate = 0;
 }
 
 // ---- AsrEngine -------------------------------------------------------------
@@ -152,12 +201,12 @@ void AsrEngine::setModelPath(const QString& modelPath)
     emit requestLoad(modelPath);
 }
 
-void AsrEngine::pushAudio(const QVector<float>& samples16k)
+void AsrEngine::pushAudio(const QVector<float>& monoSamples, int sampleRate)
 {
-    if (!m_enabled || samples16k.isEmpty()) {
+    if (!m_enabled || monoSamples.isEmpty()) {
         return;
     }
-    emit requestProcess(samples16k);
+    emit requestProcess(monoSamples, sampleRate);
 }
 
 void AsrEngine::reset()

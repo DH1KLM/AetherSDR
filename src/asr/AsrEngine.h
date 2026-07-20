@@ -14,6 +14,8 @@ class QThread;
 
 namespace AetherSDR {
 
+class Resampler;
+
 // Factory that constructs an ASR backend. Invoked on the worker thread so the
 // backend (and any model context) lives entirely there.
 using AsrBackendFactory = std::function<std::unique_ptr<IAsrBackend>()>;
@@ -31,7 +33,9 @@ public:
 public slots:
     void init();                                   // create backend on this thread
     void loadModel(const QString& modelPath);
-    void processAudio(const QVector<float>& samples16k);
+    // Mono float samples at sampleRate; resampled to whisper's 16 kHz on this
+    // (worker) thread before segmentation — never on the audio/caller thread.
+    void processAudio(const QVector<float>& monoSamples, int sampleRate);
     void reset();
 
 signals:
@@ -41,9 +45,15 @@ signals:
     void errorOccurred(const QString& error);
 
 private:
+    // Resample arbitrary-rate mono to 16 kHz mono (returns the input unchanged
+    // when already 16 kHz). Builds/rebuilds the r8brain resampler on rate change.
+    std::vector<float> toSixteenK(const QVector<float>& monoSamples, int sampleRate);
+
     AsrBackendFactory m_factory;
     std::unique_ptr<IAsrBackend> m_backend;
     AsrSegmenter m_segmenter;
+    std::unique_ptr<Resampler> m_resampler;
+    int m_resamplerSrcRate = 0;
     bool m_warnedNoModel = false;
 };
 
@@ -69,8 +79,10 @@ public:
     QString modelPath() const { return m_modelPath; }
     bool isReady() const { return m_ready; }
 
-    // Feed audio. Ignored unless enabled. Cheap — copies and posts to worker.
-    void pushAudio(const QVector<float>& samples16k);
+    // Feed mono audio at its native sampleRate (e.g. the 24 kHz RX pipeline).
+    // Ignored unless enabled. Cheap — copies and posts to the worker, which
+    // resamples to 16 kHz. No work happens on the caller/audio thread.
+    void pushAudio(const QVector<float>& monoSamples, int sampleRate);
     void reset();
 
 signals:
@@ -81,7 +93,7 @@ signals:
 
     // Internal: engine -> worker (queued). Not part of the public contract.
     void requestLoad(const QString& modelPath);
-    void requestProcess(const QVector<float>& samples16k);
+    void requestProcess(const QVector<float>& monoSamples, int sampleRate);
     void requestReset();
 
 private:
