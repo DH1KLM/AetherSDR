@@ -35,6 +35,12 @@ option(ENABLE_DFNR "Enable DFNR DeepFilterNet3 noise reduction" ON)
 # (see the platform gate below; macOS has no AFX runtime and uses DFNR). Pass
 # -DENABLE_NVIDIA_AFX=OFF to opt out.
 option(ENABLE_NVIDIA_AFX "Enable the NVIDIA Maxine AFX GPU denoiser (BNR; runtime-loaded, download-on-demand; NVIDIA RTX/GeForce, Linux/Windows)" ON)
+# ON by default so release images ship ASR. Weights are NOT bundled — they are
+# downloaded on first enable (RFC #4333), so this only compiles the vendored
+# whisper.cpp/ggml CPU engine. GPU/Metal backends are trimmed for now (Phase 1
+# is CPU-only); see third_party/whisper.cpp/AETHER_VENDORING.md. Opt out with
+# -DENABLE_ASR=OFF.
+option(ENABLE_ASR "Enable on-device speech-to-text (ASR) via vendored whisper.cpp" ON)
 option(ENABLE_MQTT "Enable MQTT client support" ON)
 option(MQTT_TLS "Enable MQTT TLS via OpenSSL (disable for AppImage)" ON)
 option(LOWER_CASE_BINARY_NAME "Make the output binary lower case. Only affects Linux" OFF)
@@ -1101,6 +1107,42 @@ add_executable(AetherSDR
     ${DFNR_RESOURCES}
 )
 target_link_libraries(AetherSDR PRIVATE aethercore)
+
+# --- ASR engine: vendored whisper.cpp (RFC #4333, Phase 1) -------------------
+# whisper.cpp is a self-contained CMake project exposing a `whisper` target
+# (which pulls in `ggml`). We build it static and CPU-only, then link it into
+# libaethercore — engine code only (no gui/ include), so EB1/EB2 stay clean.
+# The GPU/accelerator ggml backends are trimmed from the vendored tree for now;
+# force every backend option OFF so the missing directories are never referenced
+# and builds are deterministic across platforms (incl. no -march=native, which
+# would break portable/Pi/CI binaries). GPU backends land in a later phase.
+if (ENABLE_ASR)
+    set(WHISPER_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+    set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(WHISPER_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
+    set(GGML_BUILD_TESTS       OFF CACHE BOOL "" FORCE)
+    set(GGML_BUILD_EXAMPLES    OFF CACHE BOOL "" FORCE)
+    set(GGML_NATIVE            OFF CACHE BOOL "" FORCE)  # portable binaries (Pi/CI/release)
+    set(GGML_CPU               ON  CACHE BOOL "" FORCE)
+    # Every non-CPU backend OFF (their source dirs are not vendored yet):
+    foreach(_ggml_backend
+            ACCELERATE BLAS CUDA HIP MUSA VULKAN WEBGPU SYCL OPENCL
+            METAL OPENVINO RPC CANN ZDNN ZENDNN HEXAGON)
+        set(GGML_${_ggml_backend} OFF CACHE BOOL "" FORCE)
+    endforeach()
+    # Build whisper/ggml as static objects folded into libaethercore, not .so's.
+    set(_aether_saved_shared_libs ${BUILD_SHARED_LIBS})
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    add_subdirectory(third_party/whisper.cpp EXCLUDE_FROM_ALL)
+    set(BUILD_SHARED_LIBS ${_aether_saved_shared_libs} CACHE BOOL "" FORCE)
+
+    target_link_libraries(aethercore PRIVATE whisper)  # transitively links ggml
+    target_compile_definitions(aethercore PRIVATE AETHER_ASR_ENABLED=1)
+    message(STATUS "ASR: whisper.cpp enabled (CPU backend); model weights download-on-demand")
+else()
+    message(STATUS "ASR: disabled (-DENABLE_ASR=OFF)")
+endif()
+# ----------------------------------------------------------------------------
 
 if (USE_SYSTEM_ZLIB)
     target_link_libraries(aethercore PRIVATE PkgConfig::zlib)      # core: ZipArchive
@@ -2865,6 +2907,14 @@ target_include_directories(radio_status_ownership_test PRIVATE src)
 target_link_libraries(radio_status_ownership_test PRIVATE Qt6::Core)
 enable_testing()
 add_test(NAME radio_status_ownership_test COMMAND radio_status_ownership_test)
+
+# ASR (RFC #4333, Phase 1): prove the vendored whisper.cpp/ggml CPU engine
+# compiles and links via two model-free entry points. No model, no audio.
+if (ENABLE_ASR)
+    add_executable(asr_whisper_smoke_test tests/asr_whisper_smoke_test.cpp)
+    target_link_libraries(asr_whisper_smoke_test PRIVATE whisper)
+    add_test(NAME asr_whisper_smoke_test COMMAND asr_whisper_smoke_test)
+endif()
 
 # Approved V12 cross-needle meter construction: versioned face resource,
 # two-pivot mechanics, SWR math/guide registration, RX parking and rendering.
