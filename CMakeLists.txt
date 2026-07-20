@@ -1138,6 +1138,13 @@ if (ENABLE_ASR)
 
     target_link_libraries(aethercore PRIVATE whisper)  # transitively links ggml
     target_compile_definitions(aethercore PRIVATE AETHER_ASR_ENABLED=1)
+    # ASR engine-side sources (model catalog + download/verify manager). Qt
+    # Core/Network only — no whisper dependency — but ASR-specific, so gated
+    # here rather than in the unconditional CORE_SOURCES list.
+    target_sources(aethercore PRIVATE
+        src/core/asr/AsrModelCatalog.cpp
+        src/core/asr/AsrModelManager.cpp
+    )
     message(STATUS "ASR: whisper.cpp enabled (CPU backend); model weights download-on-demand")
 else()
     message(STATUS "ASR: disabled (-DENABLE_ASR=OFF)")
@@ -2914,6 +2921,17 @@ if (ENABLE_ASR)
     add_executable(asr_whisper_smoke_test tests/asr_whisper_smoke_test.cpp)
     target_link_libraries(asr_whisper_smoke_test PRIVATE whisper)
     add_test(NAME asr_whisper_smoke_test COMMAND asr_whisper_smoke_test)
+
+    # Model manager: offline download/verify/failover test (file:// sources).
+    add_executable(asr_model_manager_test
+        tests/asr_model_manager_test.cpp
+        src/core/asr/AsrModelCatalog.cpp
+        src/core/asr/AsrModelManager.cpp
+    )
+    target_include_directories(asr_model_manager_test PRIVATE src)
+    target_link_libraries(asr_model_manager_test PRIVATE Qt6::Core Qt6::Network)
+    set_target_properties(asr_model_manager_test PROPERTIES AUTOMOC ON)
+    add_test(NAME asr_model_manager_test COMMAND asr_model_manager_test)
 endif()
 
 # Approved V12 cross-needle meter construction: versioned face resource,
