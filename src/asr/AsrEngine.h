@@ -41,7 +41,7 @@ public slots:
 signals:
     void loaded();
     void loadFailed(const QString& error);
-    void segmentText(const QString& text);
+    void segmentText(const QString& text, float confidence);
     void errorOccurred(const QString& error);
 
 private:
@@ -88,7 +88,7 @@ public:
 signals:
     void ready();
     void loadFailed(const QString& error);
-    void finalText(const QString& text);
+    void finalText(const QString& text, float confidence);
     void error(const QString& error);
 
     // Internal: engine -> worker (queued). Not part of the public contract.

@@ -8,6 +8,9 @@
 
 #include "MainWindow.h"
 
+#ifdef AETHER_ASR_ENABLED
+#include "CopyAssistWindow.h"
+#endif
 #include "AppletPanel.h"
 #include "DaxApplet.h"
 #include "PanadapterApplet.h"
@@ -993,6 +996,12 @@ void MainWindow::buildMenuBar()
     connect(packetDecoderAction, &QAction::triggered,
             this, &MainWindow::showAx25HfPacketDecodeDialog);
 
+#ifdef AETHER_ASR_ENABLED
+    auto* copyAssistAction = viewMenu->addAction("Copy Assist (Speech to Text)...");
+    copyAssistAction->setMenuRole(QAction::NoRole);
+    connect(copyAssistAction, &QAction::triggered, this, &MainWindow::showCopyAssist);
+#endif
+
     auto* smartSpotAct = viewMenu->addAction("Smart Spot Filtering");
     smartSpotAct->setCheckable(true);
     smartSpotAct->setToolTip(
@@ -1350,5 +1359,18 @@ void MainWindow::buildMenuBar()
         });
     });
 }
+
+#ifdef AETHER_ASR_ENABLED
+void MainWindow::showCopyAssist()
+{
+    if (!m_copyAssistWindow) {
+        m_copyAssistWindow = new CopyAssistWindow(m_audio, this);
+        m_copyAssistWindow->setAttribute(Qt::WA_DeleteOnClose, false);
+    }
+    m_copyAssistWindow->show();
+    m_copyAssistWindow->raise();
+    m_copyAssistWindow->activateWindow();
+}
+#endif
 
 } // namespace AetherSDR

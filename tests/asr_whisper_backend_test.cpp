@@ -47,17 +47,17 @@ int main()
     std::vector<float> samples(raw.size() / sizeof(float));
     std::memcpy(samples.data(), raw.constData(), samples.size() * sizeof(float));
 
-    const QString text = backend.transcribe(samples, &error);
+    const AsrTranscript result = backend.transcribe(samples, &error);
     if (!error.isEmpty()) {
         std::fprintf(stderr, "[FAIL] transcribe: %s\n", qPrintable(error));
         return 1;
     }
-    if (text.trimmed().isEmpty()) {
+    if (result.text.trimmed().isEmpty()) {
         std::fprintf(stderr, "[FAIL] empty transcription for %zu samples\n", samples.size());
         return 1;
     }
 
-    std::printf("[ OK ] transcribed %zu samples -> \"%s\"\n", samples.size(),
-                qPrintable(text));
+    std::printf("[ OK ] transcribed %zu samples (confidence %.2f) -> \"%s\"\n",
+                samples.size(), result.confidence, qPrintable(result.text));
     return 0;
 }

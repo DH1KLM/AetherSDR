@@ -68,7 +68,7 @@ bool WhisperAsrBackend::load(const QString& modelPath, QString* error)
     return true;
 }
 
-QString WhisperAsrBackend::transcribe(const std::vector<float>& pcm16k, QString* error)
+AsrTranscript WhisperAsrBackend::transcribe(const std::vector<float>& pcm16k, QString* error)
 {
     if (m_ctx == nullptr) {
         if (error != nullptr) {
@@ -103,15 +103,34 @@ QString WhisperAsrBackend::transcribe(const std::vector<float>& pcm16k, QString*
         return {};
     }
 
+    // Confidence = mean probability over the real (non-special) tokens. Special
+    // tokens (timestamps, <eot>, etc.) have ids >= the end-of-text token and are
+    // excluded so punctuation/formatting doesn't skew the score.
+    const whisper_token specialFloor = whisper_token_eot(m_ctx);
+
     QString text;
+    double probSum = 0.0;
+    int probCount = 0;
     const int segments = whisper_full_n_segments(m_ctx);
     for (int i = 0; i < segments; ++i) {
         const char* seg = whisper_full_get_segment_text(m_ctx, i);
         if (seg != nullptr) {
             text += QString::fromUtf8(seg);
         }
+        const int nTokens = whisper_full_n_tokens(m_ctx, i);
+        for (int t = 0; t < nTokens; ++t) {
+            if (whisper_full_get_token_id(m_ctx, i, t) >= specialFloor) {
+                continue;
+            }
+            probSum += whisper_full_get_token_p(m_ctx, i, t);
+            ++probCount;
+        }
     }
-    return text.trimmed();
+
+    AsrTranscript result;
+    result.text = text.trimmed();
+    result.confidence = probCount > 0 ? static_cast<float>(probSum / probCount) : 0.0f;
+    return result;
 }
 
 void WhisperAsrBackend::unload()

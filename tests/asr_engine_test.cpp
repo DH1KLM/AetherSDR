@@ -45,9 +45,12 @@ public:
         return true;
     }
     bool isLoaded() const override { return m_loaded; }
-    QString transcribe(const std::vector<float>& pcm, QString*) override
+    AsrTranscript transcribe(const std::vector<float>& pcm, QString*) override
     {
-        return pcm.empty() ? QString() : QStringLiteral("OVER");
+        if (pcm.empty()) {
+            return {};
+        }
+        return AsrTranscript{QStringLiteral("OVER"), 0.9f};
     }
     void unload() override { m_loaded = false; }
 
@@ -104,8 +107,11 @@ int main(int argc, char** argv)
         engine.pushAudio(silence(400), kSrcRate); // trailing silence closes the utterance
         expect(textSpy.wait(5000), "utterance transcribed -> finalText() emitted");
         if (!textSpy.isEmpty()) {
-            expect(textSpy.first().first().toString() == QStringLiteral("OVER"),
+            const auto args = textSpy.first();
+            expect(args.at(0).toString() == QStringLiteral("OVER"),
                    "finalText carries the backend's transcription");
+            expect(std::abs(args.at(1).toFloat() - 0.9f) < 1e-4f,
+                   "finalText carries the backend's confidence");
         }
 
         // ---- Disabled engine ignores audio --------------------------------

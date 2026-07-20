@@ -22,7 +22,7 @@ public:
 
     bool load(const QString& modelPath, QString* error) override;
     bool isLoaded() const override { return m_ctx != nullptr; }
-    QString transcribe(const std::vector<float>& pcm16k, QString* error) override;
+    AsrTranscript transcribe(const std::vector<float>& pcm16k, QString* error) override;
     void unload() override;
 
     void setLanguage(const QString& language) { m_language = language; }

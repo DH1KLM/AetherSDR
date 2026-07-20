@@ -1161,8 +1161,14 @@ if (ENABLE_ASR)
     # the GUI can conditionally compile the audio tap + Copy Assist wiring.
     target_link_libraries(AetherSDR PRIVATE aetherasr)
     # App-layer glue (Phase 4 audio tap): connects AudioEngine's post-NR RX audio
-    # to AsrEngine. Gated here so it only builds when ASR is enabled.
-    target_sources(AetherSDR PRIVATE src/gui/AsrAudioTap.cpp)
+    # to AsrEngine. Plus the Phase 5 Copy Assist UI (panel + controller + window).
+    # Gated here so they only build when ASR is enabled.
+    target_sources(AetherSDR PRIVATE
+        src/gui/AsrAudioTap.cpp
+        src/gui/CopyAssistPanel.cpp
+        src/gui/CopyAssistController.cpp
+        src/gui/CopyAssistWindow.cpp
+    )
 
     message(STATUS "ASR: whisper.cpp enabled (CPU backend), separate aetherasr lib; weights download-on-demand")
 else()
@@ -2981,6 +2987,18 @@ if (ENABLE_ASR)
     target_include_directories(asr_whisper_backend_test PRIVATE src)
     target_link_libraries(asr_whisper_backend_test PRIVATE Qt6::Core whisper)
     add_test(NAME asr_whisper_backend_test COMMAND asr_whisper_backend_test)
+
+    # Copy Assist panel: offscreen UI test of confidence color-coding + controls.
+    add_executable(copy_assist_panel_test
+        tests/copy_assist_panel_test.cpp
+        src/gui/CopyAssistPanel.cpp
+    )
+    target_include_directories(copy_assist_panel_test PRIVATE src)
+    target_link_libraries(copy_assist_panel_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+    set_target_properties(copy_assist_panel_test PROPERTIES AUTOMOC ON)
+    add_test(NAME copy_assist_panel_test COMMAND copy_assist_panel_test)
+    set_tests_properties(copy_assist_panel_test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 # Approved V12 cross-needle meter construction: versioned face resource,

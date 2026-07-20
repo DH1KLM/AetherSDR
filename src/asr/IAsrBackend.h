@@ -14,6 +14,14 @@
 
 namespace AetherSDR {
 
+// One transcription result: the recognized text plus a confidence in [0, 1]
+// (1 = most confident). Confidence drives the panel's color-coding, mirroring
+// the CW decoder's cost-based coloring.
+struct AsrTranscript {
+    QString text;
+    float confidence = 0.0f;
+};
+
 class IAsrBackend {
 public:
     virtual ~IAsrBackend() = default;
@@ -25,9 +33,9 @@ public:
     virtual bool isLoaded() const = 0;
 
     // Transcribe one utterance of 16 kHz mono float samples in [-1, 1]. Returns
-    // the recognized text (possibly empty for non-speech). Sets *error on
-    // failure.
-    virtual QString transcribe(const std::vector<float>& pcm16k, QString* error) = 0;
+    // the recognized text + confidence (text empty for non-speech). Sets *error
+    // on failure.
+    virtual AsrTranscript transcribe(const std::vector<float>& pcm16k, QString* error) = 0;
 
     // Release the loaded model. Called before destruction; idempotent.
     virtual void unload() = 0;

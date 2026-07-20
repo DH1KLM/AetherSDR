@@ -117,13 +117,13 @@ void AsrWorker::processAudio(const QVector<float>& monoSamples, int sampleRate)
 
     for (std::vector<float>& seg : segments) {
         QString error;
-        const QString text = m_backend->transcribe(seg, &error);
+        const AsrTranscript result = m_backend->transcribe(seg, &error);
         if (!error.isEmpty()) {
             emit errorOccurred(error);
             continue;
         }
-        if (!text.isEmpty()) {
-            emit segmentText(text);
+        if (!result.text.isEmpty()) {
+            emit segmentText(result.text, result.confidence);
         }
     }
 }
