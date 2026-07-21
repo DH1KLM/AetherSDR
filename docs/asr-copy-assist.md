@@ -49,6 +49,14 @@ is accepted:
 
 Offline/air-gapped: drop the `ggml-*.bin` file into the models dir manually.
 
+### Bring your own model
+
+To use a model that isn't in the tier list — a fine-tune, a different
+quantization, or a manually-downloaded `ggml-*.bin`/`.gguf` — select
+**"Custom model…"** in the model picker and pick the file. It loads directly
+(no download, no checksum), the picker remembers it (shown as `Custom: <name>`),
+and it runs on the selected compute device like any built-in tier.
+
 ## GPU acceleration
 
 The selected model runs on the **GPU when one is available**, else CPU

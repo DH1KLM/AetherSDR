@@ -35,7 +35,8 @@ private:
     void applyTuning();  // push saved VAD tuning into the engine
     void beginEnable();
     void requestModel(const QString& tierId);
-    bool promptRemoteConfig(); // edit + persist the remote endpoint; true if accepted
+    bool promptRemoteConfig();  // edit + persist the remote endpoint; true if accepted
+    QString promptCustomModel(); // pick a local ggml/gguf model file (empty if cancelled)
 
     AudioEngine* m_audio = nullptr;
     CopyAssistPanel* m_panel = nullptr;
@@ -43,6 +44,7 @@ private:
     AsrModelManager* m_models = nullptr;
     AsrAudioTap* m_tap = nullptr;
     QString m_tierId;
+    QString m_customModelPath; // user-picked local model (for the "Custom model…" tier)
     bool m_enabled = false;
     bool m_remote = false; // using the RemoteAsrBackend rather than local whisper
 };

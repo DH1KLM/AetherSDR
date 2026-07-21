@@ -266,6 +266,14 @@ void CopyAssistPanel::setCurrentTier(const QString& id)
     }
 }
 
+void CopyAssistPanel::setTierLabel(const QString& id, const QString& label)
+{
+    const int idx = m_tier->findData(id);
+    if (idx >= 0) {
+        m_tier->setItemText(idx, label);
+    }
+}
+
 QString CopyAssistPanel::currentTier() const
 {
     return m_tier->currentData().toString();

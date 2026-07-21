@@ -15,15 +15,19 @@
 
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QObject>
+#include <QStandardPaths>
 
 #include <algorithm>
 
 namespace {
 
 constexpr const char* kRemoteTierId = "remote";
+constexpr const char* kCustomTierId = "custom";
 
 // Map a 1–100 "sensitivity" (higher = more sensitive) to the VAD's RMS energy
 // threshold (lower = more sensitive), spanning a practical HF-voice range.
@@ -64,12 +68,23 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     , m_panel(panel)
     , m_models(new AsrModelManager(this))
 {
-    // Tier selector: the local model tiers plus a "Remote server…" entry that
+    // Tier selector: the downloadable model tiers, then a "Custom model…" entry
+    // for a user-supplied local .bin/.gguf, then a "Remote server…" entry that
     // routes to the RemoteAsrBackend.
     for (const AsrModelTier& tier : AsrModelCatalog::tiers()) {
         m_panel->addTier(tier.id, tier.displayName);
     }
+    m_panel->addTier(QString::fromLatin1(kCustomTierId), tr("Custom model…"));
     m_panel->addTier(QString::fromLatin1(kRemoteTierId), tr("Remote server…"));
+
+    // Remember a previously-picked custom model so its filename shows in the list
+    // (and the file-picker defaults to it) across restarts.
+    m_customModelPath =
+        AppSettings::instance().value(QStringLiteral("AsrCustomModelPath"), QString()).toString();
+    if (!m_customModelPath.isEmpty()) {
+        m_panel->setTierLabel(QString::fromLatin1(kCustomTierId),
+                              tr("Custom: %1").arg(QFileInfo(m_customModelPath).fileName()));
+    }
 
     // Initial backend: remote if previously configured+enabled, else the
     // GPU-class model when a GPU exists, else the platform default.
@@ -252,6 +267,27 @@ void CopyAssistController::onTierChanged(const QString& tierId)
         m_remote = true;
         m_tap->setEnabled(false);
         buildEngine();
+    } else if (tierId == QString::fromLatin1(kCustomTierId)) {
+        const QString path = promptCustomModel();
+        if (path.isEmpty()) {
+            m_panel->setCurrentTier(m_tierId); // user cancelled — revert
+            return;
+        }
+        m_customModelPath = path;
+        AppSettings::instance().setValue(QStringLiteral("AsrCustomModelPath"), path);
+        AppSettings::instance().save();
+        m_panel->setTierLabel(QString::fromLatin1(kCustomTierId),
+                              tr("Custom: %1").arg(QFileInfo(path).fileName()));
+        m_tierId = tierId;
+        // Custom is a local whisper model like any tier; only a switch away from
+        // the remote backend needs an engine rebuild.
+        if (m_remote) {
+            m_remote = false;
+            AppSettings::instance().setValue(QStringLiteral("AsrRemoteEnabled"), QStringLiteral("False"));
+            AppSettings::instance().save();
+            m_tap->setEnabled(false);
+            buildEngine();
+        }
     } else {
         m_tierId = tierId;
         if (m_remote) {
@@ -277,6 +313,17 @@ void CopyAssistController::beginEnable()
         // utterance. load() just marks the backend ready.
         m_panel->setStatus(tr("Connecting to remote server…"));
         m_asr->setModelPath(QString());
+    } else if (m_tierId == QString::fromLatin1(kCustomTierId)) {
+        // User-supplied model: load the picked file directly, bypassing the
+        // catalog download + SHA verification (we don't know its checksum).
+        if (m_customModelPath.isEmpty() || !QFileInfo::exists(m_customModelPath)) {
+            m_panel->setBusy(false);
+            m_panel->setStatus(tr("Custom model file not found — pick it again."));
+            m_panel->setAsrEnabled(false);
+            return;
+        }
+        m_panel->setStatus(tr("Loading model…"));
+        m_asr->setModelPath(m_customModelPath);
     } else {
         m_panel->setStatus(tr("Preparing model…"));
         requestModel(m_tierId);
@@ -331,6 +378,20 @@ bool CopyAssistController::promptRemoteConfig()
     s.setValue(QStringLiteral("AsrRemoteEnabled"), QStringLiteral("True"));
     s.save();
     return true;
+}
+
+QString CopyAssistController::promptCustomModel()
+{
+    // Default the picker to the last-picked file's folder, else the models cache
+    // dir (where a manually-dropped ggml-*.bin would live).
+    QString startDir = QFileInfo(m_customModelPath).absolutePath();
+    if (startDir.isEmpty()) {
+        startDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                   + QStringLiteral("/models");
+    }
+    return QFileDialog::getOpenFileName(
+        m_panel, tr("Choose a Whisper model"), startDir,
+        tr("Whisper models (*.bin *.gguf);;All files (*)"));
 }
 
 } // namespace AetherSDR

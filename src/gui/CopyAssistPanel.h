@@ -31,6 +31,7 @@ public:
     // Add a selectable model tier (stable id + human label).
     void addTier(const QString& id, const QString& label);
     void setCurrentTier(const QString& id);
+    void setTierLabel(const QString& id, const QString& label);
     QString currentTier() const;
 
     // GPU selector (shown only when there's more than one GPU to choose from).
