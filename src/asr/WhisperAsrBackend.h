@@ -39,4 +39,8 @@ private:
 std::function<std::unique_ptr<IAsrBackend>()>
 whisperAsrBackendFactory(const QString& language = QStringLiteral("en"));
 
+// True when a GPU ggml backend (Vulkan) is compiled in and a GPU device is
+// present. Used to default the model tier and enable GPU inference.
+bool asrGpuAvailable();
+
 } // namespace AetherSDR

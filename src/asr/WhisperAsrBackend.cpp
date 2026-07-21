@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include <ggml-backend.h>
 #include <whisper.h>
 
 namespace AetherSDR {
@@ -53,7 +54,9 @@ bool WhisperAsrBackend::load(const QString& modelPath, QString* error)
     }
 
     whisper_context_params cparams = whisper_context_default_params();
-    cparams.use_gpu = false; // CPU-only vendored backend (RFC #4333 Phase 1)
+    // Use a GPU backend (Vulkan) when one is compiled in and a device exists;
+    // ggml falls back to CPU automatically when it isn't.
+    cparams.use_gpu = asrGpuAvailable();
 
     const QByteArray pathUtf8 = modelPath.toUtf8();
     m_ctx = whisper_init_from_file_with_params(pathUtf8.constData(), cparams);
@@ -146,6 +149,13 @@ std::function<std::unique_ptr<IAsrBackend>()> whisperAsrBackendFactory(const QSt
     return [language]() -> std::unique_ptr<IAsrBackend> {
         return std::make_unique<WhisperAsrBackend>(language);
     };
+}
+
+bool asrGpuAvailable()
+{
+    // True when ggml has registered at least one GPU device (e.g. the Vulkan
+    // backend found a GPU). Returns false on CPU-only builds or GPU-less hosts.
+    return ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU) != nullptr;
 }
 
 } // namespace AetherSDR

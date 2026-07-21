@@ -1124,9 +1124,31 @@ if (ENABLE_ASR)
     set(GGML_BUILD_EXAMPLES    OFF CACHE BOOL "" FORCE)
     set(GGML_NATIVE            OFF CACHE BOOL "" FORCE)  # portable binaries (Pi/CI/release)
     set(GGML_CPU               ON  CACHE BOOL "" FORCE)
-    # Every non-CPU backend OFF (their source dirs are not vendored yet):
+
+    # GPU acceleration via the Vulkan ggml backend — cross-platform
+    # (NVIDIA/AMD/Intel, Linux/Windows) and the only GPU backend vendored. Enabled
+    # only when the full build toolchain is present (Vulkan loader+headers, the
+    # glslc shader compiler, and SPIRV-Headers), so CPU-only machines and CI that
+    # lack it keep building exactly as before. Runtime falls back to CPU when no
+    # GPU device is found, so a GPU-enabled binary still runs on GPU-less hosts.
+    option(ENABLE_ASR_VULKAN "Enable Vulkan GPU acceleration for ASR (auto-detected)" ON)
+    set(_asr_vulkan OFF)
+    if (ENABLE_ASR_VULKAN)
+        find_package(Vulkan QUIET COMPONENTS glslc)
+        find_package(SPIRV-Headers QUIET CONFIG)
+        if (Vulkan_FOUND AND Vulkan_glslc_FOUND AND SPIRV-Headers_FOUND)
+            set(_asr_vulkan ON)
+            message(STATUS "ASR: Vulkan GPU backend enabled (glslc: ${Vulkan_GLSLC_EXECUTABLE})")
+        else()
+            message(STATUS "ASR: Vulkan toolchain not found — CPU-only "
+                "(Vulkan=${Vulkan_FOUND} glslc=${Vulkan_glslc_FOUND} SPIRV-Headers=${SPIRV-Headers_FOUND})")
+        endif()
+    endif()
+    set(GGML_VULKAN ${_asr_vulkan} CACHE BOOL "" FORCE)
+
+    # Every other non-CPU backend OFF (their source dirs are not vendored):
     foreach(_ggml_backend
-            ACCELERATE BLAS CUDA HIP MUSA VULKAN WEBGPU SYCL OPENCL
+            ACCELERATE BLAS CUDA HIP MUSA WEBGPU SYCL OPENCL
             METAL OPENVINO RPC CANN ZDNN ZENDNN HEXAGON)
         set(GGML_${_ggml_backend} OFF CACHE BOOL "" FORCE)
     endforeach()
@@ -1145,7 +1167,7 @@ if (ENABLE_ASR)
         # dramatically. Scoped to the vendored ASR targets only; the rest of
         # AetherSDR keeps its normal optimization. (/O1 intentionally overrides
         # the config's /O2 — the D9025 override notice is expected.)
-        foreach(_asr_msvc_target ggml-base ggml ggml-cpu whisper)
+        foreach(_asr_msvc_target ggml-base ggml ggml-cpu ggml-vulkan whisper)
             if (TARGET ${_asr_msvc_target})
                 target_compile_options(${_asr_msvc_target} PRIVATE /O1)
             endif()
@@ -1171,6 +1193,9 @@ if (ENABLE_ASR)
     target_include_directories(aetherasr PUBLIC src PRIVATE ${CMAKE_SOURCE_DIR}/third_party/r8brain)
     target_link_libraries(aetherasr PUBLIC Qt6::Core Qt6::Network PRIVATE whisper)
     target_compile_definitions(aetherasr PUBLIC AETHER_ASR_ENABLED=1)
+    if (_asr_vulkan)
+        target_compile_definitions(aetherasr PRIVATE AETHER_ASR_GPU=1)
+    endif()
     set_target_properties(aetherasr PROPERTIES AUTOMOC ON)
 
     # The desktop app links ASR today; the compile define propagates PUBLICly so

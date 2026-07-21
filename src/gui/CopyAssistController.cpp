@@ -46,7 +46,10 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     for (const AsrModelTier& tier : AsrModelCatalog::tiers()) {
         m_panel->addTier(tier.id, tier.displayName);
     }
-    m_tierId = AsrModelCatalog::defaultTierId();
+    // Default to the GPU-class model when a GPU backend is available, else the
+    // platform default (base on CPU/ARM).
+    m_tierId = asrGpuAvailable() ? QStringLiteral("large-v3-turbo")
+                                 : AsrModelCatalog::defaultTierId();
     m_panel->setCurrentTier(m_tierId);
 
     // Panel intent.
