@@ -330,8 +330,11 @@ void CopyAssistPanel::appendText(const QString& text, float confidence)
         return;
     }
     m_text->moveCursor(QTextCursor::End);
-    m_text->insertHtml(QStringLiteral("<span style=\"color:%1\">%2</span> ")
-                           .arg(colorForConfidence(confidence), trimmed.toHtmlEscaped()));
+    // Bake the current size into the span so new text renders at the saved size
+    // even before any font-change (applyFont on an empty document can't stick).
+    m_text->insertHtml(QStringLiteral("<span style=\"color:%1; font-size:%2px\">%3</span> ")
+                           .arg(colorForConfidence(confidence), QString::number(m_fontPx),
+                                trimmed.toHtmlEscaped()));
     m_text->moveCursor(QTextCursor::End);
 }
 
