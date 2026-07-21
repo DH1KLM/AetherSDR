@@ -22,6 +22,10 @@ public:
     CopyAssistController(AudioEngine* audio, CopyAssistPanel* panel, QObject* parent = nullptr);
     ~CopyAssistController() override;
 
+    // Clear the transcript and drop any in-progress utterance — used on retune so
+    // the decode window starts fresh for the new frequency.
+    void clearDecode();
+
 private slots:
     void onEnableToggled(bool on);
     void onTierChanged(const QString& tierId);

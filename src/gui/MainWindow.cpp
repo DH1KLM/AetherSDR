@@ -26,6 +26,9 @@
 #include "ConnectedStationsDialog.h"
 #include "TitleBar.h"
 #include "PanadapterApplet.h"
+#ifdef AETHER_ASR_ENABLED
+#include "CopyAssistController.h"
+#endif
 #include "PanadapterStack.h"
 #include "PanLayoutDialog.h"
 #include "core/RadioMessageTypes.h"   // MessageSeverity for onRadioMessage
@@ -6326,6 +6329,20 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
     m_radioStateModeConn = connect(s, &SliceModel::modeChanged,
                                    this, [this](const QString&) { m_radioStateCoalesceTimer.start(); });
     publishRadioStateMqtt();
+#endif
+
+#ifdef AETHER_ASR_ENABLED
+    // A retune (or a switch to another slice) is a new listening context — clear
+    // the Copy Assist decode window so text from the old frequency doesn't linger.
+    disconnect(m_copyAssistFreqConn);
+    m_copyAssistFreqConn = connect(s, &SliceModel::frequencyChanged, this, [this](double) {
+        if (m_copyAssistController) {
+            m_copyAssistController->clearDecode();
+        }
+    });
+    if (sliceId != prevId && m_copyAssistController) {
+        m_copyAssistController->clearDecode();
+    }
 #endif
 
     qDebug() << "MainWindow: active slice set to" << sliceId;

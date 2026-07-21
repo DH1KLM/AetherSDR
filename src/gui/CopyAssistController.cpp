@@ -162,6 +162,12 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
 
 CopyAssistController::~CopyAssistController() = default;
 
+void CopyAssistController::clearDecode()
+{
+    m_panel->clearText();
+    m_asr->reset(); // drop any half-built utterance so it doesn't cross frequencies
+}
+
 void CopyAssistController::buildEngine()
 {
     // Tear down any previous engine+tap (order: tap first — it references the

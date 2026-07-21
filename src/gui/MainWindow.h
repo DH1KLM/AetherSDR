@@ -1028,6 +1028,7 @@ private:
 #ifdef AETHER_ASR_ENABLED
     QPointer<CopyAssistController> m_copyAssistController;
     QPointer<PanadapterApplet> m_copyAssistApplet;
+    QMetaObject::Connection m_copyAssistFreqConn; // active-slice retune → clear decode
 #endif
     QPointer<PskReporterMapDialog> m_pskReporterMapDialog;
     QPointer<GpsLocationDialog> m_gpsLocationDialog;
