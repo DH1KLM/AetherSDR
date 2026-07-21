@@ -79,6 +79,18 @@ int main(int argc, char** argv)
                "logToFileToggled(true) emitted");
     }
 
+    // ---- Silero VAD: state + toggle signal --------------------------------
+    {
+        QSignalSpy vadSpy(&dlg, &CopyAssistSettingsDialog::useSileroVadToggled);
+        dlg.setVadModelPath(QStringLiteral("/tmp/silero_vad.onnx"));
+        expect(dlg.vadModelPath() == QStringLiteral("/tmp/silero_vad.onnx"),
+               "setVadModelPath round-trips");
+        dlg.setUseSileroVad(true);
+        expect(dlg.useSileroVad(), "setUseSileroVad reflects state");
+        expect(!vadSpy.isEmpty() && vadSpy.last().at(0).toBool(),
+               "useSileroVadToggled(true) emitted");
+    }
+
     std::printf(g_failures == 0 ? "\nCopy Assist settings dialog: ALL PASS\n"
                                 : "\nCopy Assist settings dialog: %d FAILURE(S)\n",
                 g_failures);

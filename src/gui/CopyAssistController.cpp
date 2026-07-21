@@ -221,12 +221,31 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     m_settings->setUseSileroVad(
         AppSettings::instance().value(QStringLiteral("AsrVadEnabled"), QStringLiteral("False"))
             .toString() == QStringLiteral("True"));
+    // Separate download manager for the Silero VAD model (auto-fetched + SHA-
+    // verified + cached like the whisper tiers, so enabling it just works).
+    m_vadModels = new AsrModelManager(this);
+    connect(m_vadModels, &AsrModelManager::progress, this, [this](qint64 got, qint64 total) {
+        m_panel->setStatus(total > 0
+                               ? tr("Downloading Silero VAD… %1%").arg(static_cast<int>(got * 100 / total))
+                               : tr("Downloading Silero VAD…"));
+    });
+    connect(m_vadModels, &AsrModelManager::alreadyPresent, this,
+            [this](const QString& path) { onVadModelReady(path); });
+    connect(m_vadModels, &AsrModelManager::finished, this,
+            [this](const QString& path) { onVadModelReady(path); });
+    connect(m_vadModels, &AsrModelManager::failed, this, [this](const QString& err) {
+        m_panel->setStatus(tr("Silero VAD download failed: %1").arg(err));
+        m_settings->setUseSileroVad(false);
+    });
     connect(m_settings, &CopyAssistSettingsDialog::useSileroVadToggled, this, [this](bool on) {
         auto& st = AppSettings::instance();
         st.setValue(QStringLiteral("AsrVadEnabled"), on ? QStringLiteral("True") : QStringLiteral("False"));
         st.save();
-        if (on && m_settings->vadModelPath().isEmpty()) {
-            promptVadModel(); // enabling with no model → ask for one (rebuilds)
+        if (!m_constructed) {
+            return; // restore: the initial buildEngine() already applies the VAD
+        }
+        if (on) {
+            ensureVadModel(); // cached → use it; else auto-download, then rebuild
         } else {
             rebuildForVadChange();
         }
@@ -288,6 +307,7 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     });
 
     buildEngine();
+    m_constructed = true; // subsequent VAD toggles may download/rebuild
 }
 
 CopyAssistController::~CopyAssistController() = default;
@@ -566,6 +586,42 @@ void CopyAssistController::promptVadModel()
         }
         return;
     }
+    m_settings->setVadModelPath(path);
+    AppSettings::instance().setValue(QStringLiteral("AsrVadModelPath"), path);
+    AppSettings::instance().save();
+    rebuildForVadChange();
+}
+
+AsrModelTier CopyAssistController::sileroVadTier()
+{
+    // The default learned VAD: Silero v5 ONNX (MIT), ~2 MB, from Hugging Face.
+    AsrModelTier tier;
+    tier.id = QStringLiteral("silero-vad");
+    tier.displayName = QStringLiteral("Silero VAD");
+    tier.fileName = QStringLiteral("silero_vad.onnx");
+    tier.sizeBytes = 2243022;
+    tier.sha256 = QStringLiteral("a4a068cd6cf1ea8355b84327595838ca748ec29a25bc91fc82e6c299ccdc5808");
+    tier.sources = {QStringLiteral(
+        "https://huggingface.co/onnx-community/silero-vad/resolve/main/onnx/model.onnx?download=true")};
+    return tier;
+}
+
+void CopyAssistController::ensureVadModel()
+{
+    // A user-picked custom model that still exists wins; otherwise fetch (or
+    // reuse the cached) default Silero model — no file hunting.
+    const QString custom = m_settings->vadModelPath();
+    if (!custom.isEmpty() && QFileInfo::exists(custom)
+        && custom != m_vadModels->modelPath(sileroVadTier())) {
+        rebuildForVadChange();
+        return;
+    }
+    m_panel->setStatus(tr("Preparing Silero VAD model…"));
+    m_vadModels->ensure(sileroVadTier()); // alreadyPresent / finished → onVadModelReady
+}
+
+void CopyAssistController::onVadModelReady(const QString& path)
+{
     m_settings->setVadModelPath(path);
     AppSettings::instance().setValue(QStringLiteral("AsrVadModelPath"), path);
     AppSettings::instance().save();

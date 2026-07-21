@@ -11,6 +11,7 @@ class CopyAssistSettingsDialog;
 class AsrEngine;
 class AsrModelManager;
 class AsrAudioTap;
+struct AsrModelTier;
 
 // Which IAsrBackend the engine is currently built around. Selects the factory in
 // buildEngine(); a local model's source (downloaded tier vs. user-supplied
@@ -57,8 +58,11 @@ private:
     QString promptCustomModel(); // pick a local ggml/gguf model file (empty if cancelled)
     void promptLogFile();        // pick + persist the transcript log path
     void appendToLogFile(const QString& text); // write one utterance if logging is on
-    void promptVadModel();       // pick + persist the Silero VAD .onnx (rebuilds)
+    void promptVadModel();       // pick + persist a custom Silero VAD .onnx (rebuilds)
+    void ensureVadModel();       // use the cached model, else auto-download it
+    void onVadModelReady(const QString& path); // cached/downloaded → persist + rebuild
     void rebuildForVadChange();  // rebuild the engine so the worker picks up the VAD
+    static AsrModelTier sileroVadTier(); // the default downloadable Silero VAD model
     void writeFreqMarkerIfNeeded(); // log a "=== <freq> MHz ===" line on start/retune/day-roll
     bool appendLogRaw(const QString& text); // append verbatim to the dated log; false on error
     // Which backend a selected tier id maps to (catalog family → backend kind;
@@ -73,7 +77,9 @@ private:
     CopyAssistSettingsDialog* m_settings = nullptr; // modeless model/GPU/options dialog
     AsrEngine* m_asr = nullptr;
     AsrModelManager* m_models = nullptr;
+    AsrModelManager* m_vadModels = nullptr; // separate manager for the Silero VAD model
     AsrAudioTap* m_tap = nullptr;
+    bool m_constructed = false; // true after the initial buildEngine (guards restore)
     QString m_tierId;
     QString m_customModelPath; // user-picked local model (for the "Custom model…" tier)
     double m_currentFreqMhz = 0.0;  // active-slice frequency, for the log marker

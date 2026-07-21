@@ -40,9 +40,11 @@ more options. It floats over the app and can stay open while you operate.
 - **Use Silero VAD (ONNX)** — replaces the built-in energy voice-activity
   detector with the ~2 MB [Silero VAD](https://huggingface.co/onnx-community/silero-vad)
   neural model, which is far more robust in HF noise (it segments *actual speech*
-  rather than anything above an energy threshold). Runs in the ONNX Runtime
-  AetherSDR already ships (`HAVE_ONNX`); point it at a `silero_vad.onnx`. Unset →
-  energy VAD (unchanged). Requires an ONNX-Runtime-enabled build.
+  rather than anything above an energy threshold). Ticking it **downloads the
+  model on demand** (Hugging Face, SHA-256-verified, cached in the models dir) —
+  no file to find; **Browse…** overrides with your own `.onnx`. Runs in the ONNX
+  Runtime AetherSDR already ships (`HAVE_ONNX`); unset → energy VAD (unchanged).
+  Requires an ONNX-Runtime-enabled build.
 
 ### Tuning (the control row)
 
