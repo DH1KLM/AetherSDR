@@ -50,6 +50,16 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     });
     controls->addWidget(m_tier);
 
+    // GPU selector — hidden unless the controller finds more than one GPU.
+    m_gpu = new QComboBox(this);
+    m_gpu->setAccessibleName(tr("Copy Assist GPU"));
+    m_gpu->setToolTip(tr("Which GPU runs the model"));
+    m_gpu->hide();
+    connect(m_gpu, &QComboBox::currentIndexChanged, this, [this](int) {
+        emit gpuChanged(currentGpu());
+    });
+    controls->addWidget(m_gpu);
+
     // Compact inline tuning sliders on the same row (mirrors the CW decode bar).
     m_buffer = addSliderInline(controls, tr("Buffer:"), tr("Decode buffer seconds"),
                                1, 20, 20, &m_bufferValue);
@@ -253,6 +263,29 @@ void CopyAssistPanel::setCurrentTier(const QString& id)
 QString CopyAssistPanel::currentTier() const
 {
     return m_tier->currentData().toString();
+}
+
+void CopyAssistPanel::addGpuDevice(int index, const QString& name)
+{
+    m_gpu->addItem(name, index);
+}
+
+void CopyAssistPanel::setCurrentGpu(int index)
+{
+    const int idx = m_gpu->findData(index);
+    if (idx >= 0) {
+        m_gpu->setCurrentIndex(idx);
+    }
+}
+
+int CopyAssistPanel::currentGpu() const
+{
+    return m_gpu->currentData().toInt();
+}
+
+void CopyAssistPanel::setGpuSelectorVisible(bool on)
+{
+    m_gpu->setVisible(on);
 }
 
 void CopyAssistPanel::setBusy(bool on)

@@ -31,9 +31,10 @@ WhisperAsrBackend::WhisperAsrBackend()
 {
 }
 
-WhisperAsrBackend::WhisperAsrBackend(QString language)
+WhisperAsrBackend::WhisperAsrBackend(QString language, int gpuDevice)
     : m_language(std::move(language))
     , m_threads(chooseThreadCount())
+    , m_gpuDevice(gpuDevice)
 {
 }
 
@@ -54,9 +55,11 @@ bool WhisperAsrBackend::load(const QString& modelPath, QString* error)
     }
 
     whisper_context_params cparams = whisper_context_default_params();
-    // Use a GPU backend (Vulkan) when one is compiled in and a device exists;
-    // ggml falls back to CPU automatically when it isn't.
+    // Use a GPU backend (Vulkan/Metal) when one is compiled in and a device
+    // exists; ggml falls back to CPU automatically when it isn't. gpu_device
+    // selects which GPU (index among GPU devices; see asrGpuDevices).
     cparams.use_gpu = asrGpuAvailable();
+    cparams.gpu_device = m_gpuDevice;
 
     const QByteArray pathUtf8 = modelPath.toUtf8();
     m_ctx = whisper_init_from_file_with_params(pathUtf8.constData(), cparams);
@@ -144,18 +147,37 @@ void WhisperAsrBackend::unload()
     }
 }
 
-std::function<std::unique_ptr<IAsrBackend>()> whisperAsrBackendFactory(const QString& language)
+std::function<std::unique_ptr<IAsrBackend>()> whisperAsrBackendFactory(const QString& language,
+                                                                       int gpuDevice)
 {
-    return [language]() -> std::unique_ptr<IAsrBackend> {
-        return std::make_unique<WhisperAsrBackend>(language);
+    return [language, gpuDevice]() -> std::unique_ptr<IAsrBackend> {
+        return std::make_unique<WhisperAsrBackend>(language, gpuDevice);
     };
+}
+
+std::vector<AsrGpuDevice> asrGpuDevices()
+{
+    // Enumerate GPU + integrated-GPU devices in the same order whisper's
+    // gpu_device indexes them (see whisper_backend_init_gpu).
+    std::vector<AsrGpuDevice> devices;
+    int index = 0;
+    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        const auto type = ggml_backend_dev_type(dev);
+        if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
+            AsrGpuDevice d;
+            d.index = index++;
+            d.name = QString::fromUtf8(ggml_backend_dev_description(dev));
+            devices.push_back(std::move(d));
+        }
+    }
+    return devices;
 }
 
 bool asrGpuAvailable()
 {
-    // True when ggml has registered at least one GPU device (e.g. the Vulkan
-    // backend found a GPU). Returns false on CPU-only builds or GPU-less hosts.
-    return ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU) != nullptr;
+    // True when ggml has at least one GPU (discrete or integrated) device.
+    return !asrGpuDevices().empty();
 }
 
 } // namespace AetherSDR

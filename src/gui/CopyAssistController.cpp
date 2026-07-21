@@ -82,9 +82,35 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     }
     m_panel->setCurrentTier(m_tierId);
 
+    // GPU selector — shown whenever GPU inference has a device (so the user sees
+    // which GPU runs the model, and can switch when more than one is visible).
+    const std::vector<AsrGpuDevice> gpus = asrGpuDevices();
+    for (const AsrGpuDevice& g : gpus) {
+        m_panel->addGpuDevice(g.index, g.name);
+    }
+    if (!gpus.empty()) {
+        int saved = AppSettings::instance()
+                        .value(QStringLiteral("AsrGpuDevice"), QStringLiteral("0")).toString().toInt();
+        if (saved < 0 || saved >= static_cast<int>(gpus.size())) {
+            saved = 0;
+        }
+        m_panel->setCurrentGpu(saved);
+        m_panel->setGpuSelectorVisible(true);
+    }
+
     // Panel intent.
     connect(m_panel, &CopyAssistPanel::enableToggled, this, &CopyAssistController::onEnableToggled);
     connect(m_panel, &CopyAssistPanel::tierChanged, this, &CopyAssistController::onTierChanged);
+    connect(m_panel, &CopyAssistPanel::gpuChanged, this, [this](int index) {
+        saveInt("AsrGpuDevice", index);
+        if (!m_remote) {
+            m_tap->setEnabled(false);
+            buildEngine(); // rebuild whisper on the chosen GPU
+            if (m_enabled) {
+                beginEnable();
+            }
+        }
+    });
 
     // Model download → engine load (the handlers read m_asr at call time, so they
     // survive an engine rebuild on backend switch).
@@ -143,8 +169,12 @@ void CopyAssistController::buildEngine()
     m_tap = nullptr;
     delete m_asr;
 
-    m_asr = m_remote ? new AsrEngine(remoteAsrBackendFactory(readRemoteConfig()), this)
-                     : new AsrEngine(whisperAsrBackendFactory(), this);
+    const int gpuDevice = AppSettings::instance()
+                              .value(QStringLiteral("AsrGpuDevice"), QStringLiteral("0"))
+                              .toString().toInt();
+    m_asr = m_remote
+                ? new AsrEngine(remoteAsrBackendFactory(readRemoteConfig()), this)
+                : new AsrEngine(whisperAsrBackendFactory(QStringLiteral("en"), gpuDevice), this);
     m_tap = new AsrAudioTap(m_audio, m_asr, this);
 
     connect(m_asr, &AsrEngine::ready, this, [this] {

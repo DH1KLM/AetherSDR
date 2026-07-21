@@ -34,6 +34,12 @@ public:
     void setCurrentTier(const QString& id);
     QString currentTier() const;
 
+    // GPU selector (shown only when there's more than one GPU to choose from).
+    void addGpuDevice(int index, const QString& name);
+    void setCurrentGpu(int index);
+    int currentGpu() const;
+    void setGpuSelectorVisible(bool on);
+
     void setStatus(const QString& text);
     // Show/hide the indeterminate loading indicator (model download/verify/load).
     void setBusy(bool on);
@@ -65,6 +71,7 @@ public slots:
 signals:
     void enableToggled(bool on);
     void tierChanged(const QString& tierId);
+    void gpuChanged(int index);
     void clearRequested();
     void closeRequested();
     void bufferMsChanged(int ms);
@@ -85,6 +92,7 @@ private:
     QTextEdit* m_text = nullptr;
     QCheckBox* m_enable = nullptr;
     QComboBox* m_tier = nullptr;
+    QComboBox* m_gpu = nullptr;
     QLabel* m_status = nullptr;
     QPushButton* m_clear = nullptr;
     QSlider* m_buffer = nullptr;
