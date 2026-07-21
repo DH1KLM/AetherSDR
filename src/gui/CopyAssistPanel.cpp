@@ -9,8 +9,10 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSlider>
-#include <QTextEdit>
+#include <QTextCharFormat>
 #include <QTextCursor>
+#include <QTextDocument>
+#include <QTextEdit>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -79,13 +81,13 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     controls->addStretch(1);
 
     // Transcript font size (mirrors the CW decode bar's A-/A+).
-    auto* fontDown = new QPushButton(tr("A-"), this);
-    fontDown->setFixedWidth(28);
+    auto* fontDown = new QPushButton(tr("A−"), this);
+    fontDown->setToolTip(tr("Smaller transcript text"));
     fontDown->setAccessibleName(tr("Decrease transcript font size"));
     connect(fontDown, &QPushButton::clicked, this, [this] { adjustFont(-1); });
     controls->addWidget(fontDown);
     auto* fontUp = new QPushButton(tr("A+"), this);
-    fontUp->setFixedWidth(28);
+    fontUp->setToolTip(tr("Larger transcript text"));
     fontUp->setAccessibleName(tr("Increase transcript font size"));
     connect(fontUp, &QPushButton::clicked, this, [this] { adjustFont(1); });
     controls->addWidget(fontUp);
@@ -153,7 +155,20 @@ void CopyAssistPanel::applyFont()
 {
     QFont f = m_text->font();
     f.setPixelSize(m_fontPx);
-    m_text->setFont(f);
+    m_text->setFont(f);                    // default for newly appended text
+    m_text->document()->setDefaultFont(f);
+
+    // Resize text already inserted via insertHtml. Merging only the font onto the
+    // whole document leaves the per-utterance confidence colours untouched.
+    QTextCursor cursor(m_text->document());
+    cursor.select(QTextCursor::Document);
+    QTextCharFormat fmt;
+    fmt.setFont(f);
+    cursor.mergeCharFormat(fmt);
+
+    QTextCursor atEnd(m_text->document());
+    atEnd.movePosition(QTextCursor::End);
+    m_text->setTextCursor(atEnd);          // clear the selection, keep scrolled to end
 }
 
 void CopyAssistPanel::adjustFont(int deltaPx)
