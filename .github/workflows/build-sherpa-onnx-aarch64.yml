@@ -100,9 +100,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view sherpa-onnx-libs >/dev/null 2>&1 \
-            || gh release create sherpa-onnx-libs \
+          # The repo isn't checked out (we only clone sherpa-onnx), so gh can't
+          # infer it from git — pass --repo explicitly.
+          REPO="${{ github.repository }}"
+          gh release view sherpa-onnx-libs --repo "$REPO" >/dev/null 2>&1 \
+            || gh release create sherpa-onnx-libs --repo "$REPO" \
                  --title "sherpa-onnx runtime libraries" \
-                 --notes "Self-built sherpa-onnx C-API shared libraries for platforms k2-fsa doesn't prebuild (linux-aarch64). Built by .github/workflows/build-sherpa-onnx-aarch64.yml."
-          gh release upload sherpa-onnx-libs "${{ steps.pkg.outputs.pkg }}" --clobber
+                 --notes "Self-built sherpa-onnx C-API shared libraries (Apache-2.0, k2-fsa) for platforms k2-fsa doesn't prebuild (linux-aarch64), each bundling ONNX Runtime (MIT). Built by .github/workflows/build-sherpa-onnx-aarch64.yml. See THIRD_PARTY_LICENSES."
+          gh release upload sherpa-onnx-libs --repo "$REPO" "${{ steps.pkg.outputs.pkg }}" --clobber
           echo "Uploaded ${{ steps.pkg.outputs.pkg }} (sha256 ${{ steps.pkg.outputs.sha }})"
