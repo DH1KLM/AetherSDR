@@ -55,9 +55,14 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     connect(m_settings, &QPushButton::clicked, this, &CopyAssistPanel::settingsRequested);
     controls->addWidget(m_settings);
 
+    controls->addSpacing(40); // gap between the settings button and the sliders
+
     // Compact inline tuning sliders on the same row (mirrors the CW decode bar).
     m_buffer = addSliderInline(controls, tr("Buffer:"), tr("Decode buffer seconds"),
                                1, 20, 20, &m_bufferValue);
+    // Left-align so the value hugs the slider instead of sitting at the far right
+    // of its fixed-width box.
+    m_bufferValue->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_bufferValue->setText(tr("%1 s").arg(m_buffer->value()));
     connect(m_buffer, &QSlider::valueChanged, this, [this](int s) {
         m_bufferValue->setText(tr("%1 s").arg(s));
@@ -67,6 +72,7 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     controls->addSpacing(40); // gap between the tuning controls
     m_sensitivity = addSliderInline(controls, tr("Sens:"), tr("VAD sensitivity percent"),
                                     1, 100, 80, &m_sensitivityValue);
+    m_sensitivityValue->setAlignment(Qt::AlignLeft | Qt::AlignVCenter); // hug the slider
     m_sensitivityValue->setText(tr("%1%").arg(m_sensitivity->value()));
     connect(m_sensitivity, &QSlider::valueChanged, this, [this](int pct) {
         m_sensitivityValue->setText(tr("%1%").arg(pct));
