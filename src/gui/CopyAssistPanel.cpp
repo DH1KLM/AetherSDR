@@ -108,6 +108,19 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     connect(fontUp, &QPushButton::clicked, this, [this] { adjustFont(1); });
     controls->addWidget(fontUp);
 
+    // Newline-on-silence toggle (↵). When on, each utterance (emitted when the
+    // VAD detects end-of-speech silence) starts on a fresh line. Checkable, and
+    // the controller styles it like the applet toggle so the on state is obvious.
+    m_newline = new QPushButton(QString::fromUtf8("↵"), this);
+    m_newline->setCheckable(true);
+    m_newline->setToolTip(tr("Start a new line after each pause (silence)"));
+    m_newline->setAccessibleName(tr("New line on silence"));
+    connect(m_newline, &QPushButton::toggled, this, [this](bool on) {
+        m_newlineOnSilence = on;
+        emit newlineOnSilenceChanged(on);
+    });
+    controls->addWidget(m_newline);
+
     m_clear = new QPushButton(tr("Clear"), this);
     m_clear->setAccessibleName(tr("Clear transcript"));
     connect(m_clear, &QPushButton::clicked, this, [this] {
@@ -339,12 +352,23 @@ void CopyAssistPanel::appendText(const QString& text, float confidence)
         return;
     }
     m_text->moveCursor(QTextCursor::End);
+    // Each appendText is one utterance, emitted when the VAD ends it on silence.
+    // With newline-on-silence on, start it on a fresh line (skip for the very
+    // first utterance so the transcript doesn't open with a blank row).
+    if (m_newlineOnSilence && !m_text->document()->isEmpty()) {
+        m_text->insertHtml(QStringLiteral("<br>"));
+    }
     // Bake the current size into the span so new text renders at the saved size
     // even before any font-change (applyFont on an empty document can't stick).
     m_text->insertHtml(QStringLiteral("<span style=\"color:%1; font-size:%2px\">%3</span> ")
                            .arg(colorForConfidence(confidence), QString::number(m_fontPx),
                                 trimmed.toHtmlEscaped()));
     m_text->moveCursor(QTextCursor::End);
+}
+
+void CopyAssistPanel::setNewlineOnSilence(bool on)
+{
+    m_newline->setChecked(on); // fires toggled → updates m_newlineOnSilence + emits
 }
 
 void CopyAssistPanel::clearText()

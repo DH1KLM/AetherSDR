@@ -48,6 +48,13 @@ public:
     // The Enable/Disable toggle button — exposed so the app layer can apply the
     // themed applet-toggle style (the panel itself stays ThemeManager-free).
     QPushButton* enableButton() const { return m_enable; }
+    // The ↵ newline-on-silence toggle — exposed so the controller can apply the
+    // themed applet-toggle style (panel stays ThemeManager-free).
+    QPushButton* newlineButton() const { return m_newline; }
+
+    // When on, each utterance (VAD end-of-speech) begins on a new line.
+    void setNewlineOnSilence(bool on);
+    bool newlineOnSilence() const { return m_newlineOnSilence; }
 
     // Decode-buffer size in milliseconds (1000–20000). The slider works in
     // whole seconds; setBufferMs rounds/clamps into range.
@@ -80,6 +87,7 @@ signals:
     void sensitivityChanged(int percent);
     void silenceMsChanged(int ms);
     void fontPxChanged(int px);
+    void newlineOnSilenceChanged(bool on);
 
 private:
     static QString colorForConfidence(float confidence);
@@ -92,7 +100,8 @@ private:
                              QLabel** valueLabelOut);
 
     QTextEdit* m_text = nullptr;
-    QPushButton* m_enable = nullptr; // checkable: "Enable" / "Disable"
+    QPushButton* m_enable = nullptr;  // checkable: "Enable" / "Disable"
+    QPushButton* m_newline = nullptr; // checkable ↵: newline on each silence
     QComboBox* m_tier = nullptr;
     QComboBox* m_gpu = nullptr;
     QLabel* m_status = nullptr;
@@ -105,6 +114,7 @@ private:
     QLabel* m_silenceValue = nullptr;
     QProgressBar* m_busy = nullptr;
     int m_fontPx = 13;
+    bool m_newlineOnSilence = false;
 };
 
 } // namespace AetherSDR

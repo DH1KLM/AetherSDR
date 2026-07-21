@@ -103,16 +103,18 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     }
     m_panel->setCurrentTier(m_tierId);
 
-    // Style the Enable/Disable toggle like the applet toggle buttons: the enabled
-    // (checked) state fills with the dim-cyan accent so it's visibly distinct.
-    ThemeManager::instance().applyStyleSheet(m_panel->enableButton(),
-        QStringLiteral(
-            "QPushButton { background: {{color.background.1}};"
-            " border: 1px solid {{color.background.2}}; border-radius: 3px;"
-            " padding: 3px 10px; font-weight: bold; color: {{color.text.primary}}; }"
-            "QPushButton:hover { background: {{color.background.2}}; }"
-            "QPushButton:checked { background: {{color.accent.dim}};"
-            " color: {{color.text.primary}}; border: 1px solid {{color.accent.bright}}; }"));
+    // Style the checkable toggles (Enable/Disable and the ↵ newline toggle) like
+    // the applet toggle buttons: the checked state fills with the dim-cyan accent
+    // so the on state is visibly distinct.
+    const QString appletToggleStyle = QStringLiteral(
+        "QPushButton { background: {{color.background.1}};"
+        " border: 1px solid {{color.background.2}}; border-radius: 3px;"
+        " padding: 3px 10px; font-weight: bold; color: {{color.text.primary}}; }"
+        "QPushButton:hover { background: {{color.background.2}}; }"
+        "QPushButton:checked { background: {{color.accent.dim}};"
+        " color: {{color.text.primary}}; border: 1px solid {{color.accent.bright}}; }");
+    ThemeManager::instance().applyStyleSheet(m_panel->enableButton(), appletToggleStyle);
+    ThemeManager::instance().applyStyleSheet(m_panel->newlineButton(), appletToggleStyle);
 
     // Compute-device selector — shown whenever a GPU exists, so the user can pick
     // a GPU (or several) or force CPU. Hidden on GPU-less hosts (always CPU).
@@ -174,6 +176,9 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     m_panel->setSensitivity(s.value(QStringLiteral("AsrSensitivity"), QStringLiteral("80")).toString().toInt());
     m_panel->setSilenceMs(s.value(QStringLiteral("AsrSilenceMs"), QStringLiteral("300")).toString().toInt());
     m_panel->setFontPx(s.value(QStringLiteral("AsrFontPx"), QStringLiteral("13")).toString().toInt());
+    m_panel->setNewlineOnSilence(
+        s.value(QStringLiteral("AsrNewlineOnSilence"), QStringLiteral("False")).toString()
+        == QStringLiteral("True"));
     connect(m_panel, &CopyAssistPanel::bufferMsChanged, this, [this](int ms) {
         m_asr->setDecodeBufferMs(ms);
         saveInt("AsrDecodeBufferMs", ms);
@@ -188,6 +193,12 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     });
     connect(m_panel, &CopyAssistPanel::fontPxChanged, this,
             [](int px) { saveInt("AsrFontPx", px); });
+    connect(m_panel, &CopyAssistPanel::newlineOnSilenceChanged, this, [](bool on) {
+        auto& st = AppSettings::instance();
+        st.setValue(QStringLiteral("AsrNewlineOnSilence"),
+                    on ? QStringLiteral("True") : QStringLiteral("False"));
+        st.save();
+    });
 
     buildEngine();
 }
