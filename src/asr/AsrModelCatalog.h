@@ -13,6 +13,15 @@
 
 namespace AetherSDR {
 
+// The inference-engine family a tier's weights are built for. Whisper (ggml) is
+// the only bundled family today; the field lets a tier declare its engine so the
+// controller can route it to the right IAsrBackend as more engines are added
+// (RFC #4333 follow-up). Adding a family is a drop-in: a new enumerator here, a
+// case in CopyAssistController's backend map, and a factory.
+enum class AsrModelFamily {
+    Whisper, // whisper.cpp / ggml (.bin/.gguf)
+};
+
 struct AsrModelTier {
     QString id;           // stable key, e.g. "base"
     QString displayName;  // UI label, e.g. "Base — 147 MB"
@@ -20,6 +29,7 @@ struct AsrModelTier {
     qint64 sizeBytes = 0; // exact expected size (from the upstream LFS pointer)
     QString sha256;       // lowercase hex, pinned
     QStringList sources;  // ordered download URLs (primary first)
+    AsrModelFamily family = AsrModelFamily::Whisper; // inference engine the weights target
 };
 
 namespace AsrModelCatalog {

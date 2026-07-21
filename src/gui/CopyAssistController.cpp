@@ -88,13 +88,16 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
 
     // Initial backend: remote if previously configured+enabled, else the
     // GPU-class model when a GPU exists, else the platform default.
-    m_remote = AppSettings::instance()
-                   .value(QStringLiteral("AsrRemoteEnabled"), QStringLiteral("False"))
-                   .toString() == QStringLiteral("True")
-               && !readRemoteConfig().url.isEmpty();
-    if (m_remote) {
+    const bool remoteConfigured =
+        AppSettings::instance()
+                .value(QStringLiteral("AsrRemoteEnabled"), QStringLiteral("False"))
+                .toString() == QStringLiteral("True")
+        && !readRemoteConfig().url.isEmpty();
+    if (remoteConfigured) {
+        m_backend = AsrBackendKind::Remote;
         m_tierId = QString::fromLatin1(kRemoteTierId);
     } else {
+        m_backend = AsrBackendKind::Whisper;
         m_tierId = asrGpuAvailable() ? QStringLiteral("large-v3-turbo")
                                      : AsrModelCatalog::defaultTierId();
     }
@@ -133,9 +136,9 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     connect(m_panel, &CopyAssistPanel::tierChanged, this, &CopyAssistController::onTierChanged);
     connect(m_panel, &CopyAssistPanel::gpuChanged, this, [this](int index) {
         saveInt("AsrGpuDevice", index);
-        if (!m_remote) {
+        if (m_backend != AsrBackendKind::Remote) {
             m_tap->setEnabled(false);
-            buildEngine(); // rebuild whisper on the chosen GPU
+            buildEngine(); // rebuild the local engine on the chosen GPU
             if (m_enabled) {
                 beginEnable();
             }
@@ -208,16 +211,22 @@ void CopyAssistController::buildEngine()
     const int gpuDevice = AppSettings::instance()
                               .value(QStringLiteral("AsrGpuDevice"), QStringLiteral("0"))
                               .toString().toInt();
-    m_asr = m_remote
-                ? new AsrEngine(remoteAsrBackendFactory(readRemoteConfig()), this)
-                : new AsrEngine(whisperAsrBackendFactory(QStringLiteral("en"), gpuDevice), this);
+    switch (m_backend) {
+    case AsrBackendKind::Remote:
+        m_asr = new AsrEngine(remoteAsrBackendFactory(readRemoteConfig()), this);
+        break;
+    case AsrBackendKind::Whisper:
+        m_asr = new AsrEngine(whisperAsrBackendFactory(QStringLiteral("en"), gpuDevice), this);
+        break;
+    }
     m_tap = new AsrAudioTap(m_audio, m_asr, this);
 
     connect(m_asr, &AsrEngine::ready, this, [this] {
         m_panel->setBusy(false);
         if (m_enabled) {
             m_tap->setEnabled(true);
-            m_panel->setStatus(m_remote ? tr("Listening (remote)…") : tr("Listening…"));
+            m_panel->setStatus(m_backend == AsrBackendKind::Remote ? tr("Listening (remote)…")
+                                                                   : tr("Listening…"));
         }
     });
     connect(m_asr, &AsrEngine::loadFailed, this, [this](const QString& err) {
@@ -263,10 +272,7 @@ void CopyAssistController::onTierChanged(const QString& tierId)
             m_panel->setCurrentTier(m_tierId); // user cancelled — revert
             return;
         }
-        m_tierId = tierId;
-        m_remote = true;
-        m_tap->setEnabled(false);
-        buildEngine();
+        setBackend(AsrBackendKind::Remote, tierId);
     } else if (tierId == QString::fromLatin1(kCustomTierId)) {
         const QString path = promptCustomModel();
         if (path.isEmpty()) {
@@ -278,25 +284,9 @@ void CopyAssistController::onTierChanged(const QString& tierId)
         AppSettings::instance().save();
         m_panel->setTierLabel(QString::fromLatin1(kCustomTierId),
                               tr("Custom: %1").arg(QFileInfo(path).fileName()));
-        m_tierId = tierId;
-        // Custom is a local whisper model like any tier; only a switch away from
-        // the remote backend needs an engine rebuild.
-        if (m_remote) {
-            m_remote = false;
-            AppSettings::instance().setValue(QStringLiteral("AsrRemoteEnabled"), QStringLiteral("False"));
-            AppSettings::instance().save();
-            m_tap->setEnabled(false);
-            buildEngine();
-        }
+        setBackend(AsrBackendKind::Whisper, tierId);
     } else {
-        m_tierId = tierId;
-        if (m_remote) {
-            m_remote = false;
-            AppSettings::instance().setValue(QStringLiteral("AsrRemoteEnabled"), QStringLiteral("False"));
-            AppSettings::instance().save();
-            m_tap->setEnabled(false);
-            buildEngine();
-        }
+        setBackend(backendForTier(tierId), tierId);
     }
 
     if (m_enabled) {
@@ -305,10 +295,48 @@ void CopyAssistController::onTierChanged(const QString& tierId)
     }
 }
 
+AsrBackendKind CopyAssistController::backendForTier(const QString& tierId)
+{
+    if (tierId == QString::fromLatin1(kRemoteTierId)) {
+        return AsrBackendKind::Remote;
+    }
+    // A catalog tier routes by its declared engine family; the "custom" file and
+    // any unknown id fall through to local whisper.
+    if (const AsrModelTier* tier = AsrModelCatalog::tierById(tierId)) {
+        switch (tier->family) {
+        case AsrModelFamily::Whisper:
+            return AsrBackendKind::Whisper;
+        }
+    }
+    return AsrBackendKind::Whisper;
+}
+
+void CopyAssistController::setBackend(AsrBackendKind kind, const QString& tierId)
+{
+    const AsrBackendKind prev = m_backend;
+    m_backend = kind;
+    m_tierId = tierId;
+
+    // Leaving the remote backend clears the persisted auto-connect flag so the
+    // next launch starts on the local engine.
+    if (prev == AsrBackendKind::Remote && kind != AsrBackendKind::Remote) {
+        AppSettings::instance().setValue(QStringLiteral("AsrRemoteEnabled"), QStringLiteral("False"));
+        AppSettings::instance().save();
+    }
+
+    // Only a change of backend kind needs a fresh engine; switching models within
+    // the same backend (e.g. base → small, or a custom file) reloads via
+    // beginEnable() without tearing the engine down.
+    if (prev != kind) {
+        m_tap->setEnabled(false);
+        buildEngine();
+    }
+}
+
 void CopyAssistController::beginEnable()
 {
     m_panel->setBusy(true);
-    if (m_remote) {
+    if (m_backend == AsrBackendKind::Remote) {
         // No local model to fetch — the remote endpoint is contacted per
         // utterance. load() just marks the backend ready.
         m_panel->setStatus(tr("Connecting to remote server…"));
