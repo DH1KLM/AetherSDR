@@ -59,6 +59,7 @@ signals:
     void enableToggled(bool on);
     void tierChanged(const QString& tierId);
     void clearRequested();
+    void closeRequested();
     void bufferMsChanged(int ms);
     void sensitivityChanged(int percent);
     void silenceMsChanged(int ms);

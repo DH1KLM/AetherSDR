@@ -1183,7 +1183,6 @@ if (ENABLE_ASR)
         src/gui/AsrAudioTap.cpp
         src/gui/CopyAssistPanel.cpp
         src/gui/CopyAssistController.cpp
-        src/gui/CopyAssistWindow.cpp
     )
 
     message(STATUS "ASR: whisper.cpp enabled (CPU backend), separate aetherasr lib; weights download-on-demand")

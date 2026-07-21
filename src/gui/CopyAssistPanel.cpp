@@ -54,6 +54,13 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     });
     controls->addWidget(m_clear);
 
+    auto* closeBtn = new QPushButton(QString::fromUtf8("\xC3\x97"), this); // ×
+    closeBtn->setFixedSize(18, 18);
+    closeBtn->setAccessibleName(tr("Close Copy Assist"));
+    closeBtn->setToolTip(tr("Close the Copy Assist panel"));
+    connect(closeBtn, &QPushButton::clicked, this, &CopyAssistPanel::closeRequested);
+    controls->addWidget(closeBtn);
+
     root->addLayout(controls);
 
     // --- Tuning sliders (decode buffer / VAD sensitivity / silence) ---------

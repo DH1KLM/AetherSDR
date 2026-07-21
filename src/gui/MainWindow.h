@@ -128,7 +128,7 @@ class Ax25HfPacketDecodeDialog;
 class PskReporterMapDialog;
 class GpsLocationDialog;
 #ifdef AETHER_ASR_ENABLED
-class CopyAssistWindow;
+class CopyAssistController;
 #endif
 class FlexControlDialog;
 class MidiMappingDialog;
@@ -1026,7 +1026,8 @@ private:
     QSystemTrayIcon* m_trayIcon{nullptr};
     QPointer<Ax25HfPacketDecodeDialog> m_ax25HfPacketDecodeDialog;
 #ifdef AETHER_ASR_ENABLED
-    QPointer<CopyAssistWindow> m_copyAssistWindow;
+    QPointer<CopyAssistController> m_copyAssistController;
+    QPointer<PanadapterApplet> m_copyAssistApplet;
 #endif
     QPointer<PskReporterMapDialog> m_pskReporterMapDialog;
     QPointer<GpsLocationDialog> m_gpsLocationDialog;

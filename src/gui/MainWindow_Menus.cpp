@@ -9,7 +9,8 @@
 #include "MainWindow.h"
 
 #ifdef AETHER_ASR_ENABLED
-#include "CopyAssistWindow.h"
+#include "CopyAssistController.h"
+#include "CopyAssistPanel.h"
 #endif
 #include "AppletPanel.h"
 #include "DaxApplet.h"
@@ -1363,13 +1364,20 @@ void MainWindow::buildMenuBar()
 #ifdef AETHER_ASR_ENABLED
 void MainWindow::showCopyAssist()
 {
-    if (!m_copyAssistWindow) {
-        m_copyAssistWindow = new CopyAssistWindow(m_audio, this);
-        m_copyAssistWindow->setAttribute(Qt::WA_DeleteOnClose, false);
+    // Dock the Copy Assist panel under the waterfall of the active panadapter,
+    // the same way the CW decode panel docks. First open builds the panel and
+    // wires the ASR controller to it; subsequent invocations toggle visibility.
+    if (!m_copyAssistController) {
+        PanadapterApplet* applet = m_panStack ? m_panStack->activeApplet() : nullptr;
+        if (!applet) {
+            return;
+        }
+        m_copyAssistApplet = applet;
+        m_copyAssistController = new CopyAssistController(m_audio, applet->copyAssistPanel(), this);
     }
-    m_copyAssistWindow->show();
-    m_copyAssistWindow->raise();
-    m_copyAssistWindow->activateWindow();
+    if (m_copyAssistApplet) {
+        m_copyAssistApplet->setCopyAssistVisible(!m_copyAssistApplet->isCopyAssistVisible());
+    }
 }
 #endif
 
