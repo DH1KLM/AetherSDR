@@ -5,6 +5,7 @@
 #include "gui/CopyAssistPanel.h"
 
 #include <QApplication>
+#include <QPushButton>
 #include <QSignalSpy>
 #include <QTextEdit>
 
@@ -66,15 +67,12 @@ int main(int argc, char** argv)
     panel.clearText();
     expect(transcriptText(panel).trimmed().isEmpty(), "clearText empties the transcript");
 
-    // ---- Tier selection emits the tier id ---------------------------------
-    panel.addTier(QStringLiteral("base"), QStringLiteral("Base"));
-    panel.addTier(QStringLiteral("small"), QStringLiteral("Small"));
-    QSignalSpy tierSpy(&panel, &CopyAssistPanel::tierChanged);
-    panel.setCurrentTier(QStringLiteral("small"));
-    expect(panel.currentTier() == QStringLiteral("small"), "setCurrentTier selects the tier");
-    expect(!tierSpy.isEmpty()
-               && tierSpy.last().at(0).toString() == QStringLiteral("small"),
-           "tierChanged carries the tier id");
+    // ---- Settings (⚙) button emits its request ----------------------------
+    // (Model/GPU selection now lives in CopyAssistSettingsDialog — see
+    // copy_assist_settings_dialog_test.)
+    QSignalSpy settingsSpy(&panel, &CopyAssistPanel::settingsRequested);
+    panel.settingsButton()->click();
+    expect(!settingsSpy.isEmpty(), "settingsRequested emitted on ⚙ click");
 
     // ---- Enable toggle emits + reflects state -----------------------------
     QSignalSpy enableSpy(&panel, &CopyAssistPanel::enableToggled);

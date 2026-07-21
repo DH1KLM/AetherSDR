@@ -1,6 +1,7 @@
 #include "CopyAssistController.h"
 
 #include "CopyAssistPanel.h"
+#include "CopyAssistSettingsDialog.h"
 
 #include "asr/AsrEngine.h"
 #include "asr/AsrModelCatalog.h"
@@ -68,22 +69,27 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     , m_panel(panel)
     , m_models(new AsrModelManager(this))
 {
+    // The model + compute-device pickers live in a modeless settings dialog
+    // opened by the panel's ⚙ button (parented to the panel so it's cleaned up
+    // with it).
+    m_settings = new CopyAssistSettingsDialog(m_panel);
+
     // Tier selector: the downloadable model tiers, then a "Custom model…" entry
     // for a user-supplied local .bin/.gguf, then a "Remote server…" entry that
     // routes to the RemoteAsrBackend.
     for (const AsrModelTier& tier : AsrModelCatalog::tiers()) {
-        m_panel->addTier(tier.id, tier.displayName);
+        m_settings->addTier(tier.id, tier.displayName);
     }
-    m_panel->addTier(QString::fromLatin1(kCustomTierId), tr("Custom model…"));
-    m_panel->addTier(QString::fromLatin1(kRemoteTierId), tr("Remote server…"));
+    m_settings->addTier(QString::fromLatin1(kCustomTierId), tr("Custom model…"));
+    m_settings->addTier(QString::fromLatin1(kRemoteTierId), tr("Remote server…"));
 
     // Remember a previously-picked custom model so its filename shows in the list
     // (and the file-picker defaults to it) across restarts.
     m_customModelPath =
         AppSettings::instance().value(QStringLiteral("AsrCustomModelPath"), QString()).toString();
     if (!m_customModelPath.isEmpty()) {
-        m_panel->setTierLabel(QString::fromLatin1(kCustomTierId),
-                              tr("Custom: %1").arg(QFileInfo(m_customModelPath).fileName()));
+        m_settings->setTierLabel(QString::fromLatin1(kCustomTierId),
+                                 tr("Custom: %1").arg(QFileInfo(m_customModelPath).fileName()));
     }
 
     // Initial backend: remote if previously configured+enabled, else the
@@ -101,7 +107,7 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
         m_tierId = asrGpuAvailable() ? QStringLiteral("large-v3-turbo")
                                      : AsrModelCatalog::defaultTierId();
     }
-    m_panel->setCurrentTier(m_tierId);
+    m_settings->setCurrentTier(m_tierId);
 
     // Style the checkable toggles (Enable/Disable and the ↵ newline toggle) like
     // the applet toggle buttons: the checked state fills with the dim-cyan accent
@@ -116,27 +122,47 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     ThemeManager::instance().applyStyleSheet(m_panel->enableButton(), appletToggleStyle);
     ThemeManager::instance().applyStyleSheet(m_panel->newlineButton(), appletToggleStyle);
 
+    // ⚙ settings button — modeled on the band-stack gear button but themed and
+    // sized (via the shared toggle padding) to sit flush with this row's buttons.
+    ThemeManager::instance().applyStyleSheet(m_panel->settingsButton(),
+        QStringLiteral(
+            "QPushButton { background: {{color.background.1}};"
+            " border: 1px solid {{color.background.2}}; border-radius: 3px;"
+            " padding: 3px 8px; font-weight: bold; color: {{color.text.secondary}}; }"
+            "QPushButton:hover { background: {{color.background.2}};"
+            " color: {{color.text.primary}}; }"));
+
     // Compute-device selector — shown whenever a GPU exists, so the user can pick
     // a GPU (or several) or force CPU. Hidden on GPU-less hosts (always CPU).
     const std::vector<AsrGpuDevice> gpus = asrGpuDevices();
     if (!gpus.empty()) {
         for (const AsrGpuDevice& g : gpus) {
-            m_panel->addGpuDevice(g.index, g.name);
+            m_settings->addGpuDevice(g.index, g.name);
         }
-        m_panel->addGpuDevice(-1, tr("CPU")); // force-CPU option
+        m_settings->addGpuDevice(-1, tr("CPU")); // force-CPU option
         int saved = AppSettings::instance()
                         .value(QStringLiteral("AsrGpuDevice"), QStringLiteral("0")).toString().toInt();
         if (saved != -1 && (saved < 0 || saved >= static_cast<int>(gpus.size()))) {
             saved = 0;
         }
-        m_panel->setCurrentGpu(saved);
-        m_panel->setGpuSelectorVisible(true);
+        m_settings->setCurrentGpu(saved);
+        m_settings->setGpuSelectorVisible(true);
     }
 
-    // Panel intent.
+    // Panel intent. The ⚙ button toggles the modeless settings dialog; model/GPU
+    // changes come from the dialog itself.
     connect(m_panel, &CopyAssistPanel::enableToggled, this, &CopyAssistController::onEnableToggled);
-    connect(m_panel, &CopyAssistPanel::tierChanged, this, &CopyAssistController::onTierChanged);
-    connect(m_panel, &CopyAssistPanel::gpuChanged, this, [this](int index) {
+    connect(m_panel, &CopyAssistPanel::settingsRequested, this, [this] {
+        if (m_settings->isVisible()) {
+            m_settings->hide();
+        } else {
+            m_settings->show();
+            m_settings->raise();
+            m_settings->activateWindow();
+        }
+    });
+    connect(m_settings, &CopyAssistSettingsDialog::tierChanged, this, &CopyAssistController::onTierChanged);
+    connect(m_settings, &CopyAssistSettingsDialog::gpuChanged, this, [this](int index) {
         saveInt("AsrGpuDevice", index);
         if (m_backend != AsrBackendKind::Remote) {
             m_tap->setEnabled(false);
@@ -280,21 +306,21 @@ void CopyAssistController::onTierChanged(const QString& tierId)
 
     if (tierId == QString::fromLatin1(kRemoteTierId)) {
         if (!promptRemoteConfig()) {
-            m_panel->setCurrentTier(m_tierId); // user cancelled — revert
+            m_settings->setCurrentTier(m_tierId); // user cancelled — revert
             return;
         }
         setBackend(AsrBackendKind::Remote, tierId);
     } else if (tierId == QString::fromLatin1(kCustomTierId)) {
         const QString path = promptCustomModel();
         if (path.isEmpty()) {
-            m_panel->setCurrentTier(m_tierId); // user cancelled — revert
+            m_settings->setCurrentTier(m_tierId); // user cancelled — revert
             return;
         }
         m_customModelPath = path;
         AppSettings::instance().setValue(QStringLiteral("AsrCustomModelPath"), path);
         AppSettings::instance().save();
-        m_panel->setTierLabel(QString::fromLatin1(kCustomTierId),
-                              tr("Custom: %1").arg(QFileInfo(path).fileName()));
+        m_settings->setTierLabel(QString::fromLatin1(kCustomTierId),
+                                 tr("Custom: %1").arg(QFileInfo(path).fileName()));
         setBackend(AsrBackendKind::Whisper, tierId);
     } else {
         setBackend(backendForTier(tierId), tierId);
@@ -384,7 +410,7 @@ bool CopyAssistController::promptRemoteConfig()
 {
     const RemoteAsrConfig current = readRemoteConfig();
 
-    QDialog dialog(m_panel);
+    QDialog dialog(m_settings);
     dialog.setWindowTitle(tr("Remote ASR Server"));
     auto* form = new QFormLayout(&dialog);
 
@@ -429,7 +455,7 @@ QString CopyAssistController::promptCustomModel()
                    + QStringLiteral("/models");
     }
     return QFileDialog::getOpenFileName(
-        m_panel, tr("Choose a Whisper model"), startDir,
+        m_settings, tr("Choose a Whisper model"), startDir,
         tr("Whisper models (*.bin *.gguf);;All files (*)"));
 }
 

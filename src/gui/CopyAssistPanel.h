@@ -3,7 +3,6 @@
 #include <QString>
 #include <QWidget>
 
-class QComboBox;
 class QHBoxLayout;
 class QLabel;
 class QProgressBar;
@@ -28,17 +27,10 @@ class CopyAssistPanel : public QWidget {
 public:
     explicit CopyAssistPanel(QWidget* parent = nullptr);
 
-    // Add a selectable model tier (stable id + human label).
-    void addTier(const QString& id, const QString& label);
-    void setCurrentTier(const QString& id);
-    void setTierLabel(const QString& id, const QString& label);
-    QString currentTier() const;
-
-    // GPU selector (shown only when there's more than one GPU to choose from).
-    void addGpuDevice(int index, const QString& name);
-    void setCurrentGpu(int index);
-    int currentGpu() const;
-    void setGpuSelectorVisible(bool on);
+    // The ⚙ settings button — exposed so the controller can apply the themed
+    // style and toggle the modeless settings dialog (which now owns the model +
+    // compute-device pickers). Panel stays ThemeManager-free.
+    QPushButton* settingsButton() const { return m_settings; }
 
     void setStatus(const QString& text);
     // Show/hide the indeterminate loading indicator (model download/verify/load).
@@ -80,8 +72,7 @@ public slots:
 
 signals:
     void enableToggled(bool on);
-    void tierChanged(const QString& tierId);
-    void gpuChanged(int index);
+    void settingsRequested();
     void clearRequested();
     void bufferMsChanged(int ms);
     void sensitivityChanged(int percent);
@@ -100,10 +91,9 @@ private:
                              QLabel** valueLabelOut);
 
     QTextEdit* m_text = nullptr;
-    QPushButton* m_enable = nullptr;  // checkable: "Enable" / "Disable"
-    QPushButton* m_newline = nullptr; // checkable ↵: newline on each silence
-    QComboBox* m_tier = nullptr;
-    QComboBox* m_gpu = nullptr;
+    QPushButton* m_enable = nullptr;   // checkable: "Enable" / "Disable"
+    QPushButton* m_newline = nullptr;  // checkable ↵: newline on each silence
+    QPushButton* m_settings = nullptr; // ⚙: opens the modeless settings dialog
     QLabel* m_status = nullptr;
     QPushButton* m_clear = nullptr;
     QSlider* m_buffer = nullptr;

@@ -1,6 +1,5 @@
 #include "CopyAssistPanel.h"
 
-#include <QComboBox>
 #include <QFont>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -46,25 +45,15 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     });
     controls->addWidget(m_enable);
 
-    controls->addWidget(new QLabel(tr("Model:"), this));
-    m_tier = new QComboBox(this);
-    m_tier->setAccessibleName(tr("Copy Assist model"));
-    m_tier->setToolTip(tr("Speech-recognition model (larger = more accurate, slower)"));
-    m_tier->setMinimumWidth(160);
-    connect(m_tier, &QComboBox::currentIndexChanged, this, [this](int) {
-        emit tierChanged(currentTier());
-    });
-    controls->addWidget(m_tier);
-
-    // GPU selector — hidden unless the controller finds more than one GPU.
-    m_gpu = new QComboBox(this);
-    m_gpu->setAccessibleName(tr("Copy Assist GPU"));
-    m_gpu->setToolTip(tr("Which GPU runs the model"));
-    m_gpu->hide();
-    connect(m_gpu, &QComboBox::currentIndexChanged, this, [this](int) {
-        emit gpuChanged(currentGpu());
-    });
-    controls->addWidget(m_gpu);
+    // Settings (⚙) button — opens the modeless Copy Assist settings dialog
+    // (model + compute-device pickers, and more). Modeled on the band-stack
+    // panel's gear button; the controller applies the themed style so it sizes
+    // to match the other controls in this row.
+    m_settings = new QPushButton(QString::fromUtf8("⚙"), this);
+    m_settings->setAccessibleName(tr("Copy Assist settings"));
+    m_settings->setToolTip(tr("Model, compute device, and other options"));
+    connect(m_settings, &QPushButton::clicked, this, &CopyAssistPanel::settingsRequested);
+    controls->addWidget(m_settings);
 
     // Compact inline tuning sliders on the same row (mirrors the CW decode bar).
     m_buffer = addSliderInline(controls, tr("Buffer:"), tr("Decode buffer seconds"),
@@ -259,55 +248,6 @@ void CopyAssistPanel::setSilenceMs(int ms)
 int CopyAssistPanel::silenceMs() const
 {
     return m_silence->value();
-}
-
-void CopyAssistPanel::addTier(const QString& id, const QString& label)
-{
-    m_tier->addItem(label, id);
-}
-
-void CopyAssistPanel::setCurrentTier(const QString& id)
-{
-    const int idx = m_tier->findData(id);
-    if (idx >= 0) {
-        m_tier->setCurrentIndex(idx);
-    }
-}
-
-void CopyAssistPanel::setTierLabel(const QString& id, const QString& label)
-{
-    const int idx = m_tier->findData(id);
-    if (idx >= 0) {
-        m_tier->setItemText(idx, label);
-    }
-}
-
-QString CopyAssistPanel::currentTier() const
-{
-    return m_tier->currentData().toString();
-}
-
-void CopyAssistPanel::addGpuDevice(int index, const QString& name)
-{
-    m_gpu->addItem(name, index);
-}
-
-void CopyAssistPanel::setCurrentGpu(int index)
-{
-    const int idx = m_gpu->findData(index);
-    if (idx >= 0) {
-        m_gpu->setCurrentIndex(idx);
-    }
-}
-
-int CopyAssistPanel::currentGpu() const
-{
-    return m_gpu->currentData().toInt();
-}
-
-void CopyAssistPanel::setGpuSelectorVisible(bool on)
-{
-    m_gpu->setVisible(on);
 }
 
 void CopyAssistPanel::setBusy(bool on)

@@ -9,8 +9,8 @@ Design + decision record: RFC **#4333** (accepted). Engine: **whisper.cpp**
 
 ## Using it
 
-- Open from **View → Copy Assist (Speech to Text)…**, or the **`ASR`** toggle in
-  the status bar (between `CWX` and `DVK`). The toggle is the inverse of `CWX`:
+- Open with the **`ASR`** toggle in the status bar (between `CWX` and `DVK`),
+  which shows/hides the panel. The toggle is the inverse of `CWX`:
   **enabled in voice modes** (USB/LSB/AM/SAM/FM/NFM/DFM), **dimmed in CW and
   DIGx/RTTY**.
 - Tick **Enable**. On first enable the selected model is downloaded (see below),
@@ -18,7 +18,14 @@ Design + decision record: RFC **#4333** (accepted). Engine: **whisper.cpp**
   of the audio you're hearing streams into the panel.
 - Text is **color-coded by recognition confidence**: green (high) → yellow →
   orange → red (low), mirroring the CW decoder.
-- Closing the panel (× / toggle / leaving voice mode) turns ASR off.
+- Hiding the panel (the status-bar **ASR** toggle / leaving voice mode) turns
+  ASR off.
+
+### Settings (⚙)
+
+The **⚙ button** (next to Enabled) opens a small modeless **settings dialog**
+holding the **model** and **compute-device** (GPU/CPU) pickers, with room for
+more options. It floats over the app and can stay open while you operate.
 
 ### Tuning (the control row)
 
@@ -53,7 +60,7 @@ Offline/air-gapped: drop the `ggml-*.bin` file into the models dir manually.
 
 To use a model that isn't in the tier list — a fine-tune, a different
 quantization, or a manually-downloaded `ggml-*.bin`/`.gguf` — select
-**"Custom model…"** in the model picker and pick the file. It loads directly
+**"Custom model…"** in the model picker (⚙ settings) and pick the file. It loads directly
 (no download, no checksum), the picker remembers it (shown as `Custom: <name>`),
 and it runs on the selected compute device like any built-in tier.
 
@@ -79,7 +86,7 @@ Instead of the bundled engine, Copy Assist can offload transcription to a
 whisper.cpp's `whisper-server`, faster-whisper, or any compatible server — to
 run inference on another machine or experiment with different engines.
 
-Select **"Remote server…"** in the model picker and enter the endpoint URL
+Select **"Remote server…"** in the model picker (⚙ settings) and enter the endpoint URL
 (e.g. `http://host:8080/v1/audio/transcriptions`), an optional API key, and the
 model name. AetherSDR ships **no server and no default endpoint**; cloud
 endpoints are entirely opt-in and user-configured.
@@ -123,6 +130,6 @@ Vendored whisper.cpp is pinned; see
 
 `ctest --test-dir build -R 'asr_|copy_assist'` — all offline/CI-safe: segmenter,
 engine (fake backend), model manager (source failover + hash-mismatch), Copy
-Assist panel (confidence coloring), remote backend (mock endpoint), whisper
-linkage. Real GPU/CPU inference is exercised by the env-gated
+Assist panel (confidence coloring), settings dialog (model + GPU pickers),
+remote backend (mock endpoint), whisper linkage. Real GPU/CPU inference is exercised by the env-gated
 `asr_whisper_backend_test` (`AETHER_ASR_TEST_MODEL` + `AETHER_ASR_TEST_PCM`).

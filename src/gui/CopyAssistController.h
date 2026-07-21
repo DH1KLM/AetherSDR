@@ -7,6 +7,7 @@ namespace AetherSDR {
 
 class AudioEngine;
 class CopyAssistPanel;
+class CopyAssistSettingsDialog;
 class AsrEngine;
 class AsrModelManager;
 class AsrAudioTap;
@@ -56,6 +57,7 @@ private:
 
     AudioEngine* m_audio = nullptr;
     CopyAssistPanel* m_panel = nullptr;
+    CopyAssistSettingsDialog* m_settings = nullptr; // modeless model/GPU/options dialog
     AsrEngine* m_asr = nullptr;
     AsrModelManager* m_models = nullptr;
     AsrAudioTap* m_tap = nullptr;

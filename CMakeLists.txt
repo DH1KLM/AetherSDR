@@ -1220,6 +1220,7 @@ if (ENABLE_ASR)
     target_sources(AetherSDR PRIVATE
         src/gui/AsrAudioTap.cpp
         src/gui/CopyAssistPanel.cpp
+        src/gui/CopyAssistSettingsDialog.cpp
         src/gui/CopyAssistController.cpp
     )
 
@@ -3060,6 +3061,18 @@ if (ENABLE_ASR)
     set_target_properties(copy_assist_panel_test PROPERTIES AUTOMOC ON)
     add_test(NAME copy_assist_panel_test COMMAND copy_assist_panel_test)
     set_tests_properties(copy_assist_panel_test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Copy Assist settings dialog: offscreen UI test of the model + GPU pickers.
+    add_executable(copy_assist_settings_dialog_test
+        tests/copy_assist_settings_dialog_test.cpp
+        src/gui/CopyAssistSettingsDialog.cpp
+    )
+    target_include_directories(copy_assist_settings_dialog_test PRIVATE src)
+    target_link_libraries(copy_assist_settings_dialog_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+    set_target_properties(copy_assist_settings_dialog_test PROPERTIES AUTOMOC ON)
+    add_test(NAME copy_assist_settings_dialog_test COMMAND copy_assist_settings_dialog_test)
+    set_tests_properties(copy_assist_settings_dialog_test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
