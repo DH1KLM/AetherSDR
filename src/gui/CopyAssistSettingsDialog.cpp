@@ -50,7 +50,7 @@ CopyAssistSettingsDialog::CopyAssistSettingsDialog(QWidget* parent)
     // Transcript-to-file logging. The checkbox is the master switch; the path row
     // (populated by the controller's file picker) enables with it.
     m_logToFile = new QCheckBox(tr("Save transcript to a file"), this);
-    m_logToFile->setToolTip(tr("Append each finished utterance to a text file"));
+    m_logToFile->setToolTip(tr("Append each finished utterance to a per-day text file"));
     connect(m_logToFile, &QCheckBox::toggled, this, [this](bool on) {
         m_logPath->setEnabled(on);
         m_logBrowse->setEnabled(on);
@@ -71,6 +71,11 @@ CopyAssistSettingsDialog::CopyAssistSettingsDialog(QWidget* parent)
     fileRow->addWidget(m_logPath, 1);
     fileRow->addWidget(m_logBrowse);
     form->addRow(tr("File:"), fileRow);
+
+    // Clarify the per-day naming so the chosen name isn't the literal file.
+    auto* logHint = new QLabel(tr("A per-day date is appended, e.g. name-2026-07-21.txt"), this);
+    logHint->setEnabled(false); // dimmed, informational
+    form->addRow(QString(), logHint);
 
     root->addLayout(form);
     root->addStretch(1); // headroom for further options added here later

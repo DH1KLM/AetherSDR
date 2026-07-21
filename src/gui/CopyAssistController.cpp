@@ -14,6 +14,7 @@
 
 #include <QPushButton>
 
+#include <QDate>
 #include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -49,6 +50,21 @@ void saveInt(const char* key, int value)
     auto& s = AetherSDR::AppSettings::instance();
     s.setValue(QString::fromLatin1(key), QString::number(value));
     s.save();
+}
+
+// Turn the user's base log path into a per-day file by inserting today's date
+// before the extension: "logs/net.txt" → "logs/net-2026-07-21.txt" (a file with
+// no extension just gets "-2026-07-21" appended). Computed per write, so it rolls
+// to a new file at midnight without any timer.
+QString datedLogPath(const QString& base)
+{
+    const QFileInfo fi(base);
+    const QString date = QDate::currentDate().toString(Qt::ISODate); // YYYY-MM-DD
+    QString name = fi.completeBaseName() + QLatin1Char('-') + date;
+    if (!fi.suffix().isEmpty()) {
+        name += QLatin1Char('.') + fi.suffix();
+    }
+    return fi.dir().filePath(name);
 }
 
 AetherSDR::RemoteAsrConfig readRemoteConfig()
@@ -516,14 +532,15 @@ void CopyAssistController::appendToLogFile(const QString& text)
     if (!m_settings->logToFile()) {
         return;
     }
-    const QString path = m_settings->logFilePath();
+    const QString base = m_settings->logFilePath();
     const QString trimmed = text.trimmed();
-    if (path.isEmpty() || trimmed.isEmpty()) {
+    if (base.isEmpty() || trimmed.isEmpty()) {
         return;
     }
-    // Append per utterance (open/close each time so the file survives external
-    // rotation and is always flushed). One timestamped line per utterance.
-    QFile file(path);
+    // Per-day file derived from the user's base name; append per utterance
+    // (open/close each time so the file survives external rotation and is always
+    // flushed). One timestamped line per utterance.
+    QFile file(datedLogPath(base));
     if (!file.open(QIODevice::Append | QIODevice::Text)) {
         m_panel->setStatus(tr("Transcript log write failed: %1").arg(file.errorString()));
         return;

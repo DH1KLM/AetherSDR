@@ -28,9 +28,11 @@ holding the **model** and **compute-device** (GPU/CPU) pickers, with room for
 more options. It floats over the app and can stay open while you operate.
 
 - **Save transcript to a file** — when ticked, every finished utterance is
-  appended to the chosen text file as one timestamped line
-  (`2026-07-21T14:30:05<TAB>text`). Appends only (never truncates); the file and
-  the on/off state persist across sessions.
+  appended as one timestamped line (`2026-07-21T14:30:05<TAB>text`). You name a
+  base file; a **per-day date is inserted before the extension**, so
+  `net.txt` writes to `net-2026-07-21.txt` and rolls to a new file each day.
+  Appends only (never truncates); the base name and on/off state persist across
+  sessions.
 
 ### Tuning (the control row)
 
