@@ -55,11 +55,12 @@ bool WhisperAsrBackend::load(const QString& modelPath, QString* error)
     }
 
     whisper_context_params cparams = whisper_context_default_params();
-    // Use a GPU backend (Vulkan/Metal) when one is compiled in and a device
-    // exists; ggml falls back to CPU automatically when it isn't. gpu_device
-    // selects which GPU (index among GPU devices; see asrGpuDevices).
-    cparams.use_gpu = asrGpuAvailable();
-    cparams.gpu_device = m_gpuDevice;
+    // gpu_device selects the GPU (index among GPU devices; see asrGpuDevices), or
+    // -1 to force CPU. Otherwise use a GPU backend (Vulkan/Metal) when one is
+    // compiled in and present; ggml falls back to CPU automatically when not.
+    const bool useGpu = m_gpuDevice >= 0 && asrGpuAvailable();
+    cparams.use_gpu = useGpu;
+    cparams.gpu_device = useGpu ? m_gpuDevice : 0;
 
     const QByteArray pathUtf8 = modelPath.toUtf8();
     m_ctx = whisper_init_from_file_with_params(pathUtf8.constData(), cparams);

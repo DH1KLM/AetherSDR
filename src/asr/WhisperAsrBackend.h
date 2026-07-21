@@ -18,7 +18,8 @@ namespace AetherSDR {
 class WhisperAsrBackend : public IAsrBackend {
 public:
     WhisperAsrBackend();
-    // gpuDevice: which GPU to run on (index among GPU devices; see asrGpuDevices).
+    // gpuDevice: which GPU to run on (index among GPU devices; see asrGpuDevices),
+    // or -1 to force CPU.
     explicit WhisperAsrBackend(QString language, int gpuDevice = 0);
     ~WhisperAsrBackend() override;
 

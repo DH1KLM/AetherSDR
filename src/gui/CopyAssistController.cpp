@@ -82,16 +82,17 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     }
     m_panel->setCurrentTier(m_tierId);
 
-    // GPU selector — shown whenever GPU inference has a device (so the user sees
-    // which GPU runs the model, and can switch when more than one is visible).
+    // Compute-device selector — shown whenever a GPU exists, so the user can pick
+    // a GPU (or several) or force CPU. Hidden on GPU-less hosts (always CPU).
     const std::vector<AsrGpuDevice> gpus = asrGpuDevices();
-    for (const AsrGpuDevice& g : gpus) {
-        m_panel->addGpuDevice(g.index, g.name);
-    }
     if (!gpus.empty()) {
+        for (const AsrGpuDevice& g : gpus) {
+            m_panel->addGpuDevice(g.index, g.name);
+        }
+        m_panel->addGpuDevice(-1, tr("CPU")); // force-CPU option
         int saved = AppSettings::instance()
                         .value(QStringLiteral("AsrGpuDevice"), QStringLiteral("0")).toString().toInt();
-        if (saved < 0 || saved >= static_cast<int>(gpus.size())) {
+        if (saved != -1 && (saved < 0 || saved >= static_cast<int>(gpus.size()))) {
             saved = 0;
         }
         m_panel->setCurrentGpu(saved);
