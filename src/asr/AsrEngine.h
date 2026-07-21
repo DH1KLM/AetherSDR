@@ -42,6 +42,7 @@ public slots:
     void setMaxSegmentMs(int ms);
     void setSpeechRms(float rms);
     void setHangoverMs(int ms);
+    void setSpeakerThreshold(float t);
     void reset();
 
 signals:
@@ -103,6 +104,8 @@ public:
     void setDecodeBufferMs(int ms);
     void setSpeechRms(float rms);
     void setSilenceDurationMs(int ms);
+    //  - speaker threshold: cosine match threshold for A/B/C clustering (0..1)
+    void setSpeakerThreshold(float threshold);
 
     void reset();
 
@@ -119,6 +122,7 @@ signals:
     void requestSetMaxSegmentMs(int ms);
     void requestSetSpeechRms(float rms);
     void requestSetHangoverMs(int ms);
+    void requestSetSpeakerThreshold(float threshold);
     void requestReset();
 
 private:

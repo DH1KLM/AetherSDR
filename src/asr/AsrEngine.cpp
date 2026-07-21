@@ -184,6 +184,11 @@ void AsrWorker::setHangoverMs(int ms)
     m_segmenter.setHangoverMs(ms);
 }
 
+void AsrWorker::setSpeakerThreshold(float t)
+{
+    m_clusterer.setThreshold(t);
+}
+
 void AsrWorker::reset()
 {
     m_segmenter.reset();
@@ -224,6 +229,7 @@ void AsrEngine::startThread(AsrBackendFactory factory, const AsrSegmenter::Confi
     connect(this, &AsrEngine::requestSetMaxSegmentMs, m_worker, &AsrWorker::setMaxSegmentMs);
     connect(this, &AsrEngine::requestSetSpeechRms, m_worker, &AsrWorker::setSpeechRms);
     connect(this, &AsrEngine::requestSetHangoverMs, m_worker, &AsrWorker::setHangoverMs);
+    connect(this, &AsrEngine::requestSetSpeakerThreshold, m_worker, &AsrWorker::setSpeakerThreshold);
     connect(this, &AsrEngine::requestReset, m_worker, &AsrWorker::reset);
 
     // Worker -> engine (queued back to the main thread).
@@ -282,6 +288,11 @@ void AsrEngine::setSpeechRms(float rms)
 void AsrEngine::setSilenceDurationMs(int ms)
 {
     emit requestSetHangoverMs(ms);
+}
+
+void AsrEngine::setSpeakerThreshold(float threshold)
+{
+    emit requestSetSpeakerThreshold(threshold);
 }
 
 void AsrEngine::reset()

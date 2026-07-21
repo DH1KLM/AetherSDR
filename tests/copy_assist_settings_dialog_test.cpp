@@ -91,6 +91,23 @@ int main(int argc, char** argv)
                "useSileroVadToggled(true) emitted");
     }
 
+    // ---- Speaker labeling: toggle + threshold slider ----------------------
+    {
+        QSignalSpy spkSpy(&dlg, &CopyAssistSettingsDialog::labelSpeakersToggled);
+        dlg.setSpeakerModelPath(QStringLiteral("/tmp/spk.onnx"));
+        dlg.setLabelSpeakers(true);
+        expect(dlg.labelSpeakers() && dlg.speakerModelPath() == QStringLiteral("/tmp/spk.onnx"),
+               "speaker toggle + path round-trip");
+        expect(!spkSpy.isEmpty() && spkSpy.last().at(0).toBool(),
+               "labelSpeakersToggled(true) emitted");
+
+        QSignalSpy thrSpy(&dlg, &CopyAssistSettingsDialog::speakerThresholdChanged);
+        dlg.setSpeakerThreshold(65);
+        expect(dlg.speakerThreshold() == 65, "setSpeakerThreshold round-trips");
+        expect(!thrSpy.isEmpty() && thrSpy.last().at(0).toInt() == 65,
+               "speakerThresholdChanged emits percent");
+    }
+
     std::printf(g_failures == 0 ? "\nCopy Assist settings dialog: ALL PASS\n"
                                 : "\nCopy Assist settings dialog: %d FAILURE(S)\n",
                 g_failures);

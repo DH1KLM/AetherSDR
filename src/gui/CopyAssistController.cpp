@@ -271,9 +271,16 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     });
     m_settings->setSpeakerModelPath(
         AppSettings::instance().value(QStringLiteral("AsrSpeakerModelPath"), QString()).toString());
+    m_settings->setSpeakerThreshold(
+        AppSettings::instance().value(QStringLiteral("AsrSpeakerThreshold"), QStringLiteral("50"))
+            .toString().toInt());
     m_settings->setLabelSpeakers(
         AppSettings::instance().value(QStringLiteral("AsrSpeakerEnabled"), QStringLiteral("False"))
             .toString() == QStringLiteral("True"));
+    connect(m_settings, &CopyAssistSettingsDialog::speakerThresholdChanged, this, [this](int pct) {
+        saveInt("AsrSpeakerThreshold", pct);
+        m_asr->setSpeakerThreshold(pct / 100.0f); // live, no engine rebuild
+    });
     connect(m_settings, &CopyAssistSettingsDialog::labelSpeakersToggled, this, [this](bool on) {
         auto& st = AppSettings::instance();
         st.setValue(QStringLiteral("AsrSpeakerEnabled"), on ? QStringLiteral("True") : QStringLiteral("False"));
@@ -390,12 +397,16 @@ void CopyAssistController::buildEngine()
         segConfig.vadModelPath =
             appSettings.value(QStringLiteral("AsrVadModelPath"), QString()).toString().toStdString();
     }
-    // Optional speaker labeling (A/B/C…): a speaker-embedding .onnx path.
+    // Optional speaker labeling (A/B/C…): a speaker-embedding .onnx path + the
+    // cosine match threshold (stored 0–100 → 0.0–1.0).
     if (appSettings.value(QStringLiteral("AsrSpeakerEnabled"), QStringLiteral("False")).toString()
         == QStringLiteral("True")) {
         segConfig.speakerModelPath =
             appSettings.value(QStringLiteral("AsrSpeakerModelPath"), QString()).toString().toStdString();
     }
+    segConfig.speakerThreshold =
+        appSettings.value(QStringLiteral("AsrSpeakerThreshold"), QStringLiteral("50"))
+            .toString().toInt() / 100.0f;
     switch (m_backend) {
     case AsrBackendKind::Remote:
         m_asr = new AsrEngine(remoteAsrBackendFactory(readRemoteConfig()), segConfig, this);

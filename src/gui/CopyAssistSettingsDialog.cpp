@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSlider>
 #include <QVBoxLayout>
 
 namespace AetherSDR {
@@ -109,6 +110,7 @@ CopyAssistSettingsDialog::CopyAssistSettingsDialog(QWidget* parent)
     connect(m_labelSpeakers, &QCheckBox::toggled, this, [this](bool on) {
         m_spkPath->setEnabled(on);
         m_spkBrowse->setEnabled(on);
+        m_spkThreshold->setEnabled(on);
         emit labelSpeakersToggled(on);
     });
     form->addRow(m_labelSpeakers);
@@ -126,6 +128,26 @@ CopyAssistSettingsDialog::CopyAssistSettingsDialog(QWidget* parent)
     spkRow->addWidget(m_spkPath, 1);
     spkRow->addWidget(m_spkBrowse);
     form->addRow(tr("Speaker model:"), spkRow);
+
+    // Cosine match threshold (0.00–1.00). Higher = stricter (more, finer splits);
+    // lower = looser (fewer, merged speakers). Applied live.
+    auto* thrRow = new QHBoxLayout;
+    m_spkThreshold = new QSlider(Qt::Horizontal, this);
+    m_spkThreshold->setRange(0, 100);
+    m_spkThreshold->setValue(50);
+    m_spkThreshold->setEnabled(false);
+    m_spkThreshold->setToolTip(tr("Cosine similarity above which two utterances are "
+                                  "the same speaker"));
+    m_spkThresholdValue = new QLabel(QStringLiteral("0.50"), this);
+    m_spkThresholdValue->setMinimumWidth(36);
+    m_spkThresholdValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    connect(m_spkThreshold, &QSlider::valueChanged, this, [this](int v) {
+        m_spkThresholdValue->setText(QStringLiteral("%1").arg(v / 100.0, 0, 'f', 2));
+        emit speakerThresholdChanged(v);
+    });
+    thrRow->addWidget(m_spkThreshold, 1);
+    thrRow->addWidget(m_spkThresholdValue);
+    form->addRow(tr("Match threshold:"), thrRow);
 
     root->addLayout(form);
     root->addStretch(1); // headroom for further options added here later
@@ -242,6 +264,16 @@ void CopyAssistSettingsDialog::setSpeakerModelPath(const QString& path)
 QString CopyAssistSettingsDialog::speakerModelPath() const
 {
     return m_spkPath->text();
+}
+
+void CopyAssistSettingsDialog::setSpeakerThreshold(int percent)
+{
+    m_spkThreshold->setValue(percent); // fires valueChanged → updates label + emits
+}
+
+int CopyAssistSettingsDialog::speakerThreshold() const
+{
+    return m_spkThreshold->value();
 }
 
 } // namespace AetherSDR

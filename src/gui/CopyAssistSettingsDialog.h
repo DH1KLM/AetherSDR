@@ -8,6 +8,7 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QSlider;
 
 namespace AetherSDR {
 
@@ -55,6 +56,10 @@ public:
     bool labelSpeakers() const;
     void setSpeakerModelPath(const QString& path);
     QString speakerModelPath() const;
+    // Cosine match threshold as a percent 0–100 (higher = stricter → more, finer
+    // speaker splits; lower = looser → fewer, merged speakers).
+    void setSpeakerThreshold(int percent);
+    int speakerThreshold() const;
 
 signals:
     void tierChanged(const QString& tierId);
@@ -65,6 +70,7 @@ signals:
     void browseVadModelRequested();
     void labelSpeakersToggled(bool on);
     void browseSpeakerModelRequested();
+    void speakerThresholdChanged(int percent);
 
 private:
     QComboBox* m_tier = nullptr;
@@ -79,6 +85,8 @@ private:
     QCheckBox* m_labelSpeakers = nullptr;
     QLineEdit* m_spkPath = nullptr;
     QPushButton* m_spkBrowse = nullptr;
+    QSlider* m_spkThreshold = nullptr;
+    QLabel* m_spkThresholdValue = nullptr;
 };
 
 } // namespace AetherSDR

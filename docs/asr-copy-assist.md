@@ -52,8 +52,10 @@ more options. It floats over the app and can stay open while you operate.
   similarity: the nearest known speaker, or a new one. Panel and log lines are
   prefixed `[A] …`, `[B] …`. Half-duplex helps — one transmitter at a time means
   each utterance is a single speaker, so no overlap handling is needed. Labels are
-  session-relative (reset on retune/re-enable). RF caveats: narrowband/noise and
-  propagation drift can split or merge a voice; the cosine threshold is tunable.
+  session-relative (reset on retune/re-enable). A **Match threshold** slider
+  (0.00–1.00, cosine; applied live) tunes it — higher = stricter (more, finer
+  splits), lower = looser (fewer, merged speakers). RF caveats: narrowband/noise
+  and propagation drift can split or merge a voice, so expect to tune it.
   Requires an ONNX-Runtime-enabled build.
 
 ### Tuning (the control row)
