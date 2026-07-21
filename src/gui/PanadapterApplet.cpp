@@ -616,8 +616,8 @@ CopyAssistPanel* PanadapterApplet::copyAssistPanel()
 
     m_copyAssistPanel = new CopyAssistPanel(m_copyAssistDock);
     dockLayout->addWidget(m_copyAssistPanel, 1);
-    connect(m_copyAssistPanel, &CopyAssistPanel::closeRequested, this,
-            [this] { setCopyAssistVisible(false); });
+    // Shown/hidden via the status-bar "ASR" toggle (setCopyAssistVisible); the
+    // panel has no close button of its own.
 
     m_copyAssistDock->hide();
     m_mainLayout->addWidget(m_copyAssistDock);
