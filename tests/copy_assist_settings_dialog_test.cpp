@@ -67,6 +67,18 @@ int main(int argc, char** argv)
                "gpuChanged carries the device index");
     }
 
+    // ---- Transcript file logging: state + toggle signal -------------------
+    {
+        QSignalSpy logSpy(&dlg, &CopyAssistSettingsDialog::logToFileToggled);
+        dlg.setLogFilePath(QStringLiteral("/tmp/aether-transcript.txt"));
+        expect(dlg.logFilePath() == QStringLiteral("/tmp/aether-transcript.txt"),
+               "setLogFilePath round-trips");
+        dlg.setLogToFile(true);
+        expect(dlg.logToFile(), "setLogToFile reflects state");
+        expect(!logSpy.isEmpty() && logSpy.last().at(0).toBool(),
+               "logToFileToggled(true) emitted");
+    }
+
     std::printf(g_failures == 0 ? "\nCopy Assist settings dialog: ALL PASS\n"
                                 : "\nCopy Assist settings dialog: %d FAILURE(S)\n",
                 g_failures);

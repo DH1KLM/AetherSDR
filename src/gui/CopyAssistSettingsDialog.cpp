@@ -1,8 +1,12 @@
 #include "CopyAssistSettingsDialog.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 namespace AetherSDR {
@@ -42,6 +46,31 @@ CopyAssistSettingsDialog::CopyAssistSettingsDialog(QWidget* parent)
     // device picker at all).
     m_gpuLabel->hide();
     m_gpu->hide();
+
+    // Transcript-to-file logging. The checkbox is the master switch; the path row
+    // (populated by the controller's file picker) enables with it.
+    m_logToFile = new QCheckBox(tr("Save transcript to a file"), this);
+    m_logToFile->setToolTip(tr("Append each finished utterance to a text file"));
+    connect(m_logToFile, &QCheckBox::toggled, this, [this](bool on) {
+        m_logPath->setEnabled(on);
+        m_logBrowse->setEnabled(on);
+        emit logToFileToggled(on);
+    });
+    form->addRow(m_logToFile);
+
+    auto* fileRow = new QHBoxLayout;
+    m_logPath = new QLineEdit(this);
+    m_logPath->setObjectName(QStringLiteral("CopyAssistLogPath"));
+    m_logPath->setReadOnly(true);
+    m_logPath->setPlaceholderText(tr("(no file chosen)"));
+    m_logPath->setEnabled(false);
+    m_logBrowse = new QPushButton(tr("Browse…"), this);
+    m_logBrowse->setEnabled(false);
+    connect(m_logBrowse, &QPushButton::clicked, this,
+            &CopyAssistSettingsDialog::browseLogFileRequested);
+    fileRow->addWidget(m_logPath, 1);
+    fileRow->addWidget(m_logBrowse);
+    form->addRow(tr("File:"), fileRow);
 
     root->addLayout(form);
     root->addStretch(1); // headroom for further options added here later
@@ -95,6 +124,27 @@ void CopyAssistSettingsDialog::setGpuSelectorVisible(bool on)
 {
     m_gpuLabel->setVisible(on);
     m_gpu->setVisible(on);
+}
+
+void CopyAssistSettingsDialog::setLogToFile(bool on)
+{
+    m_logToFile->setChecked(on); // fires toggled → enables the path row + emits
+}
+
+bool CopyAssistSettingsDialog::logToFile() const
+{
+    return m_logToFile->isChecked();
+}
+
+void CopyAssistSettingsDialog::setLogFilePath(const QString& path)
+{
+    m_logPath->setText(path);
+    m_logPath->setToolTip(path);
+}
+
+QString CopyAssistSettingsDialog::logFilePath() const
+{
+    return m_logPath->text();
 }
 
 } // namespace AetherSDR

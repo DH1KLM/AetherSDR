@@ -48,6 +48,8 @@ private:
     void requestModel(const QString& tierId);
     bool promptRemoteConfig();  // edit + persist the remote endpoint; true if accepted
     QString promptCustomModel(); // pick a local ggml/gguf model file (empty if cancelled)
+    void promptLogFile();        // pick + persist the transcript log path
+    void appendToLogFile(const QString& text); // write one utterance if logging is on
     // Which backend a selected tier id maps to (catalog family → backend kind;
     // the "custom" file and any unknown id default to local Whisper).
     static AsrBackendKind backendForTier(const QString& tierId);

@@ -14,14 +14,18 @@
 
 #include <QPushButton>
 
+#include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QObject>
 #include <QStandardPaths>
+#include <QTextStream>
 
 #include <algorithm>
 
@@ -176,6 +180,24 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
         }
     });
 
+    // Transcript-to-file logging. Restore the path first, then the checkbox, so
+    // the toggle handler sees a path and doesn't prompt during restore.
+    m_settings->setLogFilePath(
+        AppSettings::instance().value(QStringLiteral("AsrLogFilePath"), QString()).toString());
+    m_settings->setLogToFile(
+        AppSettings::instance().value(QStringLiteral("AsrLogToFile"), QStringLiteral("False"))
+            .toString() == QStringLiteral("True"));
+    connect(m_settings, &CopyAssistSettingsDialog::logToFileToggled, this, [this](bool on) {
+        auto& st = AppSettings::instance();
+        st.setValue(QStringLiteral("AsrLogToFile"), on ? QStringLiteral("True") : QStringLiteral("False"));
+        st.save();
+        if (on && m_settings->logFilePath().isEmpty()) {
+            promptLogFile(); // enabling with no file yet → ask for one
+        }
+    });
+    connect(m_settings, &CopyAssistSettingsDialog::browseLogFileRequested, this,
+            [this] { promptLogFile(); });
+
     // Model download → engine load (the handlers read m_asr at call time, so they
     // survive an engine rebuild on backend switch).
     connect(m_models, &AsrModelManager::progress, this, [this](qint64 got, qint64 total) {
@@ -275,6 +297,8 @@ void CopyAssistController::buildEngine()
         m_panel->setAsrEnabled(false);
     });
     connect(m_asr, &AsrEngine::finalText, m_panel, &CopyAssistPanel::appendText);
+    connect(m_asr, &AsrEngine::finalText, this,
+            [this](const QString& text, float) { appendToLogFile(text); });
     connect(m_asr, &AsrEngine::error, this, [this](const QString& err) { m_panel->setStatus(err); });
 
     applyTuning();
@@ -460,6 +484,52 @@ QString CopyAssistController::promptCustomModel()
     return QFileDialog::getOpenFileName(
         m_settings, tr("Choose a Whisper model"), startDir,
         tr("Whisper models (*.bin *.gguf);;All files (*)"));
+}
+
+void CopyAssistController::promptLogFile()
+{
+    const QString current = m_settings->logFilePath();
+    const QString startDir =
+        current.isEmpty()
+            ? QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation))
+                  .filePath(QStringLiteral("aethersdr-transcript.txt"))
+            : current;
+    // We append (never truncate), so suppress the "replace existing file?" prompt.
+    const QString path = QFileDialog::getSaveFileName(
+        m_settings, tr("Save transcript to"), startDir,
+        tr("Text files (*.txt);;All files (*)"), nullptr,
+        QFileDialog::DontConfirmOverwrite);
+    if (path.isEmpty()) {
+        // Cancelled: if logging was just turned on without a file, turn it back off.
+        if (m_settings->logFilePath().isEmpty()) {
+            m_settings->setLogToFile(false);
+        }
+        return;
+    }
+    m_settings->setLogFilePath(path);
+    AppSettings::instance().setValue(QStringLiteral("AsrLogFilePath"), path);
+    AppSettings::instance().save();
+}
+
+void CopyAssistController::appendToLogFile(const QString& text)
+{
+    if (!m_settings->logToFile()) {
+        return;
+    }
+    const QString path = m_settings->logFilePath();
+    const QString trimmed = text.trimmed();
+    if (path.isEmpty() || trimmed.isEmpty()) {
+        return;
+    }
+    // Append per utterance (open/close each time so the file survives external
+    // rotation and is always flushed). One timestamped line per utterance.
+    QFile file(path);
+    if (!file.open(QIODevice::Append | QIODevice::Text)) {
+        m_panel->setStatus(tr("Transcript log write failed: %1").arg(file.errorString()));
+        return;
+    }
+    QTextStream out(&file);
+    out << QDateTime::currentDateTime().toString(Qt::ISODate) << '\t' << trimmed << '\n';
 }
 
 } // namespace AetherSDR

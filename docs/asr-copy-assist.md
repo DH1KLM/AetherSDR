@@ -27,6 +27,11 @@ The **⚙ button** (next to Enabled) opens a small modeless **settings dialog**
 holding the **model** and **compute-device** (GPU/CPU) pickers, with room for
 more options. It floats over the app and can stay open while you operate.
 
+- **Save transcript to a file** — when ticked, every finished utterance is
+  appended to the chosen text file as one timestamped line
+  (`2026-07-21T14:30:05<TAB>text`). Appends only (never truncates); the file and
+  the on/off state persist across sessions.
+
 ### Tuning (the control row)
 
 | Control | Range | Effect |

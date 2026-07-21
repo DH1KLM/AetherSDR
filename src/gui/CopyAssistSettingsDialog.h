@@ -3,8 +3,11 @@
 #include <QDialog>
 #include <QString>
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
+class QLineEdit;
+class QPushButton;
 
 namespace AetherSDR {
 
@@ -33,14 +36,26 @@ public:
     int currentGpu() const;
     void setGpuSelectorVisible(bool on);
 
+    // Transcript-to-file logging: a checkbox + a (controller-populated) path. The
+    // controller owns the file picker and the actual writing.
+    void setLogToFile(bool on);
+    bool logToFile() const;
+    void setLogFilePath(const QString& path);
+    QString logFilePath() const;
+
 signals:
     void tierChanged(const QString& tierId);
     void gpuChanged(int index);
+    void logToFileToggled(bool on);
+    void browseLogFileRequested();
 
 private:
     QComboBox* m_tier = nullptr;
     QComboBox* m_gpu = nullptr;
-    QLabel* m_gpuLabel = nullptr; // paired with m_gpu so both hide together
+    QLabel* m_gpuLabel = nullptr;   // paired with m_gpu so both hide together
+    QCheckBox* m_logToFile = nullptr;
+    QLineEdit* m_logPath = nullptr; // read-only display of the chosen path
+    QPushButton* m_logBrowse = nullptr;
 };
 
 } // namespace AetherSDR
