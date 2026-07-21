@@ -6,6 +6,7 @@
 #include <QString>
 #include <QStringList>
 
+#include <functional>
 #include <memory>
 
 class QNetworkAccessManager;
@@ -50,7 +51,7 @@ public:
     // *error if non-null) when the file is missing, mis-sized, or mismatched.
     bool verify(const AsrModelTier& tier, QString* error = nullptr) const;
 
-    bool isBusy() const { return m_reply != nullptr; }
+    bool isBusy() const { return m_reply != nullptr || m_verifying; }
 
 public slots:
     // Ensure the tier is cached and valid. Emits alreadyPresent() immediately
@@ -63,6 +64,7 @@ public slots:
 
 signals:
     void progress(qint64 received, qint64 total); // total == -1 when unknown
+    void verifying();                              // SHA-256 check started (background)
     void alreadyPresent(const QString& modelPath);
     void finished(const QString& modelPath);
     void failed(const QString& error);
@@ -70,6 +72,10 @@ signals:
 private:
     QString partPath(const AsrModelTier& tier) const;
     bool verifyFile(const QString& path, const AsrModelTier& tier, QString* error) const;
+    // Hash+verify `path` on a background thread (never the UI thread — a multi-GB
+    // model would freeze the app), then run `onDone(match)` back on this thread.
+    void verifyInBackground(const QString& path, std::function<void(bool)> onDone);
+    void beginDownload();
     void startSource(int index);
     void onReadyRead();
     void onReplyFinished();
@@ -87,6 +93,7 @@ private:
     std::unique_ptr<QFile> m_partFile;
     QStringList m_sourceErrors; // one line per failed source, for the final message
     bool m_canceled = false;
+    bool m_verifying = false;   // a background verification is running
 };
 
 } // namespace AetherSDR

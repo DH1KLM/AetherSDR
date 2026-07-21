@@ -7,6 +7,7 @@ class QCheckBox;
 class QComboBox;
 class QHBoxLayout;
 class QLabel;
+class QProgressBar;
 class QPushButton;
 class QSlider;
 class QTextEdit;
@@ -34,6 +35,8 @@ public:
     QString currentTier() const;
 
     void setStatus(const QString& text);
+    // Show/hide the indeterminate loading indicator (model download/verify/load).
+    void setBusy(bool on);
     bool isAsrEnabled() const;
     void setAsrEnabled(bool on);
 
@@ -83,6 +86,7 @@ private:
     QLabel* m_sensitivityValue = nullptr;
     QSlider* m_silence = nullptr;
     QLabel* m_silenceValue = nullptr;
+    QProgressBar* m_busy = nullptr;
 };
 
 } // namespace AetherSDR

@@ -5,6 +5,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QSlider>
 #include <QTextEdit>
@@ -113,11 +114,22 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     });
     root->addWidget(m_text, 1);
 
-    // --- Status line --------------------------------------------------------
+    // --- Status line (with an indeterminate loading indicator) --------------
+    auto* statusRow = new QHBoxLayout;
+    m_busy = new QProgressBar(this);
+    m_busy->setRange(0, 0); // indeterminate "busy" animation
+    m_busy->setTextVisible(false);
+    m_busy->setFixedSize(90, 12);
+    m_busy->setAccessibleName(tr("Copy Assist loading"));
+    m_busy->hide();
+    statusRow->addWidget(m_busy);
+
     m_status = new QLabel(tr("Disabled"), this);
     m_status->setObjectName(QStringLiteral("CopyAssistStatus"));
     m_status->setAccessibleName(tr("Copy Assist status"));
-    root->addWidget(m_status);
+    statusRow->addWidget(m_status, 1);
+
+    root->addLayout(statusRow);
 }
 
 QSlider* CopyAssistPanel::addSliderInline(QHBoxLayout* bar, const QString& label,
@@ -185,6 +197,11 @@ void CopyAssistPanel::setCurrentTier(const QString& id)
 QString CopyAssistPanel::currentTier() const
 {
     return m_tier->currentData().toString();
+}
+
+void CopyAssistPanel::setBusy(bool on)
+{
+    m_busy->setVisible(on);
 }
 
 void CopyAssistPanel::setStatus(const QString& text)

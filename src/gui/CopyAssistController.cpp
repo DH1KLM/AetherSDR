@@ -67,6 +67,9 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
             m_panel->setStatus(tr("Downloading model…"));
         }
     });
+    connect(m_models, &AsrModelManager::verifying, this, [this] {
+        m_panel->setStatus(tr("Verifying model…"));
+    });
     connect(m_models, &AsrModelManager::alreadyPresent, this, [this](const QString& path) {
         m_panel->setStatus(tr("Loading model…"));
         m_asr->setModelPath(path);
@@ -76,18 +79,21 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
         m_asr->setModelPath(path);
     });
     connect(m_models, &AsrModelManager::failed, this, [this](const QString& err) {
+        m_panel->setBusy(false);
         m_panel->setStatus(tr("Model download failed: %1").arg(err));
         m_panel->setAsrEnabled(false);
     });
 
     // Engine lifecycle.
     connect(m_asr, &AsrEngine::ready, this, [this] {
+        m_panel->setBusy(false);
         if (m_enabled) {
             m_tap->setEnabled(true);        // start feeding RX audio
             m_panel->setStatus(tr("Listening…"));
         }
     });
     connect(m_asr, &AsrEngine::loadFailed, this, [this](const QString& err) {
+        m_panel->setBusy(false);
         m_panel->setStatus(tr("Model load failed: %1").arg(err));
         m_panel->setAsrEnabled(false);
     });
@@ -138,6 +144,7 @@ void CopyAssistController::onEnableToggled(bool on)
         beginEnable();
     } else {
         m_tap->setEnabled(false);
+        m_panel->setBusy(false);
         m_panel->setStatus(tr("Disabled"));
     }
 }
@@ -157,6 +164,7 @@ void CopyAssistController::onTierChanged(const QString& tierId)
 
 void CopyAssistController::beginEnable()
 {
+    m_panel->setBusy(true);
     m_panel->setStatus(tr("Preparing model…"));
     requestModel(m_tierId);
 }

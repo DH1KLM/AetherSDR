@@ -4,12 +4,14 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QLoggingCategory>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QStandardPaths>
 #include <QUrl>
+#include <QtConcurrent>
 
 namespace AetherSDR {
 
@@ -108,26 +110,57 @@ void AsrModelManager::ensure(const AsrModelTier& tier)
         return;
     }
 
-    // Already cached and valid — nothing to do.
-    if (isPresent(tier) && verify(tier, nullptr)) {
-        emit alreadyPresent(modelPath(tier));
+    m_tier = tier;
+    m_sourceErrors.clear();
+    m_canceled = false;
+
+    // If the file is present (size matches), verify its SHA-256 — but off the UI
+    // thread, since hashing a multi-GB model would otherwise freeze the app.
+    if (isPresent(tier)) {
+        verifyInBackground(modelPath(tier), [this](bool ok) {
+            if (ok) {
+                emit alreadyPresent(modelPath(m_tier));
+            } else {
+                QFile::remove(modelPath(m_tier)); // corrupt cache — re-fetch
+                beginDownload();
+            }
+        });
         return;
     }
 
-    if (tier.sources.isEmpty()) {
-        emit failed(QStringLiteral("No download sources for tier '%1'.").arg(tier.id));
+    beginDownload();
+}
+
+void AsrModelManager::beginDownload()
+{
+    if (m_tier.sources.isEmpty()) {
+        emit failed(QStringLiteral("No download sources for tier '%1'.").arg(m_tier.id));
         return;
     }
-
     if (!QDir().mkpath(m_cacheDir)) {
         emit failed(QStringLiteral("Cannot create model cache directory: %1").arg(m_cacheDir));
         return;
     }
-
-    m_tier = tier;
-    m_sourceErrors.clear();
-    m_canceled = false;
     startSource(0);
+}
+
+void AsrModelManager::verifyInBackground(const QString& path, std::function<void(bool)> onDone)
+{
+    m_verifying = true;
+    emit verifying();
+    const AsrModelTier tier = m_tier;
+    auto* watcher = new QFutureWatcher<bool>(this);
+    connect(watcher, &QFutureWatcher<bool>::finished, this,
+            [this, watcher, onDone = std::move(onDone)] {
+                m_verifying = false;
+                const bool ok = watcher->result();
+                watcher->deleteLater();
+                onDone(ok);
+            });
+    // verifyFile() is const and self-contained (local QFile + hashing) — safe to
+    // run on a pool thread. Capture path/tier by value.
+    watcher->setFuture(QtConcurrent::run(
+        [this, path, tier] { return verifyFile(path, tier, nullptr); }));
 }
 
 void AsrModelManager::startSource(int index)
@@ -210,27 +243,28 @@ void AsrModelManager::onReplyFinished()
     m_partFile.reset();
     cleanupReply();
 
-    QString verifyError;
-    if (!verifyFile(partFilePath, m_tier, &verifyError)) {
-        qCWarning(lcAsrModel) << "Rejected download from" << host << ":" << verifyError;
-        m_sourceErrors << QStringLiteral("%1: %2").arg(host, verifyError);
-        QFile::remove(partFilePath);
-        startSource(m_sourceIndex + 1);
-        return;
-    }
-
-    // Atomically move the verified file into place.
-    const QString finalPath = modelPath(m_tier);
-    QFile::remove(finalPath); // rename() won't overwrite on some platforms
-    if (!QFile::rename(partFilePath, finalPath)) {
-        QFile::remove(partFilePath);
-        emit failed(QStringLiteral("Verified %1 but could not move it into the cache.")
-                        .arg(m_tier.fileName));
-        return;
-    }
-
-    qCInfo(lcAsrModel) << "Cached verified model" << finalPath;
-    emit finished(finalPath);
+    // Verify the freshly downloaded file off the UI thread, then accept (rename
+    // into place) or fail over to the next source.
+    const int sourceIndex = m_sourceIndex;
+    verifyInBackground(partFilePath, [this, partFilePath, host, sourceIndex](bool ok) {
+        if (!ok) {
+            qCWarning(lcAsrModel) << "Rejected download from" << host << ": SHA-256 mismatch";
+            m_sourceErrors << QStringLiteral("%1: SHA-256 mismatch").arg(host);
+            QFile::remove(partFilePath);
+            startSource(sourceIndex + 1);
+            return;
+        }
+        const QString finalPath = modelPath(m_tier);
+        QFile::remove(finalPath); // rename() won't overwrite on some platforms
+        if (!QFile::rename(partFilePath, finalPath)) {
+            QFile::remove(partFilePath);
+            emit failed(QStringLiteral("Verified %1 but could not move it into the cache.")
+                            .arg(m_tier.fileName));
+            return;
+        }
+        qCInfo(lcAsrModel) << "Cached verified model" << finalPath;
+        emit finished(finalPath);
+    });
 }
 
 void AsrModelManager::cancel()
