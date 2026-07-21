@@ -131,6 +131,9 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
             " padding: 3px 8px; font-weight: bold; color: {{color.text.secondary}}; }"
             "QPushButton:hover { background: {{color.background.2}};"
             " color: {{color.text.primary}}; }"));
+    // The ⚙ glyph renders taller than the text buttons; pin the gear to the
+    // Enabled button's height so the row stays flush.
+    m_panel->settingsButton()->setFixedHeight(m_panel->enableButton()->sizeHint().height());
 
     // Compute-device selector — shown whenever a GPU exists, so the user can pick
     // a GPU (or several) or force CPU. Hidden on GPU-less hosts (always CPU).
