@@ -30,16 +30,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build g++ git bzip2
 
+      # Cache the C/C++ compilation — the bulk of the build time on re-runs.
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03
+        with:
+          key: sherpa-onnx-aarch64-${{ github.event.inputs.version }}
+          max-size: 500M
+
       - name: Clone sherpa-onnx ${{ github.event.inputs.version }}
         run: |
           git clone --depth 1 --branch v${{ github.event.inputs.version }} \
             https://github.com/k2-fsa/sherpa-onnx sherpa-src
+
+      # Cache sherpa's downloaded dependencies (the ONNX Runtime prebuilt +
+      # FetchContent deps) so re-runs skip the downloads. Keyed by version, since
+      # the pinned deps only change when sherpa-onnx does.
+      - name: Cache sherpa-onnx build deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: sherpa-src/build/_deps
+          key: sherpa-onnx-deps-aarch64-${{ github.event.inputs.version }}
 
       - name: Configure + build the C-API shared lib
         run: |
           cd sherpa-src
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_SHARED_LIBS=ON \
             -DSHERPA_ONNX_ENABLE_C_API=ON \
             -DSHERPA_ONNX_ENABLE_BINARY=OFF \
