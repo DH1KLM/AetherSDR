@@ -1136,6 +1136,22 @@ if (ENABLE_ASR)
     add_subdirectory(third_party/whisper.cpp EXCLUDE_FROM_ALL)
     set(BUILD_SHARED_LIBS ${_aether_saved_shared_libs} CACHE BOOL "" FORCE)
 
+    if (MSVC)
+        # MSVC's optimizer is pathologically slow on ggml's SIMD/quant kernels
+        # (ggml-cpu/ops.cpp, ggml.c, ggml-quants.c, repack.cpp) — a cold Release
+        # build of the vendored engine ran Windows CI from ~28 min to 3h+. These
+        # kernels are explicitly vectorized (intrinsics) and memory-bandwidth-
+        # bound, so /O1 keeps runtime fast enough while cutting MSVC compile time
+        # dramatically. Scoped to the vendored ASR targets only; the rest of
+        # AetherSDR keeps its normal optimization. (/O1 intentionally overrides
+        # the config's /O2 — the D9025 override notice is expected.)
+        foreach(_asr_msvc_target ggml-base ggml ggml-cpu whisper)
+            if (TARGET ${_asr_msvc_target})
+                target_compile_options(${_asr_msvc_target} PRIVATE /O1)
+            endif()
+        endforeach()
+    endif()
+
     # ASR ships as its OWN static library, deliberately NOT part of libaethercore.
     # Per the aetherd direction (RFC #3849/#4333), speech processing belongs on
     # the engine/headless side and streams only the resulting text to a thin UI;
