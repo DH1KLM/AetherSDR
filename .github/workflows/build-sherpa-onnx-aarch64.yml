@@ -17,6 +17,10 @@ on:
         description: 'sherpa-onnx version tag to build'
         required: true
         default: '1.13.4'
+  # workflow_dispatch only works once this file is on the default branch. Until
+  # then, push to the `ci/build-sherpa-aarch64` branch to run it (builds v1.13.4).
+  push:
+    branches: [ci/build-sherpa-aarch64]
 
 permissions:
   contents: write
@@ -34,12 +38,12 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03
         with:
-          key: sherpa-onnx-aarch64-${{ github.event.inputs.version }}
+          key: sherpa-onnx-aarch64-${{ github.event.inputs.version || '1.13.4' }}
           max-size: 500M
 
-      - name: Clone sherpa-onnx ${{ github.event.inputs.version }}
+      - name: Clone sherpa-onnx ${{ github.event.inputs.version || '1.13.4' }}
         run: |
-          git clone --depth 1 --branch v${{ github.event.inputs.version }} \
+          git clone --depth 1 --branch v${{ github.event.inputs.version || '1.13.4' }} \
             https://github.com/k2-fsa/sherpa-onnx sherpa-src
 
       # Cache sherpa's downloaded dependencies (the ONNX Runtime prebuilt +
@@ -49,7 +53,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: sherpa-src/build/_deps
-          key: sherpa-onnx-deps-aarch64-${{ github.event.inputs.version }}
+          key: sherpa-onnx-deps-aarch64-${{ github.event.inputs.version || '1.13.4' }}
 
       - name: Configure + build the C-API shared lib
         run: |
@@ -73,13 +77,15 @@ jobs:
       - name: Package (upstream layout)
         id: pkg
         run: |
-          VER="${{ github.event.inputs.version }}"
+          VER="${{ github.event.inputs.version || '1.13.4' }}"
           PKG="sherpa-onnx-v${VER}-linux-aarch64-shared-no-tts-lib"
           mkdir -p "${PKG}/lib"
           # Gather the C-API + cxx-api + the bundled ONNX Runtime from wherever the
           # build/install put them.
-          find sherpa-src/install sherpa-src/build -name 'libsherpa-onnx-c-api.so*' \
-               -o -name 'libsherpa-onnx-cxx-api.so*' -o -name 'libonnxruntime.so*' \
+          find sherpa-src/install sherpa-src/build \( \
+                 -name 'libsherpa-onnx-c-api.so*' \
+              -o -name 'libsherpa-onnx-cxx-api.so*' \
+              -o -name 'libonnxruntime.so*' \) -print \
             | sort -u | while read -r f; do cp -av "$f" "${PKG}/lib/"; done
           echo "== packaged libs =="; ls -l "${PKG}/lib/"
           test -f "${PKG}/lib/libsherpa-onnx-c-api.so" || { echo "missing c-api lib"; exit 1; }
