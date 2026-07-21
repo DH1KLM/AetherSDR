@@ -44,6 +44,9 @@ public:
     void setBusy(bool on);
     bool isAsrEnabled() const;
     void setAsrEnabled(bool on);
+    // The Enable/Disable toggle button — exposed so the app layer can apply the
+    // themed applet-toggle style (the panel itself stays ThemeManager-free).
+    QPushButton* enableButton() const { return m_enable; }
 
     // Decode-buffer size in milliseconds (1000–20000). The slider works in
     // whole seconds; setBufferMs rounds/clamps into range.

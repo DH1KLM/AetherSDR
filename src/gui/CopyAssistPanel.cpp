@@ -33,14 +33,15 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     // --- Controls row -------------------------------------------------------
     auto* controls = new QHBoxLayout;
 
-    // A checkable button (not a checkbox) — the "Enable"/"Disable" label makes
-    // the on/off state obvious. Same default button styling as Clear/A-/A+.
-    m_enable = new QPushButton(tr("Enable"), this);
+    // A checkable button (not a checkbox) whose label shows the state
+    // (Enabled/Disabled); the app layer gives it the applet-toggle style so the
+    // enabled state reads as a distinct colour.
+    m_enable = new QPushButton(tr("Disabled"), this);
     m_enable->setCheckable(true);
     m_enable->setAccessibleName(tr("Enable Copy Assist"));
     m_enable->setToolTip(tr("Transcribe received voice to text"));
     connect(m_enable, &QPushButton::toggled, this, [this](bool on) {
-        m_enable->setText(on ? tr("Disable") : tr("Enable"));
+        m_enable->setText(on ? tr("Enabled") : tr("Disabled"));
         emit enableToggled(on);
     });
     controls->addWidget(m_enable);

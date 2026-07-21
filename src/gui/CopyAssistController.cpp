@@ -8,7 +8,10 @@
 #include "asr/RemoteAsrBackend.h"
 #include "asr/WhisperAsrBackend.h"
 #include "core/AppSettings.h"
+#include "core/ThemeManager.h"
 #include "gui/AsrAudioTap.h"
+
+#include <QPushButton>
 
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -81,6 +84,17 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
                                      : AsrModelCatalog::defaultTierId();
     }
     m_panel->setCurrentTier(m_tierId);
+
+    // Style the Enable/Disable toggle like the applet toggle buttons: the enabled
+    // (checked) state fills with the dim-cyan accent so it's visibly distinct.
+    ThemeManager::instance().applyStyleSheet(m_panel->enableButton(),
+        QStringLiteral(
+            "QPushButton { background: {{color.background.1}};"
+            " border: 1px solid {{color.background.2}}; border-radius: 3px;"
+            " padding: 3px 10px; font-weight: bold; color: {{color.text.primary}}; }"
+            "QPushButton:hover { background: {{color.background.2}}; }"
+            "QPushButton:checked { background: {{color.accent.dim}};"
+            " color: {{color.text.primary}}; border: 1px solid {{color.accent.bright}}; }"));
 
     // Compute-device selector — shown whenever a GPU exists, so the user can pick
     // a GPU (or several) or force CPU. Hidden on GPU-less hosts (always CPU).
