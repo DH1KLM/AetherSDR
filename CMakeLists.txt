@@ -2129,20 +2129,19 @@ else()
         "(set REQUIRE_ASR_ONNX=ON to make this a hard error in release builds)")
 endif()
 
-# sherpa-onnx (detected further below) bundles its own ONNX Runtime (currently
-# 1.27). If it's staged, use THAT libonnxruntime for our ORT code too, so the
-# process has a single runtime — our C++ ORT usage is header-only and
-# backward-compatible with the newer lib. Linking both our (older) staged ORT and
-# sherpa's would fail: mismatched OrtGetApiBase symbol versions, and the wrong
-# one could win the runtime rpath. Pointing ORT_LIBRARIES at sherpa's lib also
-# drops our staged lib dir off the link/rpath, leaving exactly one at runtime.
+# sherpa-onnx (detected further below) bundles the SAME ONNX Runtime version we
+# stage (1.27 — the setup scripts are pinned to match). If it's staged, link its
+# libonnxruntime for our ORT code too, so the app ships/loads a single runtime
+# instead of two identical copies, and there's no rpath ambiguity. On macOS
+# sherpa's runtime is universal2, so this also covers Intel Macs, where the
+# standalone ONNX Runtime prebuilt is Apple-Silicon-only at 1.27.
 if(ORT_FOUND AND NOT WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/sherpa-onnx/lib")
     file(GLOB _sherpa_ort
         "${CMAKE_SOURCE_DIR}/third_party/sherpa-onnx/lib/libonnxruntime.so"
         "${CMAKE_SOURCE_DIR}/third_party/sherpa-onnx/lib/libonnxruntime.dylib")
     if(_sherpa_ort)
         list(GET _sherpa_ort 0 ORT_LIBRARIES)
-        message(STATUS "ONNX Runtime: sharing sherpa-onnx's bundled runtime (avoids a version clash)")
+        message(STATUS "ONNX Runtime: sharing sherpa-onnx's bundled 1.27 runtime (one copy for the app)")
     endif()
 endif()
 

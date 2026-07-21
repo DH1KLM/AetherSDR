@@ -99,6 +99,10 @@ jobs:
         run: bash scripts/setup/setup-deepfilter.sh
 
       - name: Setup ONNX Runtime (Silero VAD + speaker labeling + signal classifier)
+        # ONNX Runtime 1.27 ships no Intel-macOS prebuilt (Apple-Silicon only), so
+        # the Intel DMG builds without the ONNX ASR features (CPU whisper + Metal
+        # still ship). Apple Silicon requires them (below).
+        if: matrix.label == 'apple-silicon'
         run: bash scripts/setup/setup-onnxruntime.sh
 
       - name: Set up ccache
@@ -122,11 +126,15 @@ jobs:
           if [ "${{ matrix.label }}" = "intel" ]; then
             GPU_FLAG="-DAETHER_GPU_SPECTRUM=OFF"
           fi
-          # REQUIRE_ASR_ONNX=ON: Silero VAD + speaker labeling must ship (fails if
-          # setup-onnxruntime.sh didn't stage the runtime). REQUIRE_ASR_GPU=ON:
-          # the Metal backend must build (the macOS runners have full Xcode with
-          # the metal compiler + the GGML_METAL_EMBED_LIBRARY fix), so a broken
-          # Metal toolchain fails the build instead of silently shipping CPU-only.
+          # Require the ONNX ASR features only on Apple Silicon (ONNX Runtime 1.27
+          # has no Intel-macOS prebuilt). REQUIRE_ASR_GPU=ON on both: the Metal
+          # backend must build (the macOS runners have full Xcode with the metal
+          # compiler + the GGML_METAL_EMBED_LIBRARY fix), so a broken Metal
+          # toolchain fails the build instead of silently shipping CPU-only.
+          ONNX_FLAG=""
+          if [ "${{ matrix.label }}" = "apple-silicon" ]; then
+            ONNX_FLAG="-DREQUIRE_ASR_ONNX=ON"
+          fi
           cmake -B build -G "Unix Makefiles" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
@@ -134,8 +142,8 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET" \
             -DCMAKE_PREFIX_PATH="$QT_PREFIX;$(brew --prefix)" \
             -DMQTT_TLS=OFF \
-            -DREQUIRE_ASR_ONNX=ON \
             -DREQUIRE_ASR_GPU=ON \
+            $ONNX_FLAG \
             $GPU_FLAG
 
       - name: Build

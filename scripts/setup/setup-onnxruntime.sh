@@ -16,7 +16,10 @@ set -euo pipefail
 # shellcheck source=scripts/setup/_verify_sha256.sh
 source "$(dirname "${BASH_SOURCE[0]}")/_verify_sha256.sh"
 
-ORT_VERSION="1.18.1"
+# Pinned to the ONNX Runtime that sherpa-onnx bundles (so a build with both
+# shares one runtime — no symbol-version clash). Keep in sync with
+# setup-onnxruntime.ps1 and setup-sherpa-onnx.sh.
+ORT_VERSION="1.27.0"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${REPO_ROOT}/third_party/onnxruntime"
 
@@ -29,9 +32,13 @@ fi
 os="$(uname -s)"
 arch="$(uname -m)"
 case "${os}-${arch}" in
-    Linux-x86_64)        asset="linux-x64"        sha="a0994512ec1e1debc00c18bfc7a5f16249f6ebd6a6128ff2034464cc380ea211" ;;
-    Linux-aarch64|Linux-arm64) asset="linux-aarch64" sha="c1dcd8ab29e8d227d886b6ee415c08aea893956acf98f0758a42a84f27c02851" ;;
-    Darwin-*)            asset="osx-universal2"   sha="014f6332da3fa51926c57ca973c2d03ceebae069a537f55765848260ab4bf8f7" ;;
+    Linux-x86_64)        asset="linux-x64"     sha="547e40a48f1fe73e3f812d7c88a948612c23f896b91e4e2ee1e232d7b468246f" ;;
+    Linux-aarch64|Linux-arm64) asset="linux-aarch64" sha="3e4d83ac06924a32a07b6d7f91ce6f852876153fc0bbdf931bf517a140bfbe48" ;;
+    Darwin-arm64)        asset="osx-arm64"     sha="545e81c58152353acb0d1e8bd6ce4b62f830c0961f5b3acfedc790ffd76e477a" ;;
+    Darwin-x86_64)
+        echo "ERROR: ONNX Runtime ${ORT_VERSION} has no Intel-macOS prebuilt (arm64 only). Stage" >&2
+        echo "sherpa-onnx (universal2, bundles the same runtime) or build ONNX Runtime from source." >&2
+        exit 1 ;;
     *)
         echo "ERROR: unsupported host ${os}-${arch}. Install onnxruntime manually or extend this script." >&2
         exit 1 ;;
