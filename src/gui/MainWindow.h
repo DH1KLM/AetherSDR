@@ -1075,6 +1075,9 @@ private:
     QLabel* m_addPanLabel{nullptr};
     QLabel* m_tnfIndicator{nullptr};
     QLabel* m_cwxIndicator{nullptr};
+#ifdef AETHER_ASR_ENABLED
+    QLabel* m_asrIndicator{nullptr};  // status-bar ASR (Copy Assist) toggle
+#endif
     CwxPanel* m_cwxPanel{nullptr};
     DvkPanel* m_dvkPanel{nullptr};
     QLabel* m_dvkIndicator{nullptr};

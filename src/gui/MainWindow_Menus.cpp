@@ -1378,6 +1378,7 @@ void MainWindow::showCopyAssist()
     if (m_copyAssistApplet) {
         m_copyAssistApplet->setCopyAssistVisible(!m_copyAssistApplet->isCopyAssistVisible());
     }
+    updateKeyerAvailability(); // keep the status-bar ASR indicator in sync
 }
 #endif
 

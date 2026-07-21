@@ -4436,6 +4436,15 @@ void MainWindow::buildUI()
     m_cwxIndicator->installEventFilter(this);
     hbox->addWidget(m_cwxIndicator);
 
+#ifdef AETHER_ASR_ENABLED
+    m_asrIndicator = new QLabel("ASR");
+    m_asrIndicator->setStyleSheet(greyIndLg);
+    m_asrIndicator->setCursor(Qt::PointingHandCursor);
+    m_asrIndicator->setToolTip("Speech-to-text (Copy Assist) — click to toggle");
+    m_asrIndicator->installEventFilter(this);
+    hbox->addWidget(m_asrIndicator);
+#endif
+
     m_dvkIndicator = new QLabel("DVK");
     m_dvkIndicator->setStyleSheet(greyIndLg);
     m_dvkIndicator->setCursor(Qt::PointingHandCursor);
@@ -7467,6 +7476,26 @@ void MainWindow::updateKeyerAvailability()
         m_dvkIndicator->setStyleSheet(txIsSsb ? kAvail : kDisabled);
     }
     m_dvkIndicator->setCursor(txIsSsb ? Qt::PointingHandCursor : Qt::ArrowCursor);
+
+#ifdef AETHER_ASR_ENABLED
+    // ASR (Copy Assist): the inverse of CWX — available in voice modes only,
+    // dimmed/disabled in CW and DIGx/RTTY. A receive-side decode, but gated on
+    // the same slice's mode as the other indicators for a consistent row.
+    if (m_asrIndicator) {
+        m_asrIndicator->setEnabled(txIsSsb);
+        const bool asrVisible =
+            m_copyAssistApplet && m_copyAssistApplet->isCopyAssistVisible();
+        if (txSlice && !txIsSsb && asrVisible) {
+            m_copyAssistApplet->setCopyAssistVisible(false);
+            m_asrIndicator->setStyleSheet(kDisabled);
+        } else if (asrVisible) {
+            m_asrIndicator->setStyleSheet(kActive);
+        } else {
+            m_asrIndicator->setStyleSheet(txIsSsb ? kAvail : kDisabled);
+        }
+        m_asrIndicator->setCursor(txIsSsb ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    }
+#endif
 }
 
 void MainWindow::centerActiveSliceInPanadapter(bool forceRadioCenter, double centerMhz)
