@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 // Energy-based voice-activity segmenter for the ASR pipeline (RFC #4333).
@@ -16,6 +17,8 @@
 
 namespace AetherSDR {
 
+class IVad;
+
 class AsrSegmenter {
 public:
     struct Config {
@@ -25,6 +28,10 @@ public:
         int minSpeechMs = 200;       // discard utterances shorter than this
         int hangoverMs = 300;        // trailing silence that closes a segment
         int maxSegmentMs = 20000;    // force-close cap (a very long over)
+        // Optional Silero VAD model (.onnx). Empty = built-in energy VAD. The
+        // worker (not the segmenter) consumes this to build the detector; carried
+        // here because Config is the worker's construction bundle.
+        std::string vadModelPath;
     };
 
     AsrSegmenter() : AsrSegmenter(Config{}) {}
@@ -40,6 +47,11 @@ public:
 
     // Discard all buffered state without emitting.
     void reset();
+
+    // Plug in a voice-activity detector (non-owning). When set, its isSpeech()
+    // replaces the built-in energy threshold for the speech/silence decision; the
+    // utterance state machine (hangover, min/max) is unchanged. Null = energy VAD.
+    void setVad(IVad* vad) { m_vad = vad; }
 
     // Runtime-adjustable tuning (call on the segmenter's own thread):
     //  - maxSegmentMs: hard force-close cap ("decode buffer" size); a long over
@@ -66,6 +78,7 @@ private:
     int m_hangoverSamples = 0;
     int m_maxSegmentSamples = 0;
 
+    IVad* m_vad = nullptr;          // optional learned VAD; null = energy threshold
     std::vector<float> m_frame;     // accumulates one frame for RMS
     std::vector<float> m_segment;   // the current utterance
     bool m_inSpeech = false;

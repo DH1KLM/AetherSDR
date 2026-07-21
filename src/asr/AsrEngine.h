@@ -15,6 +15,7 @@ class QThread;
 namespace AetherSDR {
 
 class Resampler;
+class SileroVad;
 
 // Factory that constructs an ASR backend. Invoked on the worker thread so the
 // backend (and any model context) lives entirely there.
@@ -55,6 +56,8 @@ private:
     AsrBackendFactory m_factory;
     std::unique_ptr<IAsrBackend> m_backend;
     AsrSegmenter m_segmenter;
+    std::unique_ptr<SileroVad> m_vad;   // built in init() when a model path is set
+    std::string m_vadModelPath;         // optional Silero VAD .onnx (empty = energy)
     std::unique_ptr<Resampler> m_resampler;
     int m_resamplerSrcRate = 0;
     bool m_warnedNoModel = false;

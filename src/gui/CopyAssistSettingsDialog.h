@@ -43,11 +43,20 @@ public:
     void setLogFilePath(const QString& path);
     QString logFilePath() const;
 
+    // Learned Silero VAD (ONNX) in place of the energy VAD: a checkbox + an
+    // .onnx path. The controller owns the file picker and rebuilds the engine.
+    void setUseSileroVad(bool on);
+    bool useSileroVad() const;
+    void setVadModelPath(const QString& path);
+    QString vadModelPath() const;
+
 signals:
     void tierChanged(const QString& tierId);
     void gpuChanged(int index);
     void logToFileToggled(bool on);
     void browseLogFileRequested();
+    void useSileroVadToggled(bool on);
+    void browseVadModelRequested();
 
 private:
     QComboBox* m_tier = nullptr;
@@ -56,6 +65,9 @@ private:
     QCheckBox* m_logToFile = nullptr;
     QLineEdit* m_logPath = nullptr; // read-only display of the chosen path
     QPushButton* m_logBrowse = nullptr;
+    QCheckBox* m_useSilero = nullptr;
+    QLineEdit* m_vadPath = nullptr;
+    QPushButton* m_vadBrowse = nullptr;
 };
 
 } // namespace AetherSDR

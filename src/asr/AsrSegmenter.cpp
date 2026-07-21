@@ -1,5 +1,7 @@
 #include "asr/AsrSegmenter.h"
 
+#include "asr/IVad.h"
+
 #include <cmath>
 
 namespace AetherSDR {
@@ -29,6 +31,9 @@ void AsrSegmenter::reset()
     m_inSpeech = false;
     m_trailingSilence = 0;
     m_speechSamples = 0;
+    if (m_vad != nullptr) {
+        m_vad->reset();
+    }
 }
 
 void AsrSegmenter::setMaxSegmentMs(int ms)
@@ -75,13 +80,19 @@ std::vector<std::vector<float>> AsrSegmenter::feed(const float* samples, int cou
             continue;
         }
 
-        // Evaluate the frame's RMS energy.
-        double sumSq = 0.0;
-        for (const float s : m_frame) {
-            sumSq += static_cast<double>(s) * s;
+        // Decide speech/silence for this frame: a plugged-in VAD (e.g. Silero)
+        // if present, else the built-in RMS energy threshold.
+        bool speechFrame;
+        if (m_vad != nullptr) {
+            speechFrame = m_vad->isSpeech(m_frame.data(), static_cast<int>(m_frame.size()));
+        } else {
+            double sumSq = 0.0;
+            for (const float s : m_frame) {
+                sumSq += static_cast<double>(s) * s;
+            }
+            const float rms = static_cast<float>(std::sqrt(sumSq / m_frame.size()));
+            speechFrame = rms >= m_config.speechRms;
         }
-        const float rms = static_cast<float>(std::sqrt(sumSq / m_frame.size()));
-        const bool speechFrame = rms >= m_config.speechRms;
 
         if (speechFrame) {
             if (!m_inSpeech) {

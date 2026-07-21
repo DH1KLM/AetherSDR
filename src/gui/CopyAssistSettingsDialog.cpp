@@ -77,6 +77,31 @@ CopyAssistSettingsDialog::CopyAssistSettingsDialog(QWidget* parent)
     logHint->setEnabled(false); // dimmed, informational
     form->addRow(QString(), logHint);
 
+    // Learned Silero VAD (ONNX) vs. the built-in energy VAD.
+    m_useSilero = new QCheckBox(tr("Use Silero VAD (ONNX)"), this);
+    m_useSilero->setToolTip(tr("Neural voice-activity detection — more robust in HF noise "
+                               "than the energy threshold"));
+    connect(m_useSilero, &QCheckBox::toggled, this, [this](bool on) {
+        m_vadPath->setEnabled(on);
+        m_vadBrowse->setEnabled(on);
+        emit useSileroVadToggled(on);
+    });
+    form->addRow(m_useSilero);
+
+    auto* vadRow = new QHBoxLayout;
+    m_vadPath = new QLineEdit(this);
+    m_vadPath->setObjectName(QStringLiteral("CopyAssistVadPath"));
+    m_vadPath->setReadOnly(true);
+    m_vadPath->setPlaceholderText(tr("(energy VAD)"));
+    m_vadPath->setEnabled(false);
+    m_vadBrowse = new QPushButton(tr("Browse…"), this);
+    m_vadBrowse->setEnabled(false);
+    connect(m_vadBrowse, &QPushButton::clicked, this,
+            &CopyAssistSettingsDialog::browseVadModelRequested);
+    vadRow->addWidget(m_vadPath, 1);
+    vadRow->addWidget(m_vadBrowse);
+    form->addRow(tr("VAD model:"), vadRow);
+
     root->addLayout(form);
     root->addStretch(1); // headroom for further options added here later
 }
@@ -150,6 +175,27 @@ void CopyAssistSettingsDialog::setLogFilePath(const QString& path)
 QString CopyAssistSettingsDialog::logFilePath() const
 {
     return m_logPath->text();
+}
+
+void CopyAssistSettingsDialog::setUseSileroVad(bool on)
+{
+    m_useSilero->setChecked(on); // fires toggled → enables the path row + emits
+}
+
+bool CopyAssistSettingsDialog::useSileroVad() const
+{
+    return m_useSilero->isChecked();
+}
+
+void CopyAssistSettingsDialog::setVadModelPath(const QString& path)
+{
+    m_vadPath->setText(path);
+    m_vadPath->setToolTip(path);
+}
+
+QString CopyAssistSettingsDialog::vadModelPath() const
+{
+    return m_vadPath->text();
 }
 
 } // namespace AetherSDR

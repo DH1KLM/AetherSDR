@@ -57,6 +57,8 @@ private:
     QString promptCustomModel(); // pick a local ggml/gguf model file (empty if cancelled)
     void promptLogFile();        // pick + persist the transcript log path
     void appendToLogFile(const QString& text); // write one utterance if logging is on
+    void promptVadModel();       // pick + persist the Silero VAD .onnx (rebuilds)
+    void rebuildForVadChange();  // rebuild the engine so the worker picks up the VAD
     void writeFreqMarkerIfNeeded(); // log a "=== <freq> MHz ===" line on start/retune/day-roll
     bool appendLogRaw(const QString& text); // append verbatim to the dated log; false on error
     // Which backend a selected tier id maps to (catalog family → backend kind;

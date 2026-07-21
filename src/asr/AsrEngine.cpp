@@ -1,5 +1,6 @@
 #include "asr/AsrEngine.h"
 
+#include "asr/SileroVad.h"
 #include "core/Resampler.h"
 
 #include <QLoggingCategory>
@@ -27,6 +28,7 @@ constexpr double kResampleTransBand = 10.0;
 AsrWorker::AsrWorker(AsrBackendFactory factory, AsrSegmenter::Config segConfig)
     : m_factory(std::move(factory))
     , m_segmenter(segConfig)
+    , m_vadModelPath(segConfig.vadModelPath)
 {
 }
 
@@ -42,6 +44,21 @@ void AsrWorker::init()
     m_backend = m_factory ? m_factory() : nullptr;
     if (m_backend == nullptr) {
         emit errorOccurred(QStringLiteral("ASR backend could not be created."));
+    }
+
+    // Build the learned VAD on the worker thread (the ONNX session must live
+    // here). On any failure, leave the segmenter on its energy VAD.
+    if (!m_vadModelPath.empty()) {
+        auto vad = std::make_unique<SileroVad>();
+        if (vad->load(m_vadModelPath)) {
+            m_vad = std::move(vad);
+            m_segmenter.setVad(m_vad.get());
+            qCInfo(lcAsrEngine, "ASR: Silero VAD loaded from %s",
+                   m_vadModelPath.c_str());
+        } else {
+            qCWarning(lcAsrEngine, "ASR: Silero VAD load failed (%s) — using energy VAD",
+                      m_vadModelPath.c_str());
+        }
     }
 }
 

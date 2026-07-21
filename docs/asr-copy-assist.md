@@ -37,6 +37,12 @@ more options. It floats over the app and can stay open while you operate.
     blank line) is written when ASR starts, whenever you retune, and at the top
     of each new day's file — so every block of decoded text is labeled with the
     frequency it came from.
+- **Use Silero VAD (ONNX)** — replaces the built-in energy voice-activity
+  detector with the ~2 MB [Silero VAD](https://huggingface.co/onnx-community/silero-vad)
+  neural model, which is far more robust in HF noise (it segments *actual speech*
+  rather than anything above an energy threshold). Runs in the ONNX Runtime
+  AetherSDR already ships (`HAVE_ONNX`); point it at a `silero_vad.onnx`. Unset →
+  energy VAD (unchanged). Requires an ONNX-Runtime-enabled build.
 
 ### Tuning (the control row)
 
@@ -142,5 +148,7 @@ Vendored whisper.cpp is pinned; see
 `ctest --test-dir build -R 'asr_|copy_assist'` — all offline/CI-safe: segmenter,
 engine (fake backend), model manager (source failover + hash-mismatch), Copy
 Assist panel (confidence coloring), settings dialog (model + GPU pickers),
-remote backend (mock endpoint), whisper linkage. Real GPU/CPU inference is exercised by the env-gated
+remote backend (mock endpoint), whisper linkage. `asr_silero_vad_test` (built
+only with ONNX Runtime; env-gated on `AETHER_VAD_TEST_MODEL` +
+`AETHER_VAD_TEST_WAV`) validates the Silero VAD end-to-end. Real GPU/CPU inference is exercised by the env-gated
 `asr_whisper_backend_test` (`AETHER_ASR_TEST_MODEL` + `AETHER_ASR_TEST_PCM`).

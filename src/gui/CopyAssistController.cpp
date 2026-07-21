@@ -214,6 +214,26 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     connect(m_settings, &CopyAssistSettingsDialog::browseLogFileRequested, this,
             [this] { promptLogFile(); });
 
+    // Learned Silero VAD. Restore path then checkbox (so the toggle handler sees
+    // the path and doesn't prompt during restore).
+    m_settings->setVadModelPath(
+        AppSettings::instance().value(QStringLiteral("AsrVadModelPath"), QString()).toString());
+    m_settings->setUseSileroVad(
+        AppSettings::instance().value(QStringLiteral("AsrVadEnabled"), QStringLiteral("False"))
+            .toString() == QStringLiteral("True"));
+    connect(m_settings, &CopyAssistSettingsDialog::useSileroVadToggled, this, [this](bool on) {
+        auto& st = AppSettings::instance();
+        st.setValue(QStringLiteral("AsrVadEnabled"), on ? QStringLiteral("True") : QStringLiteral("False"));
+        st.save();
+        if (on && m_settings->vadModelPath().isEmpty()) {
+            promptVadModel(); // enabling with no model → ask for one (rebuilds)
+        } else {
+            rebuildForVadChange();
+        }
+    });
+    connect(m_settings, &CopyAssistSettingsDialog::browseVadModelRequested, this,
+            [this] { promptVadModel(); });
+
     // Model download → engine load (the handlers read m_asr at call time, so they
     // survive an engine rebuild on backend switch).
     connect(m_models, &AsrModelManager::progress, this, [this](qint64 got, qint64 total) {
@@ -304,12 +324,22 @@ void CopyAssistController::buildEngine()
     const int gpuDevice = AppSettings::instance()
                               .value(QStringLiteral("AsrGpuDevice"), QStringLiteral("0"))
                               .toString().toInt();
+    // Optional learned (Silero) VAD — an .onnx path enables it in the worker;
+    // empty (or the toggle off) keeps the built-in energy VAD.
+    AsrSegmenter::Config segConfig;
+    auto& appSettings = AppSettings::instance();
+    if (appSettings.value(QStringLiteral("AsrVadEnabled"), QStringLiteral("False")).toString()
+        == QStringLiteral("True")) {
+        segConfig.vadModelPath =
+            appSettings.value(QStringLiteral("AsrVadModelPath"), QString()).toString().toStdString();
+    }
     switch (m_backend) {
     case AsrBackendKind::Remote:
-        m_asr = new AsrEngine(remoteAsrBackendFactory(readRemoteConfig()), this);
+        m_asr = new AsrEngine(remoteAsrBackendFactory(readRemoteConfig()), segConfig, this);
         break;
     case AsrBackendKind::Whisper:
-        m_asr = new AsrEngine(whisperAsrBackendFactory(QStringLiteral("en"), gpuDevice), this);
+        m_asr = new AsrEngine(whisperAsrBackendFactory(QStringLiteral("en"), gpuDevice),
+                              segConfig, this);
         break;
     }
     m_tap = new AsrAudioTap(m_audio, m_asr, this);
@@ -517,6 +547,40 @@ QString CopyAssistController::promptCustomModel()
     return QFileDialog::getOpenFileName(
         m_settings, tr("Choose a Whisper model"), startDir,
         tr("Whisper models (*.bin *.gguf);;All files (*)"));
+}
+
+void CopyAssistController::promptVadModel()
+{
+    const QString start =
+        m_settings->vadModelPath().isEmpty()
+            ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                  + QStringLiteral("/models")
+            : QFileInfo(m_settings->vadModelPath()).absolutePath();
+    const QString path = QFileDialog::getOpenFileName(
+        m_settings, tr("Choose a Silero VAD model"), start,
+        tr("ONNX models (*.onnx);;All files (*)"));
+    if (path.isEmpty()) {
+        // Cancelled with no prior model: turn the toggle back off.
+        if (m_settings->vadModelPath().isEmpty()) {
+            m_settings->setUseSileroVad(false);
+        }
+        return;
+    }
+    m_settings->setVadModelPath(path);
+    AppSettings::instance().setValue(QStringLiteral("AsrVadModelPath"), path);
+    AppSettings::instance().save();
+    rebuildForVadChange();
+}
+
+void CopyAssistController::rebuildForVadChange()
+{
+    // The VAD is constructed in the worker's init(), so switching it requires a
+    // fresh engine (same as a GPU change).
+    m_tap->setEnabled(false);
+    buildEngine();
+    if (m_enabled) {
+        beginEnable();
+    }
 }
 
 void CopyAssistController::promptLogFile()

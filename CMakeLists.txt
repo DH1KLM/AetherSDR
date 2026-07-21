@@ -1199,6 +1199,7 @@ if (ENABLE_ASR)
         src/asr/AsrModelManager.cpp
         src/asr/AsrSegmenter.cpp
         src/asr/AsrEngine.cpp
+        src/asr/SileroVad.cpp    # ONNX Silero VAD (inert stub unless HAVE_ONNX)
         src/asr/WhisperAsrBackend.cpp
         src/asr/RemoteAsrBackend.cpp
         src/core/Resampler.cpp   # standalone r8brain wrapper (24k->16k on the ASR worker)
@@ -2138,6 +2139,13 @@ if(ORT_FOUND)
                 COMMENT "Copying ONNX Runtime DLL to build directory")
         endforeach()
     endif()
+    # Give aetherasr the same ONNX Runtime so SileroVad can run the learned VAD
+    # (the segmenter falls back to energy VAD when this isn't built).
+    if(TARGET aetherasr)
+        target_compile_definitions(aetherasr PRIVATE HAVE_ONNX)
+        target_include_directories(aetherasr PRIVATE ${ORT_INCLUDE_DIRS})
+        target_link_libraries(aetherasr PRIVATE ${ORT_LIBRARIES})
+    endif()
 endif()
 
 if(RADE_FOUND)
@@ -3025,12 +3033,27 @@ if (ENABLE_ASR)
         tests/asr_engine_test.cpp
         src/asr/AsrEngine.cpp
         src/asr/AsrSegmenter.cpp
+        src/asr/SileroVad.cpp    # AsrEngine references it (stub without HAVE_ONNX)
         src/core/Resampler.cpp
     )
     target_include_directories(asr_engine_test PRIVATE src ${CMAKE_SOURCE_DIR}/third_party/r8brain)
     target_link_libraries(asr_engine_test PRIVATE Qt6::Core Qt6::Test)
     set_target_properties(asr_engine_test PROPERTIES AUTOMOC ON)
     add_test(NAME asr_engine_test COMMAND asr_engine_test)
+
+    # Silero VAD (ONNX) smoke test — only when ONNX Runtime is available; env-gated
+    # on a model + WAV at run time (see the test's header), so it SKIPs otherwise.
+    if(ORT_FOUND)
+        add_executable(asr_silero_vad_test
+            tests/asr_silero_vad_test.cpp
+            src/asr/SileroVad.cpp
+            src/asr/AsrSegmenter.cpp
+        )
+        target_include_directories(asr_silero_vad_test PRIVATE src ${ORT_INCLUDE_DIRS})
+        target_compile_definitions(asr_silero_vad_test PRIVATE HAVE_ONNX)
+        target_link_libraries(asr_silero_vad_test PRIVATE ${ORT_LIBRARIES})
+        add_test(NAME asr_silero_vad_test COMMAND asr_silero_vad_test)
+    endif()
 
     # Real whisper inference on a model+clip. Skips (exit 0) unless
     # AETHER_ASR_TEST_MODEL and AETHER_ASR_TEST_PCM are set, so CI stays offline.
