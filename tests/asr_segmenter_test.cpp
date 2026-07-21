@@ -118,6 +118,40 @@ int main()
         expect(totalSamples(flushed) >= 400 * kRate / 1000, "flushed segment holds the speech");
     }
 
+    // Runtime setter: decode-buffer cap force-closes a long, gap-less over.
+    {
+        AsrSegmenter seg;
+        seg.setMaxSegmentMs(500); // force-decode every ~0.5 s
+        std::vector<float> audio;
+        appendTone(audio, 1600); // continuous speech, no silence
+        auto out = seg.feed(audio.data(), static_cast<int>(audio.size()));
+        expect(out.size() >= 2, "setMaxSegmentMs force-closes a long over into segments");
+    }
+
+    // Runtime setter: raising the RMS threshold makes a moderate tone read as
+    // silence (lower VAD sensitivity).
+    {
+        AsrSegmenter seg;
+        seg.setSpeechRms(0.5f); // 0.3-amp tone has RMS ~0.21 < 0.5
+        std::vector<float> audio;
+        appendSilence(audio, 100);
+        appendTone(audio, 500);
+        appendSilence(audio, 400);
+        auto out = seg.feed(audio.data(), static_cast<int>(audio.size()));
+        expect(out.empty(), "raising speechRms makes a moderate tone read as silence");
+    }
+
+    // Runtime setter: a shorter hangover closes the utterance sooner.
+    {
+        AsrSegmenter seg;
+        seg.setHangoverMs(100);
+        std::vector<float> audio;
+        appendTone(audio, 400);
+        appendSilence(audio, 150); // 150 ms > 100 ms hangover -> closes
+        auto out = seg.feed(audio.data(), static_cast<int>(audio.size()));
+        expect(out.size() == 1, "shorter hangover closes the utterance sooner");
+    }
+
     std::printf(g_failures == 0 ? "\nASR segmenter: ALL PASS\n"
                                 : "\nASR segmenter: %d FAILURE(S)\n",
                 g_failures);

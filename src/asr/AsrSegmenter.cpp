@@ -31,6 +31,27 @@ void AsrSegmenter::reset()
     m_speechSamples = 0;
 }
 
+void AsrSegmenter::setMaxSegmentMs(int ms)
+{
+    m_config.maxSegmentMs = ms;
+    m_maxSegmentSamples = framesToSamples(ms);
+    if (m_maxSegmentSamples < m_frameSamples) {
+        m_maxSegmentSamples = m_frameSamples;
+    }
+}
+
+void AsrSegmenter::setSpeechRms(float rms)
+{
+    // Read live in feed(); takes effect on the next frame.
+    m_config.speechRms = rms;
+}
+
+void AsrSegmenter::setHangoverMs(int ms)
+{
+    m_config.hangoverMs = ms;
+    m_hangoverSamples = framesToSamples(ms);
+}
+
 void AsrSegmenter::closeSegment(std::vector<std::vector<float>>& out)
 {
     // Gate on speech content, not total length: the segment also carries the

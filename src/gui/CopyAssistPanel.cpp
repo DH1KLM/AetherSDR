@@ -2,13 +2,17 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QPushButton>
+#include <QSlider>
 #include <QTextEdit>
 #include <QTextCursor>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace AetherSDR {
 
@@ -52,6 +56,37 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
 
     root->addLayout(controls);
 
+    // --- Tuning sliders (decode buffer / VAD sensitivity / silence) ---------
+    auto* grid = new QGridLayout;
+    grid->setColumnStretch(1, 1);
+
+    m_buffer = addSliderRow(grid, 0, tr("Buffer:"), tr("Decode buffer seconds"),
+                            1, 20, 20, &m_bufferValue);
+    m_bufferValue->setText(tr("%1 s").arg(m_buffer->value()));
+    connect(m_buffer, &QSlider::valueChanged, this, [this](int s) {
+        m_bufferValue->setText(tr("%1 s").arg(s));
+        emit bufferMsChanged(s * 1000);
+    });
+
+    m_sensitivity = addSliderRow(grid, 1, tr("Sensitivity:"), tr("VAD sensitivity percent"),
+                                 1, 100, 80, &m_sensitivityValue);
+    m_sensitivityValue->setText(tr("%1%").arg(m_sensitivity->value()));
+    connect(m_sensitivity, &QSlider::valueChanged, this, [this](int pct) {
+        m_sensitivityValue->setText(tr("%1%").arg(pct));
+        emit sensitivityChanged(pct);
+    });
+
+    m_silence = addSliderRow(grid, 2, tr("Silence:"), tr("Silence duration milliseconds"),
+                             100, 2000, 300, &m_silenceValue);
+    m_silence->setSingleStep(50);
+    m_silenceValue->setText(tr("%1 ms").arg(m_silence->value()));
+    connect(m_silence, &QSlider::valueChanged, this, [this](int ms) {
+        m_silenceValue->setText(tr("%1 ms").arg(ms));
+        emit silenceMsChanged(ms);
+    });
+
+    root->addLayout(grid);
+
     // --- Transcript (mirrors the CW decode QTextEdit) -----------------------
     m_text = new QTextEdit(this);
     m_text->setObjectName(QStringLiteral("CopyAssistTranscript"));
@@ -79,6 +114,54 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     m_status->setObjectName(QStringLiteral("CopyAssistStatus"));
     m_status->setAccessibleName(tr("Copy Assist status"));
     root->addWidget(m_status);
+}
+
+QSlider* CopyAssistPanel::addSliderRow(QGridLayout* grid, int row, const QString& label,
+                                       const QString& accessibleName, int lo, int hi,
+                                       int value, QLabel** valueLabelOut)
+{
+    grid->addWidget(new QLabel(label, this), row, 0);
+    auto* slider = new QSlider(Qt::Horizontal, this);
+    slider->setRange(lo, hi);
+    slider->setValue(value);
+    slider->setAccessibleName(accessibleName);
+    grid->addWidget(slider, row, 1);
+    auto* valueLabel = new QLabel(this);
+    valueLabel->setMinimumWidth(48);
+    valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    grid->addWidget(valueLabel, row, 2);
+    *valueLabelOut = valueLabel;
+    return slider;
+}
+
+void CopyAssistPanel::setBufferMs(int ms)
+{
+    m_buffer->setValue(std::clamp(ms, 1000, 20000) / 1000);
+}
+
+int CopyAssistPanel::bufferMs() const
+{
+    return m_buffer->value() * 1000;
+}
+
+void CopyAssistPanel::setSensitivity(int percent)
+{
+    m_sensitivity->setValue(std::clamp(percent, 1, 100));
+}
+
+int CopyAssistPanel::sensitivity() const
+{
+    return m_sensitivity->value();
+}
+
+void CopyAssistPanel::setSilenceMs(int ms)
+{
+    m_silence->setValue(std::clamp(ms, 100, 2000));
+}
+
+int CopyAssistPanel::silenceMs() const
+{
+    return m_silence->value();
 }
 
 void CopyAssistPanel::addTier(const QString& id, const QString& label)

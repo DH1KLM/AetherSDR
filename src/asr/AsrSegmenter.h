@@ -41,6 +41,19 @@ public:
     // Discard all buffered state without emitting.
     void reset();
 
+    // Runtime-adjustable tuning (call on the segmenter's own thread):
+    //  - maxSegmentMs: hard force-close cap ("decode buffer" size); a long over
+    //    is force-decoded at this length even without a silence gap.
+    //  - speechRms: energy threshold above which a frame counts as speech —
+    //    lower = more sensitive VAD (picks up fainter/weaker signals).
+    //  - hangoverMs: trailing silence that closes an utterance.
+    void setMaxSegmentMs(int ms);
+    void setSpeechRms(float rms);
+    void setHangoverMs(int ms);
+    int maxSegmentMs() const { return m_config.maxSegmentMs; }
+    float speechRms() const { return m_config.speechRms; }
+    int hangoverMs() const { return m_config.hangoverMs; }
+
     bool inSpeech() const { return m_inSpeech; }
 
 private:

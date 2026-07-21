@@ -36,6 +36,9 @@ public slots:
     // Mono float samples at sampleRate; resampled to whisper's 16 kHz on this
     // (worker) thread before segmentation — never on the audio/caller thread.
     void processAudio(const QVector<float>& monoSamples, int sampleRate);
+    void setMaxSegmentMs(int ms);
+    void setSpeechRms(float rms);
+    void setHangoverMs(int ms);
     void reset();
 
 signals:
@@ -83,6 +86,15 @@ public:
     // Ignored unless enabled. Cheap — copies and posts to the worker, which
     // resamples to 16 kHz. No work happens on the caller/audio thread.
     void pushAudio(const QVector<float>& monoSamples, int sampleRate);
+
+    // Segmentation tuning (applied on the worker thread):
+    //  - decode buffer: max audio (ms) before a decode is forced without silence
+    //  - speech RMS: VAD energy threshold (lower = more sensitive)
+    //  - silence duration: trailing silence (ms) that closes an utterance
+    void setDecodeBufferMs(int ms);
+    void setSpeechRms(float rms);
+    void setSilenceDurationMs(int ms);
+
     void reset();
 
 signals:
@@ -94,6 +106,9 @@ signals:
     // Internal: engine -> worker (queued). Not part of the public contract.
     void requestLoad(const QString& modelPath);
     void requestProcess(const QVector<float>& monoSamples, int sampleRate);
+    void requestSetMaxSegmentMs(int ms);
+    void requestSetSpeechRms(float rms);
+    void requestSetHangoverMs(int ms);
     void requestReset();
 
 private:

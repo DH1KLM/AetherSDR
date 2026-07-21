@@ -5,8 +5,10 @@
 
 class QCheckBox;
 class QComboBox;
+class QGridLayout;
 class QLabel;
 class QPushButton;
+class QSlider;
 class QTextEdit;
 
 namespace AetherSDR {
@@ -35,6 +37,19 @@ public:
     bool isAsrEnabled() const;
     void setAsrEnabled(bool on);
 
+    // Decode-buffer size in milliseconds (1000–20000). The slider works in
+    // whole seconds; setBufferMs rounds/clamps into range.
+    void setBufferMs(int ms);
+    int bufferMs() const;
+
+    // VAD sensitivity as a percentage 1–100 (higher = more sensitive).
+    void setSensitivity(int percent);
+    int sensitivity() const;
+
+    // Silence duration (hangover) that ends an utterance, in ms (100–2000).
+    void setSilenceMs(int ms);
+    int silenceMs() const;
+
 public slots:
     // Append one transcribed utterance, colored by confidence in [0, 1].
     void appendText(const QString& text, float confidence);
@@ -44,15 +59,27 @@ signals:
     void enableToggled(bool on);
     void tierChanged(const QString& tierId);
     void clearRequested();
+    void bufferMsChanged(int ms);
+    void sensitivityChanged(int percent);
+    void silenceMsChanged(int ms);
 
 private:
     static QString colorForConfidence(float confidence);
+    QSlider* addSliderRow(QGridLayout* grid, int row, const QString& label,
+                          const QString& accessibleName, int lo, int hi, int value,
+                          QLabel** valueLabelOut);
 
     QTextEdit* m_text = nullptr;
     QCheckBox* m_enable = nullptr;
     QComboBox* m_tier = nullptr;
     QLabel* m_status = nullptr;
     QPushButton* m_clear = nullptr;
+    QSlider* m_buffer = nullptr;
+    QLabel* m_bufferValue = nullptr;
+    QSlider* m_sensitivity = nullptr;
+    QLabel* m_sensitivityValue = nullptr;
+    QSlider* m_silence = nullptr;
+    QLabel* m_silenceValue = nullptr;
 };
 
 } // namespace AetherSDR

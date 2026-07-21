@@ -128,6 +128,21 @@ void AsrWorker::processAudio(const QVector<float>& monoSamples, int sampleRate)
     }
 }
 
+void AsrWorker::setMaxSegmentMs(int ms)
+{
+    m_segmenter.setMaxSegmentMs(ms);
+}
+
+void AsrWorker::setSpeechRms(float rms)
+{
+    m_segmenter.setSpeechRms(rms);
+}
+
+void AsrWorker::setHangoverMs(int ms)
+{
+    m_segmenter.setHangoverMs(ms);
+}
+
 void AsrWorker::reset()
 {
     m_segmenter.reset();
@@ -164,6 +179,9 @@ void AsrEngine::startThread(AsrBackendFactory factory, const AsrSegmenter::Confi
     // Engine -> worker (queued across threads).
     connect(this, &AsrEngine::requestLoad, m_worker, &AsrWorker::loadModel);
     connect(this, &AsrEngine::requestProcess, m_worker, &AsrWorker::processAudio);
+    connect(this, &AsrEngine::requestSetMaxSegmentMs, m_worker, &AsrWorker::setMaxSegmentMs);
+    connect(this, &AsrEngine::requestSetSpeechRms, m_worker, &AsrWorker::setSpeechRms);
+    connect(this, &AsrEngine::requestSetHangoverMs, m_worker, &AsrWorker::setHangoverMs);
     connect(this, &AsrEngine::requestReset, m_worker, &AsrWorker::reset);
 
     // Worker -> engine (queued back to the main thread).
@@ -207,6 +225,21 @@ void AsrEngine::pushAudio(const QVector<float>& monoSamples, int sampleRate)
         return;
     }
     emit requestProcess(monoSamples, sampleRate);
+}
+
+void AsrEngine::setDecodeBufferMs(int ms)
+{
+    emit requestSetMaxSegmentMs(ms);
+}
+
+void AsrEngine::setSpeechRms(float rms)
+{
+    emit requestSetSpeechRms(rms);
+}
+
+void AsrEngine::setSilenceDurationMs(int ms)
+{
+    emit requestSetHangoverMs(ms);
 }
 
 void AsrEngine::reset()

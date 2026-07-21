@@ -83,6 +83,31 @@ int main(int argc, char** argv)
     expect(!enableSpy.isEmpty() && enableSpy.last().at(0).toBool(),
            "enableToggled(true) emitted");
 
+    // ---- Tuning sliders: set + emit --------------------------------------
+    {
+        QSignalSpy bufSpy(&panel, &CopyAssistPanel::bufferMsChanged);
+        panel.setBufferMs(5000);
+        expect(panel.bufferMs() == 5000, "setBufferMs sets 5 s");
+        expect(!bufSpy.isEmpty() && bufSpy.last().at(0).toInt() == 5000,
+               "bufferMsChanged emits milliseconds");
+
+        QSignalSpy sensSpy(&panel, &CopyAssistPanel::sensitivityChanged);
+        panel.setSensitivity(50);
+        expect(panel.sensitivity() == 50, "setSensitivity sets percent");
+        expect(!sensSpy.isEmpty() && sensSpy.last().at(0).toInt() == 50,
+               "sensitivityChanged emits percent");
+
+        QSignalSpy silSpy(&panel, &CopyAssistPanel::silenceMsChanged);
+        panel.setSilenceMs(500);
+        expect(panel.silenceMs() == 500, "setSilenceMs sets milliseconds");
+        expect(!silSpy.isEmpty() && silSpy.last().at(0).toInt() == 500,
+               "silenceMsChanged emits milliseconds");
+
+        // Clamping into range.
+        panel.setBufferMs(999999);
+        expect(panel.bufferMs() == 20000, "buffer clamps to 20 s max");
+    }
+
     std::printf(g_failures == 0 ? "\nCopy Assist panel: ALL PASS\n"
                                 : "\nCopy Assist panel: %d FAILURE(S)\n",
                 g_failures);
