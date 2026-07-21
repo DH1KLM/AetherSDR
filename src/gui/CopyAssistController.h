@@ -61,8 +61,12 @@ private:
     void promptVadModel();       // pick + persist a custom Silero VAD .onnx (rebuilds)
     void ensureVadModel();       // use the cached model, else auto-download it
     void onVadModelReady(const QString& path); // cached/downloaded → persist + rebuild
-    void rebuildForVadChange();  // rebuild the engine so the worker picks up the VAD
-    static AsrModelTier sileroVadTier(); // the default downloadable Silero VAD model
+    void promptSpeakerModel();   // pick + persist a custom speaker-embedding .onnx
+    void ensureSpeakerModel();   // use the cached model, else auto-download it
+    void onSpeakerModelReady(const QString& path); // cached/downloaded → persist + rebuild
+    void rebuildEngine();  // rebuild the engine so the worker picks up a model change
+    static AsrModelTier sileroVadTier();       // default downloadable Silero VAD model
+    static AsrModelTier speakerEmbedderTier(); // default downloadable speaker model
     void writeFreqMarkerIfNeeded(); // log a "=== <freq> MHz ===" line on start/retune/day-roll
     bool appendLogRaw(const QString& text); // append verbatim to the dated log; false on error
     // Which backend a selected tier id maps to (catalog family → backend kind;
@@ -78,6 +82,7 @@ private:
     AsrEngine* m_asr = nullptr;
     AsrModelManager* m_models = nullptr;
     AsrModelManager* m_vadModels = nullptr; // separate manager for the Silero VAD model
+    AsrModelManager* m_speakerModels = nullptr; // manager for the speaker-embedding model
     AsrAudioTap* m_tap = nullptr;
     bool m_constructed = false; // true after the initial buildEngine (guards restore)
     QString m_tierId;

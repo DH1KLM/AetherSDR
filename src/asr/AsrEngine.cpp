@@ -1,6 +1,7 @@
 #include "asr/AsrEngine.h"
 
 #include "asr/SileroVad.h"
+#include "asr/SpeakerEmbedder.h"
 #include "core/Resampler.h"
 
 #include <QLoggingCategory>
@@ -29,6 +30,8 @@ AsrWorker::AsrWorker(AsrBackendFactory factory, AsrSegmenter::Config segConfig)
     : m_factory(std::move(factory))
     , m_segmenter(segConfig)
     , m_vadModelPath(segConfig.vadModelPath)
+    , m_clusterer(segConfig.speakerThreshold)
+    , m_speakerModelPath(segConfig.speakerModelPath)
 {
 }
 
@@ -60,6 +63,19 @@ void AsrWorker::init()
                       m_vadModelPath.c_str());
         }
     }
+
+    // Speaker-embedding model for per-utterance A/B/C labeling (worker thread).
+    if (!m_speakerModelPath.empty()) {
+        auto embedder = std::make_unique<SpeakerEmbedder>();
+        if (embedder->load(m_speakerModelPath)) {
+            m_embedder = std::move(embedder);
+            qCInfo(lcAsrEngine, "ASR: speaker embedder loaded from %s",
+                   m_speakerModelPath.c_str());
+        } else {
+            qCWarning(lcAsrEngine, "ASR: speaker embedder load failed (%s) — no labeling",
+                      m_speakerModelPath.c_str());
+        }
+    }
 }
 
 void AsrWorker::loadModel(const QString& modelPath)
@@ -72,6 +88,7 @@ void AsrWorker::loadModel(const QString& modelPath)
     if (m_backend->load(modelPath, &error)) {
         m_warnedNoModel = false;
         m_segmenter.reset();
+        m_clusterer.reset();
         emit loaded();
     } else {
         emit loadFailed(error);
@@ -139,9 +156,16 @@ void AsrWorker::processAudio(const QVector<float>& monoSamples, int sampleRate)
             emit errorOccurred(error);
             continue;
         }
-        if (!result.text.isEmpty()) {
-            emit segmentText(result.text, result.confidence);
+        if (result.text.isEmpty()) {
+            continue;
         }
+        // Speaker label (A/B/C…) from the utterance's embedding, when enabled.
+        int speaker = -1;
+        if (m_embedder) {
+            speaker = m_clusterer.assign(
+                m_embedder->embed(seg.data(), static_cast<int>(seg.size())));
+        }
+        emit segmentText(result.text, result.confidence, speaker);
     }
 }
 
@@ -163,6 +187,7 @@ void AsrWorker::setHangoverMs(int ms)
 void AsrWorker::reset()
 {
     m_segmenter.reset();
+    m_clusterer.reset(); // new session/frequency → relabel speakers from A
     m_resampler.reset();
     m_resamplerSrcRate = 0;
 }

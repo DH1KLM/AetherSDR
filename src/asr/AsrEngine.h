@@ -2,6 +2,7 @@
 
 #include "asr/AsrSegmenter.h"
 #include "asr/IAsrBackend.h"
+#include "asr/SpeakerClusterer.h"
 
 #include <QObject>
 #include <QString>
@@ -16,6 +17,7 @@ namespace AetherSDR {
 
 class Resampler;
 class SileroVad;
+class SpeakerEmbedder;
 
 // Factory that constructs an ASR backend. Invoked on the worker thread so the
 // backend (and any model context) lives entirely there.
@@ -45,7 +47,8 @@ public slots:
 signals:
     void loaded();
     void loadFailed(const QString& error);
-    void segmentText(const QString& text, float confidence);
+    // speaker: 0-based cluster index (A/B/C…), or -1 when labeling is off.
+    void segmentText(const QString& text, float confidence, int speaker);
     void errorOccurred(const QString& error);
 
 private:
@@ -58,6 +61,9 @@ private:
     AsrSegmenter m_segmenter;
     std::unique_ptr<SileroVad> m_vad;   // built in init() when a model path is set
     std::string m_vadModelPath;         // optional Silero VAD .onnx (empty = energy)
+    std::unique_ptr<SpeakerEmbedder> m_embedder; // built in init() when a path is set
+    SpeakerClusterer m_clusterer;       // online A/B/C… labeling
+    std::string m_speakerModelPath;     // optional speaker-embedding .onnx
     std::unique_ptr<Resampler> m_resampler;
     int m_resamplerSrcRate = 0;
     bool m_warnedNoModel = false;
@@ -103,7 +109,8 @@ public:
 signals:
     void ready();
     void loadFailed(const QString& error);
-    void finalText(const QString& text, float confidence);
+    // speaker: 0-based speaker index (A/B/C…), or -1 when labeling is off.
+    void finalText(const QString& text, float confidence, int speaker);
     void error(const QString& error);
 
     // Internal: engine -> worker (queued). Not part of the public contract.

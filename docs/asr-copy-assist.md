@@ -45,6 +45,16 @@ more options. It floats over the app and can stay open while you operate.
   no file to find; **Browse…** overrides with your own `.onnx`. Runs in the ONNX
   Runtime AetherSDR already ships (`HAVE_ONNX`); unset → energy VAD (unchanged).
   Requires an ONNX-Runtime-enabled build.
+- **Label speakers (A/B/C…)** — tags each utterance with a speaker label using an
+  ONNX **speaker-embedding** model ([WeSpeaker ECAPA-TDNN](https://huggingface.co/Wespeaker/wespeaker-ecapa-tdnn512-LM),
+  ~24 MB, auto-downloaded + SHA-verified). Each closed "over" is embedded
+  (kaldi-style Fbank → ECAPA → 192-d vector) and **online-clustered** by cosine
+  similarity: the nearest known speaker, or a new one. Panel and log lines are
+  prefixed `[A] …`, `[B] …`. Half-duplex helps — one transmitter at a time means
+  each utterance is a single speaker, so no overlap handling is needed. Labels are
+  session-relative (reset on retune/re-enable). RF caveats: narrowband/noise and
+  propagation drift can split or merge a voice; the cosine threshold is tunable.
+  Requires an ONNX-Runtime-enabled build.
 
 ### Tuning (the control row)
 
@@ -150,7 +160,8 @@ Vendored whisper.cpp is pinned; see
 `ctest --test-dir build -R 'asr_|copy_assist'` — all offline/CI-safe: segmenter,
 engine (fake backend), model manager (source failover + hash-mismatch), Copy
 Assist panel (confidence coloring), settings dialog (model + GPU pickers),
-remote backend (mock endpoint), whisper linkage. `asr_silero_vad_test` (built
-only with ONNX Runtime; env-gated on `AETHER_VAD_TEST_MODEL` +
-`AETHER_VAD_TEST_WAV`) validates the Silero VAD end-to-end. Real GPU/CPU inference is exercised by the env-gated
+remote backend (mock endpoint), whisper linkage, speaker clustering
+(`asr_speaker_clusterer_test`, pure C++). `asr_silero_vad_test` and
+`asr_speaker_embedder_test` (built only with ONNX Runtime; env-gated on a model +
+WAV(s)) validate the Silero VAD and the speaker embedder end-to-end. Real GPU/CPU inference is exercised by the env-gated
 `asr_whisper_backend_test` (`AETHER_ASR_TEST_MODEL` + `AETHER_ASR_TEST_PCM`).

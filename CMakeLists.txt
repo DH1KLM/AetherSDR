@@ -1208,6 +1208,9 @@ if (ENABLE_ASR)
         src/asr/AsrSegmenter.cpp
         src/asr/AsrEngine.cpp
         src/asr/SileroVad.cpp    # ONNX Silero VAD (inert stub unless HAVE_ONNX)
+        src/asr/Fbank.cpp        # kaldi-style fbank for the speaker embedder
+        src/asr/SpeakerEmbedder.cpp # ONNX speaker embedding (stub unless HAVE_ONNX)
+        src/asr/SpeakerClusterer.cpp # online A/B/C speaker clustering
         src/asr/WhisperAsrBackend.cpp
         src/asr/RemoteAsrBackend.cpp
         src/core/Resampler.cpp   # standalone r8brain wrapper (24k->16k on the ASR worker)
@@ -3042,6 +3045,9 @@ if (ENABLE_ASR)
         src/asr/AsrEngine.cpp
         src/asr/AsrSegmenter.cpp
         src/asr/SileroVad.cpp    # AsrEngine references it (stub without HAVE_ONNX)
+        src/asr/Fbank.cpp
+        src/asr/SpeakerEmbedder.cpp
+        src/asr/SpeakerClusterer.cpp
         src/core/Resampler.cpp
     )
     target_include_directories(asr_engine_test PRIVATE src ${CMAKE_SOURCE_DIR}/third_party/r8brain)
@@ -3061,6 +3067,29 @@ if (ENABLE_ASR)
         target_compile_definitions(asr_silero_vad_test PRIVATE HAVE_ONNX)
         target_link_libraries(asr_silero_vad_test PRIVATE ${ORT_LIBRARIES})
         add_test(NAME asr_silero_vad_test COMMAND asr_silero_vad_test)
+    endif()
+
+    # Speaker clustering: pure-C++ unit test (no ONNX), always runs.
+    add_executable(asr_speaker_clusterer_test
+        tests/asr_speaker_clusterer_test.cpp
+        src/asr/SpeakerClusterer.cpp
+    )
+    target_include_directories(asr_speaker_clusterer_test PRIVATE src)
+    add_test(NAME asr_speaker_clusterer_test COMMAND asr_speaker_clusterer_test)
+
+    # Speaker embedder (Fbank + ONNX) end-to-end — only with ONNX Runtime; env-
+    # gated on a model + two speaker WAVs, so it SKIPs otherwise.
+    if(ORT_FOUND)
+        add_executable(asr_speaker_embedder_test
+            tests/asr_speaker_embedder_test.cpp
+            src/asr/SpeakerEmbedder.cpp
+            src/asr/Fbank.cpp
+            src/asr/SpeakerClusterer.cpp
+        )
+        target_include_directories(asr_speaker_embedder_test PRIVATE src ${ORT_INCLUDE_DIRS})
+        target_compile_definitions(asr_speaker_embedder_test PRIVATE HAVE_ONNX)
+        target_link_libraries(asr_speaker_embedder_test PRIVATE ${ORT_LIBRARIES})
+        add_test(NAME asr_speaker_embedder_test COMMAND asr_speaker_embedder_test)
     endif()
 
     # Real whisper inference on a model+clip. Skips (exit 0) unless

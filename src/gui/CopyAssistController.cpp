@@ -247,11 +247,48 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
         if (on) {
             ensureVadModel(); // cached → use it; else auto-download, then rebuild
         } else {
-            rebuildForVadChange();
+            rebuildEngine();
         }
     });
     connect(m_settings, &CopyAssistSettingsDialog::browseVadModelRequested, this,
             [this] { promptVadModel(); });
+
+    // Speaker-embedding model (auto-download + cache, same as the others) for
+    // per-utterance A/B/C labeling.
+    m_speakerModels = new AsrModelManager(this);
+    connect(m_speakerModels, &AsrModelManager::progress, this, [this](qint64 got, qint64 total) {
+        m_panel->setStatus(total > 0
+                               ? tr("Downloading speaker model… %1%").arg(static_cast<int>(got * 100 / total))
+                               : tr("Downloading speaker model…"));
+    });
+    connect(m_speakerModels, &AsrModelManager::alreadyPresent, this,
+            [this](const QString& path) { onSpeakerModelReady(path); });
+    connect(m_speakerModels, &AsrModelManager::finished, this,
+            [this](const QString& path) { onSpeakerModelReady(path); });
+    connect(m_speakerModels, &AsrModelManager::failed, this, [this](const QString& err) {
+        m_panel->setStatus(tr("Speaker model download failed: %1").arg(err));
+        m_settings->setLabelSpeakers(false);
+    });
+    m_settings->setSpeakerModelPath(
+        AppSettings::instance().value(QStringLiteral("AsrSpeakerModelPath"), QString()).toString());
+    m_settings->setLabelSpeakers(
+        AppSettings::instance().value(QStringLiteral("AsrSpeakerEnabled"), QStringLiteral("False"))
+            .toString() == QStringLiteral("True"));
+    connect(m_settings, &CopyAssistSettingsDialog::labelSpeakersToggled, this, [this](bool on) {
+        auto& st = AppSettings::instance();
+        st.setValue(QStringLiteral("AsrSpeakerEnabled"), on ? QStringLiteral("True") : QStringLiteral("False"));
+        st.save();
+        if (!m_constructed) {
+            return;
+        }
+        if (on) {
+            ensureSpeakerModel();
+        } else {
+            rebuildEngine();
+        }
+    });
+    connect(m_settings, &CopyAssistSettingsDialog::browseSpeakerModelRequested, this,
+            [this] { promptSpeakerModel(); });
 
     // Model download → engine load (the handlers read m_asr at call time, so they
     // survive an engine rebuild on backend switch).
@@ -353,6 +390,12 @@ void CopyAssistController::buildEngine()
         segConfig.vadModelPath =
             appSettings.value(QStringLiteral("AsrVadModelPath"), QString()).toString().toStdString();
     }
+    // Optional speaker labeling (A/B/C…): a speaker-embedding .onnx path.
+    if (appSettings.value(QStringLiteral("AsrSpeakerEnabled"), QStringLiteral("False")).toString()
+        == QStringLiteral("True")) {
+        segConfig.speakerModelPath =
+            appSettings.value(QStringLiteral("AsrSpeakerModelPath"), QString()).toString().toStdString();
+    }
     switch (m_backend) {
     case AsrBackendKind::Remote:
         m_asr = new AsrEngine(remoteAsrBackendFactory(readRemoteConfig()), segConfig, this);
@@ -378,9 +421,16 @@ void CopyAssistController::buildEngine()
         m_panel->setStatus(tr("Model load failed: %1").arg(err));
         m_panel->setAsrEnabled(false);
     });
-    connect(m_asr, &AsrEngine::finalText, m_panel, &CopyAssistPanel::appendText);
     connect(m_asr, &AsrEngine::finalText, this,
-            [this](const QString& text, float) { appendToLogFile(text); });
+            [this](const QString& text, float confidence, int speaker) {
+                // Prefix a speaker label ([A], [B]…) when labeling is on.
+                const QString labeled =
+                    speaker >= 0
+                        ? QStringLiteral("[%1] %2").arg(QChar(u'A' + speaker)).arg(text)
+                        : text;
+                m_panel->appendText(labeled, confidence);
+                appendToLogFile(labeled);
+            });
     connect(m_asr, &AsrEngine::error, this, [this](const QString& err) { m_panel->setStatus(err); });
 
     applyTuning();
@@ -589,7 +639,7 @@ void CopyAssistController::promptVadModel()
     m_settings->setVadModelPath(path);
     AppSettings::instance().setValue(QStringLiteral("AsrVadModelPath"), path);
     AppSettings::instance().save();
-    rebuildForVadChange();
+    rebuildEngine();
 }
 
 AsrModelTier CopyAssistController::sileroVadTier()
@@ -613,7 +663,7 @@ void CopyAssistController::ensureVadModel()
     const QString custom = m_settings->vadModelPath();
     if (!custom.isEmpty() && QFileInfo::exists(custom)
         && custom != m_vadModels->modelPath(sileroVadTier())) {
-        rebuildForVadChange();
+        rebuildEngine();
         return;
     }
     m_panel->setStatus(tr("Preparing Silero VAD model…"));
@@ -625,10 +675,68 @@ void CopyAssistController::onVadModelReady(const QString& path)
     m_settings->setVadModelPath(path);
     AppSettings::instance().setValue(QStringLiteral("AsrVadModelPath"), path);
     AppSettings::instance().save();
-    rebuildForVadChange();
+    rebuildEngine();
 }
 
-void CopyAssistController::rebuildForVadChange()
+AsrModelTier CopyAssistController::speakerEmbedderTier()
+{
+    // Default speaker-embedding model: WeSpeaker ECAPA-TDNN-512 ONNX (Apache-2.0),
+    // ~24 MB, VoxCeleb2, 192-dim embeddings — from Hugging Face.
+    AsrModelTier tier;
+    tier.id = QStringLiteral("wespeaker-ecapa");
+    tier.displayName = QStringLiteral("WeSpeaker ECAPA-TDNN");
+    tier.fileName = QStringLiteral("wespeaker_ecapa512.onnx");
+    tier.sizeBytes = 24861931;
+    tier.sha256 = QStringLiteral("d71b85d9b48058ef68004f04f1b78acebefb9dfcf542e19b976a12a5ad1f10b0");
+    tier.sources = {QStringLiteral(
+        "https://huggingface.co/Wespeaker/wespeaker-ecapa-tdnn512-LM/resolve/main/"
+        "voxceleb_ECAPA512_LM.onnx?download=true")};
+    return tier;
+}
+
+void CopyAssistController::ensureSpeakerModel()
+{
+    const QString custom = m_settings->speakerModelPath();
+    if (!custom.isEmpty() && QFileInfo::exists(custom)
+        && custom != m_speakerModels->modelPath(speakerEmbedderTier())) {
+        rebuildEngine();
+        return;
+    }
+    m_panel->setStatus(tr("Preparing speaker model…"));
+    m_speakerModels->ensure(speakerEmbedderTier());
+}
+
+void CopyAssistController::onSpeakerModelReady(const QString& path)
+{
+    m_settings->setSpeakerModelPath(path);
+    AppSettings::instance().setValue(QStringLiteral("AsrSpeakerModelPath"), path);
+    AppSettings::instance().save();
+    rebuildEngine();
+}
+
+void CopyAssistController::promptSpeakerModel()
+{
+    const QString start =
+        m_settings->speakerModelPath().isEmpty()
+            ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                  + QStringLiteral("/models")
+            : QFileInfo(m_settings->speakerModelPath()).absolutePath();
+    const QString path = QFileDialog::getOpenFileName(
+        m_settings, tr("Choose a speaker-embedding model"), start,
+        tr("ONNX models (*.onnx);;All files (*)"));
+    if (path.isEmpty()) {
+        if (m_settings->speakerModelPath().isEmpty()) {
+            m_settings->setLabelSpeakers(false);
+        }
+        return;
+    }
+    m_settings->setSpeakerModelPath(path);
+    AppSettings::instance().setValue(QStringLiteral("AsrSpeakerModelPath"), path);
+    AppSettings::instance().save();
+    rebuildEngine();
+}
+
+void CopyAssistController::rebuildEngine()
 {
     // The VAD is constructed in the worker's init(), so switching it requires a
     // fresh engine (same as a GPU change).

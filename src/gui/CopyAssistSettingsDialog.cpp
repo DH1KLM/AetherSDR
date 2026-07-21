@@ -102,6 +102,31 @@ CopyAssistSettingsDialog::CopyAssistSettingsDialog(QWidget* parent)
     vadRow->addWidget(m_vadBrowse);
     form->addRow(tr("VAD model:"), vadRow);
 
+    // Per-utterance speaker labeling (A/B/C…) via a speaker-embedding model.
+    m_labelSpeakers = new QCheckBox(tr("Label speakers (A/B/C…)"), this);
+    m_labelSpeakers->setToolTip(tr("Tag each utterance with a speaker label using an "
+                                   "ONNX speaker-embedding model"));
+    connect(m_labelSpeakers, &QCheckBox::toggled, this, [this](bool on) {
+        m_spkPath->setEnabled(on);
+        m_spkBrowse->setEnabled(on);
+        emit labelSpeakersToggled(on);
+    });
+    form->addRow(m_labelSpeakers);
+
+    auto* spkRow = new QHBoxLayout;
+    m_spkPath = new QLineEdit(this);
+    m_spkPath->setObjectName(QStringLiteral("CopyAssistSpeakerPath"));
+    m_spkPath->setReadOnly(true);
+    m_spkPath->setPlaceholderText(tr("(off)"));
+    m_spkPath->setEnabled(false);
+    m_spkBrowse = new QPushButton(tr("Browse…"), this);
+    m_spkBrowse->setEnabled(false);
+    connect(m_spkBrowse, &QPushButton::clicked, this,
+            &CopyAssistSettingsDialog::browseSpeakerModelRequested);
+    spkRow->addWidget(m_spkPath, 1);
+    spkRow->addWidget(m_spkBrowse);
+    form->addRow(tr("Speaker model:"), spkRow);
+
     root->addLayout(form);
     root->addStretch(1); // headroom for further options added here later
 }
@@ -196,6 +221,27 @@ void CopyAssistSettingsDialog::setVadModelPath(const QString& path)
 QString CopyAssistSettingsDialog::vadModelPath() const
 {
     return m_vadPath->text();
+}
+
+void CopyAssistSettingsDialog::setLabelSpeakers(bool on)
+{
+    m_labelSpeakers->setChecked(on);
+}
+
+bool CopyAssistSettingsDialog::labelSpeakers() const
+{
+    return m_labelSpeakers->isChecked();
+}
+
+void CopyAssistSettingsDialog::setSpeakerModelPath(const QString& path)
+{
+    m_spkPath->setText(path);
+    m_spkPath->setToolTip(path);
+}
+
+QString CopyAssistSettingsDialog::speakerModelPath() const
+{
+    return m_spkPath->text();
 }
 
 } // namespace AetherSDR

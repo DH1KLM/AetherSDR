@@ -32,6 +32,10 @@ public:
         // worker (not the segmenter) consumes this to build the detector; carried
         // here because Config is the worker's construction bundle.
         std::string vadModelPath;
+        // Optional speaker-embedding model (.onnx) for per-utterance speaker
+        // labeling (A/B/C…). Empty = no labeling. Also worker-consumed.
+        std::string speakerModelPath;
+        float speakerThreshold = 0.50f; // cosine threshold for the same speaker
     };
 
     AsrSegmenter() : AsrSegmenter(Config{}) {}

@@ -50,6 +50,12 @@ public:
     void setVadModelPath(const QString& path);
     QString vadModelPath() const;
 
+    // Per-utterance speaker labeling (A/B/C…) via a speaker-embedding .onnx.
+    void setLabelSpeakers(bool on);
+    bool labelSpeakers() const;
+    void setSpeakerModelPath(const QString& path);
+    QString speakerModelPath() const;
+
 signals:
     void tierChanged(const QString& tierId);
     void gpuChanged(int index);
@@ -57,6 +63,8 @@ signals:
     void browseLogFileRequested();
     void useSileroVadToggled(bool on);
     void browseVadModelRequested();
+    void labelSpeakersToggled(bool on);
+    void browseSpeakerModelRequested();
 
 private:
     QComboBox* m_tier = nullptr;
@@ -68,6 +76,9 @@ private:
     QCheckBox* m_useSilero = nullptr;
     QLineEdit* m_vadPath = nullptr;
     QPushButton* m_vadBrowse = nullptr;
+    QCheckBox* m_labelSpeakers = nullptr;
+    QLineEdit* m_spkPath = nullptr;
+    QPushButton* m_spkBrowse = nullptr;
 };
 
 } // namespace AetherSDR
