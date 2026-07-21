@@ -662,8 +662,11 @@ AsrModelTier CopyAssistController::sileroVadTier()
     tier.fileName = QStringLiteral("silero_vad.onnx");
     tier.sizeBytes = 2243022;
     tier.sha256 = QStringLiteral("a4a068cd6cf1ea8355b84327595838ca748ec29a25bc91fc82e6c299ccdc5808");
-    tier.sources = {QStringLiteral(
-        "https://huggingface.co/onnx-community/silero-vad/resolve/main/onnx/model.onnx?download=true")};
+    tier.sources = {
+        QStringLiteral("https://huggingface.co/onnx-community/silero-vad/resolve/main/onnx/model.onnx?download=true"),
+        // Release-asset mirror (upload alongside the whisper tiers on asr-models-v1);
+        // SHA-verified, so it can't diverge from upstream undetected.
+        QStringLiteral("https://github.com/aethersdr/AetherSDR/releases/download/asr-models-v1/silero_vad.onnx")};
     return tier;
 }
 
@@ -699,9 +702,12 @@ AsrModelTier CopyAssistController::speakerEmbedderTier()
     tier.fileName = QStringLiteral("wespeaker_ecapa512.onnx");
     tier.sizeBytes = 24861931;
     tier.sha256 = QStringLiteral("d71b85d9b48058ef68004f04f1b78acebefb9dfcf542e19b976a12a5ad1f10b0");
-    tier.sources = {QStringLiteral(
-        "https://huggingface.co/Wespeaker/wespeaker-ecapa-tdnn512-LM/resolve/main/"
-        "voxceleb_ECAPA512_LM.onnx?download=true")};
+    tier.sources = {
+        QStringLiteral("https://huggingface.co/Wespeaker/wespeaker-ecapa-tdnn512-LM/resolve/main/"
+                       "voxceleb_ECAPA512_LM.onnx?download=true"),
+        // Release-asset mirror (upload to asr-models-v1); SHA-verified fallback.
+        QStringLiteral("https://github.com/aethersdr/AetherSDR/releases/download/asr-models-v1/"
+                       "wespeaker_ecapa512.onnx")};
     return tier;
 }
 

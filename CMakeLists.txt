@@ -23,6 +23,11 @@ option(USE_SYSTEM_LIQUID_DSP   "Use system liquid-dsp"   OFF)
 
 option(REQUIRE_SERIALPORT "Fail if Qt6 SerialPort is not found (use for release builds)" OFF)
 option(REQUIRE_KEYCHAIN "Fail if Qt6Keychain is not found (use for release builds)" OFF)
+# ASR release guards: these features auto-detect and silently compile out if the
+# toolchain/lib is missing, so a release could ship them off unnoticed. Setting
+# these makes a missing dependency a hard configure error (use in release CI).
+option(REQUIRE_ASR_ONNX "Fail if ONNX Runtime is not found (Silero VAD + speaker labeling + signal classifier; use for release builds)" OFF)
+option(REQUIRE_ASR_GPU "Fail if no ASR GPU backend (Vulkan/Metal) is enabled (use for release builds)" OFF)
 option(ENABLE_LIQUID_DSP "Build with liquid-dsp toolkit support" OFF)
 option(ENABLE_RADE "Build with RADE digital voice support (uses vendored Opus snapshot)" ON)
 option(ENABLE_DSTAR "Build the local D-STAR waveform helper (vendored smartsdr-dsp/ThumbDV)" ON)
@@ -1155,6 +1160,12 @@ if (ENABLE_ASR)
             endif()
         endif()
     endif()
+    # Release guard: fail loudly rather than silently shipping a CPU-only build.
+    if (REQUIRE_ASR_GPU AND NOT _asr_vulkan AND NOT _asr_metal)
+        message(FATAL_ERROR "REQUIRE_ASR_GPU is set but no ASR GPU backend was enabled. "
+            "Install the Vulkan SDK (glslc + Vulkan headers + SPIRV-Headers) on Linux/Windows, "
+            "or full Xcode on macOS, then reconfigure.")
+    endif()
     set(GGML_VULKAN ${_asr_vulkan} CACHE BOOL "" FORCE)
     set(GGML_METAL  ${_asr_metal}  CACHE BOOL "" FORCE)
     # Embed the compiled Metal shader source into the binary instead of relying on
@@ -2067,22 +2078,31 @@ else()
     message(STATUS "hidapi not found — USB HID encoder support disabled")
 endif()
 
-# ONNX Runtime — optional CNN signal classifier for S-History v2
-# Windows: run scripts/setup/setup-onnxruntime.ps1 first to download prebuilt DLLs
-# Linux:   apt install libonnxruntime-dev  (or build from source)
-# macOS:   brew install onnxruntime
-if(WIN32)
-    set(ORT_ROOT "${CMAKE_SOURCE_DIR}/third_party/onnxruntime")
-    if(EXISTS "${ORT_ROOT}/include/onnxruntime_cxx_api.h")
-        set(ORT_FOUND TRUE)
-        set(ORT_INCLUDE_DIRS "${ORT_ROOT}/include")
+# ONNX Runtime — powers the CNN signal classifier AND the ASR ONNX features
+# (Silero VAD + speaker labeling). Release builds get a prebuilt drop under
+# third_party/onnxruntime via the setup scripts (checked first, all platforms);
+# dev boxes can also use a system install.
+#   Linux/macOS: scripts/setup/setup-onnxruntime.sh   (or: brew install onnxruntime / apt)
+#   Windows:     scripts/setup/setup-onnxruntime.ps1
+set(ORT_ROOT "${CMAKE_SOURCE_DIR}/third_party/onnxruntime")
+if(EXISTS "${ORT_ROOT}/include/onnxruntime_cxx_api.h")
+    # Prebuilt drop from the setup scripts — used by the release builds.
+    set(ORT_FOUND TRUE)
+    set(ORT_INCLUDE_DIRS "${ORT_ROOT}/include")
+    if(WIN32)
         set(ORT_LIBRARIES "${ORT_ROOT}/lib/onnxruntime.lib")
-        file(GLOB ORT_DLLS "${ORT_ROOT}/bin/*.dll")
+        file(GLOB ORT_DLLS "${ORT_ROOT}/bin/*.dll" "${ORT_ROOT}/lib/*.dll")
     else()
-        message(STATUS "ONNX Runtime not found — CNN signal classifier disabled. "
-                       "Run scripts/setup/setup-onnxruntime.ps1 to enable.")
+        # Link the unversioned symlink; keep every versioned object for packaging.
+        file(GLOB ORT_RUNTIME_LIBS
+            "${ORT_ROOT}/lib/libonnxruntime.so*" "${ORT_ROOT}/lib/libonnxruntime*.dylib")
+        if(APPLE)
+            set(ORT_LIBRARIES "${ORT_ROOT}/lib/libonnxruntime.dylib")
+        else()
+            set(ORT_LIBRARIES "${ORT_ROOT}/lib/libonnxruntime.so")
+        endif()
     endif()
-else()
+elseif(NOT WIN32)
     if(PkgConfig_FOUND)
         pkg_check_modules(ORT libonnxruntime)
     endif()
@@ -2097,9 +2117,14 @@ else()
     endif()
 endif()
 if(ORT_FOUND)
-    message(STATUS "ONNX Runtime found — CNN signal classifier enabled")
+    message(STATUS "ONNX Runtime found — ASR ONNX (Silero VAD, speaker labeling) + signal classifier enabled")
+elseif(REQUIRE_ASR_ONNX)
+    message(FATAL_ERROR "REQUIRE_ASR_ONNX is set but ONNX Runtime was not found. "
+        "Run scripts/setup/setup-onnxruntime.sh (Linux/macOS) or setup-onnxruntime.ps1 (Windows) "
+        "to stage a prebuilt runtime under third_party/onnxruntime, then reconfigure.")
 else()
-    message(STATUS "ONNX Runtime not found — CNN signal classifier disabled")
+    message(STATUS "ONNX Runtime not found — ASR ONNX features + signal classifier disabled "
+        "(set REQUIRE_ASR_ONNX=ON to make this a hard error in release builds)")
 endif()
 
 if(PORTAUDIO_FOUND)

@@ -153,6 +153,16 @@ AudioEngine (aethercore, 24 kHz post-NR RX)
 | `ENABLE_ASR` | ON | Build ASR (`aetherasr` + Copy Assist). `OFF` = no ASR. |
 | `ENABLE_ASR_VULKAN` | ON (auto) | Vulkan GPU backend when the toolchain is present (non-Apple). |
 | `ENABLE_ASR_METAL` | ON (Apple) | Metal GPU backend (macOS). |
+| `REQUIRE_ASR_ONNX` | OFF | **Release guard** — fail configure if ONNX Runtime is missing (else VAD/speaker/classifier silently compile out). |
+| `REQUIRE_ASR_GPU` | OFF | **Release guard** — fail configure if no GPU backend (Vulkan/Metal) is enabled. |
+
+The ONNX features (Silero VAD, speaker labeling) and the signal classifier need
+**ONNX Runtime**. Stage a prebuilt with `scripts/setup/setup-onnxruntime.sh`
+(Linux/macOS) or `setup-onnxruntime.ps1` (Windows) — it lands under
+`third_party/onnxruntime/`, which CMake detects automatically. The release
+workflows run this and set `REQUIRE_ASR_ONNX=ON` so these features can't silently
+drop out of a shipped build; GPU is guarded the same way where the toolchain is
+installed (Linux x86_64 Vulkan, macOS Metal).
 
 Vendored whisper.cpp is pinned; see
 [`third_party/whisper.cpp/AETHER_VENDORING.md`](../third_party/whisper.cpp/AETHER_VENDORING.md).
