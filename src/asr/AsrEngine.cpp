@@ -8,6 +8,7 @@
 #include <QThread>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace AetherSDR {
@@ -126,6 +127,14 @@ std::vector<float> AsrWorker::toSixteenK(const QVector<float>& monoSamples, int 
 
 void AsrWorker::processAudio(const QVector<float>& monoSamples, int sampleRate)
 {
+    // Duration of this input chunk; reported as "processed" once the worker has
+    // handled it (including any blocking transcription), so the engine can show a
+    // backlog = received − processed. The body runs in a lambda so every exit
+    // path reports exactly once.
+    const int rate = sampleRate > 0 ? sampleRate : kAsrRate;
+    const double chunkMs = 1000.0 * static_cast<double>(monoSamples.size()) / rate;
+
+    [&] {
     if (monoSamples.isEmpty()) {
         return;
     }
@@ -167,6 +176,9 @@ void AsrWorker::processAudio(const QVector<float>& monoSamples, int sampleRate)
         }
         emit segmentText(result.text, result.confidence, speaker);
     }
+    }();
+
+    emit processedMs(chunkMs);
 }
 
 void AsrWorker::setMaxSegmentMs(int ms)
@@ -242,6 +254,10 @@ void AsrEngine::startThread(AsrBackendFactory factory, const AsrSegmenter::Confi
         emit loadFailed(err);
     });
     connect(m_worker, &AsrWorker::segmentText, this, &AsrEngine::finalText);
+    connect(m_worker, &AsrWorker::processedMs, this, [this](double ms) {
+        m_processedMs += ms;
+        updateBacklog();
+    });
     connect(m_worker, &AsrWorker::errorOccurred, this, &AsrEngine::error);
 
     m_thread->start();
@@ -272,7 +288,20 @@ void AsrEngine::pushAudio(const QVector<float>& monoSamples, int sampleRate)
     if (!m_enabled || monoSamples.isEmpty()) {
         return;
     }
+    const int rate = sampleRate > 0 ? sampleRate : kAsrRate;
+    m_pushedMs += 1000.0 * static_cast<double>(monoSamples.size()) / rate;
+    updateBacklog();
     emit requestProcess(monoSamples, sampleRate);
+}
+
+void AsrEngine::updateBacklog()
+{
+    const double lag = std::max(0.0, (m_pushedMs - m_processedMs) / 1000.0);
+    const double tenths = std::floor(lag * 10.0 + 0.5); // dedup at 0.1 s resolution
+    if (tenths != m_lastBacklogTenths) {
+        m_lastBacklogTenths = tenths;
+        emit backlogChanged(tenths / 10.0);
+    }
 }
 
 void AsrEngine::setDecodeBufferMs(int ms)
@@ -297,6 +326,11 @@ void AsrEngine::setSpeakerThreshold(float threshold)
 
 void AsrEngine::reset()
 {
+    // A retune/clear drops buffered work; zero the backlog meter so it doesn't
+    // carry a stale lag across the reset (late worker reports just clamp to 0).
+    m_pushedMs = 0.0;
+    m_processedMs = 0.0;
+    updateBacklog();
     emit requestReset();
 }
 

@@ -165,6 +165,17 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     m_status->setAccessibleName(tr("Copy Assist status"));
     statusRow->addWidget(m_status, 1);
 
+    // Transcription backlog — how much received audio is still waiting to be
+    // transcribed. Always visible so a user on slow hardware (e.g. a Pi) can see
+    // ASR falling behind. Grows when the engine can't keep up with real time.
+    m_backlog = new QLabel(this);
+    m_backlog->setObjectName(QStringLiteral("CopyAssistBacklog"));
+    m_backlog->setAccessibleName(tr("Transcription backlog"));
+    m_backlog->setToolTip(tr("Seconds of received audio still waiting to be transcribed"));
+    m_backlog->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    setBacklog(0.0);
+    statusRow->addWidget(m_backlog);
+
     root->addLayout(statusRow);
 
     applyFont();
@@ -259,6 +270,25 @@ int CopyAssistPanel::silenceMs() const
 void CopyAssistPanel::setBusy(bool on)
 {
     m_busy->setVisible(on);
+}
+
+void CopyAssistPanel::setBacklog(double seconds)
+{
+    if (seconds < 0.0) {
+        seconds = 0.0;
+    }
+    m_backlog->setText(tr("Queue: %1 s").arg(seconds, 0, 'f', 1));
+    // Escalate colour as it falls behind: theme-default when keeping up, amber,
+    // then red once badly behind (e.g. on a Pi that can't hit real time).
+    QString color;
+    if (seconds > 10.0) {
+        color = QStringLiteral("#ff6060");
+    } else if (seconds > 2.0) {
+        color = QStringLiteral("#e0a020");
+    }
+    m_backlog->setStyleSheet(color.isEmpty()
+                                 ? QString()
+                                 : QStringLiteral("QLabel { color: %1; }").arg(color));
 }
 
 void CopyAssistPanel::setStatus(const QString& text)

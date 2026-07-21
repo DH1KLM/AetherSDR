@@ -443,6 +443,7 @@ void CopyAssistController::buildEngine()
                 appendToLogFile(labeled);
             });
     connect(m_asr, &AsrEngine::error, this, [this](const QString& err) { m_panel->setStatus(err); });
+    connect(m_asr, &AsrEngine::backlogChanged, m_panel, &CopyAssistPanel::setBacklog);
 
     applyTuning();
 }

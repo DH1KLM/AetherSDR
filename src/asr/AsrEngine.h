@@ -50,6 +50,7 @@ signals:
     void loadFailed(const QString& error);
     // speaker: 0-based cluster index (A/B/C…), or -1 when labeling is off.
     void segmentText(const QString& text, float confidence, int speaker);
+    void processedMs(double ms); // this chunk fully handled (for the backlog meter)
     void errorOccurred(const QString& error);
 
 private:
@@ -114,6 +115,9 @@ signals:
     void loadFailed(const QString& error);
     // speaker: 0-based speaker index (A/B/C…), or -1 when labeling is off.
     void finalText(const QString& text, float confidence, int speaker);
+    // Transcription backlog: seconds of received audio not yet handled by the
+    // worker (grows when it can't keep up with real time).
+    void backlogChanged(double seconds);
     void error(const QString& error);
 
     // Internal: engine -> worker (queued). Not part of the public contract.
@@ -128,11 +132,16 @@ signals:
 private:
     void startThread(AsrBackendFactory factory, const AsrSegmenter::Config& segConfig);
 
+    void updateBacklog(); // recompute lag = pushed − processed, emit if it moved
+
     QThread* m_thread = nullptr;
     AsrWorker* m_worker = nullptr;
     bool m_enabled = false;
     bool m_ready = false;
     QString m_modelPath;
+    double m_pushedMs = 0.0;         // audio handed to the engine (main thread)
+    double m_processedMs = 0.0;      // audio the worker reports as handled
+    double m_lastBacklogTenths = -1; // last emitted backlog (0.1 s units) — dedup
 };
 
 } // namespace AetherSDR

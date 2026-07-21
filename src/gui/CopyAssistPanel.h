@@ -33,6 +33,9 @@ public:
     QPushButton* settingsButton() const { return m_settings; }
 
     void setStatus(const QString& text);
+    // Set the always-visible transcription backlog (seconds of received audio not
+    // yet transcribed). Colour escalates amber→red as it grows.
+    void setBacklog(double seconds);
     // Show/hide the indeterminate loading indicator (model download/verify/load).
     void setBusy(bool on);
     bool isAsrEnabled() const;
@@ -95,6 +98,7 @@ private:
     QPushButton* m_newline = nullptr;  // checkable ↵: newline on each silence
     QPushButton* m_settings = nullptr; // ⚙: opens the modeless settings dialog
     QLabel* m_status = nullptr;
+    QLabel* m_backlog = nullptr; // always-visible transcription backlog (seconds)
     QPushButton* m_clear = nullptr;
     QSlider* m_buffer = nullptr;
     QLabel* m_bufferValue = nullptr;

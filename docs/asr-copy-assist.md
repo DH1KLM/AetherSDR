@@ -20,6 +20,11 @@ Design + decision record: RFC **#4333** (accepted). Engine: **whisper.cpp**
   orange → red (low), mirroring the CW decoder.
 - Hiding the panel (the status-bar **ASR** toggle / leaving voice mode) turns
   ASR off.
+- The status line shows a **`Queue: N s`** backlog — seconds of received audio not
+  yet transcribed. It stays near 0 when the engine keeps up and climbs
+  (amber→red) when it can't (e.g. whisper on a Raspberry Pi), so you can see ASR
+  falling behind. If it grows without bound, use a smaller model, the remote
+  backend, or faster hardware.
 
 ### Settings (⚙)
 
