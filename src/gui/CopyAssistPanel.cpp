@@ -2,7 +2,6 @@
 
 #include <QCheckBox>
 #include <QComboBox>
-#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
@@ -41,10 +40,39 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     m_tier = new QComboBox(this);
     m_tier->setAccessibleName(tr("Copy Assist model"));
     m_tier->setToolTip(tr("Speech-recognition model (larger = more accurate, slower)"));
+    m_tier->setMinimumWidth(160);
     connect(m_tier, &QComboBox::currentIndexChanged, this, [this](int) {
         emit tierChanged(currentTier());
     });
-    controls->addWidget(m_tier, 1);
+    controls->addWidget(m_tier);
+
+    // Compact inline tuning sliders on the same row (mirrors the CW decode bar).
+    m_buffer = addSliderInline(controls, tr("Buffer:"), tr("Decode buffer seconds"),
+                               1, 20, 20, &m_bufferValue);
+    m_bufferValue->setText(tr("%1 s").arg(m_buffer->value()));
+    connect(m_buffer, &QSlider::valueChanged, this, [this](int s) {
+        m_bufferValue->setText(tr("%1 s").arg(s));
+        emit bufferMsChanged(s * 1000);
+    });
+
+    m_sensitivity = addSliderInline(controls, tr("Sens:"), tr("VAD sensitivity percent"),
+                                    1, 100, 80, &m_sensitivityValue);
+    m_sensitivityValue->setText(tr("%1%").arg(m_sensitivity->value()));
+    connect(m_sensitivity, &QSlider::valueChanged, this, [this](int pct) {
+        m_sensitivityValue->setText(tr("%1%").arg(pct));
+        emit sensitivityChanged(pct);
+    });
+
+    m_silence = addSliderInline(controls, tr("Silence:"), tr("Silence duration milliseconds"),
+                                100, 2000, 300, &m_silenceValue);
+    m_silence->setSingleStep(50);
+    m_silenceValue->setText(tr("%1 ms").arg(m_silence->value()));
+    connect(m_silence, &QSlider::valueChanged, this, [this](int ms) {
+        m_silenceValue->setText(tr("%1 ms").arg(ms));
+        emit silenceMsChanged(ms);
+    });
+
+    controls->addStretch(1);
 
     m_clear = new QPushButton(tr("Clear"), this);
     m_clear->setAccessibleName(tr("Clear transcript"));
@@ -62,37 +90,6 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     controls->addWidget(closeBtn);
 
     root->addLayout(controls);
-
-    // --- Tuning sliders (decode buffer / VAD sensitivity / silence) ---------
-    auto* grid = new QGridLayout;
-    grid->setColumnStretch(1, 1);
-
-    m_buffer = addSliderRow(grid, 0, tr("Buffer:"), tr("Decode buffer seconds"),
-                            1, 20, 20, &m_bufferValue);
-    m_bufferValue->setText(tr("%1 s").arg(m_buffer->value()));
-    connect(m_buffer, &QSlider::valueChanged, this, [this](int s) {
-        m_bufferValue->setText(tr("%1 s").arg(s));
-        emit bufferMsChanged(s * 1000);
-    });
-
-    m_sensitivity = addSliderRow(grid, 1, tr("Sensitivity:"), tr("VAD sensitivity percent"),
-                                 1, 100, 80, &m_sensitivityValue);
-    m_sensitivityValue->setText(tr("%1%").arg(m_sensitivity->value()));
-    connect(m_sensitivity, &QSlider::valueChanged, this, [this](int pct) {
-        m_sensitivityValue->setText(tr("%1%").arg(pct));
-        emit sensitivityChanged(pct);
-    });
-
-    m_silence = addSliderRow(grid, 2, tr("Silence:"), tr("Silence duration milliseconds"),
-                             100, 2000, 300, &m_silenceValue);
-    m_silence->setSingleStep(50);
-    m_silenceValue->setText(tr("%1 ms").arg(m_silence->value()));
-    connect(m_silence, &QSlider::valueChanged, this, [this](int ms) {
-        m_silenceValue->setText(tr("%1 ms").arg(ms));
-        emit silenceMsChanged(ms);
-    });
-
-    root->addLayout(grid);
 
     // --- Transcript (mirrors the CW decode QTextEdit) -----------------------
     m_text = new QTextEdit(this);
@@ -123,20 +120,21 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     root->addWidget(m_status);
 }
 
-QSlider* CopyAssistPanel::addSliderRow(QGridLayout* grid, int row, const QString& label,
-                                       const QString& accessibleName, int lo, int hi,
-                                       int value, QLabel** valueLabelOut)
+QSlider* CopyAssistPanel::addSliderInline(QHBoxLayout* bar, const QString& label,
+                                          const QString& accessibleName, int lo, int hi,
+                                          int value, QLabel** valueLabelOut)
 {
-    grid->addWidget(new QLabel(label, this), row, 0);
+    bar->addWidget(new QLabel(label, this));
     auto* slider = new QSlider(Qt::Horizontal, this);
     slider->setRange(lo, hi);
     slider->setValue(value);
+    slider->setFixedWidth(90); // compact, like the CW decode bar's sliders
     slider->setAccessibleName(accessibleName);
-    grid->addWidget(slider, row, 1);
+    bar->addWidget(slider);
     auto* valueLabel = new QLabel(this);
-    valueLabel->setMinimumWidth(48);
+    valueLabel->setMinimumWidth(44);
     valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    grid->addWidget(valueLabel, row, 2);
+    bar->addWidget(valueLabel);
     *valueLabelOut = valueLabel;
     return slider;
 }

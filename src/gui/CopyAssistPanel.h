@@ -5,7 +5,7 @@
 
 class QCheckBox;
 class QComboBox;
-class QGridLayout;
+class QHBoxLayout;
 class QLabel;
 class QPushButton;
 class QSlider;
@@ -66,9 +66,11 @@ signals:
 
 private:
     static QString colorForConfidence(float confidence);
-    QSlider* addSliderRow(QGridLayout* grid, int row, const QString& label,
-                          const QString& accessibleName, int lo, int hi, int value,
-                          QLabel** valueLabelOut);
+    // Append "<label> [compact slider] <value>" inline to the control bar,
+    // mirroring the CW decode bar's fixed-width sliders.
+    QSlider* addSliderInline(QHBoxLayout* bar, const QString& label,
+                             const QString& accessibleName, int lo, int hi, int value,
+                             QLabel** valueLabelOut);
 
     QTextEdit* m_text = nullptr;
     QCheckBox* m_enable = nullptr;
