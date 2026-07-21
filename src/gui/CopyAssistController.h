@@ -37,6 +37,13 @@ public:
     // the decode window starts fresh for the new frequency.
     void clearDecode();
 
+    // A retune (or active-slice switch): record the new frequency (MHz), write a
+    // frequency marker to the log (when enabled), and clear the decode window.
+    void onRetune(double freqMhz);
+    // Seed the current frequency without side effects (used right after the
+    // controller is created, before any retune event fires).
+    void setCurrentFrequency(double freqMhz);
+
 private slots:
     void onEnableToggled(bool on);
     void onTierChanged(const QString& tierId);
@@ -50,6 +57,8 @@ private:
     QString promptCustomModel(); // pick a local ggml/gguf model file (empty if cancelled)
     void promptLogFile();        // pick + persist the transcript log path
     void appendToLogFile(const QString& text); // write one utterance if logging is on
+    void writeFreqMarkerIfNeeded(); // log a "=== <freq> MHz ===" line on start/retune/day-roll
+    bool appendLogRaw(const QString& text); // append verbatim to the dated log; false on error
     // Which backend a selected tier id maps to (catalog family → backend kind;
     // the "custom" file and any unknown id default to local Whisper).
     static AsrBackendKind backendForTier(const QString& tierId);
@@ -65,6 +74,8 @@ private:
     AsrAudioTap* m_tap = nullptr;
     QString m_tierId;
     QString m_customModelPath; // user-picked local model (for the "Custom model…" tier)
+    double m_currentFreqMhz = 0.0;  // active-slice frequency, for the log marker
+    QString m_lastFreqMarkerKey;    // (dated-file|freq) last marked — dedups markers
     bool m_enabled = false;
     AsrBackendKind m_backend = AsrBackendKind::Whisper; // active inference backend
 };

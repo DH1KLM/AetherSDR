@@ -6333,15 +6333,16 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
 
 #ifdef AETHER_ASR_ENABLED
     // A retune (or a switch to another slice) is a new listening context — clear
-    // the Copy Assist decode window so text from the old frequency doesn't linger.
+    // the Copy Assist decode window so text from the old frequency doesn't linger,
+    // and mark the new frequency in the transcript log.
     disconnect(m_copyAssistFreqConn);
-    m_copyAssistFreqConn = connect(s, &SliceModel::frequencyChanged, this, [this](double) {
+    m_copyAssistFreqConn = connect(s, &SliceModel::frequencyChanged, this, [this](double mhz) {
         if (m_copyAssistController) {
-            m_copyAssistController->clearDecode();
+            m_copyAssistController->onRetune(mhz);
         }
     });
     if (sliceId != prevId && m_copyAssistController) {
-        m_copyAssistController->clearDecode();
+        m_copyAssistController->onRetune(s->frequency());
     }
 #endif
 

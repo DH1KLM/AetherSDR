@@ -33,6 +33,10 @@ more options. It floats over the app and can stay open while you operate.
   `net.txt` writes to `net-2026-07-21.txt` and rolls to a new file each day.
   Appends only (never truncates); the base name and on/off state persist across
   sessions.
+  - A **frequency marker** (`<TAB>=== 14.074000 MHz ===`, on its own line after a
+    blank line) is written when ASR starts, whenever you retune, and at the top
+    of each new day's file — so every block of decoded text is labeled with the
+    frequency it came from.
 
 ### Tuning (the control row)
 

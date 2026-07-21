@@ -278,6 +278,21 @@ void CopyAssistController::clearDecode()
     m_asr->reset(); // drop any half-built utterance so it doesn't cross frequencies
 }
 
+void CopyAssistController::onRetune(double freqMhz)
+{
+    m_currentFreqMhz = freqMhz;
+    if (m_enabled) {
+        // Mark the new frequency in the log before the new frequency's text.
+        writeFreqMarkerIfNeeded();
+    }
+    clearDecode();
+}
+
+void CopyAssistController::setCurrentFrequency(double freqMhz)
+{
+    m_currentFreqMhz = freqMhz;
+}
+
 void CopyAssistController::buildEngine()
 {
     // Tear down any previous engine+tap (order: tap first — it references the
@@ -305,6 +320,7 @@ void CopyAssistController::buildEngine()
             m_tap->setEnabled(true);
             m_panel->setStatus(m_backend == AsrBackendKind::Remote ? tr("Listening (remote)…")
                                                                    : tr("Listening…"));
+            writeFreqMarkerIfNeeded(); // "on start": head the log with the frequency
         }
     });
     connect(m_asr, &AsrEngine::loadFailed, this, [this](const QString& err) {
@@ -333,6 +349,7 @@ void CopyAssistController::onEnableToggled(bool on)
 {
     m_enabled = on;
     if (on) {
+        m_lastFreqMarkerKey.clear(); // force a fresh start marker for this session
         beginEnable();
     } else {
         m_tap->setEnabled(false);
@@ -527,6 +544,46 @@ void CopyAssistController::promptLogFile()
     AppSettings::instance().save();
 }
 
+bool CopyAssistController::appendLogRaw(const QString& text)
+{
+    // Per-day file derived from the user's base name; open/close each write so
+    // the file survives external rotation and is always flushed. Callers ensure
+    // logging is on with a non-empty base path.
+    QFile file(datedLogPath(m_settings->logFilePath()));
+    if (!file.open(QIODevice::Append | QIODevice::Text)) {
+        m_panel->setStatus(tr("Transcript log write failed: %1").arg(file.errorString()));
+        return false;
+    }
+    QTextStream out(&file);
+    out << text;
+    return true;
+}
+
+void CopyAssistController::writeFreqMarkerIfNeeded()
+{
+    if (!m_settings->logToFile()) {
+        return;
+    }
+    const QString base = m_settings->logFilePath();
+    if (base.isEmpty() || m_currentFreqMhz <= 0.0) {
+        return;
+    }
+    // Key the marker to (today's file × frequency) so it's written once per
+    // frequency per day-file — i.e. on start, on a real retune, and at the top of
+    // a rolled-over day file — but never duplicated for unchanged context.
+    const QString freq = QString::number(m_currentFreqMhz, 'f', 6);
+    const QString key = datedLogPath(base) + QLatin1Char('|') + freq;
+    if (key == m_lastFreqMarkerKey) {
+        return;
+    }
+    const QString line = QLatin1Char('\n')
+        + QDateTime::currentDateTime().toString(Qt::ISODate)
+        + QStringLiteral("\t=== ") + freq + QStringLiteral(" MHz ===\n");
+    if (appendLogRaw(line)) {
+        m_lastFreqMarkerKey = key;
+    }
+}
+
 void CopyAssistController::appendToLogFile(const QString& text)
 {
     if (!m_settings->logToFile()) {
@@ -537,16 +594,9 @@ void CopyAssistController::appendToLogFile(const QString& text)
     if (base.isEmpty() || trimmed.isEmpty()) {
         return;
     }
-    // Per-day file derived from the user's base name; append per utterance
-    // (open/close each time so the file survives external rotation and is always
-    // flushed). One timestamped line per utterance.
-    QFile file(datedLogPath(base));
-    if (!file.open(QIODevice::Append | QIODevice::Text)) {
-        m_panel->setStatus(tr("Transcript log write failed: %1").arg(file.errorString()));
-        return;
-    }
-    QTextStream out(&file);
-    out << QDateTime::currentDateTime().toString(Qt::ISODate) << '\t' << trimmed << '\n';
+    writeFreqMarkerIfNeeded(); // ensure the current frequency heads this file
+    appendLogRaw(QDateTime::currentDateTime().toString(Qt::ISODate)
+                 + QLatin1Char('\t') + trimmed + QLatin1Char('\n'));
 }
 
 } // namespace AetherSDR

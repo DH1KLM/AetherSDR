@@ -1371,6 +1371,11 @@ void MainWindow::showCopyAssist()
         }
         m_copyAssistApplet = applet;
         m_copyAssistController = new CopyAssistController(m_audio, applet->copyAssistPanel(), this);
+        // Seed the current frequency so the first "on start" log marker is correct
+        // even before any retune fires.
+        if (auto* s = activeSlice()) {
+            m_copyAssistController->setCurrentFrequency(s->frequency());
+        }
     }
     if (m_copyAssistApplet) {
         m_copyAssistApplet->setCopyAssistVisible(!m_copyAssistApplet->isCopyAssistVisible());
