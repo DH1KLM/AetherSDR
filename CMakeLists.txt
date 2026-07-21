@@ -1157,6 +1157,14 @@ if (ENABLE_ASR)
     endif()
     set(GGML_VULKAN ${_asr_vulkan} CACHE BOOL "" FORCE)
     set(GGML_METAL  ${_asr_metal}  CACHE BOOL "" FORCE)
+    # Embed the compiled Metal shader source into the binary instead of relying on
+    # a runtime file lookup (bundle Resources / cwd) for ggml-metal.metal — the
+    # unembedded path fails whenever the app isn't launched from inside its own
+    # bundle, silently disabling Metal and then crashing later via a confusing
+    # ggml_abort() deep in the backend scheduler rather than a clear GPU-init
+    # error. Fix diagnosed + verified by K5PTB on large-v3-turbo + Metal. Only
+    # needs the assembler + sed/echo (already in play). (RFC #4333)
+    set(GGML_METAL_EMBED_LIBRARY ${_asr_metal} CACHE BOOL "" FORCE)
 
     # Every other non-CPU backend OFF (their source dirs are not vendored):
     foreach(_ggml_backend
