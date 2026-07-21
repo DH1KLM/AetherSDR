@@ -1125,31 +1125,43 @@ if (ENABLE_ASR)
     set(GGML_NATIVE            OFF CACHE BOOL "" FORCE)  # portable binaries (Pi/CI/release)
     set(GGML_CPU               ON  CACHE BOOL "" FORCE)
 
-    # GPU acceleration via the Vulkan ggml backend — cross-platform
-    # (NVIDIA/AMD/Intel, Linux/Windows) and the only GPU backend vendored. Enabled
-    # only when the full build toolchain is present (Vulkan loader+headers, the
-    # glslc shader compiler, and SPIRV-Headers), so CPU-only machines and CI that
-    # lack it keep building exactly as before. Runtime falls back to CPU when no
-    # GPU device is found, so a GPU-enabled binary still runs on GPU-less hosts.
-    option(ENABLE_ASR_VULKAN "Enable Vulkan GPU acceleration for ASR (auto-detected)" ON)
+    # GPU acceleration for ASR: the native GPU backend per platform — Metal on
+    # Apple (macOS has no native Vulkan), Vulkan elsewhere (cross-platform
+    # NVIDIA/AMD/Intel on Linux/Windows). Both are the only GPU backends vendored,
+    # and both are gated so machines/CI without the toolchain build CPU-only,
+    # exactly as before. At runtime ggml falls back to CPU when no GPU device is
+    # found, so a GPU-enabled binary still runs on GPU-less hosts.
     set(_asr_vulkan OFF)
-    if (ENABLE_ASR_VULKAN)
-        find_package(Vulkan QUIET COMPONENTS glslc)
-        find_package(SPIRV-Headers QUIET CONFIG)
-        if (Vulkan_FOUND AND Vulkan_glslc_FOUND AND SPIRV-Headers_FOUND)
-            set(_asr_vulkan ON)
-            message(STATUS "ASR: Vulkan GPU backend enabled (glslc: ${Vulkan_GLSLC_EXECUTABLE})")
-        else()
-            message(STATUS "ASR: Vulkan toolchain not found — CPU-only "
-                "(Vulkan=${Vulkan_FOUND} glslc=${Vulkan_glslc_FOUND} SPIRV-Headers=${SPIRV-Headers_FOUND})")
+    set(_asr_metal  OFF)
+    if (APPLE)
+        # Metal uses the Metal framework + the `metal` shader compiler from full
+        # Xcode (present on macOS CI); no external SDK to install.
+        option(ENABLE_ASR_METAL "Enable Metal GPU acceleration for ASR (macOS)" ON)
+        if (ENABLE_ASR_METAL)
+            set(_asr_metal ON)
+            message(STATUS "ASR: Metal GPU backend enabled (Apple)")
+        endif()
+    else()
+        option(ENABLE_ASR_VULKAN "Enable Vulkan GPU acceleration for ASR (auto-detected)" ON)
+        if (ENABLE_ASR_VULKAN)
+            find_package(Vulkan QUIET COMPONENTS glslc)
+            find_package(SPIRV-Headers QUIET CONFIG)
+            if (Vulkan_FOUND AND Vulkan_glslc_FOUND AND SPIRV-Headers_FOUND)
+                set(_asr_vulkan ON)
+                message(STATUS "ASR: Vulkan GPU backend enabled (glslc: ${Vulkan_GLSLC_EXECUTABLE})")
+            else()
+                message(STATUS "ASR: Vulkan toolchain not found — CPU-only "
+                    "(Vulkan=${Vulkan_FOUND} glslc=${Vulkan_glslc_FOUND} SPIRV-Headers=${SPIRV-Headers_FOUND})")
+            endif()
         endif()
     endif()
     set(GGML_VULKAN ${_asr_vulkan} CACHE BOOL "" FORCE)
+    set(GGML_METAL  ${_asr_metal}  CACHE BOOL "" FORCE)
 
     # Every other non-CPU backend OFF (their source dirs are not vendored):
     foreach(_ggml_backend
             ACCELERATE BLAS CUDA HIP MUSA WEBGPU SYCL OPENCL
-            METAL OPENVINO RPC CANN ZDNN ZENDNN HEXAGON)
+            OPENVINO RPC CANN ZDNN ZENDNN HEXAGON)
         set(GGML_${_ggml_backend} OFF CACHE BOOL "" FORCE)
     endforeach()
     # Build whisper/ggml as static objects, not .so's.
@@ -1193,7 +1205,7 @@ if (ENABLE_ASR)
     target_include_directories(aetherasr PUBLIC src PRIVATE ${CMAKE_SOURCE_DIR}/third_party/r8brain)
     target_link_libraries(aetherasr PUBLIC Qt6::Core Qt6::Network PRIVATE whisper)
     target_compile_definitions(aetherasr PUBLIC AETHER_ASR_ENABLED=1)
-    if (_asr_vulkan)
+    if (_asr_vulkan OR _asr_metal)
         target_compile_definitions(aetherasr PRIVATE AETHER_ASR_GPU=1)
     endif()
     set_target_properties(aetherasr PROPERTIES AUTOMOC ON)

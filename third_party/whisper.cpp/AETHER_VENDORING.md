@@ -18,22 +18,28 @@ To keep the checkout small, only the **library** is vendored. Removed:
   `CMakePresets.json`, `*.yml`, `build-xcframework.sh`, README variants.
 - **Most GPU / accelerator ggml backends** (not vendored):
   `ggml-cuda`, `ggml-hip`, `ggml-musa`, `ggml-webgpu`, `ggml-sycl`,
-  `ggml-opencl`, `ggml-metal`, `ggml-openvino`, `ggml-cann`, `ggml-rpc`,
+  `ggml-opencl`, `ggml-openvino`, `ggml-cann`, `ggml-rpc`,
   `ggml-virtgpu`, `ggml-zdnn`, `ggml-zendnn`, `ggml-hexagon`.
 
 Kept: `include/`, `src/` (whisper), `cmake/`, and `ggml/` with the **CPU**
-backend (`ggml-cpu`, plus the un-compiled `ggml-blas` source) **and the
-`ggml-vulkan` GPU backend** (cross-platform NVIDIA/AMD/Intel). Each dropped
-backend is guarded by `if(GGML_<X>)` upstream, so with those options OFF the
-missing directories are never referenced.
+backend (`ggml-cpu`, plus the un-compiled `ggml-blas` source) **and the two GPU
+backends** — `ggml-vulkan` (cross-platform NVIDIA/AMD/Intel) and `ggml-metal`
+(native Apple). Each dropped backend is guarded by `if(GGML_<X>)` upstream, so
+with those options OFF the missing directories are never referenced.
 
-## GPU acceleration (Vulkan)
+## GPU acceleration (Vulkan + Metal)
 
-`ggml-vulkan` is vendored and enabled via `ENABLE_ASR_VULKAN` (auto-detected):
-the top-level `CMakeLists.txt` turns `GGML_VULKAN=ON` only when the build
-toolchain is present — the Vulkan loader+headers, the `glslc` shader compiler,
-and `SPIRV-Headers`. Otherwise the build is CPU-only, exactly as before. At
-runtime, `asrGpuAvailable()` (`ggml_backend_dev_by_type(GPU)`) decides whether
+Each platform builds its native GPU backend, gated so machines/CI without the
+toolchain build CPU-only:
+
+- **Metal** (Apple): `ggml-metal`, enabled via `ENABLE_ASR_METAL` on `APPLE`.
+  Uses the Metal framework + the `metal` shader compiler from full Xcode; no
+  external SDK to install. Enabled by default on macOS.
+- **Vulkan** (Linux/Windows): `ggml-vulkan`, enabled via `ENABLE_ASR_VULKAN`
+  (auto-detected) only when the Vulkan loader+headers, the `glslc` shader
+  compiler, and `SPIRV-Headers` are all present.
+
+At runtime, `asrGpuAvailable()` (`ggml_backend_dev_by_type(GPU)`) decides whether
 to use the GPU, so a GPU-enabled binary still runs on GPU-less hosts (CPU
 fallback). `GGML_NATIVE=OFF` is forced for portable/Pi/CI binaries.
 
