@@ -997,11 +997,8 @@ void MainWindow::buildMenuBar()
     connect(packetDecoderAction, &QAction::triggered,
             this, &MainWindow::showAx25HfPacketDecodeDialog);
 
-#ifdef AETHER_ASR_ENABLED
-    auto* copyAssistAction = viewMenu->addAction("Copy Assist (Speech to Text)...");
-    copyAssistAction->setMenuRole(QAction::NoRole);
-    connect(copyAssistAction, &QAction::triggered, this, &MainWindow::showCopyAssist);
-#endif
+    // Copy Assist has no View-menu entry: it's shown/hidden by the status-bar
+    // "ASR" toggle (and the keyboard shortcut) via showCopyAssist().
 
     auto* smartSpotAct = viewMenu->addAction("Smart Spot Filtering");
     smartSpotAct->setCheckable(true);
