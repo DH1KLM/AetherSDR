@@ -7,6 +7,7 @@
 #include "asr/AsrModelCatalog.h"
 #include "asr/AsrModelManager.h"
 #include "asr/RemoteAsrBackend.h"
+#include "asr/SherpaOnnxBackend.h"
 #include "asr/WhisperAsrBackend.h"
 #include "core/AppSettings.h"
 #include "core/ThemeManager.h"
@@ -34,6 +35,7 @@ namespace {
 
 constexpr const char* kRemoteTierId = "remote";
 constexpr const char* kCustomTierId = "custom";
+constexpr const char* kSherpaTierId = "sherpa";
 
 // Map a 1–100 "sensitivity" (higher = more sensitive) to the VAD's RMS energy
 // threshold (lower = more sensitive), spanning a practical HF-voice range.
@@ -101,6 +103,9 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
         m_settings->addTier(tier.id, tier.displayName);
     }
     m_settings->addTier(QString::fromLatin1(kCustomTierId), tr("Custom model…"));
+    if (sherpaOnnxAvailable()) {
+        m_settings->addTier(QString::fromLatin1(kSherpaTierId), tr("sherpa-onnx model…"));
+    }
     m_settings->addTier(QString::fromLatin1(kRemoteTierId), tr("Remote server…"));
 
     // Remember a previously-picked custom model so its filename shows in the list
@@ -110,6 +115,12 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     if (!m_customModelPath.isEmpty()) {
         m_settings->setTierLabel(QString::fromLatin1(kCustomTierId),
                                  tr("Custom: %1").arg(QFileInfo(m_customModelPath).fileName()));
+    }
+    m_sherpaModelDir =
+        AppSettings::instance().value(QStringLiteral("AsrSherpaModelDir"), QString()).toString();
+    if (!m_sherpaModelDir.isEmpty()) {
+        m_settings->setTierLabel(QString::fromLatin1(kSherpaTierId),
+                                 tr("Sherpa: %1").arg(QDir(m_sherpaModelDir).dirName()));
     }
 
     // Initial backend: remote if previously configured+enabled, else the
@@ -415,6 +426,9 @@ void CopyAssistController::buildEngine()
         m_asr = new AsrEngine(whisperAsrBackendFactory(QStringLiteral("en"), gpuDevice),
                               segConfig, this);
         break;
+    case AsrBackendKind::SherpaOnnx:
+        m_asr = new AsrEngine(sherpaOnnxBackendFactory(), segConfig, this);
+        break;
     }
     m_tap = new AsrAudioTap(m_audio, m_asr, this);
 
@@ -494,6 +508,18 @@ void CopyAssistController::onTierChanged(const QString& tierId)
         m_settings->setTierLabel(QString::fromLatin1(kCustomTierId),
                                  tr("Custom: %1").arg(QFileInfo(path).fileName()));
         setBackend(AsrBackendKind::Whisper, tierId);
+    } else if (tierId == QString::fromLatin1(kSherpaTierId)) {
+        const QString dir = promptSherpaModel();
+        if (dir.isEmpty()) {
+            m_settings->setCurrentTier(m_tierId); // user cancelled — revert
+            return;
+        }
+        m_sherpaModelDir = dir;
+        AppSettings::instance().setValue(QStringLiteral("AsrSherpaModelDir"), dir);
+        AppSettings::instance().save();
+        m_settings->setTierLabel(QString::fromLatin1(kSherpaTierId),
+                                 tr("Sherpa: %1").arg(QDir(dir).dirName()));
+        setBackend(AsrBackendKind::SherpaOnnx, tierId);
     } else {
         setBackend(backendForTier(tierId), tierId);
     }
@@ -509,12 +535,17 @@ AsrBackendKind CopyAssistController::backendForTier(const QString& tierId)
     if (tierId == QString::fromLatin1(kRemoteTierId)) {
         return AsrBackendKind::Remote;
     }
+    if (tierId == QString::fromLatin1(kSherpaTierId)) {
+        return AsrBackendKind::SherpaOnnx;
+    }
     // A catalog tier routes by its declared engine family; the "custom" file and
     // any unknown id fall through to local whisper.
     if (const AsrModelTier* tier = AsrModelCatalog::tierById(tierId)) {
         switch (tier->family) {
         case AsrModelFamily::Whisper:
             return AsrBackendKind::Whisper;
+        case AsrModelFamily::SherpaOnnx:
+            return AsrBackendKind::SherpaOnnx;
         }
     }
     return AsrBackendKind::Whisper;
@@ -561,6 +592,17 @@ void CopyAssistController::beginEnable()
         }
         m_panel->setStatus(tr("Loading model…"));
         m_asr->setModelPath(m_customModelPath);
+    } else if (m_backend == AsrBackendKind::SherpaOnnx) {
+        // sherpa-onnx model: load the picked directory directly (the backend
+        // discovers the bundle's files). No download/verify.
+        if (m_sherpaModelDir.isEmpty() || !QDir(m_sherpaModelDir).exists()) {
+            m_panel->setBusy(false);
+            m_panel->setStatus(tr("sherpa-onnx model folder not found — pick it again."));
+            m_panel->setAsrEnabled(false);
+            return;
+        }
+        m_panel->setStatus(tr("Loading model…"));
+        m_asr->setModelPath(m_sherpaModelDir);
     } else {
         m_panel->setStatus(tr("Preparing model…"));
         requestModel(m_tierId);
@@ -629,6 +671,17 @@ QString CopyAssistController::promptCustomModel()
     return QFileDialog::getOpenFileName(
         m_settings, tr("Choose a Whisper model"), startDir,
         tr("Whisper models (*.bin *.gguf);;All files (*)"));
+}
+
+QString CopyAssistController::promptSherpaModel()
+{
+    const QString startDir =
+        m_sherpaModelDir.isEmpty()
+            ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                  + QStringLiteral("/models")
+            : QFileInfo(m_sherpaModelDir).absolutePath();
+    return QFileDialog::getExistingDirectory(
+        m_settings, tr("Choose a sherpa-onnx model folder"), startDir);
 }
 
 void CopyAssistController::promptVadModel()

@@ -19,8 +19,9 @@ struct AsrModelTier;
 // local engine family is a drop-in: add an enumerator, a buildEngine() case, and
 // a mapping in backendForTier(). See AsrModelFamily.
 enum class AsrBackendKind {
-    Whisper, // local whisper.cpp (a catalog tier or a user "custom" file)
-    Remote,  // RemoteAsrBackend over HTTP
+    Whisper,    // local whisper.cpp (a catalog tier or a user "custom" file)
+    Remote,     // RemoteAsrBackend over HTTP
+    SherpaOnnx, // sherpa-onnx offline model (a user-picked model directory)
 };
 
 // Wires the Copy Assist panel to the ASR subsystem (RFC #4333, Phase 5). Owns
@@ -56,6 +57,7 @@ private:
     void requestModel(const QString& tierId);
     bool promptRemoteConfig();  // edit + persist the remote endpoint; true if accepted
     QString promptCustomModel(); // pick a local ggml/gguf model file (empty if cancelled)
+    QString promptSherpaModel(); // pick a sherpa-onnx model directory (empty if cancelled)
     void promptLogFile();        // pick + persist the transcript log path
     void appendToLogFile(const QString& text); // write one utterance if logging is on
     void promptVadModel();       // pick + persist a custom Silero VAD .onnx (rebuilds)
@@ -87,6 +89,7 @@ private:
     bool m_constructed = false; // true after the initial buildEngine (guards restore)
     QString m_tierId;
     QString m_customModelPath; // user-picked local model (for the "Custom model…" tier)
+    QString m_sherpaModelDir;  // user-picked sherpa-onnx model directory
     double m_currentFreqMhz = 0.0;  // active-slice frequency, for the log marker
     QString m_lastFreqMarkerKey;    // (dated-file|freq) last marked — dedups markers
     bool m_enabled = false;

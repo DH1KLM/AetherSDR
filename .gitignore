@@ -32,3 +32,7 @@ __pycache__/
 third_party/onnxruntime/
 third_party/onnxruntime-*.tgz
 third_party/onnxruntime-*.zip
+
+# Downloaded sherpa-onnx prebuilt (staged by scripts/setup/setup-sherpa-onnx.sh)
+third_party/sherpa-onnx/
+third_party/sherpa-onnx-*.tar.bz2

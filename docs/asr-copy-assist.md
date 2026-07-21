@@ -115,6 +115,24 @@ The selected model runs on the **GPU when one is available**, else CPU
 Without the toolchain the build is CPU-only, unchanged. A GPU-enabled binary
 still runs on GPU-less hosts.
 
+## sherpa-onnx models (non-whisper engines)
+
+The model picker's **"sherpa-onnx model…"** entry (shown when sherpa-onnx is
+built in) runs a [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) **offline**
+model through its C API — transducer (Zipformer), Moonshine, Paraformer, CTC, and
+more — via `SherpaOnnxBackend` (`AsrBackendKind::SherpaOnnx`). These are far
+faster than whisper on CPU/ARM, so they're the practical path for a Raspberry Pi.
+
+sherpa models ship as multi-file **bundles** (a folder of `.onnx` files +
+`tokens.txt`), so the entry opens a **folder picker**; the backend auto-detects
+the layout. Grab models from sherpa-onnx's model zoo and point at the extracted
+directory. sherpa-onnx bundles its own ONNX Runtime, which the whole app then
+shares (single runtime, no version clash).
+
+Build/stage it with `scripts/setup/setup-sherpa-onnx.sh` (Linux x64 / macOS;
+`REQUIRE_ASR_SHERPA=ON` to hard-require it). A Raspberry Pi needs sherpa-onnx
+built from source (no aarch64 shared-lib prebuilt yet).
+
 ## Remote backend (bring your own server)
 
 Instead of the bundled engine, Copy Assist can offload transcription to a
@@ -140,6 +158,7 @@ AudioEngine (aethercore, 24 kHz post-NR RX)
                                           ├─ AsrSegmenter (energy VAD → utterances)
                                           └─ IAsrBackend
                                                ├─ WhisperAsrBackend (local, CPU/Vulkan/Metal)
+                                               ├─ SherpaOnnxBackend (non-whisper, ONNX)
                                                └─ RemoteAsrBackend (HTTP endpoint)
    AsrEngine::finalText(text, confidence) ──▶ CopyAssistPanel (gui, color-coded)
 ```

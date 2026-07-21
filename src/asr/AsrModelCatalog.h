@@ -19,7 +19,8 @@ namespace AetherSDR {
 // (RFC #4333 follow-up). Adding a family is a drop-in: a new enumerator here, a
 // case in CopyAssistController's backend map, and a factory.
 enum class AsrModelFamily {
-    Whisper, // whisper.cpp / ggml (.bin/.gguf)
+    Whisper,    // whisper.cpp / ggml (.bin/.gguf)
+    SherpaOnnx, // sherpa-onnx offline model bundle (a directory of .onnx + tokens)
 };
 
 struct AsrModelTier {

@@ -28,6 +28,7 @@ option(REQUIRE_KEYCHAIN "Fail if Qt6Keychain is not found (use for release build
 # these makes a missing dependency a hard configure error (use in release CI).
 option(REQUIRE_ASR_ONNX "Fail if ONNX Runtime is not found (Silero VAD + speaker labeling + signal classifier; use for release builds)" OFF)
 option(REQUIRE_ASR_GPU "Fail if no ASR GPU backend (Vulkan/Metal) is enabled (use for release builds)" OFF)
+option(REQUIRE_ASR_SHERPA "Fail if sherpa-onnx is not found (non-whisper ASR backend; use for release builds)" OFF)
 option(ENABLE_LIQUID_DSP "Build with liquid-dsp toolkit support" OFF)
 option(ENABLE_RADE "Build with RADE digital voice support (uses vendored Opus snapshot)" ON)
 option(ENABLE_DSTAR "Build the local D-STAR waveform helper (vendored smartsdr-dsp/ThumbDV)" ON)
@@ -1224,6 +1225,7 @@ if (ENABLE_ASR)
         src/asr/SpeakerClusterer.cpp # online A/B/C speaker clustering
         src/asr/WhisperAsrBackend.cpp
         src/asr/RemoteAsrBackend.cpp
+        src/asr/SherpaOnnxBackend.cpp # sherpa-onnx offline models (stub unless HAVE_SHERPA)
         src/core/Resampler.cpp   # standalone r8brain wrapper (24k->16k on the ASR worker)
     )
     target_include_directories(aetherasr PUBLIC src PRIVATE ${CMAKE_SOURCE_DIR}/third_party/r8brain)
@@ -2127,6 +2129,23 @@ else()
         "(set REQUIRE_ASR_ONNX=ON to make this a hard error in release builds)")
 endif()
 
+# sherpa-onnx (detected further below) bundles its own ONNX Runtime (currently
+# 1.27). If it's staged, use THAT libonnxruntime for our ORT code too, so the
+# process has a single runtime — our C++ ORT usage is header-only and
+# backward-compatible with the newer lib. Linking both our (older) staged ORT and
+# sherpa's would fail: mismatched OrtGetApiBase symbol versions, and the wrong
+# one could win the runtime rpath. Pointing ORT_LIBRARIES at sherpa's lib also
+# drops our staged lib dir off the link/rpath, leaving exactly one at runtime.
+if(ORT_FOUND AND NOT WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/sherpa-onnx/lib")
+    file(GLOB _sherpa_ort
+        "${CMAKE_SOURCE_DIR}/third_party/sherpa-onnx/lib/libonnxruntime.so"
+        "${CMAKE_SOURCE_DIR}/third_party/sherpa-onnx/lib/libonnxruntime.dylib")
+    if(_sherpa_ort)
+        list(GET _sherpa_ort 0 ORT_LIBRARIES)
+        message(STATUS "ONNX Runtime: sharing sherpa-onnx's bundled runtime (avoids a version clash)")
+    endif()
+endif()
+
 if(PORTAUDIO_FOUND)
     target_sources(aethercore PRIVATE src/core/CwSidetonePortAudioSink.cpp)
     target_compile_definitions(aethercore PUBLIC HAVE_PORTAUDIO)
@@ -2182,6 +2201,45 @@ if(ORT_FOUND)
         target_include_directories(aetherasr PRIVATE ${ORT_INCLUDE_DIRS})
         target_link_libraries(aetherasr PRIVATE ${ORT_LIBRARIES})
     endif()
+endif()
+
+# sherpa-onnx — optional non-whisper ASR backend (offline models via its C API:
+# transducer / Moonshine / Paraformer / CTC …). Staged under third_party/sherpa-onnx
+# by scripts/setup/setup-sherpa-onnx.sh (Linux/macOS). Ships its own ONNX Runtime.
+set(SHERPA_ROOT "${CMAKE_SOURCE_DIR}/third_party/sherpa-onnx")
+if(EXISTS "${SHERPA_ROOT}/include/sherpa-onnx/c-api/c-api.h")
+    set(SHERPA_FOUND TRUE)
+    set(SHERPA_INCLUDE_DIRS "${SHERPA_ROOT}/include")
+    if(WIN32)
+        set(SHERPA_LIBRARIES "${SHERPA_ROOT}/lib/sherpa-onnx-c-api.lib")
+        file(GLOB SHERPA_DLLS "${SHERPA_ROOT}/bin/*.dll" "${SHERPA_ROOT}/lib/*.dll")
+    elseif(APPLE)
+        set(SHERPA_LIBRARIES "${SHERPA_ROOT}/lib/libsherpa-onnx-c-api.dylib")
+        file(GLOB SHERPA_RUNTIME_LIBS "${SHERPA_ROOT}/lib/*.dylib")
+    else()
+        set(SHERPA_LIBRARIES "${SHERPA_ROOT}/lib/libsherpa-onnx-c-api.so")
+        file(GLOB SHERPA_RUNTIME_LIBS "${SHERPA_ROOT}/lib/*.so*")
+    endif()
+endif()
+if(SHERPA_FOUND AND TARGET aetherasr)
+    message(STATUS "sherpa-onnx found — non-whisper ASR backend enabled")
+    target_compile_definitions(aetherasr PRIVATE HAVE_SHERPA)
+    target_include_directories(aetherasr PRIVATE ${SHERPA_INCLUDE_DIRS})
+    target_link_libraries(aetherasr PRIVATE ${SHERPA_LIBRARIES})
+    if(WIN32 AND SHERPA_DLLS)
+        foreach(_sh_dll IN LISTS SHERPA_DLLS)
+            add_custom_command(TARGET AetherSDR POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_sh_dll}" "$<TARGET_FILE_DIR:AetherSDR>"
+                COMMENT "Copying sherpa-onnx DLL to build directory")
+        endforeach()
+    endif()
+elseif(REQUIRE_ASR_SHERPA)
+    message(FATAL_ERROR "REQUIRE_ASR_SHERPA is set but sherpa-onnx was not found. "
+        "Run scripts/setup/setup-sherpa-onnx.sh to stage it under third_party/sherpa-onnx.")
+else()
+    message(STATUS "sherpa-onnx not found — non-whisper ASR backend disabled "
+        "(run scripts/setup/setup-sherpa-onnx.sh to enable)")
 endif()
 
 if(RADE_FOUND)
@@ -3115,6 +3173,19 @@ if (ENABLE_ASR)
         target_compile_definitions(asr_speaker_embedder_test PRIVATE HAVE_ONNX)
         target_link_libraries(asr_speaker_embedder_test PRIVATE ${ORT_LIBRARIES})
         add_test(NAME asr_speaker_embedder_test COMMAND asr_speaker_embedder_test)
+    endif()
+
+    # sherpa-onnx backend end-to-end — only when sherpa-onnx is available; env-
+    # gated on a model dir + WAV, so it SKIPs otherwise.
+    if(SHERPA_FOUND)
+        add_executable(asr_sherpa_backend_test
+            tests/asr_sherpa_backend_test.cpp
+            src/asr/SherpaOnnxBackend.cpp
+        )
+        target_include_directories(asr_sherpa_backend_test PRIVATE src ${SHERPA_INCLUDE_DIRS})
+        target_compile_definitions(asr_sherpa_backend_test PRIVATE HAVE_SHERPA)
+        target_link_libraries(asr_sherpa_backend_test PRIVATE Qt6::Core ${SHERPA_LIBRARIES})
+        add_test(NAME asr_sherpa_backend_test COMMAND asr_sherpa_backend_test)
     endif()
 
     # Real whisper inference on a model+clip. Skips (exit 0) unless
