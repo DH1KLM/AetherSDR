@@ -631,6 +631,12 @@ void PanadapterApplet::setCopyAssistVisible(bool visible)
     }
     if (m_copyAssistDock != nullptr) {
         m_copyAssistDock->setVisible(visible);
+        // Closing the panel (× button, status-bar toggle, menu, or auto-hide on
+        // leaving voice mode) also turns ASR off — unchecking Enable fires
+        // enableToggled(false), which disables the audio tap.
+        if (!visible && m_copyAssistPanel != nullptr) {
+            m_copyAssistPanel->setAsrEnabled(false);
+        }
     }
 }
 
