@@ -116,12 +116,14 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     });
     controls->addWidget(m_clear);
 
-    auto* closeBtn = new QPushButton(QString::fromUtf8("\xC3\x97"), this); // ×
-    closeBtn->setFixedSize(18, 18);
-    closeBtn->setAccessibleName(tr("Close Copy Assist"));
-    closeBtn->setToolTip(tr("Close the Copy Assist panel"));
-    connect(closeBtn, &QPushButton::clicked, this, &CopyAssistPanel::closeRequested);
-    controls->addWidget(closeBtn);
+    // Close button — glyph + style mirror the CW decoder's close button (the
+    // themed stylesheet is applied by the controller, keeping this widget
+    // ThemeManager-free). ✕ (U+2715) is the glyph the CW bar uses.
+    m_close = new QPushButton(QString::fromUtf8("✕"), this);
+    m_close->setAccessibleName(tr("Close Copy Assist"));
+    m_close->setToolTip(tr("Close the Copy Assist panel"));
+    connect(m_close, &QPushButton::clicked, this, &CopyAssistPanel::closeRequested);
+    controls->addWidget(m_close);
 
     root->addLayout(controls);
 

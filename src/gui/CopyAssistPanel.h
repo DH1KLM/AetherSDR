@@ -48,6 +48,9 @@ public:
     // The Enable/Disable toggle button — exposed so the app layer can apply the
     // themed applet-toggle style (the panel itself stays ThemeManager-free).
     QPushButton* enableButton() const { return m_enable; }
+    // The close (✕) button — exposed so the controller can apply the themed
+    // CW-decoder close-button style (same reason the panel stays theme-free).
+    QPushButton* closeButton() const { return m_close; }
 
     // Decode-buffer size in milliseconds (1000–20000). The slider works in
     // whole seconds; setBufferMs rounds/clamps into range.
@@ -94,6 +97,7 @@ private:
 
     QTextEdit* m_text = nullptr;
     QPushButton* m_enable = nullptr; // checkable: "Enable" / "Disable"
+    QPushButton* m_close = nullptr;  // ✕ close button (styled by the controller)
     QComboBox* m_tier = nullptr;
     QComboBox* m_gpu = nullptr;
     QLabel* m_status = nullptr;

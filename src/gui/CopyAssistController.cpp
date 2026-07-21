@@ -114,6 +114,16 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
             "QPushButton:checked { background: {{color.accent.dim}};"
             " color: {{color.text.primary}}; border: 1px solid {{color.accent.bright}}; }"));
 
+    // Close (✕) button — identical style to the CW decoder's close button so the
+    // two docked panels match (the panel stays ThemeManager-free, so it's applied
+    // here).
+    ThemeManager::instance().applyStyleSheet(m_panel->closeButton(),
+        QStringLiteral(
+            "QPushButton { background: {{color.background.1}}; color: {{color.text.secondary}};"
+            " border: 1px solid {{color.background.1}}; border-radius: 2px; font-size: 9px;"
+            " font-weight: bold; padding: 1px 6px; }"
+            "QPushButton:hover { color: #ff6060; background: {{color.background.1}}; }"));
+
     // Compute-device selector — shown whenever a GPU exists, so the user can pick
     // a GPU (or several) or force CPU. Hidden on GPU-less hosts (always CPU).
     const std::vector<AsrGpuDevice> gpus = asrGpuDevices();
