@@ -56,6 +56,7 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
         emit bufferMsChanged(s * 1000);
     });
 
+    controls->addSpacing(40); // gap between the tuning controls
     m_sensitivity = addSliderInline(controls, tr("Sens:"), tr("VAD sensitivity percent"),
                                     1, 100, 80, &m_sensitivityValue);
     m_sensitivityValue->setText(tr("%1%").arg(m_sensitivity->value()));
@@ -64,6 +65,7 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
         emit sensitivityChanged(pct);
     });
 
+    controls->addSpacing(40); // gap between the tuning controls
     m_silence = addSliderInline(controls, tr("Silence:"), tr("Silence duration milliseconds"),
                                 100, 2000, 300, &m_silenceValue);
     m_silence->setSingleStep(50);
