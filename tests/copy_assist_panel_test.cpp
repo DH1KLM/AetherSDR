@@ -106,6 +106,13 @@ int main(int argc, char** argv)
         // Clamping into range.
         panel.setBufferMs(999999);
         expect(panel.bufferMs() == 20000, "buffer clamps to 20 s max");
+
+        panel.setFontPx(20);
+        expect(panel.fontPx() == 20, "setFontPx sets transcript font size");
+        panel.setFontPx(99);
+        expect(panel.fontPx() == 32, "font size clamps to 32 px max");
+        panel.setFontPx(1);
+        expect(panel.fontPx() == 8, "font size clamps to 8 px min");
     }
 
     std::printf(g_failures == 0 ? "\nCopy Assist panel: ALL PASS\n"

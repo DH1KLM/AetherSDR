@@ -2,6 +2,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFont>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
@@ -77,6 +78,18 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
 
     controls->addStretch(1);
 
+    // Transcript font size (mirrors the CW decode bar's A-/A+).
+    auto* fontDown = new QPushButton(tr("A-"), this);
+    fontDown->setFixedWidth(28);
+    fontDown->setAccessibleName(tr("Decrease transcript font size"));
+    connect(fontDown, &QPushButton::clicked, this, [this] { adjustFont(-1); });
+    controls->addWidget(fontDown);
+    auto* fontUp = new QPushButton(tr("A+"), this);
+    fontUp->setFixedWidth(28);
+    fontUp->setAccessibleName(tr("Increase transcript font size"));
+    connect(fontUp, &QPushButton::clicked, this, [this] { adjustFont(1); });
+    controls->addWidget(fontUp);
+
     m_clear = new QPushButton(tr("Clear"), this);
     m_clear->setAccessibleName(tr("Clear transcript"));
     connect(m_clear, &QPushButton::clicked, this, [this] {
@@ -132,6 +145,32 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     statusRow->addWidget(m_status, 1);
 
     root->addLayout(statusRow);
+
+    applyFont();
+}
+
+void CopyAssistPanel::applyFont()
+{
+    QFont f = m_text->font();
+    f.setPixelSize(m_fontPx);
+    m_text->setFont(f);
+}
+
+void CopyAssistPanel::adjustFont(int deltaPx)
+{
+    const int next = std::clamp(m_fontPx + deltaPx, 8, 32);
+    if (next == m_fontPx) {
+        return;
+    }
+    m_fontPx = next;
+    applyFont();
+    emit fontPxChanged(m_fontPx);
+}
+
+void CopyAssistPanel::setFontPx(int px)
+{
+    m_fontPx = std::clamp(px, 8, 32);
+    applyFont();
 }
 
 QSlider* CopyAssistPanel::addSliderInline(QHBoxLayout* bar, const QString& label,

@@ -53,6 +53,10 @@ public:
     void setSilenceMs(int ms);
     int silenceMs() const;
 
+    // Transcript font size in px (8–32).
+    void setFontPx(int px);
+    int fontPx() const { return m_fontPx; }
+
 public slots:
     // Append one transcribed utterance, colored by confidence in [0, 1].
     void appendText(const QString& text, float confidence);
@@ -66,9 +70,12 @@ signals:
     void bufferMsChanged(int ms);
     void sensitivityChanged(int percent);
     void silenceMsChanged(int ms);
+    void fontPxChanged(int px);
 
 private:
     static QString colorForConfidence(float confidence);
+    void applyFont();
+    void adjustFont(int deltaPx);
     // Append "<label> [compact slider] <value>" inline to the control bar,
     // mirroring the CW decode bar's fixed-width sliders.
     QSlider* addSliderInline(QHBoxLayout* bar, const QString& label,
@@ -87,6 +94,7 @@ private:
     QSlider* m_silence = nullptr;
     QLabel* m_silenceValue = nullptr;
     QProgressBar* m_busy = nullptr;
+    int m_fontPx = 13;
 };
 
 } // namespace AetherSDR

@@ -114,6 +114,7 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
     m_panel->setBufferMs(s.value(QStringLiteral("AsrDecodeBufferMs"), QStringLiteral("20000")).toString().toInt());
     m_panel->setSensitivity(s.value(QStringLiteral("AsrSensitivity"), QStringLiteral("80")).toString().toInt());
     m_panel->setSilenceMs(s.value(QStringLiteral("AsrSilenceMs"), QStringLiteral("300")).toString().toInt());
+    m_panel->setFontPx(s.value(QStringLiteral("AsrFontPx"), QStringLiteral("13")).toString().toInt());
     connect(m_panel, &CopyAssistPanel::bufferMsChanged, this, [this](int ms) {
         m_asr->setDecodeBufferMs(ms);
         saveInt("AsrDecodeBufferMs", ms);
@@ -126,6 +127,8 @@ CopyAssistController::CopyAssistController(AudioEngine* audio, CopyAssistPanel* 
         m_asr->setSilenceDurationMs(ms);
         saveInt("AsrSilenceMs", ms);
     });
+    connect(m_panel, &CopyAssistPanel::fontPxChanged, this,
+            [](int px) { saveInt("AsrFontPx", px); });
 
     buildEngine();
 }
