@@ -108,12 +108,12 @@ int main(int argc, char** argv)
            "defaultTierId() resolves to a known tier");
     bool allWellFormed = true;
     for (const AsrModelTier& t : tiers) {
-        if (t.sha256.size() != 64 || t.sizeBytes <= 0 || t.sources.size() < 2
+        if (t.sha256.size() != 64 || t.sizeBytes <= 0 || t.sources.isEmpty()
             || t.fileName.isEmpty()) {
             allWellFormed = false;
         }
     }
-    expect(allWellFormed, "every tier has a 64-hex sha, size, filename, and >=2 sources");
+    expect(allWellFormed, "every tier has a 64-hex sha, size, filename, and >=1 source");
     expect(AsrModelCatalog::tierById(QStringLiteral("nope")) == nullptr,
            "tierById() returns nullptr for an unknown id");
 

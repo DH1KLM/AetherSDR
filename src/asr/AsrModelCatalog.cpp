@@ -26,7 +26,8 @@ QString releaseAssetUrl(const QString& fileName)
 }
 
 AsrModelTier makeTier(const QString& id, const QString& displayName,
-                      const QString& fileName, qint64 sizeBytes, const QString& sha256)
+                      const QString& fileName, qint64 sizeBytes, const QString& sha256,
+                      bool mirrored = false)
 {
     AsrModelTier tier;
     tier.id = id;
@@ -34,7 +35,13 @@ AsrModelTier makeTier(const QString& id, const QString& displayName,
     tier.fileName = fileName;
     tier.sizeBytes = sizeBytes;
     tier.sha256 = sha256;
-    tier.sources = {huggingFaceUrl(fileName), releaseAssetUrl(fileName)};
+    // Hugging Face is the primary source. Only tiers actually mirrored to the
+    // `asr-models-v1` GitHub release get a fallback URL — currently just the
+    // default `base` (keeping the mirror lightweight); the rest are HF-only.
+    tier.sources = {huggingFaceUrl(fileName)};
+    if (mirrored) {
+        tier.sources.append(releaseAssetUrl(fileName));
+    }
     return tier;
 }
 
@@ -57,7 +64,8 @@ const QVector<AsrModelTier>& tiers()
                  QStringLiteral("be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21")),
         makeTier(QStringLiteral("base"), QStringLiteral("Base — 141 MB (live copy, CPU/Pi default)"),
                  QStringLiteral("ggml-base.bin"), 147951465,
-                 QStringLiteral("60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe")),
+                 QStringLiteral("60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"),
+                 /*mirrored=*/true),
         makeTier(QStringLiteral("small"), QStringLiteral("Small — 465 MB (desktop CPU)"),
                  QStringLiteral("ggml-small.bin"), 487601967,
                  QStringLiteral("1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b")),
