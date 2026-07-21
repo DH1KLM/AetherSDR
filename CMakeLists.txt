@@ -1200,6 +1200,7 @@ if (ENABLE_ASR)
         src/asr/AsrSegmenter.cpp
         src/asr/AsrEngine.cpp
         src/asr/WhisperAsrBackend.cpp
+        src/asr/RemoteAsrBackend.cpp
         src/core/Resampler.cpp   # standalone r8brain wrapper (24k->16k on the ASR worker)
     )
     target_include_directories(aetherasr PUBLIC src PRIVATE ${CMAKE_SOURCE_DIR}/third_party/r8brain)
@@ -3039,6 +3040,15 @@ if (ENABLE_ASR)
     target_include_directories(asr_whisper_backend_test PRIVATE src)
     target_link_libraries(asr_whisper_backend_test PRIVATE Qt6::Core whisper)
     add_test(NAME asr_whisper_backend_test COMMAND asr_whisper_backend_test)
+
+    # Remote backend: offline round-trip against a local mock HTTP endpoint.
+    add_executable(asr_remote_backend_test
+        tests/asr_remote_backend_test.cpp
+        src/asr/RemoteAsrBackend.cpp
+    )
+    target_include_directories(asr_remote_backend_test PRIVATE src)
+    target_link_libraries(asr_remote_backend_test PRIVATE Qt6::Core Qt6::Network)
+    add_test(NAME asr_remote_backend_test COMMAND asr_remote_backend_test)
 
     # Copy Assist panel: offscreen UI test of confidence color-coding + controls.
     add_executable(copy_assist_panel_test

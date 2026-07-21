@@ -27,15 +27,20 @@ private slots:
     void onTierChanged(const QString& tierId);
 
 private:
+    void buildEngine();  // (re)create the engine+tap for the current backend
+    void applyTuning();  // push saved VAD tuning into the engine
     void beginEnable();
     void requestModel(const QString& tierId);
+    bool promptRemoteConfig(); // edit + persist the remote endpoint; true if accepted
 
+    AudioEngine* m_audio = nullptr;
     CopyAssistPanel* m_panel = nullptr;
     AsrEngine* m_asr = nullptr;
     AsrModelManager* m_models = nullptr;
     AsrAudioTap* m_tap = nullptr;
     QString m_tierId;
     bool m_enabled = false;
+    bool m_remote = false; // using the RemoteAsrBackend rather than local whisper
 };
 
 } // namespace AetherSDR
