@@ -1,0 +1,84 @@
+name: Build sherpa-onnx (linux-aarch64)
+
+# k2-fsa publishes no linux-aarch64 shared-lib prebuilt, but the Raspberry Pi /
+# ARM AppImage needs one. This builds the sherpa-onnx C-API shared library
+# natively on a GitHub ARM runner (v1.13.4 pins ONNX Runtime 1.27, matching what
+# the rest of the app stages) and uploads it — in the same layout as upstream's
+# other "-shared-no-tts-lib" tarballs — to the `sherpa-onnx-libs` release, where
+# scripts/setup/setup-sherpa-onnx.sh can fetch it.
+#
+# Manual (workflow_dispatch). The job log prints the artifact's SHA-256; pin it
+# into setup-sherpa-onnx.sh's linux-aarch64 case after the first run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'sherpa-onnx version tag to build'
+        required: true
+        default: '1.13.4'
+
+permissions:
+  contents: write
+
+jobs:
+  build-aarch64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ git bzip2
+
+      - name: Clone sherpa-onnx ${{ github.event.inputs.version }}
+        run: |
+          git clone --depth 1 --branch v${{ github.event.inputs.version }} \
+            https://github.com/k2-fsa/sherpa-onnx sherpa-src
+
+      - name: Configure + build the C-API shared lib
+        run: |
+          cd sherpa-src
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DSHERPA_ONNX_ENABLE_C_API=ON \
+            -DSHERPA_ONNX_ENABLE_BINARY=OFF \
+            -DSHERPA_ONNX_ENABLE_TTS=OFF \
+            -DSHERPA_ONNX_ENABLE_PYTHON=OFF \
+            -DSHERPA_ONNX_ENABLE_TESTS=OFF \
+            -DSHERPA_ONNX_ENABLE_CHECK=OFF \
+            -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF \
+            -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF \
+            -DCMAKE_INSTALL_PREFIX=install
+          cmake --build build --target install -j"$(nproc)"
+
+      - name: Package (upstream layout)
+        id: pkg
+        run: |
+          VER="${{ github.event.inputs.version }}"
+          PKG="sherpa-onnx-v${VER}-linux-aarch64-shared-no-tts-lib"
+          mkdir -p "${PKG}/lib"
+          # Gather the C-API + cxx-api + the bundled ONNX Runtime from wherever the
+          # build/install put them.
+          find sherpa-src/install sherpa-src/build -name 'libsherpa-onnx-c-api.so*' \
+               -o -name 'libsherpa-onnx-cxx-api.so*' -o -name 'libonnxruntime.so*' \
+            | sort -u | while read -r f; do cp -av "$f" "${PKG}/lib/"; done
+          echo "== packaged libs =="; ls -l "${PKG}/lib/"
+          test -f "${PKG}/lib/libsherpa-onnx-c-api.so" || { echo "missing c-api lib"; exit 1; }
+          test -f "${PKG}/lib/libonnxruntime.so" || { echo "missing onnxruntime lib"; exit 1; }
+          tar cjf "${PKG}.tar.bz2" "${PKG}"
+          SHA="$(sha256sum "${PKG}.tar.bz2" | cut -d' ' -f1)"
+          echo "pkg=${PKG}.tar.bz2" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=sherpa-onnx aarch64 SHA-256::${PKG}.tar.bz2 = ${SHA}"
+
+      - name: Upload to the sherpa-onnx-libs release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view sherpa-onnx-libs >/dev/null 2>&1 \
+            || gh release create sherpa-onnx-libs \
+                 --title "sherpa-onnx runtime libraries" \
+                 --notes "Self-built sherpa-onnx C-API shared libraries for platforms k2-fsa doesn't prebuild (linux-aarch64). Built by .github/workflows/build-sherpa-onnx-aarch64.yml."
+          gh release upload sherpa-onnx-libs "${{ steps.pkg.outputs.pkg }}" --clobber
+          echo "Uploaded ${{ steps.pkg.outputs.pkg }} (sha256 ${{ steps.pkg.outputs.sha }})"
