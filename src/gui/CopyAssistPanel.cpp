@@ -1,6 +1,5 @@
 #include "CopyAssistPanel.h"
 
-#include <QCheckBox>
 #include <QComboBox>
 #include <QFont>
 #include <QHBoxLayout>
@@ -34,10 +33,16 @@ CopyAssistPanel::CopyAssistPanel(QWidget* parent)
     // --- Controls row -------------------------------------------------------
     auto* controls = new QHBoxLayout;
 
-    m_enable = new QCheckBox(tr("Enable"), this);
+    // A checkable button (not a checkbox) — the "Enable"/"Disable" label makes
+    // the on/off state obvious. Same default button styling as Clear/A-/A+.
+    m_enable = new QPushButton(tr("Enable"), this);
+    m_enable->setCheckable(true);
     m_enable->setAccessibleName(tr("Enable Copy Assist"));
     m_enable->setToolTip(tr("Transcribe received voice to text"));
-    connect(m_enable, &QCheckBox::toggled, this, &CopyAssistPanel::enableToggled);
+    connect(m_enable, &QPushButton::toggled, this, [this](bool on) {
+        m_enable->setText(on ? tr("Disable") : tr("Enable"));
+        emit enableToggled(on);
+    });
     controls->addWidget(m_enable);
 
     controls->addWidget(new QLabel(tr("Model:"), this));

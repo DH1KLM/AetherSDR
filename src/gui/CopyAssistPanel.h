@@ -3,7 +3,6 @@
 #include <QString>
 #include <QWidget>
 
-class QCheckBox;
 class QComboBox;
 class QHBoxLayout;
 class QLabel;
@@ -90,7 +89,7 @@ private:
                              QLabel** valueLabelOut);
 
     QTextEdit* m_text = nullptr;
-    QCheckBox* m_enable = nullptr;
+    QPushButton* m_enable = nullptr; // checkable: "Enable" / "Disable"
     QComboBox* m_tier = nullptr;
     QComboBox* m_gpu = nullptr;
     QLabel* m_status = nullptr;
