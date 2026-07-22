@@ -29,6 +29,7 @@
 #include "MidiMappingDialog.h"
 #include "ProfileImportExportDialog.h"
 #include "ProfileManagerDialog.h"
+#include "SliceAudioSwitcherDialog.h"
 #include "ThemeEditorDialog.h"
 #include "TxBandDialog.h"
 #include "UlanziDialMapperDialog.h"
@@ -285,6 +286,12 @@ void MainWindow::buildMenuBar()
     auto* memoryAction = settingsMenu->addAction("Memory...");
     connect(memoryAction, &QAction::triggered, this, [this] {
         showMemoryDialog();
+    });
+    auto* sliceAudioSwitcherAction =
+        settingsMenu->addAction("Slice Audio Switcher...");
+    sliceAudioSwitcherAction->setMenuRole(QAction::NoRole);
+    connect(sliceAudioSwitcherAction, &QAction::triggered, this, [this] {
+        showOrRaisePersistent(m_sliceAudioSwitcherDialog, &m_radioModel);
     });
     auto* netSchedulerAction = settingsMenu->addAction("Net Scheduler...");
     connect(netSchedulerAction, &QAction::triggered, this, [this] {

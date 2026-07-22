@@ -112,6 +112,7 @@ class RadioSetupDialog;
 class NetworkDiagnosticsDialog;
 class AgcCalibrationDialog;
 class MemoryDialog;
+class SliceAudioSwitcherDialog;
 class NetSchedulerDialog;
 class NetReminderBanner;
 class NetScheduler;
@@ -1025,6 +1026,7 @@ private:
     QPointer<PropDashboardDialog> m_propDashboardDialog;
     QPointer<TxBandDialog> m_txBandDialog;
     QPointer<MemoryDialog> m_memoryDialog;
+    QPointer<SliceAudioSwitcherDialog> m_sliceAudioSwitcherDialog;
     QPointer<NetSchedulerDialog> m_netSchedulerDialog;
     NetScheduler* m_netScheduler{nullptr};
     NetReminderBanner* m_netReminderBanner{nullptr};
