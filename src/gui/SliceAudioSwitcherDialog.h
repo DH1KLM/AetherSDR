@@ -2,7 +2,7 @@
 
 #include "gui/PersistentDialog.h"
 
-#include <QList>
+#include <QVector>
 
 class QPushButton;
 
@@ -28,19 +28,16 @@ class SliceAudioSwitcherDialog : public PersistentDialog {
 public:
     explicit SliceAudioSwitcherDialog(RadioModel* radio, QWidget* parent = nullptr);
 
-private:
-    // Wire a freshly-added slice's per-slice signals (mute + letter), then
-    // refresh so the new slot paints immediately.
+private slots:
     void onSliceAdded(SliceModel* slice);
-    // Connect a slice's per-slice signals (mute + letter) to a refresh.
-    void connectSlice(SliceModel* slice);
-    // Refresh every slot's color / glyph / letter / enabled state.
     void refreshAll();
-    // Refresh a single slot's button.
+
+private:
+    void connectSlice(SliceModel* slice);
     void refreshButton(int slot);
 
-    RadioModel*         m_radio{nullptr};
-    QList<QPushButton*> m_buttons;
+    RadioModel*           m_radio{nullptr};
+    QVector<QPushButton*> m_buttons;
 };
 
 } // namespace AetherSDR
