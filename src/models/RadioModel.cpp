@@ -584,6 +584,14 @@ void RadioModel::setupBackend(const QString& family)
     connect(m_backend.get(), &IRadioBackend::sliceChanged, this,
             [this](int sliceId, const SliceDelta& delta) {
         SliceModel* s = slice(sliceId);
+        // A non-Flex backend labels its pan with its own id ("hl2"), but the UI
+        // associates a slice with a pan by matching PanadapterModel::panId(). Left
+        // unmapped the slice belongs to no pan, so no slice flag is drawn on the
+        // panadapter even though the VFO shows the right frequency. Re-address the
+        // delta at the pan we materialised.
+        SliceDelta mapped = delta;
+        if (!m_flexBackend && mapped.panId)
+            mapped.panId = neutralPanIdString(0);
         if (!s && !m_flexBackend) {
             // aetherd Gap B (Step 2c): no Flex "slice" status ever runs for a
             // non-Flex backend, so nothing would create the model and every delta
@@ -595,12 +603,12 @@ void RadioModel::setupBackend(const QString& family)
                 if (m_backend) m_backend->setSliceMode(s->sliceId(), mode);
             });
             m_slices.append(s);
-            s->applyChanges(delta);
+            s->applyChanges(mapped);
             emit sliceAdded(s);
             return;
         }
         if (s) {
-            s->applyChanges(delta);
+            s->applyChanges(mapped);
         }
     });
 

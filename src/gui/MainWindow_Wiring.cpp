@@ -2477,10 +2477,10 @@ void MainWindow::sendPanDimensionsToRadio(const QString& panId,
                 || panYpixelsFor(swGuard.data()) != ypix) {
                 return;
             }
-            // Flex-only: a non-Flex backend has no PanadapterStream to tell.
-            if (!m_radioModel.panStream())
-                return;
-            m_radioModel.panStream()->setYPixels(streamId, ypix);
+            // Telling the radio is Flex-only (a non-Flex backend owns no
+            // PanadapterStream), but the local widget rescale must still happen.
+            if (m_radioModel.panStream())
+                m_radioModel.panStream()->setYPixels(streamId, ypix);
             swGuard->prepareForFftScaleChange();
         };
 
