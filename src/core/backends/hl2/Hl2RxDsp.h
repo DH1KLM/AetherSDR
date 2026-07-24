@@ -23,6 +23,10 @@ public:
     explicit Hl2RxDsp(QObject* parent = nullptr);
     ~Hl2RxDsp() override;
 
+    // WDSP's internal DSP rate. Constant at 48 kHz and independent of both the
+    // HL2 IQ rate and the audio rate — see the note in configure().
+    static constexpr int kWdspDspSampleRateHz = 48000;
+
     struct Config {
         int inputSampleRateHz = 48000;   // HL2 IQ sample rate
         // Demodulated-audio rate. 24 kHz because that is AudioEngine's native

@@ -22,20 +22,24 @@ bool Hl2RxDsp::configure(const Config& config, std::string* error)
     WdspChannel::Config wc;
     wc.direction = WdspChannel::Direction::Receive;
     wc.inputBlockSize = static_cast<std::size_t>(config.dspBlockSize);
-    // WDSP's in_size and dsp_size must describe the SAME span of time at their
-    // respective rates: dsp_size = in_size * dsp_rate / input_rate. Passing the
-    // input block size verbatim claimed the DSP buffer covered 1024 samples at
-    // 24 kHz (42.7 ms) while WDSP was actually handed 1024 samples at 48 kHz
-    // (21.3 ms) per call. Correctness-only: no audible change was measured, and
-    // no bug is currently attributed to the old value. It is fixed because the
-    // contract says so, and because the error scales with the rate ratio — at
-    // 384 kHz input the claim would have been off by 16x, not 2x.
+    // dsp_size describes the same span of time as in_size, but at dsp_rate:
+    //     dsp_insize = dsp_size * (in_rate / dsp_rate)   [WDSP channel.c]
+    // so dsp_size = in_size * dsp_rate / in_rate makes WDSP consume exactly one
+    // of our input blocks per DSP pass. At the HL2's 48 kHz default that is
+    // 1024; at 192 kHz it is 256.
     wc.dspBlockSize = static_cast<std::size_t>(config.dspBlockSize) *
-                      static_cast<std::size_t>(config.audioSampleRateHz) /
+                      static_cast<std::size_t>(kWdspDspSampleRateHz) /
                       static_cast<std::size_t>(config.inputSampleRateHz);
     wc.inputSampleRate = config.inputSampleRateHz;   // RF/IF rate from the HL2
-    wc.dspSampleRate = config.audioSampleRateHz;     // WDSP decimates IF -> audio
-    wc.outputSampleRate = config.audioSampleRateHz;
+    // The WDSP DSP rate is 48 kHz and is NOT the audio rate. WDSP's RXA stages
+    // are built around a 48 kHz internal rate, and both reference clients hold
+    // it there regardless of what goes in or comes out: Thetis passes a literal
+    // 48000 for dsp_rate with an independent ch_outrate (cmaster.c
+    // create_rcvr), and pihpsdr passes 48000 for dsp_rate with the radio's own
+    // sample_rate as input (receiver.c OpenChannel). Setting dsp_rate to the
+    // 24 kHz audio rate ran WDSP's chain at half the rate it is designed for.
+    wc.dspSampleRate = kWdspDspSampleRateHz;
+    wc.outputSampleRate = config.audioSampleRateHz;  // 24 kHz for AudioEngine
     wc.mode = config.mode;
     wc.filterLowHz = config.filterLowHz;
     wc.filterHighHz = config.filterHighHz;
