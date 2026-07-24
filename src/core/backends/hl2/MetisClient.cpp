@@ -1,6 +1,7 @@
 #include "core/backends/hl2/MetisClient.h"
 
 #include <QElapsedTimer>
+#include <QThread>
 #include <QNetworkDatagram>
 #include <QUdpSocket>
 #include <QtGlobal>
@@ -50,7 +51,27 @@ void enableBroadcast(QUdpSocket& s) noexcept
 
 }  // namespace
 
-MetisClient::MetisClient(QObject* parent) : QObject(parent) {}
+MetisClient::MetisClient(QObject* parent) : QObject(parent) {
+    // Paces EP2 from a wall clock (see kEp2PacerTickMs) so C&C keeps flowing
+    // even if the EP6 receive path stalls.
+    m_ep2Timer = new QTimer(this);
+    m_ep2Timer->setInterval(kEp2PacerTickMs);
+    m_ep2Timer->setTimerType(Qt::PreciseTimer);
+    connect(m_ep2Timer, &QTimer::timeout, this, &MetisClient::onEp2PacerTick);
+
+    m_watchdogTimer = new QTimer(this);
+    m_watchdogTimer->setInterval(kWatchdogTickMs);
+    connect(m_watchdogTimer, &QTimer::timeout, this, &MetisClient::onWatchdogTick);
+
+    m_connectWatchdog = new QTimer(this);
+    m_connectWatchdog->setSingleShot(true);
+    connect(m_connectWatchdog, &QTimer::timeout, this, [this] {
+        if (!m_linkUp)
+            emit connectFailed(QStringLiteral(
+                "no IQ stream from the radio within %1 ms of start")
+                    .arg(kConnectTimeoutMs));
+    });
+}
 
 MetisClient::~MetisClient()
 {
@@ -119,18 +140,73 @@ bool MetisClient::start(const Params& params)
     m_socket->setReadBufferSize(1 << 21);   // absorb the continuous EP6 torrent
     connect(m_socket, &QUdpSocket::readyRead, this, &MetisClient::onReadyRead);
 
-    sendTo(*m_socket, metisStart(), m_host, m_port);   // start IQ
-    for (int i = 0; i < 4; ++i)                        // prime + latch registers
-        sendControlPacket();
-
+    // Order matters. Prime with real C&C frames FIRST so the DDC latches the
+    // sample rate, NCO and receiver count, then start the stream, then prime
+    // again so nothing is lost to the start transition. Starting before any C&C
+    // has landed makes the firmware stream ADC-idle samples (Q pinned to zero).
     m_running = true;
+    sendPrimingBurst(3);
+    sendTo(*m_socket, metisStart(m_watchdogEnabled), m_host, m_port);
+    sendPrimingBurst(3);
+
+    m_ep2IntervalUs = (sampleRateHz(m_params.sampleRate) > 0)
+        ? (static_cast<qint64>(kSamplesPerPacket) * 1'000'000
+           / sampleRateHz(m_params.sampleRate))
+        : 2625;
+    m_ep2Sent = 0;
+    m_ep2Clock.restart();
+    m_ep2Timer->start();
+    m_sinceLastEp6.restart();
+    m_watchdogTimer->start();
+    m_connectWatchdog->start(kConnectTimeoutMs);
     return true;
+}
+
+void MetisClient::sendPrimingBurst(int countPerBank)
+{
+    for (int i = 0; i < countPerBank; ++i)
+        sendControlPacket();
+    QThread::msleep(10);
+    for (int i = 0; i < countPerBank; ++i)
+        sendControlPacket();
+    QThread::msleep(10);
+}
+
+void MetisClient::onEp2PacerTick()
+{
+    if (!m_running || !m_socket || m_ep2IntervalUs <= 0)
+        return;
+    // Catch-up: emit however many frames the wall clock says are due, capped so
+    // a long stall cannot produce an unbounded burst.
+    const qint64 elapsedUs = m_ep2Clock.nsecsElapsed() / 1000;
+    const quint64 due = static_cast<quint64>(elapsedUs / m_ep2IntervalUs);
+    int burst = 0;
+    while (m_ep2Sent < due && burst < kEp2MaxBurstPerTick) {
+        sendControlPacket();
+        ++m_ep2Sent;
+        ++burst;
+    }
+}
+
+void MetisClient::onWatchdogTick()
+{
+    if (!m_running || !m_linkUp)
+        return;
+    if (m_sinceLastEp6.isValid() && m_sinceLastEp6.elapsed() > kSilenceTimeoutMs) {
+        // Socket still open but the radio went quiet — surface it as link loss
+        // rather than sitting in a permanently "connected" state.
+        m_linkUp = false;
+        emit linkDown();
+    }
 }
 
 void MetisClient::stop()
 {
+    if (m_ep2Timer)        m_ep2Timer->stop();
+    if (m_watchdogTimer)   m_watchdogTimer->stop();
+    if (m_connectWatchdog) m_connectWatchdog->stop();
     if (m_socket) {
-        sendTo(*m_socket, metisStop(), m_host, m_port);
+        sendTo(*m_socket, metisStop(m_watchdogEnabled), m_host, m_port);
         m_socket->close();
         m_socket->deleteLater();
         m_socket = nullptr;
@@ -181,8 +257,11 @@ void MetisClient::onReadyRead()
         if (!seq)
             continue;   // not an EP6 packet (e.g. a stray discovery reply)
 
+        m_sinceLastEp6.restart();
         if (!m_linkUp) {
             m_linkUp = true;
+            if (m_connectWatchdog)
+                m_connectWatchdog->stop();   // first EP6 — the link is alive
             emit linkUp();
         }
         if (m_haveRxSeq && *seq != m_expectedRxSeq) {
@@ -199,7 +278,6 @@ void MetisClient::onReadyRead()
         if (ep6Samples(bytes, m_block) > 0)
             emit iqBlockReady(m_block);
 
-        sendControlPacket();   // pace the C&C 1:1 with the EP6 stream
     }
 }
 

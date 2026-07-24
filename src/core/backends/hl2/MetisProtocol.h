@@ -64,8 +64,24 @@ Cc ccRxGain(int db) noexcept;
 
 // 64-byte Metis command: EF FE 04 <cmd>. cmd 0x01 = start IQ, 0x00 = stop.
 std::array<std::uint8_t, 64> metisCommand(std::uint8_t cmd) noexcept;
-inline std::array<std::uint8_t, 64> metisStart() noexcept { return metisCommand(0x01); }
-inline std::array<std::uint8_t, 64> metisStop() noexcept { return metisCommand(0x00); }
+// Bit 7 of the run/stop byte is the gateware's watchdog_disable flag
+// (Hermes-Lite 2 gateware, rtl/dsopenhpsdr1.v — see THIRD_PARTY_LICENSES):
+// 0 = watchdog ENABLED, 0x80 = disabled. We default to ENABLED, which is the
+// anti-wedge mechanism: if this client dies without sending a stop, EP2 traffic
+// ceases and the radio halts its own stream instead of streaming forever at a
+// dead endpoint (after which it stops answering discovery until power-cycled).
+inline constexpr std::uint8_t kRunWatchdogDisable = 0x80;
+
+inline std::array<std::uint8_t, 64> metisStart(bool watchdogEnabled = true) noexcept
+{
+    return metisCommand(static_cast<std::uint8_t>(
+        0x01 | (watchdogEnabled ? 0x00 : kRunWatchdogDisable)));
+}
+inline std::array<std::uint8_t, 64> metisStop(bool watchdogEnabled = true) noexcept
+{
+    return metisCommand(static_cast<std::uint8_t>(
+        0x00 | (watchdogEnabled ? 0x00 : kRunWatchdogDisable)));
+}
 
 // 63-byte discovery request: EF FE 02 + 60 zero bytes (broadcast to :1024).
 std::array<std::uint8_t, 63> discoveryRequest() noexcept;

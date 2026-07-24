@@ -545,6 +545,11 @@ RadioModel::RadioModel(QObject* parent)
     // remaining universal fields and the other mixed models.)
     connect(m_backend.get(), &IRadioBackend::panCenterBandwidthChanged, this,
             [this](const QString& panId, double centerMhz, double bandwidthMhz) {
+        // aetherd Gap B (Step 2c): remember the geometry even when no
+        // PanadapterModel resolves — an HL2 session has none, and the neutral
+        // waterfall rows below still need the band edges.
+        m_backendPanCenterMhz = centerMhz;
+        m_backendPanBandwidthMhz = bandwidthMhz;
         auto* pan = resolvePan(panId);
         if (!pan) return;
         pan->setCenterBandwidth(centerMhz, bandwidthMhz);
@@ -641,7 +646,23 @@ RadioModel::RadioModel(QObject* parent)
     // across threads. #4068 review.)
     connect(m_backend.get(), &IRadioBackend::sliceChanged, this,
             [this](int sliceId, const SliceDelta& delta) {
-        if (SliceModel* s = slice(sliceId)) {
+        SliceModel* s = slice(sliceId);
+        if (!s && !m_flexBackend) {
+            // aetherd Gap B (Step 2c): no Flex "slice" status ever runs for a
+            // non-Flex backend, so nothing would create the model and every delta
+            // would be dropped (slice panel stuck at 0.000000). Materialise it on
+            // the first delta and route mode intents back through the seam.
+            s = new SliceModel(sliceId, this);
+            connect(s, &SliceModel::modeChangeRequested, this,
+                    [this, s](const QString& mode) {
+                if (m_backend) m_backend->setSliceMode(s->sliceId(), mode);
+            });
+            m_slices.append(s);
+            s->applyChanges(delta);
+            emit sliceAdded(s);
+            return;
+        }
+        if (s) {
             s->applyChanges(delta);
         }
     });
@@ -980,9 +1001,18 @@ RadioModel::RadioModel(QObject* parent)
         if (!m_intentionalDisconnect && !m_lastInfo.address.isNull()) {
             qCDebug(lcProtocol) << "RadioModel: auto-reconnecting to" << m_lastInfo.address.toString();
             clearAutomationSliceFixtures();
-            QMetaObject::invokeMethod(m_connection, [this] {
-                m_connection->connectToRadio(m_lastInfo);
-            });
+            if (m_connection) {
+                QMetaObject::invokeMethod(m_connection, [this] {
+                    m_connection->connectToRadio(m_lastInfo);
+                });
+            } else if (m_backend) {
+                // Non-Flex backend: re-drive the connect through the seam.
+                RadioConnectRequest req;
+                req.host   = m_lastInfo.address.toString();
+                req.port   = m_lastInfo.port;
+                req.serial = m_lastInfo.serial;
+                m_backend->connectRadio(req);
+            }
         } else {
             m_reconnectTimer.stop();
         }
@@ -1055,6 +1085,10 @@ QString RadioModel::digitalVoiceWaveformHealthDetail() const
 
 bool RadioModel::isConnected() const
 {
+    // aetherd Gap B: a non-Flex backend (HL2) owns no RadioConnection — its
+    // connection state lives behind the IRadioBackend seam.
+    if (!m_connection)
+        return m_backend && m_backend->isConnected();
     return m_connection->isConnected() || (m_wanConn && m_wanConn->isConnected());
 }
 
@@ -3420,7 +3454,19 @@ void RadioModel::onBackendSpectrumFrame(int panId, const QByteArray& frame)
     // handler takes its empty-panadapters fallback and draws into the active
     // pane — enough for first-light. Step 3 gives HL2 a real pan + unique id.
     const quint32 streamId = kNeutralPanStreamIdBase + static_cast<quint32>(panId);
-    emit panFeedSpectrumReady(streamId, bins, PerfTelemetry::nowNs());
+    const qint64 nowNs = PerfTelemetry::nowNs();
+    emit panFeedSpectrumReady(streamId, bins, nowNs);
+
+    // Drive the waterfall from the same frame. The backend supplies no separate
+    // waterfall plane (Flex gets one from the radio), so the panadapter row IS
+    // the waterfall row; it needs real band edges to scale against.
+    if (m_backendPanBandwidthMhz > 0.0) {
+        const double half = m_backendPanBandwidthMhz / 2.0;
+        emit panFeedWaterfallRowReady(streamId, bins,
+                                      m_backendPanCenterMhz - half,
+                                      m_backendPanCenterMhz + half,
+                                      m_backendWfTimecode++, nowNs);
+    }
 }
 
 void RadioModel::onConnected()
@@ -4375,9 +4421,12 @@ void RadioModel::onDisconnected()
 
     stopNetworkMonitor();
     // stop() must run on the network thread (socket lives there). (#561)
-    QMetaObject::invokeMethod(m_panStream, &PanadapterStream::stop,
-                              Qt::BlockingQueuedConnection);
-    m_panStream->clearRegisteredStreams();
+    // Guarded: a non-Flex backend (HL2) owns no PanadapterStream.
+    if (m_panStream) {
+        QMetaObject::invokeMethod(m_panStream, &PanadapterStream::stop,
+                                  Qt::BlockingQueuedConnection);
+        m_panStream->clearRegisteredStreams();
+    }
     // The radio sends no per-stream "removed" on a hard disconnect, so reset
     // the DAX-IQ stream state + destroy pipes here too (panStream IQ
     // registrations are cleared just above); otherwise stale `exists` makes
@@ -4412,7 +4461,8 @@ void RadioModel::onDisconnected()
     // The radio reaps all our streams on TCP disconnect; drop the DAX channel
     // ownership table without emitting removals (#3305). Consumers re-acquire
     // on their reconnect re-arm paths.
-    m_panStream->resetDaxChannelsForDisconnect();
+    if (m_panStream)
+        m_panStream->resetDaxChannelsForDisconnect();
     emit otherClientsChanged(0, {});
     emit connectionStateChanged(false);
     m_forcedDisconnectInProgress = false;
@@ -4557,6 +4607,8 @@ void RadioModel::stopNetworkMonitor()
 
 void RadioModel::evaluateNetworkQuality()
 {
+    if (!m_panStream)
+        return;   // non-Flex backend: no VITA-49 stream to score
     const int currentErrors = m_panStream->packetErrorCount();
     const int currentPackets = m_panStream->packetTotalCount();
     recordNetworkHealthSample(currentErrors, currentPackets);
@@ -4825,22 +4877,22 @@ int RadioModel::audioPacketJitterMs() const
 
 int RadioModel::packetDropCount() const
 {
-    return m_panStream->packetErrorCount();
+    return m_panStream ? m_panStream->packetErrorCount() : 0;
 }
 
 int RadioModel::packetTotalCount() const
 {
-    return m_panStream->packetTotalCount();
+    return m_panStream ? m_panStream->packetTotalCount() : 0;
 }
 
 qint64 RadioModel::rxBytes() const
 {
-    return m_panStream->totalRxBytes();
+    return m_panStream ? m_panStream->totalRxBytes() : 0;
 }
 
 qint64 RadioModel::txBytes() const
 {
-    return m_panStream->totalTxBytes();
+    return m_panStream ? m_panStream->totalTxBytes() : 0;
 }
 
 QString RadioModel::targetRadioIp() const
@@ -4859,7 +4911,7 @@ QString RadioModel::selectedSourcePath() const
         return m_lastInfo.bindSettings.selectionLabel();
 
     QHostAddress resolved = m_lastInfo.sessionBindAddress;
-    if (resolved.isNull())
+    if (resolved.isNull() && m_connection)
         resolved = m_connection->localAddress();
     if (!resolved.isNull() && resolved.protocol() == QAbstractSocket::IPv4Protocol)
         return QStringLiteral("Auto (%1)").arg(resolved.toString());
@@ -4871,6 +4923,8 @@ QString RadioModel::localTcpEndpoint() const
     if (m_wanConn)
         return QStringLiteral("SmartLink/WAN");
 
+    if (!m_connection)
+        return QStringLiteral("Not connected");
     const QHostAddress localAddr = m_connection->localAddress();
     const quint16 localPort = m_connection->localTcpPort();
     if (localAddr.isNull() || localPort == 0)
@@ -4880,6 +4934,8 @@ QString RadioModel::localTcpEndpoint() const
 
 QString RadioModel::localUdpEndpoint() const
 {
+    if (!m_panStream)
+        return QStringLiteral("Not bound");
     const QHostAddress localAddr = m_panStream->localAddress();
     const quint16 localPort = m_panStream->localPort();
     if (localAddr.isNull() || localPort == 0)
@@ -4889,11 +4945,13 @@ QString RadioModel::localUdpEndpoint() const
 
 bool RadioModel::firstUdpPacketSeen() const
 {
-    return m_panStream->hasReceivedPackets();
+    return m_panStream && m_panStream->hasReceivedPackets();
 }
 
 PanadapterStream::CategoryStats RadioModel::categoryStats(PanadapterStream::StreamCategory cat) const
 {
+    if (!m_panStream)
+        return {};
     return m_panStream->categoryStats(cat);
 }
 
@@ -5471,7 +5529,9 @@ quint32 RadioModel::clientHandle() const
 {
     if (m_wanConn)
         return m_wanConn->clientHandle();
-    return m_connection->clientHandle();
+    // No RadioConnection for a non-Flex backend; the Flex client-handle concept
+    // does not apply there.
+    return m_connection ? m_connection->clientHandle() : 0u;
 }
 
 PanadapterModel* RadioModel::ensureOwnedPanadapter(const QString& panId)

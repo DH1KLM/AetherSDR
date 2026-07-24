@@ -96,12 +96,18 @@ int main(int argc, char** argv)
     req.host = QStringLiteral("127.0.0.1");
     req.port = radioPort;
     backend.connectRadio(req);
-    check(sliceCount >= 1 && !connectedSpy.count(), "connect publishes initial slice state, connected still pending");
+    // Initial slice/pan state is published from the linkUp handler, NOT here:
+    // RadioModel::onConnected() stages every pre-existing model as previous-
+    // session leftovers, so anything emitted before connected() is discarded.
+    check(!connectedSpy.count(), "connect leaves connected() pending until the first EP6");
 
-    spin(5000);   // let the capped ping-pong deliver EP6 + one spectrum frame
+    // Stay inside kSilenceTimeoutMs (2 s): the fake radio stops after kCap
+    // frames, and the EP6 silence watchdog legitimately drops the link after it.
+    spin(1200);   // capped ping-pong delivers EP6 + at least one spectrum frame
 
     check(connectedSpy.count() == 1, "connected() on the first EP6");
     check(backend.isConnected(), "isConnected() true");
+    check(sliceCount >= 1, "initial slice state published once the link is up");
     check(specCount >= 1, "spectrumFrameReady wired through the seam");
     check(lastSpecBytes == static_cast<qsizetype>(1024 * sizeof(float)),
           "spectrum payload is fftSize float32");
@@ -122,10 +128,18 @@ int main(int argc, char** argv)
     check(errSpy.count() == 1, "awaited invokeExtension -> one extensionError");
     check(errSpy.first().at(0).toULongLong() == 42u, "extensionError carries the requestId");
 
+    // ---- EP6 silence watchdog: the fake radio stopped at kCap, so once the
+    // silence window elapses the link must be reported down instead of sitting
+    // in a permanently "connected" state. ----
+    spin(2600);   // > kSilenceTimeoutMs since the last EP6
+    check(disconnectedSpy.count() == 1, "EP6 silence trips the watchdog -> disconnected()");
+    check(!backend.isConnected(), "isConnected() false after the silence watchdog");
+
     // ---- disconnect ----
     backend.disconnectRadio();
     spin(50);
-    check(disconnectedSpy.count() == 1, "disconnected() on stop");
+    // Already down via the watchdog; disconnectRadio() must not double-report.
+    check(disconnectedSpy.count() == 1, "disconnect does not re-emit disconnected()");
     check(!backend.isConnected(), "isConnected() false after disconnect");
 
     if (g_failures == 0)

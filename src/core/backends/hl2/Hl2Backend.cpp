@@ -63,6 +63,12 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
     connect(m_metis, &MetisClient::linkUp, this, [this] {
         m_connected = true;
         emit connected();
+        // Publish initial slice/pan state AFTER connected(), not in connectRadio():
+        // RadioModel::onConnected() stages every existing model as "previous
+        // session" leftovers, so anything emitted earlier is wiped before the UI
+        // ever sees it (slice panel stuck empty / 0.000000).
+        emitSliceState();
+        emitPanState();
     });
     connect(m_metis, &MetisClient::linkDown, this, [this] {
         if (m_connected) {
@@ -141,9 +147,8 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
         emit connectionError(QStringLiteral("HL2: could not open the UDP socket"));
         return;
     }
-    // connected() fires on the first EP6 (linkUp). Publish the initial state now.
-    emitSliceState();
-    emitPanState();
+    // Initial slice/pan state is published from the linkUp handler above, once
+    // connected() has fired and RadioModel has finished staging the old session.
 }
 
 void Hl2Backend::disconnectRadio()

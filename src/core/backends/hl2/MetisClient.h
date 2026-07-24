@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHostAddress>
+#include <QTimer>
 #include <QList>
 #include <QObject>
 
@@ -67,12 +69,42 @@ signals:
     void linkDown();                                               // stopped
     void iqBlockReady(const std::vector<std::complex<float>>& block);  // one per EP6 packet
     void dropsUpdated(quint64 drops);                             // cumulative EP6 gaps
+    // No EP6 arrived within kConnectTimeoutMs of start() — the radio is off,
+    // unreachable, or already streaming to a different client.
+    void connectFailed(const QString& reason);
 
 private slots:
     void onReadyRead();
+    void onEp2PacerTick();
+    void onWatchdogTick();
 
 private:
-    void sendControlPacket();           // one round-robin EP2 C&C packet, 1:1 paced
+    void sendControlPacket();           // one round-robin EP2 C&C packet
+    // Send countPerBank C&C frames, pause, then countPerBank more. Run BEFORE
+    // metis-start so the DDC latches sample rate / NCO / receiver count from a
+    // real C&C frame; a stream started before any C&C has landed emits ADC-idle
+    // samples (Q pinned to zero) until one does.
+    void sendPrimingBurst(int countPerBank);
+
+    // EP2 cadence follows the frame geometry, not the EP6 arrival rate: the
+    // radio consumes one EP2 frame per kSamplesPerPacket samples, so at 48 kHz
+    // that is 126/48000 s = 2625 us. Driving it from a wall clock (rather than
+    // replying 1:1 to EP6) means a stalled receive path cannot starve the
+    // radio's watchdog and deadlock the link.
+    static constexpr int kEp2PacerTickMs     = 2;
+    static constexpr int kEp2MaxBurstPerTick = 16;
+    static constexpr int kWatchdogTickMs     = 25;
+    static constexpr int kConnectTimeoutMs   = 2000;
+    static constexpr int kSilenceTimeoutMs   = 2000;
+
+    QTimer* m_ep2Timer = nullptr;         // paces EP2 off the wall clock
+    QTimer* m_watchdogTimer = nullptr;    // EP6 silence detection
+    QTimer* m_connectWatchdog = nullptr;  // single-shot: first-EP6 deadline
+    QElapsedTimer m_ep2Clock;             // pacer reference clock
+    QElapsedTimer m_sinceLastEp6;         // silence detection
+    quint64 m_ep2Sent = 0;                // EP2 frames sent since m_ep2Clock
+    qint64  m_ep2IntervalUs = 2625;       // derived from the sample rate
+    bool    m_watchdogEnabled = true;     // gateware watchdog (anti-wedge)
 
     QUdpSocket* m_socket = nullptr;
     QHostAddress m_host;

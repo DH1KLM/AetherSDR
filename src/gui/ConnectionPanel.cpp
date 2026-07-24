@@ -17,6 +17,9 @@
 #include <QPainter>
 #include <QSignalBlocker>
 #include <QTcpSocket>
+#include <QUdpSocket>
+#include <QNetworkDatagram>
+#include <QDeadlineTimer>
 #include <QTimer>
 #include <QVBoxLayout>
 #include "core/ThemeManager.h"
@@ -1451,6 +1454,53 @@ void ConnectionPanel::probeRadio(const QString& ip)
     m_manualConnectBtn->setText(busyText);
     m_manualSourceWarningLabel->setVisible(false);
     updateManualAdvancedVisibility();
+
+    // aetherd Gap B (Step 2b): a Hermes-Lite 2 speaks HPSDR Protocol 1 on UDP 1024
+    // and will NEVER answer the Flex TCP/4992 probe below, so probe for it first.
+    // An 0xEFFE reply means HPSDR/HL2: emit an hl2-family RadioInfo and let
+    // RadioModel route the connect through the IRadioBackend seam. Short bounded
+    // wait (~600 ms) on a path that is already a modal "Checking..." step.
+    {
+        QUdpSocket hpsdr;
+        if (hpsdr.bind(QHostAddress(QHostAddress::AnyIPv4), 0)) {
+            QByteArray disc(63, '\0');
+            disc[0] = char(0xEF);
+            disc[1] = char(0xFE);
+            disc[2] = char(0x02);
+            hpsdr.writeDatagram(disc, QHostAddress(trimmedIp), 1024);
+            QDeadlineTimer deadline(600);
+            while (!deadline.hasExpired()) {
+                if (!hpsdr.waitForReadyRead(static_cast<int>(deadline.remainingTime())))
+                    break;
+                while (hpsdr.hasPendingDatagrams()) {
+                    const QByteArray d = hpsdr.receiveDatagram().data();
+                    if (d.size() < 11 || quint8(d.at(0)) != 0xEF || quint8(d.at(1)) != 0xFE)
+                        continue;
+                    QStringList mac;
+                    for (int i = 3; i < 9; ++i)
+                        mac << QStringLiteral("%1").arg(quint8(d.at(i)), 2, 16, QLatin1Char('0')).toUpper();
+                    RadioInfo info;
+                    info.family   = QStringLiteral("hl2");
+                    info.address  = QHostAddress(trimmedIp);
+                    info.port     = 1024;                       // Metis, not Flex 4992
+                    info.model    = QStringLiteral("Hermes-Lite 2");
+                    info.name     = info.model;
+                    info.nickname = info.model;
+                    info.serial   = mac.join(QLatin1Char(':'));
+                    info.version  = QString::number(quint8(d.at(9)));
+                    info.status   = QStringLiteral("Available");
+                    m_manualConnectPending = false;
+                    m_manualConnectBtn->setText("Connect by IP");
+                    m_manualConnectBtn->setEnabled(true);
+                    updateActionState();
+                    setManualMessage(QStringLiteral("Found a Hermes-Lite 2 at %1 — connecting.")
+                                         .arg(trimmedIp), false);
+                    emit connectRequested(info);
+                    return;
+                }
+            }
+        }
+    }
 
     auto* sock = new QTcpSocket(this);
     if (bindSettings.mode == RadioBindMode::Explicit

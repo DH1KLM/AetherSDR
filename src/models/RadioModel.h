@@ -891,6 +891,13 @@ private:
     std::atomic<quint32> m_seqCounter{1};
     QMap<quint32, ResponseCallback> m_pendingCallbacks;
     PanadapterStream* m_panStream{nullptr};    // non-owning — owned by m_backend
+    // aetherd Gap B (Step 2c): geometry + row counter for backends that deliver
+    // spectra through IRadioBackend (HL2). Kept on RadioModel because such a
+    // backend has no PanadapterModel yet, and the neutral waterfall rows still
+    // need frequency edges.
+    double  m_backendPanCenterMhz{0.0};
+    double  m_backendPanBandwidthMhz{0.0};
+    quint32 m_backendWfTimecode{0};
     // Sub-models — value members on main thread (#502)
     MeterModel       m_meterModel;
     TunerModel       m_tunerModel;
