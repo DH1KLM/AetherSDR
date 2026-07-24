@@ -847,6 +847,14 @@ private:
     void stageSessionModelsForReconnect();
     void pruneStaleSessionModels(quint64 generation);
 
+    // aetherd Gap A (HL2 Phase 1c): the minimal backend-selection seam. Returns
+    // the IRadioBackend for `family` ("flex" default, "hl2" for Hermes-Lite 2).
+    // Replaces the hard-wired make_unique<FlexBackend>; a fuller step-3 registry
+    // supersedes it later. Flex-specific construction wiring (command sinks,
+    // RadioConnection/PanadapterStream grabs) stays behind a dynamic_cast adapter
+    // in the ctor, so a non-Flex backend simply skips it.
+    static std::unique_ptr<IRadioBackend> makeBackend(const QString& family);
+
     // aetherd RFC step 2 (§5.5): the radio-facing seam. Held via std::unique_ptr
     // (owned via unique_ptr below). As of 2.2b it OWNS the RadioConnection +
     // PanadapterStream and their worker threads; RadioModel keeps the two

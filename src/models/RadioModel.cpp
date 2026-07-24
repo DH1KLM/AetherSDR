@@ -6,6 +6,7 @@
 #include "DeclaredBands.h"
 #include "core/CommandParser.h"
 #include "core/backends/flex/FlexBackend.h"   // aetherd RFC 2.2 radio-facing seam
+#include "core/backends/hl2/Hl2Backend.h"      // aetherd Gap A — HL2 backend (family "hl2")
 #include "core/AppSettings.h"
 #include "core/CwTrace.h"
 #include "core/DigitalVoiceModeRegistry.h"
@@ -381,6 +382,17 @@ QJsonObject clientInfoToJson(quint32 handle,
 
 } // namespace
 
+// aetherd Gap A (HL2 Phase 1c): the minimal backend-selection seam. Maps a radio
+// family string to its IRadioBackend. "flex" (the default, and any unrecognized
+// value) preserves the historical hard-wired FlexBackend; "hl2" selects the
+// Hermes-Lite 2 backend. A fuller step-3 registry supersedes this later.
+std::unique_ptr<IRadioBackend> RadioModel::makeBackend(const QString& family)
+{
+    if (family.compare(QLatin1String("hl2"), Qt::CaseInsensitive) == 0)
+        return std::make_unique<hl2::Hl2Backend>();
+    return std::make_unique<FlexBackend>();
+}
+
 RadioModel::RadioModel(QObject* parent)
     : QObject(parent)
 {
@@ -479,18 +491,25 @@ RadioModel::RadioModel(QObject* parent)
     // auto-connects nor emits — so there is no lost-signal window before our
     // statusReceived/etc. connections are made. Keep that true if init() grows.
     {
-        auto flex = std::make_unique<FlexBackend>();
-        flex->setCommandSink([this](const QString& cmd){ sendCommand(cmd); });
-        // Slice verbs route through the TX-inhibit-guarded slice sink (§6), so
-        // moving slice encode behind the seam keeps TX safety above it.
-        flex->setSliceCommandSink([this](const QString& cmd){
-            sendSliceCommand(nullptr, cmd);   // guard looks up the slice from cmd
-        });
-        flex->setModelProvider([this]{ return m_model; });
-        m_connection = flex->connection();   // non-owning; the backend owns it
-        m_panStream  = flex->panStream();    // non-owning; the backend owns it
-        m_flexBackend = flex.get();          // transitional alias (2.3)
-        m_backend = std::move(flex);
+        // aetherd Gap A (HL2 Phase 1c): select the backend by family instead of
+        // hard-wiring FlexBackend. Dev hook: AETHER_RADIO_FAMILY ("flex" default,
+        // "hl2" for Hermes-Lite 2). The Flex-specific construction wiring below is
+        // guarded by a dynamic_cast so the Flex path stays byte-identical and a
+        // non-Flex backend simply skips it (it owns its own wire objects).
+        m_backend = makeBackend(qEnvironmentVariable("AETHER_RADIO_FAMILY",
+                                                     QStringLiteral("flex")));
+        if (auto* flex = dynamic_cast<FlexBackend*>(m_backend.get())) {
+            flex->setCommandSink([this](const QString& cmd){ sendCommand(cmd); });
+            // Slice verbs route through the TX-inhibit-guarded slice sink (§6), so
+            // moving slice encode behind the seam keeps TX safety above it.
+            flex->setSliceCommandSink([this](const QString& cmd){
+                sendSliceCommand(nullptr, cmd);   // guard looks up the slice from cmd
+            });
+            flex->setModelProvider([this]{ return m_model; });
+            m_connection = flex->connection();   // non-owning; the backend owns it
+            m_panStream  = flex->panStream();    // non-owning; the backend owns it
+            m_flexBackend = flex;                // transitional alias (2.3)
+        }
     }
 
     // aetherd RFC 2.3: the first converted touchpoint. The backend decodes the
