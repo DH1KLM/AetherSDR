@@ -3945,6 +3945,17 @@ void RadioModel::handleDuplicateClientIdDisconnect()
 
 void RadioModel::registerAsGuiClient(const QString& clientId)
 {
+    // aetherd Gap B: SmartSDR GUI-client registration is Flex-only. Every step
+    // here — the client/sub command batch, client-handle negotiation and the
+    // VITA-49 UDP stream bring-up (including the deferred 10 s no-data health
+    // check) — speaks the Flex command protocol over a RadioConnection and drives
+    // a PanadapterStream. A non-Flex backend has neither, and its data plane is
+    // already streaming by the time connected() fires, so the whole flow is
+    // inapplicable. Without this the health-check timer fires ~10 s after connect
+    // and dereferences the absent stream, crashing shortly after startup.
+    if (!m_connection || !m_panStream)
+        return;
+
     // Match FlexLib connect-sequence ordering (Radio.cs:2230-2247):
     //   client program <name>  →  client low_bw_connect  →  client gui
     // The radio's protocol state machine requires client identity (program)
