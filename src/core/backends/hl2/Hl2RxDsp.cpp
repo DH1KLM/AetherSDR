@@ -22,7 +22,17 @@ bool Hl2RxDsp::configure(const Config& config, std::string* error)
     WdspChannel::Config wc;
     wc.direction = WdspChannel::Direction::Receive;
     wc.inputBlockSize = static_cast<std::size_t>(config.dspBlockSize);
-    wc.dspBlockSize = static_cast<std::size_t>(config.dspBlockSize);
+    // WDSP's in_size and dsp_size must describe the SAME span of time at their
+    // respective rates: dsp_size = in_size * dsp_rate / input_rate. Passing the
+    // input block size verbatim claimed the DSP buffer covered 1024 samples at
+    // 24 kHz (42.7 ms) while WDSP was actually handed 1024 samples at 48 kHz
+    // (21.3 ms) per call. Correctness-only: no audible change was measured, and
+    // no bug is currently attributed to the old value. It is fixed because the
+    // contract says so, and because the error scales with the rate ratio — at
+    // 384 kHz input the claim would have been off by 16x, not 2x.
+    wc.dspBlockSize = static_cast<std::size_t>(config.dspBlockSize) *
+                      static_cast<std::size_t>(config.audioSampleRateHz) /
+                      static_cast<std::size_t>(config.inputSampleRateHz);
     wc.inputSampleRate = config.inputSampleRateHz;   // RF/IF rate from the HL2
     wc.dspSampleRate = config.audioSampleRateHz;     // WDSP decimates IF -> audio
     wc.outputSampleRate = config.audioSampleRateHz;
