@@ -8,6 +8,7 @@
 //     Map + decision guide: docs/architecture/mainwindow-decomposition.md
 // ─────────────────────────────────────────────────────────────────────────────
 
+#include "core/backends/hl2/Hl2Discovery.h"
 #include "models/RadioModel.h"
 #include "models/BandSettings.h"
 #include "models/AntennaGeniusModel.h"
@@ -733,6 +734,9 @@ private:
 
     // Core objects
     RadioDiscovery    m_discovery;
+    // HPSDR/Metis discovery for Hermes-Lite 2 radios. Feeds the same
+    // ConnectionPanel slots as m_discovery, tagged family="hl2".
+    hl2::Hl2Discovery m_hl2Discovery;
     // Radio sessions (#3445 Camp B / #3351). Each session owns the full
     // per-radio aggregate; today there is exactly one. The vector sits at
     // the old `RadioModel m_radioModel` member position so destruction

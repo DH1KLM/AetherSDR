@@ -90,6 +90,10 @@ std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> 
         r.mac[i] = pkt[3 + i];
     r.gatewareVersion = pkt[9];
     r.boardId = pkt[10];
+    // Byte 20 carries the board's receiver count on full-length replies. Short
+    // replies omit it; leave 0 so callers fall back to a single receiver.
+    if (pkt.size() > 20)
+        r.numRx = pkt[20];
     return r;
 }
 

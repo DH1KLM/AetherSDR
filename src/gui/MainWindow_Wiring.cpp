@@ -2355,7 +2355,7 @@ void MainWindow::reacquireNoiseFloorLocksAfterProfileLoad()
 
         SpectrumWidget* sw = applet->spectrumWidget();
         if (auto* pan = m_radioModel.panadapter(applet->panId())) {
-            if (pan->panStreamId()) {
+            if (pan->panStreamId() && m_radioModel.panStream()) {
                 m_radioModel.panStream()->setDbmRange(
                     pan->panStreamId(), pan->minDbm(), pan->maxDbm());
             }
@@ -2477,6 +2477,9 @@ void MainWindow::sendPanDimensionsToRadio(const QString& panId,
                 || panYpixelsFor(swGuard.data()) != ypix) {
                 return;
             }
+            // Flex-only: a non-Flex backend has no PanadapterStream to tell.
+            if (!m_radioModel.panStream())
+                return;
             m_radioModel.panStream()->setYPixels(streamId, ypix);
             swGuard->prepareForFftScaleChange();
         };
@@ -2814,7 +2817,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     auto pendingDbm = std::make_shared<DbmRangeTransition::Handshake>();
     auto setStreamDbmRange = [this, applet](float minDbm, float maxDbm, bool waitForEcho = false) {
         if (auto* pan = m_radioModel.panadapter(applet->panId())) {
-            if (pan->panStreamId()) {
+            if (pan->panStreamId() && m_radioModel.panStream()) {
                 m_radioModel.panStream()->setDbmRange(pan->panStreamId(), minDbm, maxDbm, waitForEcho);
             }
         }
@@ -2823,7 +2826,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                                       (const DbmRangeTransition::Range& range) {
         sw->cancelPendingDbmRangeChange();
         if (auto* pan = m_radioModel.panadapter(applet->panId())) {
-            if (pan->panStreamId()) {
+            if (pan->panStreamId() && m_radioModel.panStream()) {
                 m_radioModel.panStream()->cancelPendingDbmRange(pan->panStreamId());
             }
         }
@@ -2850,7 +2853,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         // every subsequent FFT bin until another status happened to arrive.
         sw->cancelPendingDbmRangeChange();
         if (auto* pan = m_radioModel.panadapter(applet->panId())) {
-            if (pan->panStreamId()) {
+            if (pan->panStreamId() && m_radioModel.panStream()) {
                 m_radioModel.panStream()->cancelPendingDbmRange(pan->panStreamId());
             }
         }
@@ -3238,7 +3241,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         const bool autoFloorChange = sw->pendingAutoNoiseFloorDbmRange();
         if (profileLoadPanDisplaySettling(applet->panId()) && autoFloorChange) {
             if (auto* pan = m_radioModel.panadapter(applet->panId())) {
-                if (pan->panStreamId()) {
+                if (pan->panStreamId() && m_radioModel.panStream()) {
                     setStreamDbmRange(pan->minDbm(), pan->maxDbm());
                 }
                 sw->setDbmRange(pan->minDbm(), pan->maxDbm());

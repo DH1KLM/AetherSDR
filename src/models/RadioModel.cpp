@@ -45,6 +45,22 @@ namespace {
 // the radio-assigned Flex stream-ids. streamId = base + panId. (Step 3 will
 // namespace this by session so ids stay unique across concurrent radios.)
 constexpr quint32 kNeutralPanStreamIdBase = 0xE1000000u;
+// Waterfall ids must be distinct from pan ids: the UI routes waterfall rows by
+// PanadapterModel::wfStreamId() and spectrum frames by panStreamId().
+constexpr quint32 kNeutralWfStreamIdBase  = 0xE2000000u;
+
+// PanadapterModel derives its numeric stream id by parsing panId/waterfallId
+// (base-0, so a "0x" prefix is honoured). Build ids in that form.
+QString neutralPanIdString(int panIdx)
+{
+    return QStringLiteral("0x%1").arg(kNeutralPanStreamIdBase + static_cast<quint32>(panIdx),
+                                      8, 16, QLatin1Char('0'));
+}
+QString neutralWfIdString(int panIdx)
+{
+    return QStringLiteral("0x%1").arg(kNeutralWfStreamIdBase + static_cast<quint32>(panIdx),
+                                      8, 16, QLatin1Char('0'));
+}
 
 constexpr int kDefaultPanDimensionThreshold = 100;
 constexpr int kSessionRestorePruneDelayMs = 5000;
@@ -551,6 +567,16 @@ RadioModel::RadioModel(QObject* parent)
         m_backendPanCenterMhz = centerMhz;
         m_backendPanBandwidthMhz = bandwidthMhz;
         auto* pan = resolvePan(panId);
+        if (!pan && !m_flexBackend) {
+            // aetherd Gap B (Step 2c): materialise the pan for a non-Flex backend.
+            // No Flex "display pan" status exists to create one, so without this
+            // there is no PanadapterModel to route frames to and the UI never
+            // builds a pane — the render path was falling back to the active
+            // spectrum widget, which is null when no pan applet exists.
+            pan = ensureOwnedPanadapter(neutralPanIdString(0));
+            if (pan)
+                pan->setWaterfallId(neutralWfIdString(0));
+        }
         if (!pan) return;
         pan->setCenterBandwidth(centerMhz, bandwidthMhz);
         // Legacy signal MainWindow still consumes (unchanged behavior).
@@ -3462,7 +3488,8 @@ void RadioModel::onBackendSpectrumFrame(int panId, const QByteArray& frame)
     // the waterfall row; it needs real band edges to scale against.
     if (m_backendPanBandwidthMhz > 0.0) {
         const double half = m_backendPanBandwidthMhz / 2.0;
-        emit panFeedWaterfallRowReady(streamId, bins,
+        emit panFeedWaterfallRowReady(kNeutralWfStreamIdBase + static_cast<quint32>(panId),
+                                      bins,
                                       m_backendPanCenterMhz - half,
                                       m_backendPanCenterMhz + half,
                                       m_backendWfTimecode++, nowNs);
@@ -7507,6 +7534,11 @@ void RadioModel::handlePanadapterStatus(const QString& panId, const QMap<QString
 
 void RadioModel::updateStreamFilters()
 {
+    // Stream filtering is a Flex VITA-49 concept and lives on PanadapterStream,
+    // which a non-Flex backend does not own. Its frames reach the UI through the
+    // neutral panFeed signals instead, so there is nothing to register here.
+    if (!m_panStream)
+        return;
     // Register all known pan/wf stream IDs with PanadapterStream
     for (auto* pan : m_panadapters) {
         if (pan->panStreamId())
