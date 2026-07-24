@@ -91,6 +91,14 @@ private:
     // that is 126/48000 s = 2625 us. Driving it from a wall clock (rather than
     // replying 1:1 to EP6) means a stalled receive path cannot starve the
     // radio's watchdog and deadlock the link.
+    // EP2 carries the TX IQ + speaker audio stream, which the radio clocks at a
+    // FIXED 48 kHz regardless of the RX sample rate (only EP6 scales with that).
+    // One EP2 frame holds kSamplesPerPacket samples, so the cadence is a constant
+    // 126/48000 s = 2625 us. Verified against the Thetis Protocol 1 client, whose
+    // EP2 thread blocks on the 48 kHz audio subsystem rather than a timer.
+    static constexpr int kEp2AudioRateHz     = 48000;
+    static constexpr int kStartRetryMs       = 300;
+    static constexpr int kMaxStartAttempts   = 5;
     static constexpr int kEp2PacerTickMs     = 2;
     static constexpr int kEp2MaxBurstPerTick = 16;
     static constexpr int kWatchdogTickMs     = 25;
@@ -100,6 +108,8 @@ private:
     QTimer* m_ep2Timer = nullptr;         // paces EP2 off the wall clock
     QTimer* m_watchdogTimer = nullptr;    // EP6 silence detection
     QTimer* m_connectWatchdog = nullptr;  // single-shot: first-EP6 deadline
+    QTimer* m_startRetryTimer = nullptr;  // re-sends metis-start until EP6 flows
+    int     m_startAttempts = 0;          // start datagrams sent this connect
     QElapsedTimer m_ep2Clock;             // pacer reference clock
     QElapsedTimer m_sinceLastEp6;         // silence detection
     quint64 m_ep2Sent = 0;                // EP2 frames sent since m_ep2Clock

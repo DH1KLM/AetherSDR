@@ -63,6 +63,24 @@ MetisClient::MetisClient(QObject* parent) : QObject(parent) {
     m_watchdogTimer->setInterval(kWatchdogTickMs);
     connect(m_watchdogTimer, &QTimer::timeout, this, &MetisClient::onWatchdogTick);
 
+    // metis-start is a single UDP datagram and can simply be lost. Re-send it
+    // until EP6 flows or the attempt budget is spent; C&C keeps flowing from the
+    // pacer meanwhile, so a retry only needs to repeat the start itself.
+    m_startRetryTimer = new QTimer(this);
+    m_startRetryTimer->setInterval(kStartRetryMs);
+    connect(m_startRetryTimer, &QTimer::timeout, this, [this] {
+        if (m_linkUp || !m_running || !m_socket) {
+            m_startRetryTimer->stop();
+            return;
+        }
+        if (m_startAttempts >= kMaxStartAttempts) {
+            m_startRetryTimer->stop();
+            return;   // the connect watchdog reports the failure
+        }
+        ++m_startAttempts;
+        sendTo(*m_socket, metisStart(m_watchdogEnabled), m_host, m_port);
+    });
+
     m_connectWatchdog = new QTimer(this);
     m_connectWatchdog->setSingleShot(true);
     connect(m_connectWatchdog, &QTimer::timeout, this, [this] {
@@ -149,16 +167,17 @@ bool MetisClient::start(const Params& params)
     sendTo(*m_socket, metisStart(m_watchdogEnabled), m_host, m_port);
     sendPrimingBurst(3);
 
-    m_ep2IntervalUs = (sampleRateHz(m_params.sampleRate) > 0)
-        ? (static_cast<qint64>(kSamplesPerPacket) * 1'000'000
-           / sampleRateHz(m_params.sampleRate))
-        : 2625;
+    // NOT the RX sample rate: EP2 is the 48 kHz TX/audio stream (see the header).
+    m_ep2IntervalUs = static_cast<qint64>(kSamplesPerPacket) * 1'000'000
+                    / kEp2AudioRateHz;
     m_ep2Sent = 0;
     m_ep2Clock.restart();
     m_ep2Timer->start();
     m_sinceLastEp6.restart();
     m_watchdogTimer->start();
     m_connectWatchdog->start(kConnectTimeoutMs);
+    m_startAttempts = 1;
+    m_startRetryTimer->start(kStartRetryMs);
     return true;
 }
 
@@ -202,6 +221,7 @@ void MetisClient::onWatchdogTick()
 
 void MetisClient::stop()
 {
+    if (m_startRetryTimer) m_startRetryTimer->stop();
     if (m_ep2Timer)        m_ep2Timer->stop();
     if (m_watchdogTimer)   m_watchdogTimer->stop();
     if (m_connectWatchdog) m_connectWatchdog->stop();
@@ -240,11 +260,14 @@ void MetisClient::sendControlPacket()
 {
     if (!m_socket)
         return;
-    const Cc* regs[3] = {&m_ccConfig, &m_ccGain, &m_ccFreq};
-    const Cc& a = *regs[m_roundRobin % 3];
-    const Cc& b = *regs[(m_roundRobin + 1) % 3];
+    // Sub-frame 0 always carries the config bank (sample rate + receiver count)
+    // so the DDC configuration is re-asserted on every frame; sub-frame 1
+    // alternates the remaining banks. Matches the reference client, which pairs a
+    // constant config bank with an alternating frequency bank.
+    const Cc* alt[2] = {&m_ccFreq, &m_ccGain};
+    const Cc& b = *alt[m_roundRobin % 2];
     ++m_roundRobin;
-    sendTo(*m_socket, ep2Packet(m_txSeq++, a, b), m_host, m_port);
+    sendTo(*m_socket, ep2Packet(m_txSeq++, m_ccConfig, b), m_host, m_port);
 }
 
 void MetisClient::onReadyRead()
@@ -262,6 +285,8 @@ void MetisClient::onReadyRead()
             m_linkUp = true;
             if (m_connectWatchdog)
                 m_connectWatchdog->stop();   // first EP6 — the link is alive
+            if (m_startRetryTimer)
+                m_startRetryTimer->stop();
             emit linkUp();
         }
         if (m_haveRxSeq && *seq != m_expectedRxSeq) {
