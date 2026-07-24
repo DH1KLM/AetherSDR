@@ -524,6 +524,7 @@ endif()
 # Sources
 set(CORE_SOURCES
     src/core/backends/flex/FlexBackend.cpp   # aetherd RFC step 2.2 (§5.5)
+    src/core/backends/hl2/MetisProtocol.cpp  # aetherd HL2 Phase 1a (HPSDR Protocol 1)
     src/core/dsp/WdspChannel.cpp
     src/core/AppSettings.cpp
     src/core/GpuSelector.cpp
@@ -2598,6 +2599,13 @@ endforeach()
 add_executable(wdsp_channel_test tests/wdsp_channel_test.cpp)
 target_link_libraries(wdsp_channel_test PRIVATE aethercore)
 add_test(NAME wdsp_channel_test COMMAND wdsp_channel_test)
+
+# HL2 Metis protocol — pure wire encode/decode, standalone (no Qt / aethercore).
+add_executable(hl2_metis_protocol_test
+    tests/hl2_metis_protocol_test.cpp
+    src/core/backends/hl2/MetisProtocol.cpp)
+target_include_directories(hl2_metis_protocol_test PRIVATE src)
+add_test(NAME hl2_metis_protocol_test COMMAND hl2_metis_protocol_test)
 
 add_executable(client_eq_test
     tests/client_eq_test.cpp
