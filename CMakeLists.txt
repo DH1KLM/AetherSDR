@@ -1349,6 +1349,7 @@ if (ENABLE_ASR)
     target_sources(AetherSDR PRIVATE
         src/gui/AsrAudioTap.cpp
         src/gui/CopyAssistPanel.cpp
+        src/gui/CopyAssistSettings.cpp
         src/gui/CopyAssistSettingsDialog.cpp
         src/gui/CopyAssistController.cpp
     )
@@ -3434,6 +3435,7 @@ if (ENABLE_ASR)
     add_executable(copy_assist_settings_dialog_test
         tests/copy_assist_settings_dialog_test.cpp
         src/gui/CopyAssistSettingsDialog.cpp
+        src/gui/CopyAssistSettings.cpp
         src/gui/PersistentDialog.cpp
         src/gui/FramelessResizer.cpp
         src/gui/FramelessWindowTitleBar.cpp
