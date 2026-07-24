@@ -1,6 +1,6 @@
 // aetherd HL2 Phase 1a — MetisProtocol unit test. Pins the HPSDR Protocol 1
 // wire encoding/decoding ported from the live-validated prototypes/hl2 spike:
-// C&C register encoding (incl. the CONFIG_MERCURY must-set), discovery, EP2
+// C&C register encoding, discovery, EP2
 // framing, and the 24-bit signed big-endian IQ decode (with sign-extension).
 // Pure protocol — no sockets, no hardware.
 
@@ -57,11 +57,12 @@ static std::vector<std::uint8_t> makeEp6(std::uint32_t seq)
 
 int main()
 {
-    // ---- config register: CONFIG_MERCURY + duplex + rate + #RX ----
+    // ---- config register: rate + #RX (+ the openHPSDR-only Mercury/duplex
+    //      bits, which HL2 ignores but we still send) ----
     {
         const Cc c = ccConfig(SampleRate::R96k, 1);
         check(c[0] == 0x00, "config C0 is register 0x00");
-        check(c[1] == (0x40 | 0x01), "config C1 = CONFIG_MERCURY | speed(96k=1)");
+        check(c[1] == (0x40 | 0x01), "config C1 = Mercury bit | speed(96k=1)");
         check(c[2] == 0x00 && c[3] == 0x00, "config C2/C3 zero");
         check(c[4] == 0x04, "config C4 = duplex, 1 RX");
         check(ccConfig(SampleRate::R48k, 2)[4] == (0x04 | (1 << 3)), "config C4 encodes #RX-1");

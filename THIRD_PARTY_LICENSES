@@ -52,8 +52,8 @@ documented numeric ranges/behavior were used; no CuteSDR code is incorporated.
 
 The Hermes-Lite 2 radio backend implements HPSDR Protocol 1 ("Metis") — UDP
 discovery, the EP2/EP6 IQ frame layout, and the Command & Control register map
-(sample-rate/receiver config, the CONFIG_MERCURY ADC-source-select bit, RX NCO
-frequency, and the AD9866 extended-range LNA gain register). These wire-protocol
+(sample-rate/receiver config, RX NCO frequency, and the AD9866 LNA gain
+register). These wire-protocol
 facts were consulted clean-room and are expressed in original AetherSDR code
 (prototypes/hl2/ and, subsequently, the in-tree Hl2Backend). No openHPSDR,
 Hermes-Lite 2, or pihpsdr code is incorporated, vendored, translated, or linked
@@ -62,9 +62,11 @@ facts. The consulted facts are:
   - the Metis discovery handshake and EP2/EP6 1032-byte frame framing;
   - the C0 register-address encoding ((addr<<1)|MOX) and the config/RX-freq/
     gain register semantics;
-  - the minimal round-robin C&C init a receiver requires (config incl.
-    CONFIG_MERCURY, RX1 frequency, LNA gain), verified against the pihpsdr
-    reference client's C&C construction;
+  - the minimal round-robin C&C init a receiver requires (config, RX1 frequency,
+    LNA gain), verified against the pihpsdr reference client's C&C construction;
+  - the AD9866 LNA gain encoding, where C4 bit 6 selects the direct-value
+    mapping rather than the legacy inverted one (read from the gateware RTL,
+    whose own reset default sets that bit);
   - the run/stop command byte's bit-7 "watchdog_disable" semantics (0 enables
     the gateware watchdog, which halts the radio's stream when the client stops
     sending EP2 — the mechanism that prevents a radio left streaming at a dead
@@ -82,6 +84,9 @@ facts. The consulted facts are:
   Source:   https://github.com/TAPR/OpenHPSDR-Protocol1-Programmers
 
   Hermes-Lite 2:  Copyright (c) Steve Haynal (KF7O) and Hermes-Lite 2 contributors
+  Note:           The upstream repository states no license. Consulted as a
+                  hardware-behaviour reference only (register/bit semantics read
+                  from the gateware RTL); no gateware code is incorporated.
   Reference:      https://github.com/softerhardware/Hermes-Lite2
                   (wiki + gateware; rtl/dsopenhpsdr1.v for the RUNSTOP /
                   watchdog_disable bit semantics)

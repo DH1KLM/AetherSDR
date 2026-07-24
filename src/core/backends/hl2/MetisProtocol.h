@@ -11,10 +11,12 @@
 // HPSDR Protocol 1 ("Metis") wire primitives for the Hermes-Lite 2 backend.
 //
 // Direct C++ port of the live-validated prototypes/hl2/hpsdr.py spike (aetherd
-// HL2 Phase 1a). Protocol facts (register map, EP2/EP6 framing, the
-// CONFIG_MERCURY ADC-select bit, LNA gain register) are grounded clean-room in
-// openHPSDR Protocol 1, the Hermes-Lite 2 wiki/gateware, and the pihpsdr
-// reference client (Principle I; see THIRD_PARTY_LICENSES).
+// HL2 Phase 1a). Protocol facts (register map, EP2/EP6 framing, LNA gain
+// register) are grounded clean-room in openHPSDR Protocol 1, the Hermes-Lite 2
+// wiki/gateware, and the pihpsdr reference client (Principle I; see
+// THIRD_PARTY_LICENSES). Where a fact is HL2-specific it has been checked
+// against the Hermes-Lite 2 gateware RTL, which is the authority for what this
+// hardware actually decodes.
 //
 // This layer is intentionally socket-free and Qt-free so it unit-tests against
 // captured/synthetic frames without hardware; MetisClient owns the UDP socket
@@ -44,10 +46,17 @@ inline constexpr std::uint8_t kC0Rx1Freq = 0x04;  // addr 0x02: RX1 NCO frequenc
 inline constexpr std::uint8_t kC0AdcGain = 0x14;  // addr 0x0a: AD9866 LNA gain
 
 // Config-register (C0=0x00) bit flags.
-inline constexpr std::uint8_t kConfigMercury = 0x40;  // C1 bit6: select the ADC as the DDC
-                                                      // source. WITHOUT it the stream is flat
-                                                      // ADC-floor noise (the non-obvious must-set).
-inline constexpr std::uint8_t kConfigDuplex = 0x04;   // C4 bit2: pihpsdr sets this unconditionally
+//
+// NOTE: neither of these does anything on a Hermes-Lite 2. The HL2 gateware
+// decodes only cmd_data[25:24] (sample rate), [6:3] (receiver count), [23:17]
+// and [13:11] from this register — C1 bit 6 (cmd_data[30]) and C4 bit 2
+// (cmd_data[2]) are not read by any module. They are kept because they are
+// meaningful on genuine openHPSDR Hermes/Mercury hardware and are harmless
+// here, but do not treat either as load-bearing for the HL2.
+inline constexpr std::uint8_t kConfigMercury = 0x40;  // C1 bit6: ADC-as-DDC-source select on
+                                                      // openHPSDR Hermes/Mercury. No-op on HL2.
+inline constexpr std::uint8_t kConfigDuplex = 0x04;   // C4 bit2: pihpsdr sets this
+                                                      // unconditionally. No-op on HL2.
 
 enum class SampleRate : std::uint8_t { R48k = 0, R96k = 1, R192k = 2, R384k = 3 };
 int sampleRateHz(SampleRate rate) noexcept;
@@ -55,7 +64,8 @@ int sampleRateHz(SampleRate rate) noexcept;
 // A 5-byte Command & Control payload: C0 (register address) + C1..C4 (data).
 using Cc = std::array<std::uint8_t, 5>;
 
-// Config register: sample rate + receiver count, with CONFIG_MERCURY + duplex.
+// Config register: sample rate + receiver count. Also carries the Mercury and
+// duplex bits for openHPSDR compatibility; both are ignored by the HL2 gateware.
 Cc ccConfig(SampleRate rate, int numRx = 1) noexcept;
 // RX1 NCO frequency in Hz (32-bit big-endian across C1..C4).
 Cc ccRx1Freq(std::uint32_t hz) noexcept;
