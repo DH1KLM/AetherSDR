@@ -558,6 +558,20 @@ signals:
                                  const QString& presentedHex);
     // Emitted when another GUI client forces this client to disconnect.
     void forcedDisconnectRequested();
+    // aetherd Gap B (HL2 Phase 1c, Step 1): the backend-neutral panadapter render
+    // feed. Signatures mirror PanadapterStream.h:212-218 exactly, so the UI binds
+    // its panadapter/waterfall rendering to these instead of the Flex-only
+    // PanadapterStream and the wiring is family-agnostic. A Flex session forwards
+    // its PanadapterStream into these 1:1 (signal-to-signal, no transformation);
+    // an HL2 session (Step 2) synthesises them from IRadioBackend::spectrumFrameReady.
+    // Per-RadioModel → per-session, which is exactly what the two-panadapter end
+    // state needs.
+    void panFeedSpectrumReady(quint32 streamId, const QVector<float>& binsDbm,
+                              qint64 emittedNs);
+    void panFeedWaterfallRowReady(quint32 streamId, const QVector<float>& binsDbm,
+                                  double lowFreqMhz, double highFreqMhz,
+                                  quint32 timecode, qint64 emittedNs);
+    void panFeedWaterfallAutoBlackLevel(quint32 streamId, quint32 autoBlack);
     // Emitted when a panadapter's center frequency or bandwidth changes.
     void panadapterInfoChanged(double centerMhz, double bandwidthMhz);
     // Emitted when the radio reports the panadapter's dBm display range.

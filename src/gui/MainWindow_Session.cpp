@@ -540,9 +540,12 @@ void MainWindow::wireRadioModel()
     // registered VITA-49 socket).  We do NOT start a separate mic TX
     // stream — that would open a QAudioSource and an unregistered UDP
     // socket, wasting resources and corrupting the shared packet counter.
-    // Route TX VITA-49 packets through the registered UDP socket
-    connect(m_audio, &AudioEngine::txPacketReady,
-            m_radioModel.panStream(), &PanadapterStream::sendToRadio);
+    // Route TX VITA-49 packets through the registered UDP socket. Flex-only (the
+    // socket lives on PanadapterStream); a non-Flex/RX-only backend has no
+    // panStream(), so guard rather than connect to a null receiver (aetherd Gap B).
+    if (m_radioModel.panStream())
+        connect(m_audio, &AudioEngine::txPacketReady,
+                m_radioModel.panStream(), &PanadapterStream::sendToRadio);
 
     connect(&m_radioModel, &RadioModel::txAudioStreamReady,
             this, [this](quint32 streamId) {
@@ -943,7 +946,10 @@ void MainWindow::wirePanLifecycle()
         return profileLoadFrameLooksRenderable(sw, binCount);
     };
 
-    connect(m_radioModel.panStream(), &PanadapterStream::spectrumReady,
+    // aetherd Gap B (Step 1): bind the render path to the backend-neutral feed, not
+    // the Flex-only PanadapterStream. Signature-identical → handler bodies unchanged;
+    // for a Flex session the feed forwards PanadapterStream 1:1 (byte-for-byte).
+    connect(&m_radioModel, &RadioModel::panFeedSpectrumReady,
             this, [this, profileLoadFrameReady](quint32 streamId,
                                                 const QVector<float>& bins,
                                                 qint64 emittedNs) {
@@ -995,14 +1001,14 @@ void MainWindow::wirePanLifecycle()
             QString::number(streamId));
     });
     // ── S History Markers — tap into FFT frames for voice signal detection ──
-    connect(m_radioModel.panStream(), &PanadapterStream::spectrumReady,
+    connect(&m_radioModel, &RadioModel::panFeedSpectrumReady,
             this, &MainWindow::onSpectrumReadyForSHistory);
 
     // ── Adaptive RX filter — drive the fit engine off the same FFT frames (RFC #3878)
-    connect(m_radioModel.panStream(), &PanadapterStream::spectrumReady,
+    connect(&m_radioModel, &RadioModel::panFeedSpectrumReady,
             this, &MainWindow::onSpectrumReadyForAdaptiveFilter);
 
-    connect(m_radioModel.panStream(), &PanadapterStream::waterfallRowReady,
+    connect(&m_radioModel, &RadioModel::panFeedWaterfallRowReady,
             this, [this, profileLoadFrameReady](quint32 streamId,
                                                 const QVector<float>& bins,
                                                 double low,
@@ -1088,7 +1094,7 @@ void MainWindow::wirePanLifecycle()
             },
             QString::number(streamId));
     });
-    connect(m_radioModel.panStream(), &PanadapterStream::waterfallAutoBlackLevel,
+    connect(&m_radioModel, &RadioModel::panFeedWaterfallAutoBlackLevel,
             this, [this](quint32 streamId, quint32 autoBlack) {
         if (m_shuttingDown || !m_panStack) {
             return;

@@ -509,6 +509,20 @@ RadioModel::RadioModel(QObject* parent)
             m_connection = flex->connection();   // non-owning; the backend owns it
             m_panStream  = flex->panStream();    // non-owning; the backend owns it
             m_flexBackend = flex;                // transitional alias (2.3)
+
+            // aetherd Gap B (Step 1): forward Flex's render signals into the
+            // backend-neutral feed 1:1. Signal-to-signal, signature-identical → no
+            // transformation and no behaviour change; the UI binds to the RadioModel
+            // panFeed* signals instead of panStream() so the render path is
+            // family-agnostic. Signal-to-signal preserves the original thread hop
+            // (PanadapterStream worker → RadioModel thread), so batching/pacing is
+            // unchanged. Valid for the whole life (panStream == RadioModel life).
+            connect(m_panStream, &PanadapterStream::spectrumReady,
+                    this, &RadioModel::panFeedSpectrumReady);
+            connect(m_panStream, &PanadapterStream::waterfallRowReady,
+                    this, &RadioModel::panFeedWaterfallRowReady);
+            connect(m_panStream, &PanadapterStream::waterfallAutoBlackLevel,
+                    this, &RadioModel::panFeedWaterfallAutoBlackLevel);
         }
     }
 
