@@ -40,6 +40,12 @@ namespace AetherSDR {
 
 namespace {
 
+// aetherd Gap B (Step 2): synthetic panadapter stream-id base for backends whose
+// spectra arrive via IRadioBackend::spectrumFrameReady (HL2). Kept well clear of
+// the radio-assigned Flex stream-ids. streamId = base + panId. (Step 3 will
+// namespace this by session so ids stay unique across concurrent radios.)
+constexpr quint32 kNeutralPanStreamIdBase = 0xE1000000u;
+
 constexpr int kDefaultPanDimensionThreshold = 100;
 constexpr int kSessionRestorePruneDelayMs = 5000;
 constexpr int kWaterfallLineDurationMinMs = 1;
@@ -525,6 +531,13 @@ RadioModel::RadioModel(QObject* parent)
                     this, &RadioModel::panFeedWaterfallAutoBlackLevel);
         }
     }
+
+    // aetherd Gap B (Step 2): backends that deliver spectra via the normalized
+    // IRadioBackend data-plane signal (HL2) feed the neutral render feed here.
+    // Flex uses the PanadapterStream passthrough wired above and never emits this,
+    // so this connect is harmless for Flex and load-bearing for HL2.
+    connect(m_backend.get(), &IRadioBackend::spectrumFrameReady,
+            this, &RadioModel::onBackendSpectrumFrame);
 
     // aetherd RFC 2.3: the first converted touchpoint. The backend decodes the
     // universal pan center/bandwidth from Flex status and emits this normalized
@@ -3352,6 +3365,27 @@ void RadioModel::setPanNoiseFloorEnable(bool on)
 }
 
 // ─── Connection slots ─────────────────────────────────────────────────────────
+
+void RadioModel::onBackendSpectrumFrame(int panId, const QByteArray& frame)
+{
+    // aetherd Gap B (Step 2): the HL2 data-plane payload is a raw float32 array
+    // (Hl2Backend::floatBytes) of DC-centred dBFS bins. Producer and consumer are
+    // the same process, so a straight memcpy round-trips the host-endian floats;
+    // the documented little-endian contract matters only for the step-4 binary
+    // wire format that supersedes this relay cross-machine.
+    const int binCount = static_cast<int>(frame.size() / sizeof(float));
+    if (binCount <= 0)
+        return;
+    QVector<float> bins(binCount);
+    memcpy(bins.data(), frame.constData(),
+           static_cast<std::size_t>(binCount) * sizeof(float));
+
+    // No PanadapterModel exists for an HL2 session yet, so the UI's spectrum
+    // handler takes its empty-panadapters fallback and draws into the active
+    // pane — enough for first-light. Step 3 gives HL2 a real pan + unique id.
+    const quint32 streamId = kNeutralPanStreamIdBase + static_cast<quint32>(panId);
+    emit panFeedSpectrumReady(streamId, bins, PerfTelemetry::nowNs());
+}
 
 void RadioModel::onConnected()
 {

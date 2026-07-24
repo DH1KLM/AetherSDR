@@ -748,6 +748,11 @@ private slots:
     void onDisconnected();
     void onConnectionError(const QString& msg);
     void onVersionReceived(const QString& version);
+    // aetherd Gap B (Step 2): adapt a backend that delivers spectra via the
+    // normalized IRadioBackend data-plane signal (e.g. HL2) into the neutral
+    // panFeed. Decodes the float32 frame and re-emits panFeedSpectrumReady. Flex
+    // never triggers this (it feeds panFeed via the PanadapterStream passthrough).
+    void onBackendSpectrumFrame(int panId, const QByteArray& frame);
 
 private:
     void handleRadioStatus(const QMap<QString, QString>& kvs);
