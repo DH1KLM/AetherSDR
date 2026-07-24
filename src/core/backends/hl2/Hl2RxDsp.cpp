@@ -29,6 +29,8 @@ bool Hl2RxDsp::configure(const Config& config, std::string* error)
     wc.mode = config.mode;
     wc.filterLowHz = config.filterLowHz;
     wc.filterHighHz = config.filterHighHz;
+    wc.agcMode = config.agcMode;
+    wc.maximumAgcGainDb = config.maximumAgcGainDb;
     wc.blockForOutput = config.blockForOutput;
 
     auto channel = WdspChannel::create(wc, error);

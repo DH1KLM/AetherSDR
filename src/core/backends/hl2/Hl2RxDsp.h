@@ -36,6 +36,13 @@ public:
         WdspChannel::Mode mode = WdspChannel::Mode::Usb;
         double filterLowHz = 150.0;
         double filterHighHz = 3000.0;
+        // RX AGC. WdspChannel's own defaults are mode 3 (medium) and a 120 dB
+        // ceiling — 120 dB is the TOP of WDSP's AGC gain range, so leaving it
+        // there runs the HL2 wide open and slams the demodulated audio past
+        // full scale (measured: peak 3.19, 10% of samples clipping on WWV).
+        // 65 dB matches the agcThreshold the slice model already reports.
+        int agcMode = 3;
+        double maximumAgcGainDb = 65.0;
         // false (live): processIq is non-blocking — real-time input paces WDSP's
         // async worker and audio flows with ~1 block latency. true: processIq
         // waits for each output block (deterministic for a burst/offline feed).
