@@ -740,6 +740,21 @@ RadioModel::RadioModel(QObject* parent)
         }
     });
 
+    // aetherd Gap B (Step 2b): a non-Flex backend has no RadioConnection, so it
+    // drives the connection lifecycle through the neutral IRadioBackend signals
+    // instead of m_connection's. Purely additive and guarded to the m_connection-
+    // null case → the Flex path (m_connection non-null) skips this entirely and is
+    // byte-for-byte unchanged. FlexBackend never emits these, so there is no
+    // double-drive even were the guard absent.
+    if (!m_connection) {
+        connect(m_backend.get(), &IRadioBackend::connected,
+                this, &RadioModel::onConnected);
+        connect(m_backend.get(), &IRadioBackend::disconnected,
+                this, &RadioModel::onDisconnected);
+        connect(m_backend.get(), &IRadioBackend::connectionError,
+                this, &RadioModel::onConnectionError);
+    }
+
     // Forward VITA-49 meter packets to MeterModel (cross-thread, auto-queued)
     connect(m_panStream, &PanadapterStream::meterDataReady,
             &m_meterModel, &MeterModel::updateValues);
@@ -1845,9 +1860,24 @@ void RadioModel::connectToRadio(const RadioInfo& info)
                        info.guiClientStations,
                        info.guiClientIps,
                        info.guiClientHosts);
-    QMetaObject::invokeMethod(m_connection, [conn = m_connection, info] {
-        conn->connectToRadio(info);
-    });
+    if (m_connection) {
+        QMetaObject::invokeMethod(m_connection, [conn = m_connection, info] {
+            conn->connectToRadio(info);
+        });
+    } else if (m_backend) {
+        // aetherd Gap B (Step 2b): non-Flex families have no RadioConnection; they
+        // connect through the neutral IRadioBackend seam. The backend emits
+        // connected()/disconnected() (wired above for the m_connection-null case).
+        if (!info.family.isEmpty() && info.family != QLatin1String("flex"))
+            qCInfo(lcProtocol) << "RadioModel: connecting" << info.family
+                               << "radio via IRadioBackend seam at"
+                               << info.address.toString();
+        RadioConnectRequest req;
+        req.host   = info.address.toString();
+        req.port   = info.port;
+        req.serial = info.serial;
+        m_backend->connectRadio(req);
+    }
 }
 
 void RadioModel::connectViaWan(WanConnection* wan, const QString& publicIp, quint16 udpPort)
@@ -2075,6 +2105,12 @@ void RadioModel::disconnectFromRadio()
         if (wan->isSocketIdle() && m_wanConn == wan) {
             onDisconnected();
         }
+    } else if (!m_connection) {
+        // aetherd Gap B (Step 2b): non-Flex families have no RadioConnection; tear
+        // down through the neutral seam. The backend emits disconnected() -> our
+        // onDisconnected (wired for the m_connection-null case in the ctor).
+        if (m_backend)
+            m_backend->disconnectRadio();
     } else if (m_connection->isConnected()) {
         // Graceful disconnect: remove our stream and wait for the radio reply
         // before closing. Self "client disconnect" is rejected by the radio.
