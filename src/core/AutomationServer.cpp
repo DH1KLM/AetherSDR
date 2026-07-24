@@ -2715,8 +2715,9 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
             [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
                 if (a.action.isEmpty())
                     return err(QStringLiteral(
-                        "slice requires an action (add|remove|select|tx|mode|diversity|"
-                        "centerlock|link|txant|rxant|rxsource|fixture|clearfixture)"));
+                        "slice requires an action (add|remove|select|tx|mode|filter|"
+                        "diversity|centerlock|link|txant|rxant|rxsource|fixture|"
+                        "clearfixture)"));
                 return s.doSlice(a.action, a.value);
             });
 
@@ -5675,6 +5676,59 @@ QJsonObject AutomationServer::doSlice(const QString& action, const QString& arg)
                            {QStringLiteral("mode"), requestedMode},
                            {QStringLiteral("unchanged"), unchanged},
                            {QStringLiteral("requested"), !unchanged}};
+    }
+    if (action == QLatin1String("filter")) {
+        // Set the RX passband explicitly: "slice filter <lowHz> <highHz>".
+        //
+        // This exists because the mode/filter split is a recurring source of
+        // silent divergence between the model and whatever the DSP was actually
+        // configured with. Changing mode mirrors the passband inside SliceModel
+        // (normalizeFilterPolarity) WITHOUT emitting the operator intent, so a
+        // backend that owns its own DSP chain — HL2 — can be left running the
+        // pre-mirror passband while get_state cheerfully reports the mirrored
+        // one. Measuring anything through the audio path is meaningless while
+        // the passband is unknown, so an agent needs a way to ASSERT it.
+        //
+        // Routed through setFilterWidth() rather than poking the fields: that is
+        // the operator-intent setter, so it emits filterCommandIssued and the
+        // value reaches IRadioBackend::setSliceFilter. It also runs the same
+        // polarity normalization the UI does, so the value that comes back is
+        // the canonical one the model will hold.
+        const QStringList parts =
+            arg.trimmed().split(QRegularExpression(QStringLiteral("[\\s,]+")),
+                                Qt::SkipEmptyParts);
+        if (parts.size() != 2) {
+            return err(QStringLiteral(
+                "slice filter requires '<lowHz> <highHz>' (e.g. '-3000 -150' for LSB, "
+                "'150 3000' for USB, '-4000 4000' for a carrier-straddling AM passband)"));
+        }
+        bool okLow = false, okHigh = false;
+        const int low = parts[0].toInt(&okLow);
+        const int high = parts[1].toInt(&okHigh);
+        if (!okLow || !okHigh)
+            return err(QStringLiteral("slice filter edges must be integers in Hz"));
+        if (low >= high)
+            return err(QStringLiteral("slice filter low edge must be below the high edge"));
+
+        SliceModel* s = nullptr;
+        for (SliceModel* candidate : radio->slices()) {
+            if (candidate->isActive()) { s = candidate; break; }
+        }
+        if (!s && !radio->slices().isEmpty())
+            s = radio->slices().first();
+        if (!s)
+            return err(QStringLiteral("no slice available to set a filter on"));
+
+        s->setFilterWidth(low, high);
+        return QJsonObject{{QStringLiteral("ok"), true},
+                           {QStringLiteral("slice"), QStringLiteral("filter")},
+                           {QStringLiteral("id"), s->sliceId()},
+                           {QStringLiteral("mode"), s->mode()},
+                           {QStringLiteral("requestedLow"), low},
+                           {QStringLiteral("requestedHigh"), high},
+                           // Post-normalization values actually held by the model.
+                           {QStringLiteral("filterLow"), s->filterLow()},
+                           {QStringLiteral("filterHigh"), s->filterHigh()}};
     }
     if (action == QLatin1String("txant") || action == QLatin1String("rxant")) {
         // Set the transmit/receive antenna port deterministically. The GUI

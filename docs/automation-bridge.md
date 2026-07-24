@@ -355,7 +355,7 @@ transmit-gated verbs (refused unless `AETHER_AUTOMATION_ALLOW_TX=1` — see
 | **Tuning & slices** | [`tune <mhz>`](#tune) | Set the active slice frequency (VFO; not keying). |
 | | [`targettune <mhz>`](#targettune) | Absolute tune through the commanded-target and band-stack path. |
 | | [`memory activate <index> [panId]`](#memory) | Recall a radio memory through the normal UI policy. |
-| | [`slice <action>`](#slice) | add/remove/select/tx/mode/diversity/centerlock/txant/rxant/rxsource. |
+| | [`slice <action>`](#slice) | add/remove/select/tx/mode/filter/diversity/centerlock/txant/rxant/rxsource. |
 | **GPS fixtures** | [`gps fixture <6000\|8000>`](#gps) | Disconnected-only GPS status fixture using each production wire format. |
 | **Display / pans** | [`pan <action>`](#pan) | create / center / close a panadapter. |
 | | [`panmessage <action>`](#panmessage) | Add, remove, clear, or list panadapter overlay messages for UI testing. |
@@ -1136,6 +1136,7 @@ re-poll `get slices`.
 | `select` | `<sliceId>` | make a slice the active slice (`slice set <id> active=1`) |
 | `tx` | `<sliceId>` | make a slice the TX slice — the external-split transition; radio enforces single-TX |
 | `mode` | `<name>` e.g. `DSTR` | set the active slice mode through `SliceModel`; validated against the radio-advertised mode list |
+| `filter` | `<lowHz> <highHz>` e.g. `-3000 -150` | set the active slice passband through `SliceModel::setFilterWidth`, the operator-intent setter — so the edges reach `IRadioBackend::setSliceFilter` and not just the model. Necessary because a mode change mirrors the passband *inside* the model without emitting that intent, which can leave a backend that owns its own DSP chain running the pre-mirror passband while `get_state` reports the mirrored one. Assert the passband before measuring anything through the audio path. Returns both the requested edges and the post-normalization `filterLow`/`filterHigh` the model actually holds. Use `-4000 4000` for a carrier-straddling AM passband |
 | `diversity` | `<sliceId> <on\|off>` | enable or disable diversity through the slice model; re-poll `get slices` for parent/child state |
 | `centerlock` | `<sliceId> <on\|off>` | enable or disable Center Lock for that exact slice through the same per-pan path as the context menu; an explicit id permits testing either diversity member |
 | `link` | `<sliceIdA> <sliceIdB> <on\|off>` | engage or dissolve one cross-panadapter Slice Link pair through the same MainWindow handler as the context menu; multiple independent pairs are supported, but each owned non-diversity slice may belong to only one pair — assert each pair via the reciprocal `linkedTo` snapshot fields |
