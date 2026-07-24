@@ -914,6 +914,17 @@ bool MainWindow::startDax()
 {
     if (m_daxBridge) return true;
 
+    // DAX rides PanadapterStream's VITA-49 audio, which only a Flex backend
+    // owns — RadioModel leaves panStream() null for every other family (see
+    // its makeBackend/Flex-adapter step). Bail before creating the bridge so a
+    // non-Flex session can't reach the acquireDaxChannel() calls below on a
+    // null stream. Without this, connecting to an HL2 with AutoStartDAX=True
+    // segfaults ~3 s later from the auto-start timer in onConnectionStateChanged.
+    if (!m_radioModel.panStream()) {
+        qCDebug(lcDax) << "MainWindow: DAX unavailable — backend has no PanadapterStream";
+        return false;
+    }
+
 #ifdef Q_OS_MAC
     // Only start if the macOS HAL driver bundle is installed.
     if (!macDaxDriverInstalled()) {
