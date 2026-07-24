@@ -40,6 +40,7 @@ int main(int argc, char** argv)
     cfg.dspBlockSize = 1024;
     cfg.fftSize = 256;
     cfg.mode = WdspChannel::Mode::Usb;
+    cfg.blockForOutput = true;   // deterministic audio for this offline burst feed
     std::string err;
     check(dsp.configure(cfg, &err), err.empty() ? "Hl2RxDsp configures" : err.c_str());
 

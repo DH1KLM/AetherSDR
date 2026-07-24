@@ -1,12 +1,16 @@
 #include "core/dsp/WdspChannel.h"
 
 #include <aether_wdsp.h>
+#include <fftw3.h>
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <limits>
 #include <mutex>
 #include <new>
+#include <string>
 #include <thread>
 
 namespace {
@@ -18,6 +22,50 @@ constexpr int kTxChannelType = 1;
 std::mutex g_channelMutex;
 std::mutex g_setupMutex;
 std::array<bool, kWdspChannelCount> g_channelsInUse {};
+
+// WDSP builds its FFTs with FFTW_PATIENT (35 plans per channel), which re-runs
+// exhaustive measurement on every OpenChannel — ~a minute per channel open.
+// FFTW wisdom is global: prime it once from a persisted cache so those plans are
+// imported instantly. First run still measures (and caches); later runs import.
+// Called under g_setupMutex, so this global FFTW-planner I/O never races a
+// concurrent OpenChannel. (WDSPwisdom() itself is Windows-console-only, so we use
+// FFTW's portable wisdom API directly.)
+std::string wisdomPath()
+{
+    namespace fs = std::filesystem;
+    fs::path dir;
+#ifdef _WIN32
+    if (const char* la = std::getenv("LOCALAPPDATA")) dir = la;
+#else
+    if (const char* xdg = std::getenv("XDG_CACHE_HOME")) dir = xdg;
+    else if (const char* home = std::getenv("HOME")) dir = fs::path(home) / ".cache";
+#endif
+    if (dir.empty()) {
+        std::error_code ec;
+        dir = fs::temp_directory_path(ec);
+    }
+    dir /= "aethersdr";
+    std::error_code ec;
+    fs::create_directories(dir, ec);   // best-effort
+    return (dir / "wdsp-fftw-wisdom").string();
+}
+
+void loadWisdomOnce()
+{
+    static std::once_flag flag;
+    std::call_once(flag, [] { fftw_import_wisdom_from_filename(wisdomPath().c_str()); });
+}
+
+// Persist wisdom at process exit so EVERY plan measured during the run — not
+// just OpenChannel's, but also the ones SetRXAMode/SetRXABandpassFreqs build when
+// the mode or filter changes — is cached for the next run to import.
+void armWisdomExportOnce()
+{
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        std::atexit([] { fftw_export_wisdom_to_filename(wisdomPath().c_str()); });
+    });
+}
 
 int acquireChannelId()
 {
@@ -255,6 +303,7 @@ int WdspChannel::wdspMode(Mode mode) noexcept
 void WdspChannel::open() noexcept
 {
     const std::scoped_lock setupLock(g_setupMutex);
+    loadWisdomOnce();   // import cached FFTW wisdom so PATIENT plans don't re-measure
     OpenChannel(m_channelId,
                 static_cast<int>(m_config.inputBlockSize),
                 static_cast<int>(m_config.dspBlockSize),
@@ -274,6 +323,7 @@ void WdspChannel::open() noexcept
         SetTXAMode(m_channelId, wdspMode(m_config.mode));
         SetTXABandpassFreqs(m_channelId, m_config.filterLowHz, m_config.filterHighHz);
     }
+    armWisdomExportOnce();   // cache all measured wisdom (incl. later setMode) at exit
     m_open = true;
 }
 

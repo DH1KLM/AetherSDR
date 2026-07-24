@@ -31,6 +31,10 @@ public:
         WdspChannel::Mode mode = WdspChannel::Mode::Usb;
         double filterLowHz = 150.0;
         double filterHighHz = 3000.0;
+        // false (live): processIq is non-blocking — real-time input paces WDSP's
+        // async worker and audio flows with ~1 block latency. true: processIq
+        // waits for each output block (deterministic for a burst/offline feed).
+        bool blockForOutput = false;
     };
 
     // (Re)build the WdspChannel + Hl2Spectrum for this config. Returns false (and
