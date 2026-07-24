@@ -66,6 +66,13 @@ Cc ccRxGain(int db) noexcept
     return {kC0AdcGain, 0x00, 0x00, 0x00, static_cast<std::uint8_t>(0x40 | code)};
 }
 
+Cc ccAdcAssign() noexcept
+{
+    // RX1..RX7 -> ADC0, TX attenuation 0. All-zero payload is the correct value
+    // for a single-ADC Phase-1 receiver; what matters is that the bank is sent.
+    return {kC0AdcAssign, 0x00, 0x00, 0x00, 0x00};
+}
+
 std::array<std::uint8_t, 64> metisCommand(std::uint8_t cmd) noexcept
 {
     std::array<std::uint8_t, 64> out{};                  // zero-filled pad

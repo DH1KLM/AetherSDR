@@ -44,6 +44,15 @@ inline constexpr int kSamplesPerPacket = 126;         // 63 per frame * 2 frames
 inline constexpr std::uint8_t kC0Config = 0x00;   // addr 0x00: sample rate + #RX + ADC select
 inline constexpr std::uint8_t kC0Rx1Freq = 0x04;  // addr 0x02: RX1 NCO frequency (Hz, 32-bit BE)
 inline constexpr std::uint8_t kC0AdcGain = 0x14;  // addr 0x0a: AD9866 LNA gain
+// addr 0x0e: per-receiver ADC assignment. C1 holds RX1..RX4 (2 bits each, LSB
+// first), C2 holds RX5..RX7, C3 bits[4:0] are TX attenuation. The Hermes-Lite 2
+// has a single ADC and runs without this bank, which is why the Phase-0 spike
+// never sent it — but openHPSDR Protocol 1 defines the assignment as mandatory,
+// and a multi-ADC device leaves every receiver UNASSIGNED until it arrives. A
+// conforming device then emits correctly framed, correctly paced, all-ZERO IQ,
+// which is indistinguishable from a dead antenna. Verified against hpsdrsim,
+// whose rx_adc[] defaults to -1 and whose sample switch falls through to 0.
+inline constexpr std::uint8_t kC0AdcAssign = 0x1C;
 
 // Config-register (C0=0x00) bit flags.
 //
@@ -71,6 +80,10 @@ Cc ccConfig(SampleRate rate, int numRx = 1) noexcept;
 Cc ccRx1Freq(std::uint32_t hz) noexcept;
 // AD9866 LNA gain in dB, clamped to [-12, +48]; C4 = 0x40 | (dB + 12).
 Cc ccRxGain(int db) noexcept;
+// Per-receiver ADC assignment (see kC0AdcAssign). Phase 1 runs one receiver on
+// ADC0, so every field is zero; the bank still has to be SENT for a conforming
+// device to route ADC samples to RX1 at all.
+Cc ccAdcAssign() noexcept;
 
 // 64-byte Metis command: EF FE 04 <cmd>. cmd 0x01 = start IQ, 0x00 = stop.
 std::array<std::uint8_t, 64> metisCommand(std::uint8_t cmd) noexcept;

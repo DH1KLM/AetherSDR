@@ -264,8 +264,13 @@ void MetisClient::sendControlPacket()
     // so the DDC configuration is re-asserted on every frame; sub-frame 1
     // alternates the remaining banks. Matches the reference client, which pairs a
     // constant config bank with an alternating frequency bank.
-    const Cc* alt[2] = {&m_ccFreq, &m_ccGain};
-    const Cc& b = *alt[m_roundRobin % 2];
+    // The ADC-assignment bank joins the alternation: a conforming openHPSDR
+    // device leaves every receiver unassigned (and therefore emits all-zero IQ)
+    // until it has seen it. Re-asserting it rather than sending it once keeps a
+    // device that reconnects or resets mid-session from silently going quiet.
+    static const Cc kCcAdc = ccAdcAssign();
+    const Cc* alt[3] = {&m_ccFreq, &m_ccGain, &kCcAdc};
+    const Cc& b = *alt[m_roundRobin % 3];
     ++m_roundRobin;
     sendTo(*m_socket, ep2Packet(m_txSeq++, m_ccConfig, b), m_host, m_port);
 }
