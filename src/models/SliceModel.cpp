@@ -178,6 +178,7 @@ void SliceModel::setFilterWidth(int low, int high)
     // FlexAPI: "filt <id> <low_hz> <high_hz>"
     sendCommand(QString("filt %1 %2 %3").arg(m_id).arg(low).arg(high));
     emit filterChanged(low, high);
+    emit filterCommandIssued(low, high);
 }
 
 // ── Adaptive RX filter (RFC #3878) ──────────────────────────────────────
@@ -257,6 +258,7 @@ void SliceModel::applyAdaptiveFilter(int low, int high)
     m_filterHigh = high;
     sendCommand(QString("filt %1 %2 %3").arg(m_id).arg(low).arg(high));
     emit filterChanged(low, high);
+    emit filterCommandIssued(low, high);
 }
 
 void SliceModel::setRxAntenna(const QString& ant)

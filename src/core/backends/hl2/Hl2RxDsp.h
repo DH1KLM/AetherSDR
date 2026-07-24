@@ -25,7 +25,12 @@ public:
 
     struct Config {
         int inputSampleRateHz = 48000;   // HL2 IQ sample rate
-        int audioSampleRateHz = 48000;   // demodulated-audio rate (WDSP decimates to it)
+        // Demodulated-audio rate. 24 kHz because that is AudioEngine's native
+        // RX rate (AudioEngine::DEFAULT_SAMPLE_RATE); emitting it directly means
+        // the relay hands the engine byte-compatible float32 stereo with no
+        // resampling. WDSP does the IF->audio decimation, and every HL2 IQ rate
+        // (48/96/192/384 kHz) divides evenly into it.
+        int audioSampleRateHz = 24000;
         int dspBlockSize = 1024;         // WdspChannel input/processing block
         int fftSize = 1024;              // panadapter FFT size
         WdspChannel::Mode mode = WdspChannel::Mode::Usb;

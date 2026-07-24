@@ -466,6 +466,11 @@ void RadioModel::setupBackend(const QString& family)
     connect(m_backend.get(), &IRadioBackend::spectrumFrameReady,
             this, &RadioModel::onBackendSpectrumFrame);
 
+    // Demodulated RX audio from backends that produce it in-process (HL2).
+    // Signal-to-signal: the payload is already the engine's native format.
+    connect(m_backend.get(), &IRadioBackend::audioFrameReady,
+            this, &RadioModel::backendAudioFrameReady);
+
     // aetherd RFC 2.3: the first converted touchpoint. The backend decodes the
     // universal pan center/bandwidth from Flex status and emits this normalized
     // signal; RadioModel drives the addressed PanadapterModel. (Template for the
@@ -601,6 +606,21 @@ void RadioModel::setupBackend(const QString& family)
             connect(s, &SliceModel::modeChangeRequested, this,
                     [this, s](const QString& mode) {
                 if (m_backend) m_backend->setSliceMode(s->sliceId(), mode);
+            });
+            // Tuning and filter intents route through the seam too. A non-Flex
+            // backend never sees SliceModel::commandReady (that carries Flex
+            // wire text through the Flex-only slice sink), so without these the
+            // operator's tune/filter changes update the UI and are then dropped.
+            // Both signals are OPERATOR-issued only — radio-status application
+            // does not emit them — so echoing radio state back as a command
+            // cannot happen (Principle II).
+            connect(s, &SliceModel::frequencyCommandIssued, this,
+                    [this, s](double mhz) {
+                if (m_backend) m_backend->setSliceFrequency(s->sliceId(), mhz * 1.0e6);
+            });
+            connect(s, &SliceModel::filterCommandIssued, this,
+                    [this, s](int lowHz, int highHz) {
+                if (m_backend) m_backend->setSliceFilter(s->sliceId(), lowHz, highHz);
             });
             m_slices.append(s);
             s->applyChanges(mapped);

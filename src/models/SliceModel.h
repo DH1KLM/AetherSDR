@@ -277,6 +277,11 @@ signals:
     // Emitted after a local setter has issued a frequency command. Unlike
     // frequencyChanged, radio-status application does not emit this signal.
     void frequencyCommandIssued(double mhz);
+    // Filter change originating from the OPERATOR, not from radio status.
+    // filterChanged() fires for both, so it must not be used to drive a command
+    // back at the radio; that would echo the radio's own state as a request
+    // (Principle II). Mirrors frequencyCommandIssued.
+    void filterCommandIssued(int lowHz, int highHz);
     void panIdChanged(const QString& panId);
     void modeChanged(const QString& mode);
     void filterChanged(int low, int high);

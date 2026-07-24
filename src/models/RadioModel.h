@@ -572,6 +572,10 @@ signals:
                                   double lowFreqMhz, double highFreqMhz,
                                   quint32 timecode, qint64 emittedNs);
     void panFeedWaterfallAutoBlackLevel(quint32 streamId, quint32 autoBlack);
+    // Demodulated RX audio from a backend that produces it in-process (HL2).
+    // 24 kHz stereo float32 — the format AudioEngine::feedAudioData expects.
+    // Flex never emits this; its audio arrives on the PanadapterStream path.
+    void backendAudioFrameReady(const QByteArray& pcm);
     // The backend was replaced because the operator picked a radio of another
     // family. Consumers holding backend-owned objects (PanadapterStream) must
     // re-establish anything that binds to them directly.

@@ -127,7 +127,7 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
 
     Hl2RxDsp::Config dc;
     dc.inputSampleRateHz = m_sampleRateHz;
-    dc.audioSampleRateHz = 48000;
+    dc.audioSampleRateHz = 24000;   // AudioEngine's native RX rate
     dc.mode = modeFromString(m_mode);
     dc.filterLowHz = m_filterLowHz;
     dc.filterHighHz = m_filterHighHz;

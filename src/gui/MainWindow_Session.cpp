@@ -182,6 +182,13 @@ void MainWindow::wireDiscovery()
     connect(&m_radioModel, &RadioModel::backendRebuilt,
             this, &MainWindow::rewirePanStreamAfterBackendSwap);
 
+    // RX audio from a backend that demodulates in-process (HL2). Flex audio
+    // arrives on the PanadapterStream path instead and never reaches here, so
+    // there is no double-feed. Bound to m_radioModel rather than the backend, so
+    // it survives a backend swap without re-wiring.
+    connect(&m_radioModel, &RadioModel::backendAudioFrameReady,
+            m_audio, &AudioEngine::feedAudioData);
+
     connect(&m_hl2Discovery, &hl2::Hl2Discovery::radioDiscovered,
             m_connPanel, &ConnectionPanel::onRadioDiscovered);
     connect(&m_hl2Discovery, &hl2::Hl2Discovery::radioUpdated,
