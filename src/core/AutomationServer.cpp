@@ -2716,7 +2716,7 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                 if (a.action.isEmpty())
                     return err(QStringLiteral(
                         "slice requires an action (add|remove|select|tx|mode|filter|"
-                        "diversity|centerlock|link|txant|rxant|rxsource|fixture|"
+                        "agc|diversity|centerlock|link|txant|rxant|rxsource|fixture|"
                         "clearfixture)"));
                 return s.doSlice(a.action, a.value);
             });
@@ -5729,6 +5729,52 @@ QJsonObject AutomationServer::doSlice(const QString& action, const QString& arg)
                            // Post-normalization values actually held by the model.
                            {QStringLiteral("filterLow"), s->filterLow()},
                            {QStringLiteral("filterHigh"), s->filterHigh()}};
+    }
+    if (action == QLatin1String("agc")) {
+        // "slice agc <off|slow|med|fast> [threshold 0..100]" — drive the RX AGC
+        // through the same operator setters the RX applet uses, so the change
+        // emits agcCommandIssued and reaches IRadioBackend::setSliceAgc.
+        const QStringList parts =
+            arg.trimmed().split(QRegularExpression(QStringLiteral("[\\s,]+")),
+                                Qt::SkipEmptyParts);
+        if (parts.isEmpty())
+            return err(QStringLiteral(
+                "slice agc requires '<off|slow|med|fast> [threshold]'"));
+        const QString mode = parts[0].toLower();
+        static const QStringList kModes{QStringLiteral("off"), QStringLiteral("slow"),
+                                        QStringLiteral("med"), QStringLiteral("fast")};
+        if (!kModes.contains(mode))
+            return err(QStringLiteral("agc mode must be one of: ")
+                       + kModes.join(QLatin1Char('/')));
+        int threshold = -1;
+        if (parts.size() >= 2) {
+            bool okT = false;
+            threshold = parts[1].toInt(&okT);
+            if (!okT || threshold < 0 || threshold > 100)
+                return err(QStringLiteral("agc threshold must be an integer 0..100"));
+        }
+
+        SliceModel* s = nullptr;
+        for (SliceModel* candidate : radio->slices()) {
+            if (candidate->isActive()) { s = candidate; break; }
+        }
+        if (!s && !radio->slices().isEmpty())
+            s = radio->slices().first();
+        if (!s)
+            return err(QStringLiteral("no slice available to set AGC on"));
+
+        // Threshold first: setAgcMode() emits the intent carrying BOTH values,
+        // so applying the threshold first means a single mode+threshold request
+        // reaches the backend as one coherent pair rather than as the new mode
+        // paired with the stale threshold.
+        if (threshold >= 0)
+            s->setAgcThreshold(threshold);
+        s->setAgcMode(mode);
+        return QJsonObject{{QStringLiteral("ok"), true},
+                           {QStringLiteral("slice"), QStringLiteral("agc")},
+                           {QStringLiteral("id"), s->sliceId()},
+                           {QStringLiteral("agcMode"), s->agcMode()},
+                           {QStringLiteral("agcThreshold"), s->agcThreshold()}};
     }
     if (action == QLatin1String("txant") || action == QLatin1String("rxant")) {
         // Set the transmit/receive antenna port deterministically. The GUI

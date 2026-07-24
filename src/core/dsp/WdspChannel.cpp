@@ -238,6 +238,25 @@ bool WdspChannel::setFilter(double lowHz, double highHz) noexcept
     return true;
 }
 
+bool WdspChannel::setAgc(int agcMode, double maximumGainDb) noexcept
+{
+    // RX-only: SetRXAAGC* has no transmit counterpart, and a TX channel has no
+    // AGC stage to configure.
+    if (m_config.direction != Direction::Receive || !std::isfinite(maximumGainDb) ||
+        !beginControlOperation()) {
+        return false;
+    }
+    {
+        const std::scoped_lock setupLock(g_setupMutex);
+        SetRXAAGCMode(m_channelId, agcMode);
+        SetRXAAGCTop(m_channelId, maximumGainDb);
+    }
+    m_config.agcMode = agcMode;
+    m_config.maximumAgcGainDb = maximumGainDb;
+    endControlOperation();
+    return true;
+}
+
 std::size_t WdspChannel::outputBlockSize() const noexcept
 {
     return m_outputBlockSize;

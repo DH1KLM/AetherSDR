@@ -473,6 +473,7 @@ void SliceModel::setAgcMode(const QString& mode)
     m_agcMode = mode;
     sendCommand(QString("slice set %1 agc_mode=%2").arg(m_id).arg(mode));
     emit agcModeChanged(mode);
+    emit agcCommandIssued(m_agcMode, m_agcThreshold);
 }
 
 void SliceModel::setAgcThreshold(int value)
@@ -495,6 +496,7 @@ void SliceModel::setAgcThreshold(int value)
     m_agcThreshold = value;
     sendCommand(QString("slice set %1 agc_threshold=%2").arg(m_id).arg(value));
     emit agcThresholdChanged(value);
+    emit agcCommandIssued(m_agcMode, m_agcThreshold);
 }
 
 void SliceModel::setAgcOffLevel(int value)

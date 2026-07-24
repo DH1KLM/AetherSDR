@@ -80,6 +80,13 @@ public:
     bool reconfigure(const Config& config, std::string* error = nullptr) noexcept;
     bool setMode(Mode mode) noexcept;
     bool setFilter(double lowHz, double highHz) noexcept;
+    // Runtime RX AGC change. agcMode is the WDSP RXA AGC mode (0 off, 1 long,
+    // 2 slow, 3 medium, 4 fast); maximumGainDb is the AGC "top", the ceiling on
+    // how much gain the AGC may apply. Receive channels only — returns false on
+    // a transmit channel, on a non-finite ceiling, or if a control operation is
+    // already in flight. Control-path work, guarded exactly like setMode(); it
+    // must not be called from the processIq() callback.
+    bool setAgc(int agcMode, double maximumGainDb) noexcept;
 
     [[nodiscard]] const Config& config() const noexcept { return m_config; }
     [[nodiscard]] std::size_t outputBlockSize() const noexcept;

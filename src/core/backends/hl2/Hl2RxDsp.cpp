@@ -74,6 +74,14 @@ void Hl2RxDsp::setFilter(double lowHz, double highHz)
         m_channel->setFilter(lowHz, highHz);
 }
 
+void Hl2RxDsp::setAgc(int agcMode, double maximumGainDb)
+{
+    m_config.agcMode = agcMode;
+    m_config.maximumAgcGainDb = maximumGainDb;
+    if (m_channel)
+        m_channel->setAgc(agcMode, maximumGainDb);
+}
+
 void Hl2RxDsp::processIqBlock(const std::vector<std::complex<float>>& iq)
 {
     if (!m_channel)

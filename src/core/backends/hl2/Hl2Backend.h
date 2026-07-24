@@ -37,6 +37,7 @@ public:
     void setSliceFrequency(int sliceId, double hz) override;
     void setSliceMode(int sliceId, const QString& mode) override;
     void setSliceFilter(int sliceId, int lowHz, int highHz) override;
+    void setSliceAgc(int sliceId, const QString& mode, int thresholdDb) override;
     void setKeying(bool key) override;
 
     void invokeExtension(const QString& ns, const QString& verb, quint64 requestId,
@@ -57,6 +58,10 @@ private:
     int m_filterLowHz = 150;
     int m_filterHighHz = 3000;
     int m_lnaGainDb = 20;
+    // Authoritative AGC state, mirroring the DSP defaults in Hl2RxDsp::Config so
+    // the first sliceChanged reports what WDSP was actually opened with.
+    QString m_agcMode = QStringLiteral("med");
+    int m_agcThresholdDb = 65;
 
     static constexpr int kSliceId = 0;
     static constexpr const char* kPanId = "hl2";

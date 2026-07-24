@@ -193,6 +193,17 @@ void FlexBackend::setSliceFilter(int sliceId, int lowHz, int highHz)
     sendSlice(QStringLiteral("filt %1 %2 %3").arg(sliceId).arg(lowHz).arg(highHz));
 }
 
+void FlexBackend::setSliceAgc(int sliceId, const QString& mode, int thresholdDb)
+{
+    // Flex owns its AGC in firmware, so both halves are plain slice-set writes.
+    // In the current wiring this is reached only through the seam; the GUI path
+    // still emits the same commands via SliceModel's Flex command sink, exactly
+    // as setSliceFilter() mirrors SliceModel::setFilterWidth's "filt" write.
+    if (!mode.trimmed().isEmpty())
+        sendSlice(QStringLiteral("slice set %1 agc_mode=%2").arg(sliceId).arg(mode));
+    sendSlice(QStringLiteral("slice set %1 agc_threshold=%2").arg(sliceId).arg(thresholdDb));
+}
+
 void FlexBackend::sendSliceWaveformCommand(int sliceId, const QString& command)
 {
     if (sliceId < 0 || command.trimmed().isEmpty()) {

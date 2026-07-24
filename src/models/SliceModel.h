@@ -282,6 +282,13 @@ signals:
     // back at the radio; that would echo the radio's own state as a request
     // (Principle II). Mirrors frequencyCommandIssued.
     void filterCommandIssued(int lowHz, int highHz);
+    // Operator-issued AGC change. Distinct from agcModeChanged/
+    // agcThresholdChanged, which ALSO fire when radio status is applied —
+    // driving a command off those would echo the radio's own state back at it
+    // as a request (Principle II). Emitted only from setAgcMode()/
+    // setAgcThreshold(), and always carries BOTH values because a backend
+    // configuring a DSP AGC needs the pair to act on either.
+    void agcCommandIssued(const QString& mode, int thresholdDb);
     void panIdChanged(const QString& panId);
     void modeChanged(const QString& mode);
     void filterChanged(int low, int high);

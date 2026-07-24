@@ -622,6 +622,14 @@ void RadioModel::setupBackend(const QString& family)
                     [this, s](int lowHz, int highHz) {
                 if (m_backend) m_backend->setSliceFilter(s->sliceId(), lowHz, highHz);
             });
+            // AGC is the same shape: the RX applet's mode combo and threshold
+            // slider drive SliceModel, whose Flex wire text a non-Flex backend
+            // never sees. Without this the controls move, the model updates and
+            // the DSP keeps whatever it was opened with — a dead slider.
+            connect(s, &SliceModel::agcCommandIssued, this,
+                    [this, s](const QString& mode, int thresholdDb) {
+                if (m_backend) m_backend->setSliceAgc(s->sliceId(), mode, thresholdDb);
+            });
             m_slices.append(s);
             s->applyChanges(mapped);
             emit sliceAdded(s);

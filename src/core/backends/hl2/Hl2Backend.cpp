@@ -188,6 +188,32 @@ void Hl2Backend::setSliceFilter(int /*sliceId*/, int lowHz, int highHz)
     emitSliceState();
 }
 
+void Hl2Backend::setSliceAgc(int /*sliceId*/, const QString& mode, int thresholdDb)
+{
+    // Neutral vocabulary -> WDSP RXA AGC mode. WDSP also has "long" (1), which
+    // the slice model's four-way control never produces, so it is unreachable
+    // here rather than silently aliased onto something else.
+    const QString m = mode.trimmed().toLower();
+    int wdspAgc = 3;                                   // medium: WDSP's own default
+    if (m == QLatin1String("off"))        wdspAgc = 0;
+    else if (m == QLatin1String("slow"))  wdspAgc = 2;
+    else if (m == QLatin1String("med"))   wdspAgc = 3;
+    else if (m == QLatin1String("fast"))  wdspAgc = 4;
+
+    // The slice's AGC threshold is a 0..100 operator value (SliceModel bounds it
+    // there). Map it 1:1 onto the WDSP AGC ceiling in dB rather than rescaling:
+    // the ceiling IS a dB quantity, 0..100 dB spans the useful range, and the
+    // identity map means the number in the UI is the number WDSP is given —
+    // which is what makes the control debuggable. It also keeps the model's
+    // default of 65 equal to the 65 dB ceiling the DSP already defaulted to, so
+    // wiring the control up does not itself change the audio.
+    m_agcMode = m.isEmpty() ? m_agcMode : m;
+    m_agcThresholdDb = qBound(0, thresholdDb, 100);
+    if (m_dsp)
+        m_dsp->setAgc(wdspAgc, static_cast<double>(m_agcThresholdDb));
+    emitSliceState();
+}
+
 void Hl2Backend::setKeying(bool /*key*/)
 {
     // RX-only. capabilities().canTransmit is false, so the engine guard already

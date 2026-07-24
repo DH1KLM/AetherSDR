@@ -54,6 +54,11 @@ public:
     bool configure(const Config& config, std::string* error = nullptr);
     void setMode(WdspChannel::Mode mode);
     void setFilter(double lowHz, double highHz);
+    // Runtime AGC change. agcMode is the WDSP RXA AGC mode; maximumGainDb is
+    // the AGC ceiling. Kept in m_config so a later reconfigure() (rate change)
+    // rebuilds the channel with the operator's current AGC rather than the
+    // construction-time default.
+    void setAgc(int agcMode, double maximumGainDb);
     [[nodiscard]] bool isConfigured() const noexcept { return m_channel != nullptr; }
 
 public slots:

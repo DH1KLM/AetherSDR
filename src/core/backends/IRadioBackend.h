@@ -77,6 +77,13 @@ public:
     virtual void setSliceFrequency(int sliceId, double hz) = 0;
     virtual void setSliceMode(int sliceId, const QString& mode) = 0;
     virtual void setSliceFilter(int sliceId, int lowHz, int highHz) = 0;
+    // Receive AGC. mode is the neutral vocabulary the slice model uses —
+    // "off" / "slow" / "med" / "fast"; thresholdDb is the operator's 0..100
+    // AGC-threshold value. A backend whose hardware owns the AGC translates
+    // both to its wire protocol; one that owns an engine-side DSP chain
+    // configures that chain. Sent as a pair because a backend configuring a DSP
+    // AGC generally needs both to make either meaningful.
+    virtual void setSliceAgc(int sliceId, const QString& mode, int thresholdDb) = 0;
 
     // TX keying intent. The decision to allow keying is made ABOVE this seam by
     // the engine guard (RFC §6, single-holder lock + capability check); the
