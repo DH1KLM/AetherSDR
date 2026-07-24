@@ -528,6 +528,7 @@ set(CORE_SOURCES
     src/core/backends/hl2/MetisClient.cpp    # aetherd HL2 Phase 1a (UDP wire + RX ingest)
     src/core/backends/hl2/Hl2Spectrum.cpp    # aetherd HL2 Phase 1a (FFT panadapter, FFTW)
     src/core/backends/hl2/Hl2RxDsp.cpp       # aetherd HL2 Phase 1a (IQ -> WdspChannel demod + spectrum)
+    src/core/backends/hl2/Hl2Backend.cpp     # aetherd HL2 Phase 1b (IRadioBackend impl)
     src/core/dsp/WdspChannel.cpp
     src/core/AppSettings.cpp
     src/core/GpuSelector.cpp
@@ -2629,6 +2630,12 @@ add_executable(hl2_rxdsp_test tests/hl2_rxdsp_test.cpp)
 target_include_directories(hl2_rxdsp_test PRIVATE src)
 target_link_libraries(hl2_rxdsp_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME hl2_rxdsp_test COMMAND hl2_rxdsp_test)
+
+# HL2 backend — IRadioBackend seam contract against a capped fake HL2.
+add_executable(hl2_backend_test tests/hl2_backend_test.cpp)
+target_include_directories(hl2_backend_test PRIVATE src)
+target_link_libraries(hl2_backend_test PRIVATE aethercore Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME hl2_backend_test COMMAND hl2_backend_test)
 
 add_executable(client_eq_test
     tests/client_eq_test.cpp
