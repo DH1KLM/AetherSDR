@@ -526,6 +526,7 @@ set(CORE_SOURCES
     src/core/backends/flex/FlexBackend.cpp   # aetherd RFC step 2.2 (§5.5)
     src/core/backends/hl2/MetisProtocol.cpp  # aetherd HL2 Phase 1a (HPSDR Protocol 1)
     src/core/backends/hl2/MetisClient.cpp    # aetherd HL2 Phase 1a (UDP wire + RX ingest)
+    src/core/backends/hl2/Hl2Spectrum.cpp    # aetherd HL2 Phase 1a (FFT panadapter, FFTW)
     src/core/dsp/WdspChannel.cpp
     src/core/AppSettings.cpp
     src/core/GpuSelector.cpp
@@ -2613,6 +2614,14 @@ add_executable(hl2_metis_client_test tests/hl2_metis_client_test.cpp)
 target_include_directories(hl2_metis_client_test PRIVATE src)
 target_link_libraries(hl2_metis_client_test PRIVATE aethercore Qt6::Core Qt6::Network Qt6::Test)
 add_test(NAME hl2_metis_client_test COMMAND hl2_metis_client_test)
+
+# HL2 spectrum (FFT panadapter) — standalone, links FFTW3 directly.
+add_executable(hl2_spectrum_test
+    tests/hl2_spectrum_test.cpp
+    src/core/backends/hl2/Hl2Spectrum.cpp)
+target_include_directories(hl2_spectrum_test PRIVATE src ${FFTW3_INCLUDE_DIRS})
+target_link_libraries(hl2_spectrum_test PRIVATE ${FFTW3_LIBRARIES})
+add_test(NAME hl2_spectrum_test COMMAND hl2_spectrum_test)
 
 add_executable(client_eq_test
     tests/client_eq_test.cpp
