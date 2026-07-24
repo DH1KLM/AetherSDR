@@ -179,6 +179,9 @@ void MainWindow::wireDiscovery()
     // UDP/1024, which the Flex discovery above never sees. Feed them into the
     // same picker slots, tagged family="hl2" so RadioModel routes the connect
     // through the IRadioBackend seam instead of the Flex RadioConnection.
+    connect(&m_radioModel, &RadioModel::backendRebuilt,
+            this, &MainWindow::rewirePanStreamAfterBackendSwap);
+
     connect(&m_hl2Discovery, &hl2::Hl2Discovery::radioDiscovered,
             m_connPanel, &ConnectionPanel::onRadioDiscovered);
     connect(&m_hl2Discovery, &hl2::Hl2Discovery::radioUpdated,
@@ -1556,6 +1559,41 @@ void MainWindow::wireCatPorts()
     // TCI audio (WSJT-X) should enable PC Audio manually. (#1071)
 #endif
 
+}
+
+void MainWindow::rewirePanStreamAfterBackendSwap()
+{
+    // RadioModel replaced the backend because the operator picked a radio of a
+    // different family, and the backend owns the PanadapterStream. Qt already
+    // removed every connection bound to the destroyed stream, so re-make exactly
+    // those. Connections that never touched the stream survived the swap and must
+    // NOT be repeated here or they would fire twice per signal.
+    auto* ps = m_radioModel.panStream();
+    if (!ps)
+        return;   // non-Flex backend: nothing owns these paths
+
+    if (m_audio) {
+        connect(m_audio, &AudioEngine::txPacketReady,
+                ps, &PanadapterStream::sendToRadio);
+    }
+
+#ifdef HAVE_WEBSOCKETS
+    if (tciServer()) {
+        connect(ps, &PanadapterStream::daxAudioReady,
+                tciServer(), &TciServer::onDaxAudioReady);
+        connect(ps, &PanadapterStream::iqDataReady,
+                tciServer(), &TciServer::onIqDataReady);
+        connect(ps, &PanadapterStream::waterfallRowReady,
+                tciServer(), &TciServer::onWaterfallRowReady);
+    }
+#endif
+
+    if (m_appletPanel && m_appletPanel->daxIqApplet()) {
+        connect(ps, &PanadapterStream::iqDataReady,
+                &m_radioModel.daxIqModel(), &DaxIqModel::feedRawIqPacket);
+    }
+
+    qCDebug(lcProtocol) << "MainWindow: re-bound PanadapterStream signals after backend swap";
 }
 
 void MainWindow::wireDaxIq()

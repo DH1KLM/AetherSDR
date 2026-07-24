@@ -415,111 +415,22 @@ std::unique_ptr<IRadioBackend> RadioModel::makeBackend(const QString& family)
     return std::make_unique<FlexBackend>();
 }
 
-RadioModel::RadioModel(QObject* parent)
-    : QObject(parent)
+void RadioModel::setupBackend(const QString& family)
 {
-    // Register the typed seam-delta payloads so IRadioBackend's normalized
-    // signals survive a queued connection. Today decode*Status runs synchronously
-    // on this thread (AutoConnection → DirectConnection, no metatype needed), but
-    // if a backend is ever moved to a worker thread the connection becomes queued;
-    // without registration Qt would log "Cannot queue arguments of type …" and
-    // silently drop the emit. Idempotent + cheap. (#4071 review.)
-    qRegisterMetaType<SliceDelta>();
-    qRegisterMetaType<TransmitDelta>();
-    qRegisterMetaType<MeterDef>();
-    qRegisterMetaType<RadioDelta>();
-    qRegisterMetaType<GpsDelta>();
-    qRegisterMetaType<MemoryDelta>();
-    qRegisterMetaType<ProfileDelta>();
-    qRegisterMetaType<AmpDelta>();
-    qRegisterMetaType<TunerDelta>();
+    // Builds m_backend for `family` and wires everything that hangs off it.
+    // Called from the constructor and again whenever the operator picks a radio
+    // of a different family, so it must be safe to run more than once: every
+    // connection made here has the backend (or a backend-owned object) as sender
+    // or receiver, so destroying the old backend in teardownBackend() removes
+    // them all automatically and re-running cannot duplicate them.
+    m_family = family.isEmpty() ? QStringLiteral("flex") : family.toLower();
 
-    DigitalVoiceWaveformProcess& digitalVoiceProcess =
-        DigitalVoiceWaveformProcess::instance();
-    connect(&digitalVoiceProcess, &DigitalVoiceWaveformProcess::metricsChanged,
-            this, &RadioModel::digitalVoiceWaveformMetricsChanged);
-    connect(&digitalVoiceProcess, &DigitalVoiceWaveformProcess::healthChanged,
-            this, &RadioModel::digitalVoiceWaveformHealthChanged);
-    connect(&digitalVoiceProcess, &DigitalVoiceWaveformProcess::degradationStarted,
-            this, &RadioModel::digitalVoiceWaveformDegradationStarted);
-    connect(&digitalVoiceProcess,
-            &DigitalVoiceWaveformProcess::sliceRestoreRequested,
-            this,
-            [this](int sliceId, const QString& previousMode) {
-        SliceModel* controlledSlice = slice(sliceId);
-        if (!controlledSlice
-            || !DigitalVoiceModeRegistry::modeForRadioMode(
-                    controlledSlice->mode()).has_value()) {
-            return;
-        }
-        QString restoreMode = previousMode.trimmed().toUpper();
-        if (restoreMode.isEmpty()
-            || DigitalVoiceModeRegistry::modeForRadioMode(restoreMode).has_value()) {
-            restoreMode = DigitalVoiceModeRegistry::descriptor(
-                DigitalVoiceModeId::DStar).underlyingMode;
-        }
-        controlledSlice->setMode(restoreMode);
-    });
-    connect(&digitalVoiceProcess, &DigitalVoiceWaveformProcess::stateChanged,
-            this, [this](DigitalVoiceWaveformProcess::State state) {
-        m_lastDigitalVoiceTxSelectionKey.clear();
-        if (state == DigitalVoiceWaveformProcess::State::Running) {
-            m_dstarRuntimeConfigurationPending = true;
-            syncDigitalVoiceTxSelection(true);
-            applyPendingDStarRuntimeConfiguration();
-        }
-    });
-    connect(&DigitalVoiceModeRegistry::instance(),
-            &DigitalVoiceModeRegistry::activeSliceChanged,
-            this,
-            [this](int) {
-        m_lastDigitalVoiceTxSelectionKey.clear();
-        syncDigitalVoiceTxSelection(true);
-        applyPendingDStarRuntimeConfiguration();
-    }, Qt::QueuedConnection);
-
-    const QString digitalVoiceDir =
-        QFileInfo(AppSettings::instance().filePath()).absolutePath()
-        + QStringLiteral("/digital-voice");
-    m_dstarModel.setTrafficPersistencePath(
-        digitalVoiceDir + QStringLiteral("/dstar-traffic.json"));
-    connect(&m_flexWaveformModel, &FlexWaveformModel::genericStatusReceived,
-            &m_dstarModel, &DStarModel::handleWaveformStatus);
-    connect(&m_dstarModel, &DStarModel::configurationChanged,
-            this, &RadioModel::scheduleDStarRuntimeConfiguration);
-    connect(&m_transmitModel, &TransmitModel::transmittingChanged,
-            this, [this](bool transmitting) {
-        if (!transmitting) {
-            applyPendingDStarRuntimeConfiguration();
-        }
-    });
-    connect(this, &RadioModel::radioTransmittingChanged,
-            this, [this](bool transmitting) {
-        if (!transmitting) {
-            applyPendingDStarRuntimeConfiguration();
-        }
-    });
-
-    // aetherd RFC step 2.2b: the radio-facing seam owns the wire objects. The
-    // FlexBackend creates the RadioConnection and PanadapterStream on their
-    // worker threads (in the load-bearing #502 order — panStream first) and
-    // tears them down. RadioModel keeps non-owning pointers, obtained here, so
-    // all the signal wiring and command/WAN orchestration below is byte-for-byte
-    // as before — the move is ownership-only.
-    //
-    // Note: the threads now start here (as the ctor's first statement) rather
-    // than adjacent to their signal wiring below. Safe because RadioConnection::
-    // init()/PanadapterStream::init() only allocate sockets/timers and neither
-    // auto-connects nor emits — so there is no lost-signal window before our
-    // statusReceived/etc. connections are made. Keep that true if init() grows.
     {
-        // aetherd Gap A (HL2 Phase 1c): select the backend by family instead of
-        // hard-wiring FlexBackend. Dev hook: AETHER_RADIO_FAMILY ("flex" default,
-        // "hl2" for Hermes-Lite 2). The Flex-specific construction wiring below is
+        // aetherd Gap A/B: build the backend for m_family. The Flex-specific
+        // construction wiring below is
         // guarded by a dynamic_cast so the Flex path stays byte-identical and a
         // non-Flex backend simply skips it (it owns its own wire objects).
-        m_backend = makeBackend(qEnvironmentVariable("AETHER_RADIO_FAMILY",
-                                                     QStringLiteral("flex")));
+        m_backend = makeBackend(m_family);
         if (auto* flex = dynamic_cast<FlexBackend*>(m_backend.get())) {
             flex->setCommandSink([this](const QString& cmd){ sendCommand(cmd); });
             // Slice verbs route through the TX-inhibit-guarded slice sink (§6), so
@@ -805,6 +716,129 @@ RadioModel::RadioModel(QObject* parent)
     // Forward VITA-49 meter packets to MeterModel (cross-thread, auto-queued)
     connect(m_panStream, &PanadapterStream::meterDataReady,
             &m_meterModel, &MeterModel::updateValues);
+}
+
+void RadioModel::teardownBackend()
+{
+    // Drop the backend and everything it owns (RadioConnection, PanadapterStream
+    // and their worker threads). Qt removes any connection whose sender or
+    // receiver is destroyed, so the wiring made by setupBackend() goes with it.
+    if (!m_backend)
+        return;
+    if (m_connection)
+        QObject::disconnect(m_connection, nullptr, this, nullptr);
+    if (m_panStream)
+        QObject::disconnect(m_panStream, nullptr, this, nullptr);
+    QObject::disconnect(m_backend.get(), nullptr, this, nullptr);
+    // Null the transitional alias BEFORE destroying the backend so any status
+    // slot running during teardown fails closed instead of dereferencing a
+    // backend mid-destruction.
+    m_flexBackend = nullptr;
+    m_backend.reset();
+    m_connection = nullptr;
+    m_panStream = nullptr;
+}
+
+RadioModel::RadioModel(QObject* parent)
+    : QObject(parent)
+{
+    // Register the typed seam-delta payloads so IRadioBackend's normalized
+    // signals survive a queued connection. Today decode*Status runs synchronously
+    // on this thread (AutoConnection → DirectConnection, no metatype needed), but
+    // if a backend is ever moved to a worker thread the connection becomes queued;
+    // without registration Qt would log "Cannot queue arguments of type …" and
+    // silently drop the emit. Idempotent + cheap. (#4071 review.)
+    qRegisterMetaType<SliceDelta>();
+    qRegisterMetaType<TransmitDelta>();
+    qRegisterMetaType<MeterDef>();
+    qRegisterMetaType<RadioDelta>();
+    qRegisterMetaType<GpsDelta>();
+    qRegisterMetaType<MemoryDelta>();
+    qRegisterMetaType<ProfileDelta>();
+    qRegisterMetaType<AmpDelta>();
+    qRegisterMetaType<TunerDelta>();
+
+    DigitalVoiceWaveformProcess& digitalVoiceProcess =
+        DigitalVoiceWaveformProcess::instance();
+    connect(&digitalVoiceProcess, &DigitalVoiceWaveformProcess::metricsChanged,
+            this, &RadioModel::digitalVoiceWaveformMetricsChanged);
+    connect(&digitalVoiceProcess, &DigitalVoiceWaveformProcess::healthChanged,
+            this, &RadioModel::digitalVoiceWaveformHealthChanged);
+    connect(&digitalVoiceProcess, &DigitalVoiceWaveformProcess::degradationStarted,
+            this, &RadioModel::digitalVoiceWaveformDegradationStarted);
+    connect(&digitalVoiceProcess,
+            &DigitalVoiceWaveformProcess::sliceRestoreRequested,
+            this,
+            [this](int sliceId, const QString& previousMode) {
+        SliceModel* controlledSlice = slice(sliceId);
+        if (!controlledSlice
+            || !DigitalVoiceModeRegistry::modeForRadioMode(
+                    controlledSlice->mode()).has_value()) {
+            return;
+        }
+        QString restoreMode = previousMode.trimmed().toUpper();
+        if (restoreMode.isEmpty()
+            || DigitalVoiceModeRegistry::modeForRadioMode(restoreMode).has_value()) {
+            restoreMode = DigitalVoiceModeRegistry::descriptor(
+                DigitalVoiceModeId::DStar).underlyingMode;
+        }
+        controlledSlice->setMode(restoreMode);
+    });
+    connect(&digitalVoiceProcess, &DigitalVoiceWaveformProcess::stateChanged,
+            this, [this](DigitalVoiceWaveformProcess::State state) {
+        m_lastDigitalVoiceTxSelectionKey.clear();
+        if (state == DigitalVoiceWaveformProcess::State::Running) {
+            m_dstarRuntimeConfigurationPending = true;
+            syncDigitalVoiceTxSelection(true);
+            applyPendingDStarRuntimeConfiguration();
+        }
+    });
+    connect(&DigitalVoiceModeRegistry::instance(),
+            &DigitalVoiceModeRegistry::activeSliceChanged,
+            this,
+            [this](int) {
+        m_lastDigitalVoiceTxSelectionKey.clear();
+        syncDigitalVoiceTxSelection(true);
+        applyPendingDStarRuntimeConfiguration();
+    }, Qt::QueuedConnection);
+
+    const QString digitalVoiceDir =
+        QFileInfo(AppSettings::instance().filePath()).absolutePath()
+        + QStringLiteral("/digital-voice");
+    m_dstarModel.setTrafficPersistencePath(
+        digitalVoiceDir + QStringLiteral("/dstar-traffic.json"));
+    connect(&m_flexWaveformModel, &FlexWaveformModel::genericStatusReceived,
+            &m_dstarModel, &DStarModel::handleWaveformStatus);
+    connect(&m_dstarModel, &DStarModel::configurationChanged,
+            this, &RadioModel::scheduleDStarRuntimeConfiguration);
+    connect(&m_transmitModel, &TransmitModel::transmittingChanged,
+            this, [this](bool transmitting) {
+        if (!transmitting) {
+            applyPendingDStarRuntimeConfiguration();
+        }
+    });
+    connect(this, &RadioModel::radioTransmittingChanged,
+            this, [this](bool transmitting) {
+        if (!transmitting) {
+            applyPendingDStarRuntimeConfiguration();
+        }
+    });
+
+    // aetherd RFC step 2.2b: the radio-facing seam owns the wire objects. The
+    // FlexBackend creates the RadioConnection and PanadapterStream on their
+    // worker threads (in the load-bearing #502 order — panStream first) and
+    // tears them down. RadioModel keeps non-owning pointers, obtained here, so
+    // all the signal wiring and command/WAN orchestration below is byte-for-byte
+    // as before — the move is ownership-only.
+    //
+    // Note: the threads now start here (as the ctor's first statement) rather
+    // than adjacent to their signal wiring below. Safe because RadioConnection::
+    // init()/PanadapterStream::init() only allocate sockets/timers and neither
+    // auto-connects nor emits — so there is no lost-signal window before our
+    // statusReceived/etc. connections are made. Keep that true if init() grows.
+    // Default to Flex; the backend is swapped in connectToRadio() to match
+    // whichever radio the operator picks in the connection manager.
+    setupBackend(QStringLiteral("flex"));
 
     // #4142 — single owner of the deferred pan-write replay. Armed by the
     // defer path (armProfileLoadPanWriteFlush), hold-relative, self-re-arming;
@@ -1060,19 +1094,11 @@ RadioModel::~RadioModel()
         QObject::disconnect(m_wanConn, nullptr, this, nullptr);
     }
 
-    // Null the transitional alias BEFORE destroying the backend, so any status
-    // slot that runs during teardown finds the `if (m_flexBackend)` guards
-    // failing closed instead of dereferencing a backend mid-destruction. (#4063
-    // introduced the alias; #4065 review moved this null ahead of the reset.)
-    m_flexBackend = nullptr;
-
     // Destroy the backend, which owns the RadioConnection + PanadapterStream and
     // their worker threads: ~FlexBackend runs the exact #502 teardown ordering
     // (BlockingQueued disconnect/stop → deleteLater → thread quit/wait) that
     // used to live here. (aetherd 2.2b)
-    m_backend.reset();
-    m_connection = nullptr;
-    m_panStream = nullptr;
+    teardownBackend();
 }
 
 const DigitalVoiceWaveformMetrics& RadioModel::digitalVoiceWaveformMetrics() const
@@ -1888,6 +1914,20 @@ void RadioModel::emitInterlockNotification(const QString& message,
 
 void RadioModel::connectToRadio(const RadioInfo& info)
 {
+    // aetherd Gap B: the backend follows the radio the operator selected. A Flex
+    // and a Hermes-Lite 2 need different backends, and the picker is where that
+    // choice is actually made — so swap the backend here rather than pinning the
+    // family for the whole process. Same-family reconnects rebuild nothing.
+    const QString wantFamily = info.family.isEmpty() ? QStringLiteral("flex")
+                                                     : info.family.toLower();
+    if (wantFamily != m_family) {
+        qCInfo(lcProtocol) << "RadioModel: switching backend family" << m_family
+                           << "->" << wantFamily << "for" << info.address.toString();
+        teardownBackend();
+        setupBackend(wantFamily);
+        emit backendRebuilt();
+    }
+
     clearAutomationSliceFixtures();
     m_automationGpsNtpServerAddress.clear();
 

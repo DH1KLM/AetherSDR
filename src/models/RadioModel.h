@@ -572,6 +572,10 @@ signals:
                                   double lowFreqMhz, double highFreqMhz,
                                   quint32 timecode, qint64 emittedNs);
     void panFeedWaterfallAutoBlackLevel(quint32 streamId, quint32 autoBlack);
+    // The backend was replaced because the operator picked a radio of another
+    // family. Consumers holding backend-owned objects (PanadapterStream) must
+    // re-establish anything that binds to them directly.
+    void backendRebuilt();
     // Emitted when a panadapter's center frequency or bandwidth changes.
     void panadapterInfoChanged(double centerMhz, double bandwidthMhz);
     // Emitted when the radio reports the panadapter's dBm display range.
@@ -874,10 +878,20 @@ private:
     // in the ctor, so a non-Flex backend simply skips it.
     static std::unique_ptr<IRadioBackend> makeBackend(const QString& family);
 
+    // aetherd Gap B: build/destroy the backend for a radio family. The backend
+    // follows the radio the operator picks in the connection manager, so these
+    // run again on a family change — not just at construction.
+    void setupBackend(const QString& family);
+    void teardownBackend();
+
     // aetherd RFC step 2 (§5.5): the radio-facing seam. Held via std::unique_ptr
     // (owned via unique_ptr below). As of 2.2b it OWNS the RadioConnection +
     // PanadapterStream and their worker threads; RadioModel keeps the two
     // NON-OWNING pointers below, obtained from the backend at construction.
+    // Radio family the live backend implements ("flex", "hl2"). Set by
+    // setupBackend(); compared against the picked radio's RadioInfo::family to
+    // decide whether a connect needs a different backend.
+    QString m_family;
     std::unique_ptr<IRadioBackend> m_backend;
     // Transitional (aetherd RFC 2.3): RadioModel drives the backend's Flex
     // status decode from its status choke points while touchpoints convert
