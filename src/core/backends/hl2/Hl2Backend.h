@@ -52,7 +52,14 @@ private:
     bool m_connected = false;
 
     // Authoritative RX state (HL2 has no status wire echoing it back).
-    double m_rxFreqHz = 10'000'000.0;
+    // The slice's tuned frequency, and — separately — where the DDC's NCO sits.
+    // These were one value, which nailed the slice to the centre of the
+    // panadapter: every tune moved the NCO, so the pan centre moved with it
+    // and the display re-centred under the operator on every click. They are
+    // now independent, with the slice tuned inside the passband by a WDSP
+    // shift and the NCO moved only when the target would leave the window.
+    double m_rxFreqHz = 10'000'000.0;   // slice
+    double m_ncoHz    = 10'000'000.0;   // DDC / pan centre
     int m_sampleRateHz = 48000;
     QString m_mode = QStringLiteral("USB");
     int m_filterLowHz = 150;
@@ -63,6 +70,9 @@ private:
     QString m_agcMode = QStringLiteral("med");
     int m_agcThresholdDb = 65;
 
+    // Fraction of the half-span the slice may occupy before the NCO re-centres.
+    // 0.8 leaves the outer 20% of each side for filter roll-off.
+    static constexpr double kUsablePassbandFraction = 0.8;
     static constexpr int kSliceId = 0;
     static constexpr const char* kPanId = "hl2";
 };

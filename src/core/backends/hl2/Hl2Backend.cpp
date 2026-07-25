@@ -1,5 +1,7 @@
 #include "core/backends/hl2/Hl2Backend.h"
 
+#include <cmath>
+
 #include "core/backends/hl2/Hl2RxDsp.h"
 #include "core/backends/hl2/MetisClient.h"
 #include "core/backends/hl2/MetisProtocol.h"
@@ -165,8 +167,31 @@ bool Hl2Backend::isConnected() const
 void Hl2Backend::setSliceFrequency(int /*sliceId*/, double hz)
 {
     m_rxFreqHz = hz;
-    if (m_metis)
-        m_metis->setRxFrequencyHz(static_cast<std::uint32_t>(hz < 0 ? 0 : hz));
+
+    // Keep the NCO — and therefore the panadapter centre — where it is, and put
+    // the slice at an offset inside the passband. Only when the target would
+    // fall outside the usable window does the NCO move, and then it re-centres
+    // on the target.
+    //
+    // Before this the slice frequency WAS the NCO, so the pan centre tracked
+    // every tune and the whole display slid under the cursor on each click.
+    // That also made a slice offset from centre unrepresentable, which is what
+    // a Flex-shaped UI assumes it can do.
+    const double halfSpanHz = static_cast<double>(m_sampleRateHz) / 2.0;
+    // Stay clear of the band edges: the passband rolls off there, and a slice
+    // parked in the roll-off would be attenuated for no visible reason.
+    const double usableHz = halfSpanHz * kUsablePassbandFraction;
+    if (std::abs(hz - m_ncoHz) > usableHz) {
+        m_ncoHz = hz;
+        if (m_metis)
+            m_metis->setRxFrequencyHz(static_cast<std::uint32_t>(hz < 0 ? 0 : hz));
+    }
+
+    // WDSP shifts the spectrum, so bringing a signal that sits ABOVE the NCO
+    // down to baseband is a NEGATIVE shift.
+    if (m_dsp)
+        m_dsp->setShift(-(m_rxFreqHz - m_ncoHz));
+
     emitSliceState();
     emitPanState();
 }
@@ -241,7 +266,10 @@ void Hl2Backend::emitSliceState()
 
 void Hl2Backend::emitPanState()
 {
-    emit panCenterBandwidthChanged(QString::fromLatin1(kPanId), m_rxFreqHz / 1.0e6,
+    // The pan centre is the NCO, NOT the slice. This is the whole point of the
+    // decoupling: the display describes where the receiver's window is, and the
+    // slice moves inside it.
+    emit panCenterBandwidthChanged(QString::fromLatin1(kPanId), m_ncoHz / 1.0e6,
                                    static_cast<double>(m_sampleRateHz) / 1.0e6);
 }
 

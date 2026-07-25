@@ -60,6 +60,10 @@ bool Hl2RxDsp::configure(const Config& config, std::string* error)
     m_left.assign(outN, 0.0f);
     m_right.assign(outN, 0.0f);
     m_stereo.assign(outN * 2, 0.0f);
+    // A rebuild (rate change) creates a fresh channel; restore the operator's
+    // current slice offset rather than silently snapping the slice to centre.
+    if (m_shiftHz != 0.0)
+        m_channel->setShift(m_shiftHz);
     return true;
 }
 
@@ -84,6 +88,13 @@ void Hl2RxDsp::setAgc(int agcMode, double maximumGainDb)
     m_config.maximumAgcGainDb = maximumGainDb;
     if (m_channel)
         m_channel->setAgc(agcMode, maximumGainDb);
+}
+
+void Hl2RxDsp::setShift(double shiftHz)
+{
+    m_shiftHz = shiftHz;
+    if (m_channel)
+        m_channel->setShift(shiftHz);
 }
 
 void Hl2RxDsp::processIqBlock(const std::vector<std::complex<float>>& iq)

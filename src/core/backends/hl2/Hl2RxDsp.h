@@ -63,6 +63,10 @@ public:
     // rebuilds the channel with the operator's current AGC rather than the
     // construction-time default.
     void setAgc(int agcMode, double maximumGainDb);
+    // RX frequency shift in Hz relative to the NCO — how the backend tunes the
+    // slice inside the passband without moving the DDC. Kept in m_config so a
+    // later reconfigure() rebuilds the channel with the operator's offset.
+    void setShift(double shiftHz);
     [[nodiscard]] bool isConfigured() const noexcept { return m_channel != nullptr; }
 
 public slots:
@@ -78,6 +82,7 @@ signals:
 private:
     std::unique_ptr<WdspChannel> m_channel;
     std::unique_ptr<Hl2Spectrum> m_spectrum;
+    double m_shiftHz = 0.0;   // current slice offset from the NCO, Hz
     Config m_config;
 
     std::vector<std::complex<float>> m_iqBuffer;   // IQ awaiting a full DSP block

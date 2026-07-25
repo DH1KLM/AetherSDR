@@ -87,6 +87,11 @@ public:
     // already in flight. Control-path work, guarded exactly like setMode(); it
     // must not be called from the processIq() callback.
     bool setAgc(int agcMode, double maximumGainDb) noexcept;
+    // RX frequency shift in Hz, relative to the tuned (NCO) frequency. A
+    // single-DDC backend uses this to move the slice inside the passband
+    // without moving the NCO, which is what keeps the panadapter still while
+    // the operator tunes. 0 disables the stage. Receive channels only.
+    bool setShift(double shiftHz) noexcept;
 
     [[nodiscard]] const Config& config() const noexcept { return m_config; }
     [[nodiscard]] std::size_t outputBlockSize() const noexcept;
@@ -112,6 +117,7 @@ private:
     // Fixed for a given Config; cached at open()/reconfigure() so the real-time
     // processIq() buffer-size check does not repeat a divide every block.
     std::size_t m_outputBlockSize = 0;
+    double m_shiftHz = 0.0;
     // These two coordinate the real-time processIq() against control-thread
     // operations. The handshake is Dekker-style — each side stores its own flag
     // then reads the other's — which is only correct under sequential

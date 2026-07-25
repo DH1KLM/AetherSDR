@@ -42,6 +42,10 @@ void RXASetPassband(int channel, double lowHz, double highHz);
 // separately so their effects can be attributed independently.
 void RXANBPSetFreqs(int channel, double lowHz, double highHz);
 void SetRXASNBAOutputBandwidth(int channel, double lowHz, double highHz);
+// RX frequency shift. Lets a single-DDC backend hold its NCO (and therefore the
+// panadapter centre) still while the slice tunes within the passband.
+void SetRXAShiftFreq(int channel, double shiftHz);
+void SetRXAShiftRun(int channel, int run);
 void SetRXAAGCMode(int channel, int mode);
 void SetRXAAGCTop(int channel, double maximumGainDb);
 void SetTXAMode(int channel, int mode);

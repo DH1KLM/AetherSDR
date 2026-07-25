@@ -262,6 +262,24 @@ bool WdspChannel::setAgc(int agcMode, double maximumGainDb) noexcept
     return true;
 }
 
+bool WdspChannel::setShift(double shiftHz) noexcept
+{
+    if (m_config.direction != Direction::Receive || !std::isfinite(shiftHz)
+        || !beginControlOperation()) {
+        return false;
+    }
+    {
+        const std::scoped_lock setupLock(g_setupMutex);
+        SetRXAShiftFreq(m_channelId, shiftHz);
+        // Running the stage at 0 Hz costs a pointless rotate per sample, so
+        // switch it off when there is no offset to apply.
+        SetRXAShiftRun(m_channelId, shiftHz != 0.0 ? 1 : 0);
+    }
+    m_shiftHz = shiftHz;
+    endControlOperation();
+    return true;
+}
+
 std::size_t WdspChannel::outputBlockSize() const noexcept
 {
     return m_outputBlockSize;
