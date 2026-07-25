@@ -266,6 +266,81 @@ int main()
               "unsupplied samples are transmit silence");
     }
 
+    // ---- EP6 C&C response decoding (telemetry) ----
+    {
+        auto frame = [](std::uint8_t c0, std::uint32_t data) {
+            std::array<std::uint8_t, 8> f{};
+            f[0] = f[1] = f[2] = 0x7F;
+            f[3] = c0;
+            f[4] = static_cast<std::uint8_t>((data >> 24) & 0xFF);
+            f[5] = static_cast<std::uint8_t>((data >> 16) & 0xFF);
+            f[6] = static_cast<std::uint8_t>((data >> 8) & 0xFF);
+            f[7] = static_cast<std::uint8_t>(data & 0xFF);
+            return f;
+        };
+
+        // Classic cycle: C0 = 0, 8, 16 -> RADDR 0, 1, 2 (hpsdrsim's own sequence).
+        auto r0 = parseEp6Response(frame(0x00, 0).data());
+        check(r0.has_value() && !r0->ack && r0->raddr == 0, "C0=0x00 -> RADDR 0, ACK clear");
+        auto r1 = parseEp6Response(frame(0x08, 0).data());
+        check(r1.has_value() && r1->raddr == 1, "C0=0x08 -> RADDR 1");
+        auto r2 = parseEp6Response(frame(0x10, 0).data());
+        check(r2.has_value() && r2->raddr == 2, "C0=0x10 -> RADDR 2");
+
+        // ACK changes how C0 is read: 6 address bits instead of 4.
+        auto ra = parseEp6Response(frame(0x80 | (0x2A << 1), 0).data());
+        check(ra.has_value() && ra->ack && ra->raddr == 0x2A,
+              "ACK=1 -> RADDR is C0[6:1], all six bits");
+
+        // PTT and Dot ride in C0 regardless.
+        auto rp = parseEp6Response(frame(0x08 | 0x01, 0).data());
+        check(rp.has_value() && rp->ptt, "PTT decoded from C0[0]");
+        auto rd = parseEp6Response(frame(0x08 | 0x04, 0).data());
+        check(rd.has_value() && rd->dot, "Dot decoded from C0[2]");
+
+        check(!parseEp6Response(std::array<std::uint8_t,8>{}.data()).has_value(),
+              "unsynced frame rejected");
+
+        Hl2Telemetry t;
+        check(!t.forwardPowerRaw.has_value(), "telemetry starts unknown, not zero");
+
+        // RADDR 0: firmware 0x15, ADC overload set, TX PERMITTED (bit 25 high).
+        t.apply(*parseEp6Response(frame(0x00, (1u<<25) | (1u<<24) | 0x15).data()));
+        check(t.firmwareVersion.value_or(-1) == 0x15, "firmware version from DATA[7:0]");
+        check(t.adcOverload.value_or(false), "ADC overload from bit 24");
+        check(t.txInhibited.value_or(true) == false,
+              "bit 25 SET means transmit permitted (active low, inverted here)");
+        t.apply(*parseEp6Response(frame(0x00, 0).data()));
+        check(t.txInhibited.value_or(false) == true, "bit 25 clear means INHIBITED");
+
+        // RADDR 1: temperature high half, forward power low half.
+        t.apply(*parseEp6Response(frame(0x08, (1234u << 16) | 5678u).data()));
+        check(t.temperatureRaw.value_or(-1) == 1234, "temperature from DATA[31:16]");
+        check(t.forwardPowerRaw.value_or(-1) == 5678, "forward power from DATA[15:0]");
+
+        // RADDR 2: reverse power and bias.
+        t.apply(*parseEp6Response(frame(0x10, (100u << 16) | 42u).data()));
+        check(t.reversePowerRaw.value_or(-1) == 100, "reverse power from DATA[31:16]");
+        check(t.biasCurrentRaw.value_or(-1) == 42, "bias current from DATA[15:0]");
+    }
+
+    // ---- SWR ----
+    {
+        check(!swrFromRaw(0, 0).has_value(),
+              "no forward power -> SWR is unknown, NOT 1.0");
+        const auto flat = swrFromRaw(1000, 0);
+        check(flat.has_value() && std::fabs(*flat - 1.0) < 1e-9,
+              "no reflection -> 1.0:1");
+        // Voltage form: rho = 1/3 -> SWR 2.0. The power form would have given
+        // 1.0/(1-sqrt(1/3)) ~= 2.37 here, i.e. a different and wrong number.
+        const auto two = swrFromRaw(3000, 1000);
+        check(two.has_value() && std::fabs(*two - 2.0) < 1e-9,
+              "rho = 1/3 -> 2.0:1 (voltage form, no square root)");
+        const auto bad = swrFromRaw(100, 500);
+        check(bad.has_value() && *bad > 100.0,
+              "reverse above forward clamps to a very high SWR, not negative");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "hl2_metis_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

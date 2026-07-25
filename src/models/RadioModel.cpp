@@ -578,6 +578,24 @@ void RadioModel::setupBackend(const QString& family)
     connect(m_backend.get(), &IRadioBackend::meterRemoved, this,
             [this](int index) { m_meterModel.removeMeter(index); });
 
+    // Meter VALUES from a backend that decodes its own telemetry.
+    //
+    // Flex streams meter values on the VITA-49 data plane, so this signal had no
+    // consumer at all and every non-Flex meter reading was computed and then
+    // dropped on the floor — the HL2 S-meter was correct for a while before
+    // anyone noticed it never reached the UI.
+    //
+    // meterId is "SOURCE:NAME" (e.g. "TX:FWDPWR"), matching MeterDef's own
+    // source/name pair rather than inventing a second naming scheme.
+    connect(m_backend.get(), &IRadioBackend::meterUpdate, this,
+            [this](const QString& meterId, double value) {
+        const int colon = meterId.indexOf(QLatin1Char(':'));
+        if (colon <= 0)
+            return;
+        m_meterModel.updateValueByName(meterId.left(colon), meterId.mid(colon + 1),
+                                       static_cast<float>(value));
+    });
+
     // aetherd RFC 2.3: SliceModel touchpoint. The backend decodes Flex slice
     // status into a typed SliceDelta; RadioModel routes it to the addressed slice.
     // This is an AutoConnection: because FlexBackend shares RadioModel's thread it

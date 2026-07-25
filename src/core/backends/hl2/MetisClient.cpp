@@ -58,6 +58,11 @@ void enableBroadcast(QUdpSocket& s) noexcept
 }  // namespace
 
 MetisClient::MetisClient(QObject* parent) : QObject(parent) {
+    // Telemetry crosses from the I/O thread to the GUI thread as a queued
+    // signal argument; without registration Qt drops the emission with only a
+    // warning, and the meters would simply never move.
+    qRegisterMetaType<AetherSDR::hl2::Hl2Telemetry>("AetherSDR::hl2::Hl2Telemetry");
+
     // Paces EP2 from a wall clock (see kEp2PacerTickMs) so C&C keeps flowing
     // even if the EP6 receive path stalls.
     m_ep2Timer = new QTimer(this);
@@ -438,6 +443,24 @@ void MetisClient::onReadyRead()
         }
         m_expectedRxSeq = *seq + 1;
         m_haveRxSeq = true;
+
+        // Telemetry rides in the C&C bytes of each EP6 frame. The radio
+        // free-runs through the classic response addresses, so this arrives
+        // continuously without us ever issuing a RQST -- which is the cadence
+        // the oracle asks for anyway (§5: saturating with requests starves the
+        // classic responses that carry exactly this).
+        const std::size_t frameStarts[2] = {8, 8 + kFrameSize};
+        bool telemetryChanged = false;
+        for (const std::size_t fs : frameStarts) {
+            if (bytes.size() < fs + 8)
+                break;
+            if (const auto resp = parseEp6Response(bytes.data() + fs)) {
+                m_telemetry.apply(*resp);
+                telemetryChanged = true;
+            }
+        }
+        if (telemetryChanged)
+            emit telemetryUpdated(m_telemetry);
 
         m_block.clear();
         if (ep6Samples(bytes, m_block) > 0)

@@ -174,6 +174,61 @@ void ep2WriteTxIq(std::array<std::uint8_t, kUsbPacketSize>& pkt,
 // Transmit samples carried per EP2 packet (63 per frame, two frames).
 inline constexpr int kTxSamplesPerPacket = 126;
 
+// ---- EP6 Command & Control responses (radio -> host) ----
+//
+// C0[7] is ACK, and it CHANGES HOW THE REST OF C0 IS READ (oracle §5):
+//   ACK == 0 (classic, free-running): C0[6:3] = RADDR[3:0], C0[2] Dot,
+//            C0[1] Dash (always 0 — the HL2 has no internal keyer), C0[0] PTT.
+//   ACK == 1 (reply to our RQST):     C0[6:1] = RADDR[5:0], C0[0] PTT.
+//
+// The radio free-runs through the classic addresses, so telemetry arrives
+// without asking. Verified against hpsdrsim's responder, whose C0 sequence is
+// 0, 8, 16, 24, 32 — i.e. RADDR 0..4 at C0[6:3].
+struct Ep6Response {
+    bool ack = false;
+    int raddr = 0;
+    bool ptt = false;
+    bool dot = false;
+    std::uint32_t data = 0;      // C1..C4, big-endian
+};
+
+// Decode the C&C bytes of one 512-byte EP6 frame. Returns nullopt if the frame
+// is not sync-framed.
+std::optional<Ep6Response> parseEp6Response(const std::uint8_t* frame) noexcept;
+
+// Everything the classic response cycle carries. Fields are std::optional
+// because each RADDR carries only part of it, so "not seen yet" stays
+// distinguishable from "seen and zero" — a forward-power reading of 0 W is a
+// real measurement, and rendering it as a dash because we conflated the two
+// would be its own bug.
+struct Hl2Telemetry {
+    std::optional<int>  firmwareVersion;
+    std::optional<bool> adcOverload;
+    std::optional<bool> txInhibited;      // register bit is ACTIVE LOW; decoded here
+    std::optional<int>  txFifoCount;
+    std::optional<bool> txFifoUnderflow;
+    std::optional<bool> txFifoOverflow;
+    std::optional<int>  temperatureRaw;
+    std::optional<int>  forwardPowerRaw;
+    std::optional<int>  reversePowerRaw;
+    std::optional<int>  biasCurrentRaw;
+    bool ptt = false;
+
+    // Merge a decoded response in, leaving untouched fields alone.
+    void apply(const Ep6Response& r) noexcept;
+};
+
+// Standing-wave ratio from raw forward/reverse counts.
+//
+// The counts are UNCALIBRATED ADC readings, but SWR is a RATIO, so the unknown
+// scale factor cancels as long as both come from the same converter — which is
+// why SWR is meaningful here while absolute watts are not (oracle §6: "don't
+// pretend uncalibrated counts are watts").
+//
+// Returns nullopt when there is no forward power to speak of: SWR is undefined
+// with no carrier, and 1.0 would read as a perfect match rather than "unknown".
+std::optional<double> swrFromRaw(int forwardRaw, int reverseRaw) noexcept;
+
 // 64-byte Metis command: EF FE 04 <cmd>. cmd 0x01 = start IQ, 0x00 = stop.
 std::array<std::uint8_t, 64> metisCommand(std::uint8_t cmd) noexcept;
 // Bit 7 of the run/stop byte is the gateware's watchdog_disable flag

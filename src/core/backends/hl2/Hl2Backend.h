@@ -8,6 +8,7 @@
 #include <QThread>
 
 #include "core/backends/hl2/Hl2DbReference.h"
+#include "core/backends/hl2/MetisProtocol.h"   // Hl2Telemetry
 
 namespace AetherSDR::hl2 {
 
@@ -55,7 +56,10 @@ public:
 
 private:
     void emitSliceState();   // sliceChanged(delta) from current freq/mode/filter
-    void emitPanState();     // panCenterBandwidthChanged from freq + sample rate
+    void emitPanState();
+    void defineMeters();
+    void publishTelemetry(const Hl2Telemetry& t);
+    static double temperatureCelsius(int raw);     // panCenterBandwidthChanged from freq + sample rate
 
     MetisClient* m_metis = nullptr;
     Hl2RxDsp* m_dsp = nullptr;
@@ -88,6 +92,8 @@ private:
     // AETHER_AUTOMATION_ALLOW_TX gate. Mirrored into MetisClient, which refuses
     // independently at the wire.
     bool m_txAllowed = false;
+    Hl2Telemetry m_telemetry;
+    bool m_adcOverload = false;
     // Authoritative AGC state, mirroring the DSP defaults in Hl2RxDsp::Config so
     // the first sliceChanged reports what WDSP was actually opened with.
     QString m_agcMode = QStringLiteral("med");

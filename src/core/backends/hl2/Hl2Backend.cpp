@@ -116,6 +116,7 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
         // ever sees it (slice panel stuck empty / 0.000000).
         emitSliceState();
         emitPanState();
+        defineMeters();
     });
     connect(m_metis, &MetisClient::linkDown, this, [this] {
         if (m_connected) {
@@ -143,12 +144,13 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
     });
     connect(m_dsp, &Hl2RxDsp::audioReady, this,
             [this](const std::vector<float>& pcm) { emit audioFrameReady(floatBytes(pcm)); });
+    connect(m_metis, &MetisClient::telemetryUpdated, this,
+            [this](const Hl2Telemetry& t) { publishTelemetry(t); });
     connect(m_dsp, &Hl2RxDsp::meterUpdate, this,
             [this](float dbfs) {
         // Same reference as the spectrum -- a meter that moved on a gain change
         // while the trace stayed put would be its own kind of lie.
-        emit meterUpdate(QStringLiteral("s-meter"),
-                         static_cast<float>(m_dbRef.toDbm(dbfs)));
+        emit meterUpdate(QStringLiteral("SLC:LEVEL"), m_dbRef.toDbm(dbfs));
     });
 }
 
@@ -445,6 +447,73 @@ void Hl2Backend::invokeExtension(const QString& /*ns*/, const QString& /*verb*/,
     // No HL2 extension verbs yet; honor the async contract without hanging.
     if (requestId != 0)
         emit extensionError(requestId, QStringLiteral("hl2: no extension verbs implemented"));
+}
+
+void Hl2Backend::defineMeters()
+{
+    // Indices are ours to choose — nothing on the HL2 assigns meter ids, unlike
+    // Flex where they come from the radio's meter manifest. They only have to be
+    // stable and unique within this backend.
+    auto def = [this](int index, const QString& source, const QString& name,
+                      const QString& unit, double low, double high,
+                      const QString& desc) {
+        MeterDef d;
+        d.index = index;
+        d.source = source;
+        d.name = name;
+        d.unit = unit;
+        d.low = low;
+        d.high = high;
+        d.description = desc;
+        emit meterDefined(d);
+    };
+
+    def(1, QStringLiteral("SLC"), QStringLiteral("LEVEL"),   QStringLiteral("dBm"),
+        -140.0, 0.0,   QStringLiteral("Receive signal level"));
+    def(2, QStringLiteral("TX"),  QStringLiteral("FWDPWR"),  QStringLiteral("dBm"),
+        0.0, 50.0,     QStringLiteral("Forward power"));
+    def(3, QStringLiteral("TX"),  QStringLiteral("REFPWR"),  QStringLiteral("dBm"),
+        0.0, 50.0,     QStringLiteral("Reflected power"));
+    def(4, QStringLiteral("TX"),  QStringLiteral("SWR"),     QStringLiteral("SWR"),
+        1.0, 10.0,     QStringLiteral("Standing wave ratio"));
+    def(5, QStringLiteral("RAD"), QStringLiteral("PATEMP"),  QStringLiteral("degC"),
+        0.0, 100.0,    QStringLiteral("PA temperature"));
+    def(6, QStringLiteral("TX"),  QStringLiteral("MICPEAK"), QStringLiteral("dBFS"),
+        -100.0, 0.0,   QStringLiteral("Microphone peak"));
+}
+
+void Hl2Backend::publishTelemetry(const Hl2Telemetry& t)
+{
+    // Forward/reverse power are UNCALIBRATED ADC counts. MeterModel's FWDPWR
+    // path expects dBm and converts to watts, so publishing a raw count there
+    // would render as a confident, wrong wattage. Until there is a per-unit
+    // calibration curve (oracle §6 is explicit that Quisk and SparkSDR both
+    // build one, and that raw counts must not be presented as watts), only the
+    // quantities that are actually meaningful get published.
+    //
+    // SWR is meaningful WITHOUT calibration because it is a ratio of two
+    // readings from the same converter, so the unknown scale cancels.
+    if (t.forwardPowerRaw && t.reversePowerRaw) {
+        if (const auto swr = swrFromRaw(*t.forwardPowerRaw, *t.reversePowerRaw))
+            emit meterUpdate(QStringLiteral("TX:SWR"), *swr);
+    }
+    if (t.temperatureRaw)
+        emit meterUpdate(QStringLiteral("RAD:PATEMP"), temperatureCelsius(*t.temperatureRaw));
+
+    m_telemetry = t;
+    if (t.adcOverload && *t.adcOverload != m_adcOverload) {
+        m_adcOverload = *t.adcOverload;
+        if (m_adcOverload)
+            qWarning() << "Hl2Backend: ADC OVERLOAD — reduce LNA gain or attenuate";
+    }
+}
+
+double Hl2Backend::temperatureCelsius(int raw)
+{
+    // AD9866 on-die temperature via the HL2's instrumentation ADC. The scaling
+    // below is the Hermes-Lite 2 wiki's published formula. It is NOT verified
+    // against a reference thermometer here, so treat it as indicative.
+    return (3.26 * (static_cast<double>(raw) / 4096.0) - 0.5) / 0.01;
 }
 
 void Hl2Backend::emitSliceState()

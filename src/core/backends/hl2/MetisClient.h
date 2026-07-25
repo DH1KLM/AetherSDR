@@ -74,6 +74,7 @@ public:
     Q_INVOKABLE void stop();                        // send stop, close socket
     [[nodiscard]] bool isRunning() const noexcept { return m_running; }
     [[nodiscard]] quint64 droppedPackets() const noexcept { return m_drops; }
+    [[nodiscard]] const Hl2Telemetry& telemetry() const noexcept { return m_telemetry; }
 
     // Live control — latched into the next C&C round sent to the radio.
     Q_INVOKABLE void setRxFrequencyHz(std::uint32_t hz);
@@ -148,6 +149,10 @@ signals:
     void linkDown();                                               // stopped
     void iqBlockReady(const std::vector<std::complex<float>>& block);  // one per EP6 packet
     void dropsUpdated(quint64 drops);                             // cumulative EP6 gaps
+    // Radio telemetry decoded from the EP6 C&C bytes: forward/reverse power,
+    // temperature, TX FIFO depth, ADC overload, PTT. Free-running, so it
+    // arrives without us issuing a request.
+    void telemetryUpdated(const AetherSDR::hl2::Hl2Telemetry& t);
     // No EP6 arrived within kConnectTimeoutMs of start() — the radio is off,
     // unreachable, or already streaming to a different client.
     void connectFailed(const QString& reason);
@@ -231,6 +236,13 @@ private:
     bool m_running = false;
     bool m_linkUp = false;
     std::vector<std::complex<float>> m_block;   // reused per-packet decode buffer
+    Hl2Telemetry m_telemetry;                   // accumulated across RADDR cycles
 };
 
 }  // namespace AetherSDR::hl2
+
+// Hl2Telemetry rides a queued signal from the I/O thread to the GUI thread.
+// Declared HERE and not in MetisProtocol.h on purpose: that header is
+// deliberately Qt-free so the wire primitives unit-test without linking Qt,
+// and hl2_metis_protocol_test does exactly that.
+Q_DECLARE_METATYPE(AetherSDR::hl2::Hl2Telemetry)

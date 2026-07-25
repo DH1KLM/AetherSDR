@@ -1,5 +1,7 @@
 #include "core/backends/hl2/MetisProtocol.h"
 
+#include <cmath>
+
 namespace AetherSDR::hl2 {
 
 namespace {
@@ -134,6 +136,87 @@ void ep2WriteTxIq(std::array<std::uint8_t, kUsbPacketSize>& pkt,
             payload[k + 7] = static_cast<std::uint8_t>(uq & 0xFF);          // Q low
         }
     }
+}
+
+std::optional<Ep6Response> parseEp6Response(const std::uint8_t* frame) noexcept
+{
+    if (frame[0] != kSync || frame[1] != kSync || frame[2] != kSync)
+        return std::nullopt;
+    const std::uint8_t c0 = frame[3];
+    Ep6Response r;
+    r.ack = (c0 & 0x80) != 0;
+    if (r.ack) {
+        r.raddr = (c0 >> 1) & 0x3F;      // full 6 bits when answering a RQST
+    } else {
+        r.raddr = (c0 >> 3) & 0x0F;      // classic free-running cycle
+        r.dot   = (c0 & 0x04) != 0;      // CW key tip; C0[1] Dash is always 0 here
+    }
+    r.ptt  = (c0 & 0x01) != 0;
+    r.data = readBe32(frame + 4);
+    return r;
+}
+
+void Hl2Telemetry::apply(const Ep6Response& r) noexcept
+{
+    ptt = r.ptt;
+    switch (r.raddr) {
+    case 0x00:
+        firmwareVersion = static_cast<int>(r.data & 0xFF);
+        adcOverload     = (r.data & (1u << 24)) != 0;
+        // ACTIVE LOW on the wire: the bit is SET when transmit is permitted.
+        // Decoded here so nothing above this layer has to remember the inversion.
+        txInhibited     = (r.data & (1u << 25)) == 0;
+        // TX IQ FIFO depth. hpsdrsim writes a 15-bit count as C2[6:0]:C3[7:0],
+        // i.e. DATA[22:8], and that is what this decodes because it is what we
+        // can actually verify.
+        //
+        // THE ORACLE DISAGREES: §6 lists [14:8] as "FIFO count MSBs" and [15:14]
+        // as an under/overflow code, which overlaps bit 14 and cannot both be
+        // right. The gateware RTL is the authority and this has NOT been checked
+        // against it. Do not build FIFO-servoed TX pacing on this field until it
+        // has been — a pacing loop driven by a misread depth is exactly the kind
+        // of unverified assumption that wedged a radio once already.
+        txFifoCount     = static_cast<int>((r.data >> 8) & 0x7FFF);
+        txFifoUnderflow = ((r.data >> 14) & 0x3) == 0x2;
+        txFifoOverflow  = ((r.data >> 14) & 0x3) == 0x3;
+        break;
+    case 0x01:
+        temperatureRaw  = static_cast<int>((r.data >> 16) & 0xFFFF);
+        forwardPowerRaw = static_cast<int>(r.data & 0xFFFF);
+        break;
+    case 0x02:
+        reversePowerRaw = static_cast<int>((r.data >> 16) & 0xFFFF);
+        biasCurrentRaw  = static_cast<int>(r.data & 0xFFFF);
+        break;
+    default:
+        break;                            // 0x03/0x04 carry nothing we consume
+    }
+}
+
+std::optional<double> swrFromRaw(int forwardRaw, int reverseRaw) noexcept
+{
+    // No carrier, no SWR. Returning 1.0 here would render as a perfect match
+    // when the truth is that the question is meaningless.
+    if (forwardRaw <= 0)
+        return std::nullopt;
+    // The counts are VOLTAGE-proportional, so rho is a plain ratio and there is
+    // no square root. Establishing that mattered: the power form would have
+    // reported roughly the square root of the true reflection coefficient, i.e.
+    // a flattering SWR that hides a real mismatch.
+    //
+    // Evidence: hpsdrsim derives its reading as j proportional to
+    // sqrt(txlevel), and txlevel is a sum of i^2+q^2 — a power — so the reported
+    // count is proportional to voltage. pihpsdr's own meter.c is inconsistent
+    // (one branch uses the voltage form (Vf+Vr)/(Vf-Vr), another a sqrt form
+    // whose arguments are the wrong way round and would return a NEGATIVE SWR),
+    // so it is not usable as the tie-breaker.
+    const double fwd = static_cast<double>(forwardRaw);
+    double rev = static_cast<double>(reverseRaw < 0 ? 0 : reverseRaw);
+    // Reverse above forward is physically impossible; it means noise on a tiny
+    // reading. Clamp rather than emit a negative or infinite SWR.
+    if (rev >= fwd)
+        rev = fwd * 0.999;
+    return (fwd + rev) / (fwd - rev);
 }
 
 std::array<std::uint8_t, 64> metisCommand(std::uint8_t cmd) noexcept
