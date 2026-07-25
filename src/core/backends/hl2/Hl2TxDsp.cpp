@@ -140,8 +140,14 @@ void Hl2TxDsp::setMicGain(double linear)
     m_micGain = linear < 0.0 ? 0.0 : linear;
 }
 
+double Hl2TxDsp::alcGainDb() const noexcept
+{
+    return 20.0 * std::log10(std::max(1e-9, m_alcGain));
+}
+
 void Hl2TxDsp::reset()
 {
+    m_alcGain = 1.0;   // a new transmission starts from unity, not mid-ramp
     m_inBuffer.clear();
     std::fill(m_hist.begin(), m_hist.end(), 0.0f);
     m_histPos = 0;
@@ -179,9 +185,52 @@ void Hl2TxDsp::processAudioBlock(const std::vector<float>& mono)
     m_iq.reserve(consumed * static_cast<std::size_t>(m_upsample));
     float peak = 0.0f;
 
+    // ---- ALC: bring speech up to something that actually modulates ----
+    //
+    // Peak-tracking with a fast attack and a slow release, which is the
+    // conventional shape: catch the onset of a syllable, but do not pump audibly
+    // between words. The gain is capped so a quiet room is not amplified into
+    // hiss, and the result is hard-limited below full scale afterwards, because
+    // an ALC that can overshoot is a splatter generator.
+    if (m_config.alcEnabled) {
+        float blockPeak = 0.0f;
+        for (std::size_t s = 0; s < consumed; ++s)
+            blockPeak = std::max(blockPeak, std::fabs(
+                static_cast<float>(m_inBuffer[s] * m_micGain)));
+
+        if (blockPeak > 1e-6f) {
+            const double wanted = m_config.alcTargetPeak / blockPeak;
+            const double maxGain = std::pow(10.0, m_config.alcMaxGainDb / 20.0);
+            const double target = std::min(wanted, maxGain);
+            // Per-block time constants. Attack when we need LESS gain (the
+            // signal got louder) so overshoot is corrected immediately.
+            const double blockSec = static_cast<double>(consumed)
+                                  / static_cast<double>(m_config.inputSampleRateHz);
+            const double tau = (target < m_alcGain) ? m_config.alcAttackSec
+                                                    : m_config.alcReleaseSec;
+            const double a = 1.0 - std::exp(-blockSec / std::max(1e-6, tau));
+            m_alcGain += a * (target - m_alcGain);
+        }
+        emit alcGain(static_cast<float>(alcGainDb()));
+    } else {
+        m_alcGain = 1.0;
+    }
+
     for (std::size_t s = 0; s < consumed; ++s) {
-        const float in = static_cast<float>(m_inBuffer[s] * m_micGain);
-        peak = std::max(peak, std::fabs(in));
+        // Mic peak is measured BEFORE the ALC, deliberately.
+        //
+        // A post-ALC meter sits pinned near the target by definition and tells
+        // the operator nothing — it reports the ALC's success, not their input
+        // level. What a mic-gain control acts on is this, and how hard the ALC
+        // is working is reported separately as alcGain().
+        const float preAlc = static_cast<float>(m_inBuffer[s] * m_micGain);
+        peak = std::max(peak, std::fabs(preAlc));
+
+        // Hard limit AFTER the ALC. The ALC is a smoothed estimate and will
+        // overshoot on a transient; letting that through would transmit
+        // distortion across the band rather than merely clipping our own audio.
+        const float in = std::clamp(static_cast<float>(preAlc * m_alcGain),
+                                    -1.0f, 1.0f);
 
         for (int u = 0; u < m_upsample; ++u) {
             // Zero-stuff: only the first sub-sample carries energy. The bandpass

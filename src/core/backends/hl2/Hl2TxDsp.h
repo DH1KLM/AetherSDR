@@ -43,6 +43,18 @@ public:
         // splatter outside this is other people's problem, not ours.
         double filterLowHz = 300.0;
         double filterHighHz = 2700.0;
+
+        // Automatic level control. Speech arrives 20-30 dB below the level
+        // needed to modulate fully, so without this a normal speaking voice
+        // produces almost no RF — measured on hardware: audio at -10 dBFS gave
+        // 1226 counts of forward power, at -30 dBFS gave 47, and speech sits
+        // around -32 dBFS. A real transceiver closes that gap with mic gain,
+        // compression and ALC; this is the ALC.
+        bool alcEnabled = true;
+        double alcTargetPeak = 0.85;   // leave headroom below clipping
+        double alcMaxGainDb = 40.0;    // do not amplify a silent room forever
+        double alcAttackSec = 0.005;   // catch a syllable's onset
+        double alcReleaseSec = 0.500;  // slow enough not to pump between words
     };
 
     Q_INVOKABLE bool configure(const Config& config, std::string* error = nullptr);
@@ -51,6 +63,8 @@ public:
     // Linear gain applied to the audio before modulation. 1.0 = unity.
     Q_INVOKABLE void setMicGain(double linear);
     [[nodiscard]] double micGain() const noexcept { return m_micGain; }
+    // Gain the ALC is currently applying, in dB. 0 means unity.
+    [[nodiscard]] double alcGainDb() const noexcept;
 
 public slots:
     // Mono TX audio at inputSampleRateHz.
@@ -62,6 +76,7 @@ public slots:
 signals:
     void iqReady(const std::vector<std::complex<float>>& iq);   // at outputSampleRateHz
     void micPeak(float dbfs);                                   // post-gain, pre-modulation
+    void alcGain(float db);                                     // ALC gain applied
 
 private:
     void designFilters();
@@ -75,6 +90,7 @@ private:
     Config m_config;
     double m_micGain = 1.0;
     int m_upsample = 2;
+    double m_alcGain = 1.0;      // current ALC gain, carried across blocks
 
     std::vector<float> m_bandpass;      // real bandpass
     std::vector<float> m_hilbert;       // quadrature half of the analytic bandpass

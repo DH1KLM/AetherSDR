@@ -149,7 +149,15 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
         emit spectrumFrameReady(0, floatBytes(dbm));
     });
     connect(m_dsp, &Hl2RxDsp::audioReady, this,
-            [this](const std::vector<float>& pcm) { emit audioFrameReady(floatBytes(pcm)); });
+            [this](const std::vector<float>& pcm) {
+        // Belt and braces with the demodulator mute below. This drops any block
+        // that was already in flight when the key went down; Hl2RxDsp::
+        // setAudioMuted stops the pipeline FILLING with our own transmission,
+        // which is what stopped the tail draining out afterwards.
+        if (m_keyed)
+            return;
+        emit audioFrameReady(floatBytes(pcm));
+    });
     // Modulated IQ -> the wire. Both live on the I/O thread, so this is a direct
     // call and the transmit path never touches the GUI thread.
     connect(m_txDsp, &Hl2TxDsp::iqReady, m_metis,
@@ -443,6 +451,22 @@ void Hl2Backend::setKeying(bool key)
         return;
     }
     m_keyed = key;
+    // MUTE RECEIVE AUDIO WHILE TRANSMITTING.
+    //
+    // The HL2 keeps receiving while it transmits, and what it receives is our
+    // own signal at enormous strength. Unmuted, the operator hears the tune
+    // carrier as fuzz the instant TUNE is pressed, and their own voice played
+    // back on MOX — which, with an open microphone, closes an acoustic feedback
+    // loop and wrecks the audio actually being transmitted.
+    //
+    // Muted at the DEMODULATOR, not just at the output: the spectrum keeps
+    // running on real IQ so the panadapter still updates, while the audio
+    // channel is clocked with silence so nothing accumulates to drain out on
+    // unkey.
+    if (m_dsp)
+        QMetaObject::invokeMethod(m_dsp, "setAudioMuted", Qt::QueuedConnection,
+            Q_ARG(bool, key));
+
     // A VOICE key must never inherit a TUNE carrier.
     //
     // The packet builder prefers the tone over queued audio, so a tune carrier

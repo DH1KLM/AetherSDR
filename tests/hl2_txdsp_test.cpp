@@ -45,11 +45,16 @@ static double binPower(const std::vector<std::complex<float>>& iq, double hz, do
 static std::vector<std::complex<float>> modulate(WdspChannel::Mode mode,
                                                  double toneHz, double amplitude,
                                                  double micGain, double seconds,
-                                                 float* lastMicPeak = nullptr)
+                                                 float* lastMicPeak = nullptr,
+                                                 bool alc = false)
 {
     Hl2TxDsp tx;
     Hl2TxDsp::Config cfg;
     cfg.mode = mode;
+    // ALC OFF by default in these tests. Every assertion below except the ALC's
+    // own measures a fixed relationship between input and output, and an ALC
+    // exists precisely to break fixed relationships.
+    cfg.alcEnabled = alc;
     std::string err;
     if (!tx.configure(cfg, &err)) {
         std::fprintf(stderr, "FAIL: configure: %s\n", err.c_str());
@@ -155,6 +160,8 @@ int main(int argc, char** argv)
     }
 
     // ---- mic gain scales the drive, and the peak meter follows it ----
+    // Runs with the ALC OFF: with it on, compensating for exactly this change is
+    // the ALC's purpose, and the 1:1 relationship correctly disappears.
     {
         float peakUnity = -300.0f, peakHalf = -300.0f;
         const auto loud  = modulate(WdspChannel::Mode::Usb, kTone, 0.5, 1.0, 0.5, &peakUnity);
@@ -170,6 +177,41 @@ int main(int argc, char** argv)
                   "halving mic gain drops the transmitted level by ~6 dB");
             check(peakUnity - peakHalf > 4.0 && peakUnity - peakHalf < 8.0,
                   "the mic peak meter follows mic gain by the same ~6 dB");
+        }
+    }
+
+    // ---- ALC lifts speech-level audio to something that modulates ----
+    //
+    // This is the gap that made voice inaudible on the air: measured on the
+    // radio, audio at -10 dBFS produced 1226 counts of forward power and audio
+    // at -30 dBFS produced 47, while ordinary speech sits near -32 dBFS. The
+    // ALC's job is to close that.
+    {
+        constexpr double kQuiet = 0.02;         // about -34 dBFS, speech-ish
+        const auto plain = modulate(WdspChannel::Mode::Usb, kTone, kQuiet, 1.0, 1.5,
+                                    nullptr, false);
+        const auto alced = modulate(WdspChannel::Mode::Usb, kTone, kQuiet, 1.0, 1.5,
+                                    nullptr, true);
+        if (!plain.empty() && !alced.empty()) {
+            // Compare the settled tail: the ALC ramps in, so the opening block
+            // is deliberately not representative.
+            auto tailPeak = [](const std::vector<std::complex<float>>& v) {
+                double mx = 0.0;
+                for (std::size_t i = v.size() / 2; i < v.size(); ++i)
+                    mx = std::max(mx, static_cast<double>(std::abs(v[i])));
+                return mx;
+            };
+            const double a = tailPeak(plain);
+            const double b = tailPeak(alced);
+            std::fprintf(stderr, "ALC: quiet input peak %.4f -> %.4f (+%.1f dB)\n",
+                         a, b, 20.0 * std::log10((b + 1e-12) / (a + 1e-12)));
+            check(b > a * 5.0, "ALC lifts quiet audio substantially");
+            check(b > 0.5, "ALC brings quiet audio near full modulation");
+            // And it must never overshoot into clipping — an ALC that overshoots
+            // transmits splatter rather than merely clipping our own audio.
+            double mx = 0.0;
+            for (const auto& v : alced) mx = std::max(mx, static_cast<double>(std::abs(v)));
+            check(mx <= 1.001, "ALC output never exceeds full scale");
         }
     }
 
