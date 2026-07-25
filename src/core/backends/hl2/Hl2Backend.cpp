@@ -81,11 +81,30 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
 
     // DSP outputs -> seam data plane + S-meter.
     connect(m_dsp, &Hl2RxDsp::spectrumReady, this,
-            [this](const std::vector<float>& bins) { emit spectrumFrameReady(0, floatBytes(bins)); });
+            [this](const std::vector<float>& bins) {
+        // dBFS -> dBm through the one object that owns the reference. With an
+        // uncalibrated fullScaleDbm this is a pure -lnaGain shift, which is the
+        // part that is exactly right: it holds the trace still across a gain
+        // change instead of letting the whole display jump.
+        const double off = m_dbRef.offsetDb();
+        if (off == 0.0) {
+            emit spectrumFrameReady(0, floatBytes(bins));
+            return;
+        }
+        std::vector<float> dbm(bins.size());
+        for (std::size_t i = 0; i < bins.size(); ++i)
+            dbm[i] = static_cast<float>(bins[i] + off);
+        emit spectrumFrameReady(0, floatBytes(dbm));
+    });
     connect(m_dsp, &Hl2RxDsp::audioReady, this,
             [this](const std::vector<float>& pcm) { emit audioFrameReady(floatBytes(pcm)); });
     connect(m_dsp, &Hl2RxDsp::meterUpdate, this,
-            [this](float dbfs) { emit meterUpdate(QStringLiteral("s-meter"), dbfs); });
+            [this](float dbfs) {
+        // Same reference as the spectrum -- a meter that moved on a gain change
+        // while the trace stayed put would be its own kind of lie.
+        emit meterUpdate(QStringLiteral("s-meter"),
+                         static_cast<float>(m_dbRef.toDbm(dbfs)));
+    });
 }
 
 Hl2Backend::~Hl2Backend()
@@ -124,6 +143,7 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
         m_sampleRateHz = request.params.value(QStringLiteral("sampleRateHz")).toInt();
     if (request.params.contains(QStringLiteral("lnaGainDb")))
         m_lnaGainDb = request.params.value(QStringLiteral("lnaGainDb")).toInt();
+        m_dbRef.setLnaGainDb(m_lnaGainDb);   // never let these two drift apart
     if (request.params.contains(QStringLiteral("rxFrequencyHz")))
         m_rxFreqHz = request.params.value(QStringLiteral("rxFrequencyHz")).toDouble();
 
@@ -145,6 +165,9 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
     mp.sampleRate = sampleRateEnum(m_sampleRateHz);
     mp.rxFrequencyHz = static_cast<std::uint32_t>(m_rxFreqHz < 0 ? 0 : m_rxFreqHz);
     mp.lnaGainDb = m_lnaGainDb;
+    // Seed the reference from the gain we are about to command, so the very
+    // first spectrum frame is already on the same footing as every later one.
+    m_dbRef.setLnaGainDb(m_lnaGainDb);
     if (!m_metis->start(mp)) {
         emit connectionError(QStringLiteral("HL2: could not open the UDP socket"));
         return;

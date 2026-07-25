@@ -28,6 +28,11 @@ void OpenChannel(int channel, int inputSize, int dspSize, int inputSampleRate,
                  double delayUp, double slewUp, double delayDown,
                  double slewDown, int blockForOutput);
 void CloseChannel(int channel);
+// Channel run state. state 1 = running, 0 = stopped. dmode 1 makes a stop
+// BLOCK until the channel has flushed (bounded by WDSP's own 100 ms timeout),
+// which is what makes it safe to tear down or reconfigure behind it; dmode 0
+// returns immediately. Returns the prior state, so callers can restore it.
+int SetChannelState(int channel, int state, int dmode);
 void fexchange2(int channel, float* inputI, float* inputQ,
                 float* outputLeft, float* outputRight, int* error);
 void SetRXAMode(int channel, int mode);

@@ -41,6 +41,14 @@ public:
         SampleRate sampleRate = SampleRate::R48k;
         std::uint32_t rxFrequencyHz = 10'000'000;
         int lnaGainDb = 20;
+        // How many receivers to actually RUN. Phase 1 runs one. This is the
+        // value the config register must carry -- not the board's capability.
+        int numRx = 1;
+        // What the board reported in its discovery reply (byte 20), or 0 if the
+        // reply was a short one that omits it. Used only to clamp numRx: asking
+        // a board for more receivers than it has is a configuration the
+        // gateware cannot honour, and it does not report the refusal.
+        int boardMaxRx = 0;
     };
 
     // A discovered radio: its Metis reply plus the address to connect to.
@@ -67,6 +75,9 @@ public:
     // Queue a one-shot filter-pipeline reset (MetisProtocol kC0Sync) to be sent
     // on the next EP2 frame, ahead of the round robin.
     void requestPipelineReset();
+
+    // numRx clamped to what the board says it has. See Params.
+    int effectiveNumRx() const;
 
 signals:
     void linkUp();                                                  // first EP6 seen

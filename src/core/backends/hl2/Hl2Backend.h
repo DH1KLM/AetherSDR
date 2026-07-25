@@ -5,6 +5,8 @@
 
 #include <QString>
 
+#include "core/backends/hl2/Hl2DbReference.h"
+
 namespace AetherSDR::hl2 {
 
 class MetisClient;
@@ -66,6 +68,8 @@ private:
     int m_filterLowHz = 150;
     int m_filterHighHz = 3000;
     int m_lnaGainDb = 20;
+    // Owns the LNA gain <-> dBm coupling so a gain change cannot move the trace.
+    Hl2DbReference m_dbRef;
     // Authoritative AGC state, mirroring the DSP defaults in Hl2RxDsp::Config so
     // the first sliceChanged reports what WDSP was actually opened with.
     QString m_agcMode = QStringLiteral("med");

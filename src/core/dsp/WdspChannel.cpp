@@ -405,7 +405,12 @@ void WdspChannel::open() noexcept
                 m_config.dspSampleRate,
                 m_config.outputSampleRate,
                 m_config.direction == Direction::Receive ? kRxChannelType : kTxChannelType,
-                1,
+                // Open STOPPED. Every reference client configures mode, filters
+                // and AGC after OpenChannel, and opening in state 1 means any
+                // samples arriving during that window are demodulated by a
+                // default-configured channel -- wrong mode, wrong passband, AGC
+                // wide open. SetChannelState below starts it once it is set up.
+                0,
                 m_config.muteDelayUpSec, m_config.muteSlewUpSec,
                 m_config.muteDelayDownSec, m_config.muteSlewDownSec,
                 m_config.blockForOutput ? 1 : 0);
@@ -425,6 +430,8 @@ void WdspChannel::open() noexcept
         SetTXABandpassFreqs(m_channelId, m_config.filterLowHz, m_config.filterHighHz);
     }
     armWisdomExportOnce();   // cache all measured wisdom (incl. later setMode) at exit
+    // Fully configured -- now run. dmode 0: nothing to flush on the way up.
+    SetChannelState(m_channelId, 1, 0);
     m_open = true;
 }
 
@@ -434,6 +441,11 @@ void WdspChannel::close() noexcept
         return;
     }
     const std::scoped_lock setupLock(g_setupMutex);
+    // Stop and FLUSH before teardown (dmode 1 blocks until the channel has
+    // drained, bounded by WDSP's own 100 ms timeout). CloseChannel on a running
+    // channel frees buffers out from under the mute ramp and skips the flush
+    // entirely, which is both a click on the way out and a race.
+    SetChannelState(m_channelId, 0, 1);
     CloseChannel(m_channelId);
     m_open = false;
 }

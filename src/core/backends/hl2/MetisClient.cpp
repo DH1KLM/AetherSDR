@@ -132,6 +132,14 @@ QList<MetisClient::Discovered> MetisClient::discover(int timeoutMs, const QHostA
     return found;
 }
 
+int MetisClient::effectiveNumRx() const
+{
+    int n = m_params.numRx < 1 ? 1 : m_params.numRx;
+    if (m_params.boardMaxRx > 0 && n > m_params.boardMaxRx)
+        n = m_params.boardMaxRx;
+    return n;
+}
+
 bool MetisClient::start(const Params& params)
 {
     if (m_running)
@@ -140,7 +148,7 @@ bool MetisClient::start(const Params& params)
     m_params = params;
     m_host = params.host;
     m_port = params.port;
-    m_ccConfig = ccConfig(m_params.sampleRate, 1);
+    m_ccConfig = ccConfig(m_params.sampleRate, effectiveNumRx());
     m_ccGain = ccRxGain(m_params.lnaGainDb);
     m_ccFreq = ccRx1Freq(m_params.rxFrequencyHz);
     m_txSeq = 0;
@@ -253,7 +261,10 @@ void MetisClient::setRxFrequencyHz(std::uint32_t hz)
 void MetisClient::setSampleRate(SampleRate rate)
 {
     m_params.sampleRate = rate;
-    m_ccConfig = ccConfig(rate, 1);
+    // Was hardcoded to 1: changing sample rate silently reset the receiver
+    // count, so any multi-receiver configuration would have collapsed to a
+    // single receiver the first time the operator changed bandwidth.
+    m_ccConfig = ccConfig(rate, effectiveNumRx());
 }
 
 void MetisClient::setLnaGainDb(int db)
