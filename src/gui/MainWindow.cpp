@@ -127,7 +127,6 @@
 #include "models/BandPlanManager.h"
 #include "models/XvtrPolicy.h"
 #include "core/BandStackSettings.h"
-#include "gui/AutoConnectPolicy.h"
 #include "gui/BandStackPanel.h"
 #include "models/TunerModel.h"
 #include "models/TransmitModel.h"
@@ -505,18 +504,6 @@ static constexpr const char* kPaTempUnitSettingKey = "PaTempDisplayUnit";
 // isCwMomentaryActionId moved to MainWindow_Controllers.cpp (#3351 Phase 2a).
 
 // Shortcut-state helpers (textInputCaptured/shortcutGuard/...) lives in MainWindow_Shortcuts.cpp (#3351 Phase 1c).
-
-// Under the automation bridge there is no operator to answer a client-slot
-// contention dialog, so blocking on one hangs the headless instance (#4401).
-// aether::resolveClientSlotAction() returns Decline for that case; this just
-// records why we bailed so parallel-run failures are diagnosable.
-static void logAutomationSlotDecline(const QString& radioLabel)
-{
-    qCInfo(lcGui).noquote()
-        << "Automation: declining slot-contended connect to" << radioLabel
-        << "— no operator to resolve the client-slot dialog (#4401)";
-}
-
 bool MainWindow::confirmClientSlotAvailability(const RadioInfo& info,
                                                QList<quint32>* disconnectHandles)
 {
@@ -524,23 +511,9 @@ bool MainWindow::confirmClientSlotAvailability(const RadioInfo& info,
         disconnectHandles->clear();
 
     const auto clients = buildDisconnectClients(info);
-    const int maxSlices = RadioModel::maxSlicesForModel(info.model);
 
-    switch (aether::resolveClientSlotAction(
-                info.multiFlexEnabled, clients.size(), maxSlices,
-                qEnvironmentVariableIsSet("AETHER_AUTOMATION"))) {
-    case aether::ClientSlotAction::Connect:
-        return true;
-    case aether::ClientSlotAction::Decline:
-        logAutomationSlotDecline(info.model);
-        return false;
-    case aether::ClientSlotAction::Prompt:
-        break;
-    }
-
-    // Contended and interactive: prompt. When multiFLEX is disabled any connected
-    // client blocks us — show the Connected Stations dialog so the user can
-    // disconnect them first; otherwise the model's slots are simply full.
+    // When multiFLEX is disabled, any connected client blocks us — show the
+    // Connected Stations dialog so the user can disconnect them first.
     if (!info.multiFlexEnabled && !clients.isEmpty()) {
         ConnectedStationsDialog::RadioMeta meta;
         meta.model    = info.model;
@@ -569,6 +542,10 @@ bool MainWindow::confirmClientSlotAvailability(const RadioInfo& info,
         return true;
     }
 
+    const int maxSlices = RadioModel::maxSlicesForModel(info.model);
+    if (clients.isEmpty() || clients.size() < maxSlices)
+        return true;
+
     ClientDisconnectDialog dialog(clients, maxSlices, this);
     if (dialog.exec() != QDialog::Accepted)
         return false;
@@ -585,27 +562,12 @@ bool MainWindow::confirmClientSlotAvailability(const WanRadioInfo& info,
         disconnectHandles->clear();
 
     const auto clients = buildDisconnectClients(info);
-    const int maxSlices = RadioModel::maxSlicesForModel(info.model);
 
     // licensedClients == 1 means the radio's multiFLEX license allows only one
     // simultaneous client — effectively mf_enable=0 from the SmartLink perspective.
     // WanRadioInfo defaults to 1 when licensed_clients is absent from the SmartLink
     // response (older firmware, partial parse), so this gate is fail-safe: it blocks
-    // rather than allows.
-    switch (aether::resolveClientSlotAction(
-                info.licensedClients > 1, clients.size(), maxSlices,
-                qEnvironmentVariableIsSet("AETHER_AUTOMATION"))) {
-    case aether::ClientSlotAction::Connect:
-        return true;
-    case aether::ClientSlotAction::Decline:
-        logAutomationSlotDecline(info.model);
-        return false;
-    case aether::ClientSlotAction::Prompt:
-        break;
-    }
-
-    // Contended and interactive: prompt. Log when we hit the licensedClients=1
-    // default so field reports are diagnosable.
+    // rather than allows.  Log when we hit the default so field reports are diagnosable.
     if (info.licensedClients <= 1 && !clients.isEmpty()) {
         if (info.licensedClients == 1)
             qCWarning(lcGui) << "MainWindow: WAN licensedClients=1 (may be default) — "
@@ -636,6 +598,10 @@ bool MainWindow::confirmClientSlotAvailability(const WanRadioInfo& info,
             *disconnectHandles = {handle};
         return true;
     }
+
+    const int maxSlices = RadioModel::maxSlicesForModel(info.model);
+    if (clients.isEmpty() || clients.size() < maxSlices)
+        return true;
 
     ClientDisconnectDialog dialog(clients, maxSlices, this);
     if (dialog.exec() != QDialog::Accepted)
@@ -1081,6 +1047,21 @@ MainWindow::MainWindow(QWidget* parent)
         AppSettings::instance().value("AudioBufferMs", "100").toInt());
     m_audio->moveToThread(m_audioThread);
     m_audioThread->start();
+    const auto updateAetherDspPolicy = [this](bool) {
+        updateAetherDspModePolicy();
+    };
+    connect(m_audio, &AudioEngine::nr2EnabledChanged,
+            this, updateAetherDspPolicy);
+    connect(m_audio, &AudioEngine::nr4EnabledChanged,
+            this, updateAetherDspPolicy);
+    connect(m_audio, &AudioEngine::mnrEnabledChanged,
+            this, updateAetherDspPolicy);
+    connect(m_audio, &AudioEngine::dfnrEnabledChanged,
+            this, updateAetherDspPolicy);
+    connect(m_audio, &AudioEngine::rn2EnabledChanged,
+            this, updateAetherDspPolicy);
+    connect(m_audio, &AudioEngine::nvAfxEnabledChanged,
+            this, updateAetherDspPolicy);
     // Start the CW-sidetone record pump on the audio thread (#2539): queued so
     // its QTimer is created + started on m_audio's thread after the move.
     QMetaObject::invokeMethod(m_audio, [ae = m_audio]() { ae->startCwRecordPump(); },
@@ -1961,11 +1942,8 @@ MainWindow::MainWindow(QWidget* parent)
     if (m_titleBar) m_titleBar->setDiscovering(true);
     m_discovery.startListening();
 
-    // A process-scoped override (AETHER_AUTOMATION_NO_AUTOCONNECT) keeps an
-    // automation/CI launch idle without flipping the persistent setting (#4401).
-    const bool autoConnectToLastRadio = aether::savedRadioAutoConnectAllowed(
-        qEnvironmentVariableIsSet("AETHER_AUTOMATION_NO_AUTOCONNECT"),
-        AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() == "True");
+    const bool autoConnectToLastRadio =
+        AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() == "True";
     const QString startupLastSerial =
         AppSettings::instance().value("LastConnectedRadioSerial").toString();
     if (!startupLastSerial.isEmpty() && autoConnectToLastRadio) {
@@ -1979,9 +1957,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_connPanel, &ConnectionPanel::routedRadioFound,
             this, [this](const RadioInfo& info) {
         if (m_userDisconnected || m_radioModel.isConnected()) return;
-        if (!aether::savedRadioAutoConnectAllowed(
-                qEnvironmentVariableIsSet("AETHER_AUTOMATION_NO_AUTOCONNECT"),
-                AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() == "True"))
+        if (AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() != "True")
             return;
         const QString lastSerial = AppSettings::instance()
             .value("LastConnectedRadioSerial").toString();
@@ -3179,12 +3155,22 @@ void MainWindow::closeEvent(QCloseEvent* event)
     // DAX IQ channel is radio-authoritative — no client-side persistence needed.
     // The radio echoes daxiq_channel in pan status on reconnect.
 
-    // Save client-side DSP state before destructor disables them
-    Nr2SettingsModel::instance().setEnabled(m_audio->nr2Enabled());
-    s.setValue("ClientRn2Enabled", m_audio->rn2Enabled() ? "True" : "False");
-    s.setValue("ClientNr4Enabled", m_audio->nr4Enabled() ? "True" : "False");
-    s.setValue("ClientDfnrEnabled", m_audio->dfnrEnabled() ? "True" : "False");
-    s.setValue("ClientMnrEnabled", m_audio->mnrEnabled() ? "True" : "False");
+    // Persist an automatically-disabled method as enabled so quitting while an
+    // audible CW/digital slice is present does not erase the user's selection.
+    // A manual button override clears the remembered method, so actual visible
+    // state remains authoritative in that case.
+    const QString persistedAetherDspMethod =
+        m_aetherDspModePolicy.methodForPersistence(activeAetherDspMethod());
+    Nr2SettingsModel::instance().setEnabled(
+        persistedAetherDspMethod == QStringLiteral("NR2"));
+    s.setValue("ClientRn2Enabled",
+               persistedAetherDspMethod == QStringLiteral("RN2") ? "True" : "False");
+    s.setValue("ClientNr4Enabled",
+               persistedAetherDspMethod == QStringLiteral("NR4") ? "True" : "False");
+    s.setValue("ClientDfnrEnabled",
+               persistedAetherDspMethod == QStringLiteral("DFNR") ? "True" : "False");
+    s.setValue("ClientMnrEnabled",
+               persistedAetherDspMethod == QStringLiteral("MNR") ? "True" : "False");
     // BNR not persisted — requires manual enable each session
 
     s.save();
@@ -4278,25 +4264,13 @@ void MainWindow::buildUI()
             this, [this](const QString& panId) {
         m_radioModel.setActivePanId(panId);
 
-        // Update m_panApplet for the new active pan
+        // Update m_panApplet for the new active pan. setActivePanApplet()
+        // re-targets the decoders and refreshes the panels, so visibility
+        // follows the active slice (not whichever slice appears first on the
+        // newly active pan) and stale docks are cleared on every other pan
+        // (#4409).
         if (auto* applet = m_panStack->panadapter(panId))
             setActivePanApplet(applet);
-
-        // Show/hide CW decode panel based on the new active pan's slice mode
-        // — driven through refreshCwDecodeState() so the panel on the
-        // landed pan picks up the same RX/TX toggle gating the active
-        // slice does (#2417).
-        for (auto* sl : m_radioModel.slices()) {
-            if (sl->panId() == panId) {
-                const bool isCw = (sl->mode() == "CW" || sl->mode() == "CWL");
-                const bool anyOn = CwDecodeSettings::anyEnabled();
-                if (auto* applet = m_panStack->panadapter(panId))
-                    applet->setCwPanelVisible(isCw && anyOn);
-                refreshCwDecodeState();
-                refreshRttyDecodeState();
-                break;
-            }
-        }
     });
     splitter->setStretchFactor(0, 0);  // CWX panel: fixed width
     splitter->setStretchFactor(1, 0);  // DVK panel: fixed width
@@ -6655,8 +6629,15 @@ void MainWindow::setActivePanApplet(PanadapterApplet* applet)
     if (applet == m_panApplet) return;
     m_panApplet = applet;
 
+    // Re-target the decoders to the new active pan, then refresh so the moved
+    // panel becomes visible on the new target and is cleared on every other pan.
+    // route*() only hides the old target; refresh*() decides visibility from the
+    // active slice — pairing them here means every caller stays consistent
+    // without having to remember the follow-up refresh (#4409).
     routeCwDecoderOutput();
     routeRttyDecoderOutput();
+    refreshCwDecodeState();
+    refreshRttyDecodeState();
 }
 
 // Route CW decoder text/stats output to the pan that owns the active slice,
@@ -6678,6 +6659,10 @@ void MainWindow::routeCwDecoderOutput()
     disconnect(m_cwStatsConn);
 #endif
     if (m_cwDecoderApplet) {
+        // A panel can still be visible when startup status ordering moves the
+        // decoder target. Hide it before dropping ownership so a later refresh
+        // cannot leave an orphaned CW dock on the old pan (#4409).
+        m_cwDecoderApplet->setCwPanelVisible(false);
         disconnect(&m_cwDecoder, &CwDecoder::textDecoded,
                    m_cwDecoderApplet, &PanadapterApplet::appendCwText);
         disconnect(&m_cwDecoderTx, &CwDecoder::textDecoded,
@@ -6751,6 +6736,23 @@ void MainWindow::routeCwDecoderOutput()
 // independent RX/TX toggles, MOX edges, and slice-mode changes all
 // converge on the same decision tree.
 // RTTY decoder routing lives in MainWindow_DigitalModes.cpp (#3351 Phase 1e).
+void MainWindow::setDecoderPanelVisibleOnly(
+    PanadapterApplet* target, bool shouldShow,
+    void (PanadapterApplet::*setter)(bool))
+{
+    // Exactly one panel — the current decoder target — may be visible; every
+    // other applet is hidden so a target moved during startup status ordering
+    // can't leave an orphaned decoder dock behind (#4409).
+    if (m_panStack) {
+        for (PanadapterApplet* applet : m_panStack->allApplets()) {
+            if (applet)
+                (applet->*setter)(applet == target && shouldShow);
+        }
+    } else if (target) {
+        (target->*setter)(shouldShow);
+    }
+}
+
 void MainWindow::refreshCwDecodeState()
 {
     const bool rxOn = CwDecodeSettings::rxEnabled();
@@ -6764,8 +6766,8 @@ void MainWindow::refreshCwDecodeState()
     // text view is anchored to a CW slice's panadapter.  TX-side
     // decode is shown in the same panel, so if there's no CW slice in
     // view, there's no panel either.
-    if (m_cwDecoderApplet)
-        m_cwDecoderApplet->setCwPanelVisible(isCw && anyOn);
+    setDecoderPanelVisibleOnly(m_cwDecoderApplet, isCw && anyOn,
+                               &PanadapterApplet::setCwPanelVisible);
 
     // RX decoder runs only when RX-decode is on and the operator is
     // listening to a CW slice.  Non-CW slices feed unrelated audio,

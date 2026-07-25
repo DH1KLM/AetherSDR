@@ -53,7 +53,6 @@
 #include "SpectrumWidget.h"
 #include "TitleBar.h"
 #include "core/AppSettings.h"
-#include "gui/AutoConnectPolicy.h"
 #include "core/AutomationBridgeSettings.h"
 #include "core/AutomationServer.h"
 #include "core/LogManager.h"
@@ -268,9 +267,7 @@ void MainWindow::wireDiscovery()
     connect(&m_discovery, &RadioDiscovery::radioDiscovered,
             this, [this](const RadioInfo& info) {
         if (m_userDisconnected) return;
-        if (!aether::savedRadioAutoConnectAllowed(
-                qEnvironmentVariableIsSet("AETHER_AUTOMATION_NO_AUTOCONNECT"),
-                AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() == "True"))
+        if (AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() != "True")
             return;
         const QString lastSerial = AppSettings::instance()
             .value("LastConnectedRadioSerial").toString();
@@ -1403,7 +1400,7 @@ void MainWindow::wirePanLifecycle()
         }
         markProfileLoadPanDimensionsReady(panId, yPixels);
         if (auto* sw = m_panStack->spectrum(panId)) {
-            sw->prepareForFftScaleChange();
+            sw->prepareForFftPixelScaleChange();
         }
     });
 
@@ -1793,6 +1790,15 @@ bool MainWindow::startAutomationBridge(const QString& sockName)
         [this]() { return automationKiwiSdrSnapshot(); });
     m_automation->setTxTimerSnapshotHandler(
         [this]() { return automationTxTimerSnapshot(); });
+    m_automation->setTciRouteSnapshotHandler([this]() {
+        if (!tciServer()) {
+            return QJsonObject{
+                {QStringLiteral("ok"), false},
+                {QStringLiteral("error"), QStringLiteral("TCI server unavailable")},
+            };
+        }
+        return tciServer()->routingSnapshot();
+    });
 
     // The access token lives in the OS secret store (QtKeychain), which reads
     // ASYNCHRONOUSLY. Defer start()/listen() into the token callback rather
