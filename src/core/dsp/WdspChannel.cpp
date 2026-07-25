@@ -97,6 +97,51 @@ void setError(std::string* error, const char* message)
 
 } // namespace
 
+namespace {
+
+// Apply the full AGC surface, mirroring pihpsdr's set_agc(). SetRXAAGCMode on
+// its own leaves slope and the time constants at WDSP's defaults, and the
+// default slope of 0 is total compression — it lifts the noise floor to the
+// gain ceiling and clips. The per-mode constants match wcpAGC's own presets;
+// setting them explicitly keeps the behaviour pinned if those defaults move.
+void applyRxAgc(int channel, int mode, double topDb, int slopeDb, double fixedDb)
+{
+    SetRXAAGCMode(channel, mode);
+    SetRXAAGCSlope(channel, slopeDb);
+    SetRXAAGCTop(channel, topDb);
+    SetRXAAGCFixed(channel, fixedDb);
+    switch (mode) {
+    case 1:   // long
+        SetRXAAGCAttack(channel, 2);
+        SetRXAAGCHang(channel, 2000);
+        SetRXAAGCDecay(channel, 2000);
+        SetRXAAGCHangThreshold(channel, 0);
+        break;
+    case 2:   // slow
+        SetRXAAGCAttack(channel, 2);
+        SetRXAAGCHang(channel, 1000);
+        SetRXAAGCDecay(channel, 500);
+        SetRXAAGCHangThreshold(channel, 0);
+        break;
+    case 3:   // medium
+        SetRXAAGCAttack(channel, 2);
+        SetRXAAGCHang(channel, 0);
+        SetRXAAGCDecay(channel, 250);
+        SetRXAAGCHangThreshold(channel, 100);
+        break;
+    case 4:   // fast
+        SetRXAAGCAttack(channel, 2);
+        SetRXAAGCHang(channel, 0);
+        SetRXAAGCDecay(channel, 50);
+        SetRXAAGCHangThreshold(channel, 100);
+        break;
+    default:  // off — only the fixed gain matters
+        break;
+    }
+}
+
+}  // namespace
+
 std::unique_ptr<WdspChannel> WdspChannel::create(const Config& config,
                                                  std::string* error) noexcept
 {
@@ -253,8 +298,8 @@ bool WdspChannel::setAgc(int agcMode, double maximumGainDb) noexcept
     }
     {
         const std::scoped_lock setupLock(g_setupMutex);
-        SetRXAAGCMode(m_channelId, agcMode);
-        SetRXAAGCTop(m_channelId, maximumGainDb);
+        applyRxAgc(m_channelId, agcMode, maximumGainDb,
+                   m_config.agcSlopeDb, m_config.agcFixedGainDb);
     }
     m_config.agcMode = agcMode;
     m_config.maximumAgcGainDb = maximumGainDb;
@@ -361,8 +406,8 @@ void WdspChannel::open() noexcept
         SetRXAMode(m_channelId, wdspMode(m_config.mode));
         SetRXABandpassFreqs(m_channelId, m_config.filterLowHz, m_config.filterHighHz);
         RXANBPSetFreqs(m_channelId, m_config.filterLowHz, m_config.filterHighHz);
-        SetRXAAGCMode(m_channelId, m_config.agcMode);
-        SetRXAAGCTop(m_channelId, m_config.maximumAgcGainDb);
+        applyRxAgc(m_channelId, m_config.agcMode, m_config.maximumAgcGainDb,
+                   m_config.agcSlopeDb, m_config.agcFixedGainDb);
         // Filter length / phase mode. RXASetNC internally stops and restarts
         // the channel (SetChannelState 0 then restore), so it is control-path
         // work — safe here inside open(), never from processIq().

@@ -230,16 +230,22 @@ void Hl2Backend::setSliceAgc(int /*sliceId*/, const QString& mode, int threshold
     else if (m == QLatin1String("fast"))  wdspAgc = 4;
 
     // The slice's AGC threshold is a 0..100 operator value (SliceModel bounds it
-    // there). Map it 1:1 onto the WDSP AGC ceiling in dB rather than rescaling:
-    // the ceiling IS a dB quantity, 0..100 dB spans the useful range, and the
-    // identity map means the number in the UI is the number WDSP is given —
-    // which is what makes the control debuggable. It also keeps the model's
-    // default of 65 equal to the 65 dB ceiling the DSP already defaulted to, so
-    // wiring the control up does not itself change the audio.
+    // there); the WDSP ceiling is dB of MAXIMUM GAIN. The original 1:1 map was
+    // measured wrong on live hardware: on WWV at 10 MHz USB, demodulated audio
+    // is clean through 40 dB (peak 0.68) and clips hard by 50 dB (peak 2.01,
+    // 21% of samples), so the default threshold of 65 was sitting 25 dB past
+    // the clipping point and 60% of samples were saturating.
+    //
+    // 0..100 -> 0..60 dB puts the default of 65 at 39 dB, measured clean with a
+    // healthy level, while leaving the top of the slider available for a quiet
+    // band. The ceiling is a maximum, not a limiter, so a strong band can still
+    // clip at a high setting — that is correct AGC-T behaviour and the reason
+    // the control exists. What was wrong was the DEFAULT landing in that region.
     m_agcMode = m.isEmpty() ? m_agcMode : m;
     m_agcThresholdDb = qBound(0, thresholdDb, 100);
+    const double ceilingDb = m_agcThresholdDb * kAgcCeilingDbPerUnit;
     if (m_dsp)
-        m_dsp->setAgc(wdspAgc, static_cast<double>(m_agcThresholdDb));
+        m_dsp->setAgc(wdspAgc, ceilingDb);
     emitSliceState();
 }
 

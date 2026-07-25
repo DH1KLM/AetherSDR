@@ -48,6 +48,15 @@ public:
         double filterHighHz = 3000.0;
         int agcMode = 3;
         double maximumAgcGainDb = 120.0;
+        // Output level difference between very weak and very strong signals.
+        // WDSP defaults this to 0, which is TOTAL compression — every signal
+        // and the noise floor between them come out at the same level, so the
+        // ceiling is applied to noise and the result clips. pihpsdr sets 35.
+        int agcSlopeDb = 35;
+        // Gain applied when the AGC is OFF. Never setting it leaves WDSP's
+        // default, which is why "AGC off" was the loudest and worst-clipping
+        // setting of all rather than the quietest.
+        double agcFixedGainDb = 10.0;
         // Channel mute envelope, in seconds. WDSP applies these when a channel
         // starts and stops, and they are the anti-click mechanism: an abrupt DSP
         // mute clicks on every transition, which on a full-duplex radio means

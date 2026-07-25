@@ -44,9 +44,11 @@ public:
         // ceiling — 120 dB is the TOP of WDSP's AGC gain range, so leaving it
         // there runs the HL2 wide open and slams the demodulated audio past
         // full scale (measured: peak 3.19, 10% of samples clipping on WWV).
-        // 65 dB matches the agcThreshold the slice model already reports.
+        // 39 dB is the slice model's default threshold of 65 through the
+        // 0..100 -> 0..60 dB map (see Hl2Backend::setSliceAgc). Measured clean
+        // on live hardware; the previous 65 dB clipped 60% of samples.
         int agcMode = 3;
-        double maximumAgcGainDb = 65.0;
+        double maximumAgcGainDb = 39.0;   // = slice default 65 * 0.6
         // false (live): processIq is non-blocking — real-time input paces WDSP's
         // async worker and audio flows with ~1 block latency. true: processIq
         // waits for each output block (deterministic for a burst/offline feed).

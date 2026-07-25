@@ -52,6 +52,16 @@ void RXASetNC(int channel, int nc);
 void RXASetMP(int channel, int mp);
 void SetRXAAGCMode(int channel, int mode);
 void SetRXAAGCTop(int channel, double maximumGainDb);
+// The rest of the AGC surface. SetRXAAGCMode alone leaves slope and the time
+// constants at WDSP's defaults; pihpsdr sets all of them (receiver.c set_agc).
+// Slope is the output difference between very weak and very strong signals —
+// at 0 it is maximum compression, which lifts the noise floor to the ceiling.
+void SetRXAAGCSlope(int channel, int slope);
+void SetRXAAGCFixed(int channel, double fixedGainDb);
+void SetRXAAGCAttack(int channel, int attackMs);
+void SetRXAAGCDecay(int channel, int decayMs);
+void SetRXAAGCHang(int channel, int hangMs);
+void SetRXAAGCHangThreshold(int channel, int hangThreshold);
 void SetTXAMode(int channel, int mode);
 void SetTXABandpassFreqs(int channel, double lowHz, double highHz);
 int GetWDSPVersion(void);
