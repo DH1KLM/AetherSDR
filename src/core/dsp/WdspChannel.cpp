@@ -325,6 +325,13 @@ bool WdspChannel::setShift(double shiftHz) noexcept
     return true;
 }
 
+double WdspChannel::meter(Meter which) const noexcept
+{
+    if (m_config.direction != Direction::Receive)
+        return -300.0;
+    return GetRXAMeter(m_channelId, static_cast<int>(which));
+}
+
 std::size_t WdspChannel::outputBlockSize() const noexcept
 {
     return m_outputBlockSize;

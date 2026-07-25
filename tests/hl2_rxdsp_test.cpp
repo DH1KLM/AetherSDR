@@ -50,8 +50,9 @@ int main(int argc, char** argv)
     std::vector<float> lastBins;
     QObject::connect(&dsp, &Hl2RxDsp::audioReady, &dsp,
                      [&](const std::vector<float>& pcm) { ++audioCount; lastAudioSize = pcm.size(); });
+    float lastMeter = -300.0f;
     QObject::connect(&dsp, &Hl2RxDsp::meterUpdate, &dsp,
-                     [&](float dbfs) { if (dbfs > maxMeter) maxMeter = dbfs; });
+                     [&](float dbfs) { if (dbfs > maxMeter) maxMeter = dbfs; lastMeter = dbfs; });
     QObject::connect(&dsp, &Hl2RxDsp::spectrumReady, &dsp,
                      [&](const std::vector<float>& bins) { ++specCount; lastBins = bins; });
 
@@ -90,6 +91,43 @@ int main(int argc, char** argv)
     check(lastAudioSize == static_cast<std::size_t>(cfg.dspBlockSize) * 2,
           "audio block is interleaved stereo of outputBlockSize");
     check(maxMeter > -60.0f, "demod produced non-silent audio (S-meter above floor)");
+
+    // ---- the S-meter must track SIGNAL STRENGTH, not the AGC's output ----
+    //
+    // This is the assertion an audio-RMS meter cannot pass. Holding the audio
+    // level constant is exactly what the AGC does, so a meter derived from
+    // demodulated audio barely moves between a strong signal and a weak one —
+    // it deflects, which is why it looked like it worked. Feed the same tone
+    // 40 dB down and require the meter to follow it down.
+    {
+        // RXA_S_PK is a PEAK detector with decay, so compare settled values —
+        // the maximum during the weak run is just the decay from the strong one.
+        const float strongMeter = lastMeter;
+        const double weakAmp = 0.3 * 0.01;          // -40 dB
+        for (int n = 0; n < total; ++n) {
+            const double ph = 2.0 * kPi * f * n / fs;
+            stream[static_cast<std::size_t>(n)] =
+                std::complex<float>(static_cast<float>(weakAmp * std::cos(ph)),
+                                    static_cast<float>(weakAmp * std::sin(ph)));
+        }
+        // Feed several seconds: RXA_S_PK decays rather than jumping, so a short
+        // burst measures the decay slope instead of the settled level.
+        std::span<const std::complex<float>> w(stream);
+        for (int pass = 0; pass < 6; ++pass) {
+            for (std::size_t off = 0; off < w.size(); off += kSamplesPerPacket) {
+                const std::size_t n = std::min<std::size_t>(kSamplesPerPacket, w.size() - off);
+                const auto sub = w.subspan(off, n);
+                dsp.processIqBlock(std::vector<std::complex<float>>(sub.begin(), sub.end()));
+            }
+        }
+        const float drop = strongMeter - lastMeter;
+        std::fprintf(stderr, "S-meter: strong %.1f, weak %.1f, drop %.1f dB (input -40 dB)\n",
+                     strongMeter, lastMeter, drop);
+        // A 40 dB input drop must move the meter by at least 30 dB. An
+        // audio-RMS meter under AGC moves by ~0 dB, which is the point.
+        check(drop > 30.0f,
+              "S-meter follows a 40 dB signal drop (audio-RMS meter would not)");
+    }
 
     // ---- mode change doesn't break the pipeline ----
     const int before = audioCount;

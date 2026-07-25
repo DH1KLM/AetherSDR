@@ -132,15 +132,18 @@ void Hl2RxDsp::processIqBlock(const std::vector<std::complex<float>>& iq)
             continue;   // Underrun while the pipeline fills, etc. — no output yet
 
         const std::size_t outN = m_left.size();
-        double sumSq = 0.0;
         for (std::size_t k = 0; k < outN; ++k) {
             m_stereo[2 * k] = m_left[k];
             m_stereo[2 * k + 1] = m_right[k];
-            sumSq += static_cast<double>(m_left[k]) * m_left[k];
         }
         emit audioReady(m_stereo);
-        const double rms = outN ? std::sqrt(sumSq / static_cast<double>(outN)) : 0.0;
-        emit meterUpdate(static_cast<float>(20.0 * std::log10(rms + 1e-12)));
+        // S-meter from WDSP's own signal-strength meter, NOT from the RMS of
+        // the demodulated audio. Holding that audio level constant is precisely
+        // what the AGC does, so an audio-RMS meter barely moves with signal
+        // strength — it deflects, which is why it looked like it worked, but it
+        // tracks the AGC's output target rather than the signal.
+        emit meterUpdate(static_cast<float>(
+            m_channel->meter(WdspChannel::Meter::SignalPeak)));
     }
 
     if (consumed > 0)

@@ -64,6 +64,20 @@ void SetRXAAGCHang(int channel, int hangMs);
 void SetRXAAGCHangThreshold(int channel, int hangThreshold);
 void SetTXAMode(int channel, int mode);
 void SetTXABandpassFreqs(int channel, double lowHz, double highHz);
+// RXA meter readouts. RXA_S_PK / RXA_S_AV are the real signal-strength
+// meters. RXA_ADC_PK / RXA_ADC_AV measure the POST-DDC slice, which is a
+// different question from the HL2's own pre-DDC full-spectrum clip
+// indicator — they can disagree completely and both are worth showing.
+enum AetherWdspRxMeter
+{
+    AETHER_WDSP_RXA_S_PK = 0,
+    AETHER_WDSP_RXA_S_AV = 1,
+    AETHER_WDSP_RXA_ADC_PK = 2,
+    AETHER_WDSP_RXA_ADC_AV = 3,
+    AETHER_WDSP_RXA_AGC_GAIN = 4
+};
+double GetRXAMeter(int channel, int meterType);
+
 int GetWDSPVersion(void);
 
 uint64_t wdspPortAllocationSequence(void);

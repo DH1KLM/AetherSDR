@@ -120,6 +120,13 @@ public:
     // without moving the NCO, which is what keeps the panadapter still while
     // the operator tunes. 0 disables the stage. Receive channels only.
     bool setShift(double shiftHz) noexcept;
+    // WDSP meter readout in dBFS-relative units. Meter is the RXA meter type
+    // (0 = S peak, 1 = S average, 2 = ADC peak, 3 = ADC average, 4 = AGC gain).
+    // Read-only and cheap — safe to call from a timer. Returns a large negative
+    // value on a transmit channel, which has no RXA meters.
+    enum class Meter { SignalPeak = 0, SignalAverage = 1,
+                       AdcPeak = 2, AdcAverage = 3, AgcGain = 4 };
+    [[nodiscard]] double meter(Meter which) const noexcept;
 
     [[nodiscard]] const Config& config() const noexcept { return m_config; }
     [[nodiscard]] std::size_t outputBlockSize() const noexcept;
