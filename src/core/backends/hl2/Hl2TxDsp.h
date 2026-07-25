@@ -25,8 +25,13 @@ namespace AetherSDR::hl2 {
 // direction rather than a second, hand-rolled resampler.
 //
 // MODULATION is a phasing SSB modulator built here rather than WDSP's TXA
-// chain — see the long note in the .cpp for why, and for the measured evidence
-// that a correctly-configured-looking TXA channel emitted pure zeros.
+// chain. WDSP's transmit path WORKS — wdsp_channel_test proves it — but driven
+// from this backend's configuration it returned underruns and zeros, and the
+// failure mode is silent. See the long note in the .cpp.
+//
+// The output is CONJUGATED for the HPSDR wire, which has the opposite handedness
+// to the standard analytic convention. Omitting that transmitted every signal on
+// the wrong sideband.
 class Hl2TxDsp : public QObject {
     Q_OBJECT
 

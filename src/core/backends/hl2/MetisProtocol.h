@@ -82,11 +82,15 @@ inline constexpr std::uint8_t kC0AdcGain = 0x14;  // addr 0x0a: AD9866 LNA gain
 // correctly framed, correctly paced, all-ZERO IQ — indistinguishable from a
 // dead antenna. Verified against hpsdrsim, whose rx_adc[] defaults to -1.
 //
-// On the HL2 itself the all-zero payload is inert: bit 15 clear leaves
-// hardware-managed TX gain disabled, which is already the default. BEFORE ANY
-// TX WORK, this must be reconciled — 0x0e is the register behind the T/R gain
-// switch (the mechanism Quisk uses) and PureSignal's unclipped feedback path,
-// and this round robin would otherwise zero it every third frame.
+// On the HL2 the all-zero payload is inert: bit 15 clear leaves hardware-managed
+// TX gain disabled, which is already the default — and transmit has since been
+// brought up and verified on air with it left that way, so this is NOT a
+// blocker for basic SSB.
+//
+// It still matters for two things neither of which is implemented: the T/R gain
+// switch (the mechanism Quisk uses for fast turnaround) and PureSignal's
+// unclipped feedback path. Both need 0x0e to carry a real value, and this round
+// robin would zero it every third frame.
 inline constexpr std::uint8_t kC0AdcAssignOrTxGain = 0x1C;
 
 // addr 0x39: sync / reset. DATA[7:4] = 0x8 resets every decimation filter
@@ -275,7 +279,9 @@ struct DiscoveryReply {
 std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> pkt) noexcept;
 
 // Build a 1032-byte EP2 packet carrying two C&C registers (one per frame). The
-// 504-byte TX payload is all-zero (RX-only).
+// 504-byte payload is zero-filled, which is transmit SILENCE — ep2WriteTxIq()
+// overwrites it when there is audio to send. The zero fill is also what keeps
+// EADDR clear; see ep2WriteTxIq.
 std::array<std::uint8_t, kUsbPacketSize> ep2Packet(std::uint32_t seq, const Cc& a,
                                                    const Cc& b) noexcept;
 

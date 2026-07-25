@@ -15,7 +15,9 @@ namespace AetherSDR::hl2 {
 // into demodulated audio (WdspChannel), a panadapter spectrum (Hl2Spectrum), and
 // an S-meter. Buffers the odd 126-sample EP6 blocks into WdspChannel's fixed
 // processing block. Below the seam; the eventual Hl2Backend owns one and runs it
-// on its own thread. RX-only (WdspChannel is a receive channel; nothing keys).
+// on the backend's I/O thread. This stage is receive-only — Hl2TxDsp is its
+// transmit counterpart — and it MUTES on transmit, clocking its audio channel
+// with silence so the pipeline cannot fill with our own signal.
 class Hl2RxDsp : public QObject {
     Q_OBJECT
 

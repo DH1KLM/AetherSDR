@@ -765,6 +765,8 @@ from 6 dB to 100 dB; opposite-sideband suppression is 85 dB.
 | EP6 response C0 | `ACK` (bit 7) **changes how the rest of C0 decodes**: ACK=0 → RADDR in `[6:3]` (4 bits) + Dot/Dash/PTT; ACK=1 → RADDR in `[6:1]` (6 bits) |
 | TX inhibit | **Active low** — the bit is SET when transmit is permitted |
 | SWR | Counts are **voltage**-proportional → `(Vf+Vr)/(Vf−Vr)`, **no square root**. Validated by reading 1.0:1 into a dummy load |
+| **Wire handedness** | The wire is the **conjugate** of the standard analytic convention. RX compensates with `-imag()` before WDSP; **TX must conjugate too**. Omitting it transmits every signal on the wrong sideband — see §14.6 |
+| PA enable vs handedness | A tune carrier sits at **zero offset**, where handedness has no effect. TUNE therefore works even when the sideband convention is wrong, and is useless as evidence for it |
 
 ### 14.4 Seam gaps this phase exposed
 

@@ -21,12 +21,14 @@ class Hl2TxDsp;
 // neutral seam verbs/signals onto them. This is the first backend that owns an
 // engine-side DSP chain (RFC §5.5) rather than decoding a cooked stream.
 //
-// RX-only: capabilities().canTransmit is false, so the engine TX guard (RFC §6)
-// denies keying; setKeying() is a no-op and nothing here can key the radio.
+// THIS BACKEND CAN KEY THE RADIO. capabilities().canTransmit reports transmit
+// AVAILABILITY rather than a constant false: an interactive run may transmit,
+// and an automation run defers to the bridge's own TX gate. MetisClient refuses
+// independently at the wire, so neither gate is trusted as the only one.
 //
-// Phase 1b runs the wire + DSP on this object's thread (iqBlockReady ->
-// processIqBlock is a direct call); relocating the DSP onto its own thread is a
-// later refinement once the data plane is wired through RadioModel.
+// The wire and both DSP chains run on a dedicated I/O thread. That is not only
+// about keeping WDSP off the UI: this backend paces EP2, and the gateware
+// watchdog halts the stream if EP2 stops arriving.
 class Hl2Backend : public IRadioBackend {
     Q_OBJECT
 
