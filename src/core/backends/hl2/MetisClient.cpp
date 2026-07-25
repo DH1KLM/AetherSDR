@@ -250,12 +250,11 @@ void MetisClient::setRxFrequencyHz(std::uint32_t hz)
 {
     m_params.rxFrequencyHz = hz;
     m_ccFreq = ccRx1Freq(hz);
-    // Send the new NCO value immediately rather than waiting for the rotation,
-    // then reset the decimation pipeline behind it. The CIC/FIR chain holds
-    // state, so without the reset a large jump drags the old passband's stored
-    // history across the change and rings for a moment at the new frequency.
+    // Send the new NCO value immediately rather than waiting for the rotation.
+    //
+    // This used to append a 0x39 filter-pipeline reset behind the frequency.
+    // That WEDGED THE RADIO -- see requestPipelineReset() for the full story.
     m_oneShot.push_back(m_ccFreq);
-    m_oneShot.push_back(ccPipelineReset());
 }
 
 void MetisClient::setSampleRate(SampleRate rate)
@@ -275,7 +274,30 @@ void MetisClient::setLnaGainDb(int db)
 
 void MetisClient::requestPipelineReset()
 {
-    m_oneShot.push_back(ccPipelineReset());
+    // DELIBERATELY A NO-OP. Do not re-enable without reading this.
+    //
+    // This queued a 0x39 filter-pipeline reset after every NCO move. A pan drag
+    // issues a centre command every 33 ms (SpectrumWidget kPanDragCommandMs),
+    // and Hl2Backend::setPanCenter forwards every one, so dragging fired ~30
+    // resets per SECOND at the gateware. The board halted its stream and then
+    // stopped answering discovery -- alive at the network layer, but requiring
+    // a physical power cycle. Exactly the wedge MetisProtocol.h warns about.
+    //
+    // It was validated at 7 resets spaced ~2 s apart. The drag path, which is
+    // three orders of magnitude more aggressive, was never exercised.
+    //
+    // TWO causes are plausible and were never separated:
+    //   1. The reset rate itself -- resetting the decimation pipeline over and
+    //      over while it is streaming.
+    //   2. The other fields in 0x39. We wrote ZEROS to [27:24] (watchdog
+    //      enable/disable) and [11:8] (master enable/disable) on the ASSUMPTION
+    //      that 0 means "no action", because the documented act encodings
+    //      (0x8/0x9) have bit 3 set. That was reasoning from the pattern, NOT
+    //      verified against the Hermes-Lite 2 gateware RTL.
+    //
+    // Before bringing this back: verify (2) against the RTL, then rate-limit to
+    // genuine large jumps -- never per drag frame -- and test a sustained drag
+    // on hardware, not just discrete tunes.
 }
 
 void MetisClient::sendControlPacket()

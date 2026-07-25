@@ -70,9 +70,20 @@ inline constexpr std::uint8_t kC0AdcAssignOrTxGain = 0x1C;
 
 // addr 0x39: sync / reset. DATA[7:4] = 0x8 resets every decimation filter
 // pipeline; 0x9 also phase-aligns the NCOs (needed for coherent multi-RX).
-// Every other field in this register is a command nibble whose "act" encoding
-// has bit 3 set (0x8/0x9), so leaving them zero is "no action" — which is what
-// makes a targeted one-shot write safe.
+//
+// *** NOTHING SENDS THIS TODAY. WRITING IT WEDGED A RADIO. ***
+//
+// Sending it after every NCO move meant a pan drag fired ~30 of these per
+// second, and the board halted its stream and then stopped answering discovery
+// until it was power-cycled. The encoder is kept because its byte layout is
+// verified and worth not re-deriving; see MetisClient::requestPipelineReset()
+// for the full account and the preconditions for bringing it back.
+//
+// In particular, do NOT trust the claim that used to stand here — that every
+// other field is a command nibble whose "act" encoding has bit 3 set, so
+// leaving them zero is "no action". That was inferred from the 0x8/0x9 pattern
+// and never checked against the gateware RTL, and this register carries the
+// watchdog enable at [27:24] and the master enable at [11:8].
 inline constexpr std::uint8_t kC0Sync = 0x72;
 
 // Config-register (C0=0x00) bit flags.
@@ -105,10 +116,8 @@ Cc ccRxGain(int db) noexcept;
 // ADC0, so every field is zero; the bank still has to be SENT for a conforming
 // device to route ADC samples to RX1 at all.
 Cc ccAdcAssign() noexcept;
-// One-shot filter-pipeline reset (see kC0Sync). The CIC/FIR decimation chain
-// carries state, and a large frequency jump smears that state across the change
-// as a transient. Issue after an NCO move, a sample-rate change, or before
-// starting coherent multi-receiver work.
+// One-shot filter-pipeline reset. UNUSED — read the warning at kC0Sync before
+// calling this from anywhere.
 Cc ccPipelineReset() noexcept;
 
 // 64-byte Metis command: EF FE 04 <cmd>. cmd 0x01 = start IQ, 0x00 = stop.

@@ -194,7 +194,10 @@ int main()
               "0x800000 normalises to just past -1.0 (two's-complement asymmetry)");
     }
 
-    // ---- one-shot pipeline reset ----
+    // ---- one-shot pipeline reset (ENCODER ONLY -- nothing sends this) ----
+    //
+    // Kept because the byte layout is verified and worth not re-deriving. The
+    // radio-facing use of it wedged a board; see MetisProtocol.h kC0Sync.
     {
         const Cc r = ccPipelineReset();
         check(r[0] == kC0Sync, "reset targets addr 0x39 (C0 = 0x72)");

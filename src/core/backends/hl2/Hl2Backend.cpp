@@ -320,6 +320,11 @@ void Hl2Backend::setPanCenter(const QString& /*panId*/, double hz)
     // centre is recomputed and re-applied as a shift.
     if (hz <= 0.0)
         return;
+    // A drag delivers a centre command every 33 ms and forwards every one. Skip
+    // the ones that do not actually move the DDC rather than re-sending an
+    // identical NCO bank ~30 times a second.
+    if (hz == m_ncoHz)
+        return;
     m_ncoHz = hz;
     if (m_metis)
         QMetaObject::invokeMethod(m_metis, "setRxFrequencyHz", Qt::QueuedConnection,
