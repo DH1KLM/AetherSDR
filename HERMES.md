@@ -709,3 +709,112 @@ Effort is rough: **XS** under an hour, **S** a session, **M** a few sessions,
 
 Legend: **O** = `hl2-oracle.md`, **A1** = spectrum/audio addendum,
 **A2** = AGC/filtering addendum, **A3** = WDSP channel setup addendum.
+
+---
+
+## 14. Transmit bring-up
+
+RX bring-up was mostly "the audio sounds wrong, find out why". TX was different
+in kind: **every failure was silent**. A transmitter that is misconfigured emits
+nothing, or emits something wrong, and neither announces itself. Nothing in the
+app said "you are not transmitting" — the UI keyed, the meters sat still, and
+the only evidence was the radio's own forward-power counter reading zero.
+
+### 14.1 Four defects between "correct IQ on the wire" and "RF out of the socket"
+
+Each of these, on its own, produced a perfectly correct-looking keyed
+transmission with **zero** forward power. They had to be found in series.
+
+| # | Defect | Why it was invisible |
+|---|---|---|
+| 1 | `onTxAudioReady` returns early without a Flex TX stream id | For Flex that id *is* the destination. Killed the mic **and** the TONE button, because the tone is injected *inside* that callback |
+| 2 | Mic capture never started — `startTxStream()` is called only from Flex DAX signals gated on `mic_selection=PC` | No HL2 session emits those, so `QAudioSource` never opened |
+| 3 | Onboard PA never enabled (`0x09[19]`, C2 bit 3) | Without it the only output is the AD9866's DAC level — milliwatts |
+| 4 | RF power never applied on connect | `rfPowerChanged` is edge-triggered; an untouched control left drive 0, which also leaves the PA off |
+
+**The reusable lesson:** on a transmit path, "the command was accepted" proves
+nothing. The only trustworthy signals are the radio's own telemetry (forward
+power) and physics (PA temperature rising). Both were needed here.
+
+### 14.2 The modulator bug the test caught
+
+The first SSB modulator used a textbook Hilbert transformer, `2/(pi*k)` on odd
+taps. **That filter is all-pass in magnitude.** It passed out-of-band audio at
+full amplitude with a 90-degree shift while the I path correctly rejected it, so
+energy above the passband arrived in Q *alone* — a real signal — and came out
+**double sideband**.
+
+Measured: a 5 kHz tone against a 2700 Hz filter appeared at both +5 kHz and
+−5 kHz, only 6 dB down. Splatter outside our own passband, radiated, and
+**invisible to any loopback that only checks the wanted sideband**.
+
+The fix derives both filters from one analytic prototype,
+`ha[k] = (exp(j·2π·hi·k) − exp(j·2π·lo·k)) / (j·2π·k)`, so I and Q share a
+passband by construction and their group delay matches for free. Rejection went
+from 6 dB to 100 dB; opposite-sideband suppression is 85 dB.
+
+### 14.3 Protocol facts established
+
+| Fact | Detail |
+|---|---|
+| PA enable | `0x09[19]` = C2 bit 3. **Mandatory** for useful output |
+| TX NCO | `0x01`, a **separate oscillator** from the RX DDC — it does not follow the receiver. Unset, a key transmits at DC |
+| Host→radio samples | **16-bit** I + 16-bit Q, unlike EP6's 24-bit |
+| EADDR trap | The first 32-bit word after each frame's C&C is the extended-address register, **not** headphone audio. A memcpy'd Hermes TX layout corrupts it |
+| MOX | C0 bit 0 of **every** frame, not a register. Both sub-frames must carry it or keying is cadence-dependent |
+| EP6 response C0 | `ACK` (bit 7) **changes how the rest of C0 decodes**: ACK=0 → RADDR in `[6:3]` (4 bits) + Dot/Dash/PTT; ACK=1 → RADDR in `[6:1]` (6 bits) |
+| TX inhibit | **Active low** — the bit is SET when transmit is permitted |
+| SWR | Counts are **voltage**-proportional → `(Vf+Vr)/(Vf−Vr)`, **no square root**. Validated by reading 1.0:1 into a dummy load |
+
+### 14.4 Seam gaps this phase exposed
+
+Two verbs existed and were wired to nothing at all:
+
+- **`IRadioBackend::meterUpdate`** — `meterDefined`/`meterRemoved` were connected
+  in `RadioModel`; values were not, because Flex streams them over VITA-49. Every
+  meter reading this backend computed was discarded. The S-meter had been correct
+  for days and had never once been visible.
+- **`IRadioBackend::setKeying`** — no callers anywhere. `RadioModel::setTransmit`
+  ended in `sendCmd("xmit N")`, a raw Flex text command, so **no non-Flex backend
+  could ever be keyed**.
+
+The pattern: a seam verb with no consumer looks identical to a working one from
+below. Grep for callers of every verb a new backend implements, before trusting
+that implementing it does anything.
+
+### 14.5 Process failures worth not repeating
+
+- **`0x39` wedged the radio.** The filter-pipeline reset was validated with 7
+  writes spaced ~2 s apart and shipped. A pan drag issues centre commands every
+  33 ms, so it fired ~30 resets/second and the board halted its stream and
+  stopped answering discovery until power-cycled. *Validate at the rate the UI
+  actually produces, not at the rate that is convenient to test.*
+- **Documenting a risk is not retiring it.** That same commit stated plainly
+  that the zero-fields assumption had never been checked against the gateware
+  RTL — and shipped anyway.
+- **Hz vs MHz.** The automation `tune` verb takes **MHz**. The harness passed Hz
+  for most of a session; every call returned `ok: true` and the model faithfully
+  stored 10,000,000 MHz. It invalidated several "tested on the live radio"
+  claims, and only surfaced because a screenshot's axis looked wrong. *A verb
+  that accepts a wrong-unit value without complaint is a silent failure.*
+- **Test capture artifacts produced three wrong conclusions.** Block-buffered
+  simulator stdout, `script` writing past a truncation, and reading a log delta
+  before the pty flushed each looked like "the feature does not work". Add a
+  settle delay and read by byte offset before concluding anything from a log.
+- **Prefer measurable correctness over canonical implementation.** WDSP's TXA
+  works (`wdsp_channel_test` proves it), but driven from this backend's config it
+  returned underruns and zeros. Chasing an undocumented init sequence for a path
+  that keys a transmitter is a bad trade against fifty lines whose correctness is
+  a number a test prints.
+
+### 14.6 Still open
+
+- **Absolute watts.** Counts are uncalibrated; oracle §6 forbids presenting them
+  as watts. Needs a per-unit calibration curve.
+- **FIFO-servoed TX pacing.** The decoded depth follows hpsdrsim's layout, and
+  the oracle's §6 table disagrees in a way that cannot both be right. **The
+  gateware RTL has not been consulted.** Nothing may build pacing on that field
+  until it has been.
+- **PA temperature formula** is the HL2 wiki's, unverified against a reference.
+  29.5 °C idle → 34 °C under load is plausible, not calibrated.
+- **`0x0e` T/R gain switch** and PureSignal's feedback path.
