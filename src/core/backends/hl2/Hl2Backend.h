@@ -100,6 +100,8 @@ private:
     Hl2Telemetry m_telemetry;
     bool m_adcOverload = false;
     bool m_keyed = false;
+    bool m_tuning = false;
+    bool m_toneFromTune = false;
     // Tune-carrier amplitude, full scale into the modulator. Actual radiated
     // power is governed by the TX drive register, which is where an operator
     // sets it; scaling here as well would make the power control non-linear for

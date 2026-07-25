@@ -129,6 +129,9 @@ public:
     // watchdog. Overflow drops the oldest, because on transmit the freshest
     // audio is the one that matters.
     void queueTxIq(std::span<const std::complex<float>> iq);
+    // Discard pending transmit audio. Call on unkey: whatever is still queued
+    // belongs to the transmission that just ended.
+    Q_INVOKABLE void flushTxIq();
     [[nodiscard]] std::size_t txQueueDepth() const noexcept { return m_txIq.size(); }
 
     // A baseband test tone, offsetHz from the TX carrier, amplitude 0..1.

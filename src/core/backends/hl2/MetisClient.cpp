@@ -356,6 +356,11 @@ void MetisClient::setTxTestTone(double offsetHz, double amplitude)
         m_tonePhase = 0.0;
 }
 
+void MetisClient::flushTxIq()
+{
+    m_txIq.clear();
+}
+
 std::array<std::uint8_t, kUsbPacketSize> MetisClient::buildNextControlPacket()
 {
     static const Cc kCcAdc = ccAdcAssign();

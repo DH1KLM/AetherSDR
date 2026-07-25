@@ -165,6 +165,17 @@ int main(int argc, char** argv)
         check(pay[0] == 0 && pay[1] == 0 && pay[2] == 0 && pay[3] == 0,
               "EADDR still zero with IQ present");
 
+        // Unkey must discard pending audio, not carry it into the next
+        // transmission. Measured on hardware before this existed: a key with no
+        // audio still produced ~1000 counts of forward power for a moment.
+        c2.queueTxIq(tone);
+        check(c2.txQueueDepth() > 0, "audio queued");
+        c2.flushTxIq();
+        check(c2.txQueueDepth() == 0, "flushTxIq discards pending transmit audio");
+        check(!payloadNonZero(c2.buildNextControlPacket()),
+              "nothing left to transmit after a flush");
+        c2.queueTxIq(tone);
+
         // Underflow is silence, not a stall and not repeated stale audio.
         while (c2.txQueueDepth() > 0)
             c2.buildNextControlPacket();

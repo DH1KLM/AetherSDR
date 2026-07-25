@@ -274,6 +274,18 @@ void TransmitModel::startTune(PttSource source)
     // Mox tag and wrongly runs the operator-only timer. (#4131 review)
     m_activePttSource = source;
 
+    // Optimistic tune state, exactly as setMox() does for m_transmitting.
+    //
+    // m_tune was previously set ONLY from a radio status delta. Flex reports
+    // tune=1 back; a Hermes-Lite 2 reports nothing, so isTuning() stayed false
+    // forever and TxApplet's toggle — "if (isTuning()) stopTune() else
+    // startTune()" — could never take the stop branch. TUNE latched on and the
+    // only way out was keying MOX twice. Radio status still reconciles this on
+    // backends that send it.
+    if (!m_tune) {
+        m_tune = true;
+        emit tuneChanged(true);
+    }
     emit commandReady("transmit tune 1");
     emit tuneCommandIssued(true);
 }
@@ -285,6 +297,10 @@ void TransmitModel::startTwoToneTune(PttSource source)
 
     m_activePttSource = source;   // exclude local/TCI/DAX tune (see startTune, #4131)
     setTuneMode("two_tone");
+    if (!m_tune) {
+        m_tune = true;
+        emit tuneChanged(true);
+    }
     emit commandReady("transmit tune 1");
     emit tuneCommandIssued(true);
 }
@@ -306,6 +322,10 @@ void TransmitModel::toggleTwoToneTune()
 
 void TransmitModel::stopTune()
 {
+    if (m_tune) {
+        m_tune = false;
+        emit tuneChanged(false);
+    }
     emit commandReady("transmit tune 0");
     emit tuneCommandIssued(false);
 }

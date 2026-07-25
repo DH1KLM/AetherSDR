@@ -443,13 +443,37 @@ void Hl2Backend::setKeying(bool key)
         return;
     }
     m_keyed = key;
+    // A VOICE key must never inherit a TUNE carrier.
+    //
+    // The packet builder prefers the tone over queued audio, so a tune carrier
+    // left running turns every subsequent PTT into an unmodulated carrier — the
+    // operator keys, the radio transmits, and not one word goes out. That is
+    // exactly what a latched TUNE produced.
+    //
+    // Only a tone that TUNE itself raised is cleared here. A tone an operator
+    // asked for explicitly is theirs, and keying is how they transmit it —
+    // clearing that indiscriminately broke exactly that case.
+    if (key && !m_tuning && m_toneFromTune)
+        setTxTestTone(0.0, 0.0);
+    if (!key)
+        m_tuning = false;   // an unkey ends tune too, however it was started
     if (m_metis)
         QMetaObject::invokeMethod(m_metis, "setMox", Qt::QueuedConnection,
             Q_ARG(bool, key));
-    if (!key && m_txDsp) {
-        // Drop buffered audio and filter history on unkey, so the next
-        // transmission does not open with the tail of the previous one.
-        QMetaObject::invokeMethod(m_txDsp, "reset", Qt::QueuedConnection);
+    if (!key) {
+        // Drop buffered audio on unkey so the next transmission does not open
+        // with the tail of the previous one. BOTH stages hold audio and both
+        // have to be cleared: the modulator's input buffer and filter history,
+        // AND the wire queue behind it.
+        //
+        // Resetting only the modulator was not enough, and the gap was visible
+        // on hardware — a key with no audio at all still produced ~1000 counts
+        // of forward power for a moment, which was the previous transmission's
+        // last half second going out on the air.
+        if (m_txDsp)
+            QMetaObject::invokeMethod(m_txDsp, "reset", Qt::QueuedConnection);
+        if (m_metis)
+            QMetaObject::invokeMethod(m_metis, "flushTxIq", Qt::QueuedConnection);
     }
 }
 
@@ -500,6 +524,10 @@ void Hl2Backend::setTxTestTone(double offsetHz, double amplitude)
 {
     if (!m_metis)
         return;
+    // Whoever calls this owns the tone. setTune() re-asserts ownership straight
+    // after, which is what lets keying distinguish "a carrier TUNE left behind"
+    // from "a tone the operator asked for".
+    m_toneFromTune = false;
     if (amplitude > 0.0 && !m_txAllowed) {
         qWarning() << "Hl2Backend: test tone refused — transmit not available";
         return;
@@ -519,8 +547,10 @@ void Hl2Backend::setTune(bool on)
     // the first frames on the air already carry it rather than silence, and drop
     // the key BEFORE the carrier on the way out so nothing is left radiating if
     // the tone clear is delayed behind other queued control verbs.
+    m_tuning = on;
     if (on) {
         setTxTestTone(0.0, kTuneCarrierAmplitude);
+        m_toneFromTune = true;   // set AFTER: setTxTestTone clears the flag
         setKeying(true);
     } else {
         setKeying(false);
