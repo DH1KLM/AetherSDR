@@ -10,6 +10,11 @@
 #include <span>
 
 #ifdef Q_OS_WIN
+// winsock2.h pulls in windows.h, whose min/max function-like macros otherwise
+// clobber std::min/std::max at their use sites (MSVC error C2589).
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
