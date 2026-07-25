@@ -2399,7 +2399,16 @@ void RadioModel::setTransmit(bool tx, TransmitModel::PttSource source)
         // stream so D-STAR is emitted only when that selected slice is DSTR.
         syncDigitalVoiceTxSelection(true);
     }
-    sendCmd(QString("xmit %1").arg(tx ? 1 : 0));
+    // Key through the SEAM, not with a raw Flex command. This used to be
+    // sendCmd("xmit N"), which meant IRadioBackend::setKeying had no callers at
+    // all and no non-Flex backend could ever be keyed -- the verb existed and
+    // was wired to nothing.
+    //
+    // Behaviour for Flex is unchanged: FlexBackend::setKeying sends the exact
+    // same "xmit N" through the same sink, and the only extra gate on that path
+    // matches "display pan set ", not "xmit".
+    if (m_backend)
+        m_backend->setKeying(tx);
 }
 
 void RadioModel::updateOperatorTransmit()

@@ -207,6 +207,65 @@ int main()
               "every other command nibble left at no-action");
     }
 
+    // ---- TX encoders ----
+    {
+        const Cc f = ccTxFreq(14'200'000);
+        check(f[0] == kC0TxFreq, "TX freq targets addr 0x01 (C0 = 0x02)");
+        check(f[1] == 0x00 && f[2] == 0xD8 && f[3] == 0xAC && f[4] == 0xC0,
+              "TX freq is 32-bit big-endian Hz (14.2 MHz = 0x00D8ACC0)");
+        check((f[0] & kC0MoxBit) == 0, "TX freq bank is not keyed by itself");
+
+        const Cc d = ccTxDrive(200);
+        check(d[0] == kC0TxDrive, "TX drive targets addr 0x09 (C0 = 0x12)");
+        check(d[1] == 200, "drive level lands in C1 (DATA[31:24])");
+        check(d[2] == 0 && d[3] == 0 && d[4] == 0,
+              "a drive write does not set PA enable, ATU tune or Alex bits");
+        check(ccTxDrive(-5)[1] == 0 && ccTxDrive(9999)[1] == kTxDriveMax,
+              "drive level clamps to 0..255");
+    }
+
+    // ---- MOX is a property of the FRAME, not a register ----
+    {
+        const Cc keyed = withMox(ccRx1Freq(7'000'000), true);
+        check((keyed[0] & kC0MoxBit) != 0, "withMox sets C0 bit 0");
+        check((keyed[0] & ~kC0MoxBit) == kC0Rx1Freq,
+              "withMox leaves the register address intact");
+        check((withMox(keyed, false)[0] & kC0MoxBit) == 0, "withMox clears again");
+        // Any bank can carry MOX -- the radio reads it from whatever is in flight.
+        check((withMox(ccConfig(SampleRate::R48k, 1), true)[0] & kC0MoxBit) != 0,
+              "the config bank can carry MOX too");
+    }
+
+    // ---- TX IQ payload, and the EADDR trap ----
+    {
+        auto pkt = ep2Packet(0, ccConfig(SampleRate::R48k, 1), ccRx1Freq(7'000'000));
+        std::vector<std::complex<float>> iq;
+        iq.emplace_back(1.0f, -1.0f);            // full scale both rails
+        iq.emplace_back(0.0f, 0.5f);
+        ep2WriteTxIq(pkt, iq);
+
+        const std::uint8_t* pay = pkt.data() + 8 + 8;    // frame 0, after SYNC + C&C
+        // Sample 0: I = +32767, Q = -32767.
+        check(pay[4] == 0x7F && pay[5] == 0xFF, "full-scale I clamps to +32767, big-endian");
+        check(pay[6] == 0x80 && pay[7] == 0x01,
+              "full-scale -1.0 clamps to -32767, NOT -32768 (no wrap to the far rail)");
+
+        // THE TRAP: the first 32-bit word of each frame's payload is EADDR, the
+        // extended-address register -- not headphone audio. A memcpy'd Hermes TX
+        // layout writes garbage there. It must stay zero.
+        check(pay[0] == 0 && pay[1] == 0 && pay[2] == 0 && pay[3] == 0,
+              "EADDR (first 32-bit word after C&C) left zero");
+        const std::uint8_t* pay1 = pkt.data() + 8 + kFrameSize + 8;
+        check(pay1[0] == 0 && pay1[1] == 0 && pay1[2] == 0 && pay1[3] == 0,
+              "second frame's EADDR left zero as well");
+
+        // Sample 1 lands in the next 8-byte slot; the rest is transmit silence.
+        check(pay[12] == 0x00 && pay[13] == 0x00, "sample 1 I = 0");
+        check(pay[14] == 0x3F && pay[15] == 0xFF, "sample 1 Q = 0.5 -> 16383");
+        check(pay[20] == 0 && pay[21] == 0 && pay[22] == 0 && pay[23] == 0,
+              "unsupplied samples are transmit silence");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "hl2_metis_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

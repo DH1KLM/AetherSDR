@@ -80,6 +80,62 @@ Cc ccPipelineReset() noexcept
     return {kC0Sync, 0x00, 0x00, 0x00, 0x80};
 }
 
+Cc ccTxFreq(std::uint32_t hz) noexcept
+{
+    return {kC0TxFreq,
+            static_cast<std::uint8_t>((hz >> 24) & 0xFF),
+            static_cast<std::uint8_t>((hz >> 16) & 0xFF),
+            static_cast<std::uint8_t>((hz >> 8) & 0xFF),
+            static_cast<std::uint8_t>(hz & 0xFF)};
+}
+
+Cc ccTxDrive(int level) noexcept
+{
+    if (level < 0) level = 0;
+    if (level > kTxDriveMax) level = kTxDriveMax;
+    // C1 = DATA[31:24]. Everything else in 0x09 (PA enable, ATU tune, Alex
+    // filters, VNA) stays zero: this is a bare drive-level write, and the PA
+    // enable in particular is not something to set as a side effect.
+    return {kC0TxDrive, static_cast<std::uint8_t>(level), 0x00, 0x00, 0x00};
+}
+
+void ep2WriteTxIq(std::array<std::uint8_t, kUsbPacketSize>& pkt,
+                  std::span<const std::complex<float>> iq) noexcept
+{
+    const std::size_t frameStarts[2] = {8, 8 + kFrameSize};
+    std::size_t consumed = 0;
+    for (const std::size_t fs : frameStarts) {
+        std::uint8_t* payload = pkt.data() + fs + 8;     // after SYNC(3) + C&C(5)
+        for (std::size_t k = 0; k + kRxSampleBytes <= kFramePayload; k += kRxSampleBytes) {
+            // payload[k+0..3] is the Hermes headphone-audio slot. On the first
+            // sample of each frame it is EADDR (extended address, base 0x3f),
+            // NOT audio. We never write it, so it stays zero from ep2Packet's
+            // zero fill -- which is exactly what "not using the extended
+            // address space" must look like on the wire.
+            std::int16_t i = 0;
+            std::int16_t q = 0;
+            if (consumed < iq.size()) {
+                const auto clamp = [](float v) -> std::int16_t {
+                    // Symmetric clamp: 32767, not 32768. Letting a full-scale
+                    // sample wrap to the negative rail is a click at best.
+                    if (v >  1.0f) v =  1.0f;
+                    if (v < -1.0f) v = -1.0f;
+                    return static_cast<std::int16_t>(v * 32767.0f);
+                };
+                i = clamp(iq[consumed].real());
+                q = clamp(iq[consumed].imag());
+                ++consumed;
+            }
+            const auto ui = static_cast<std::uint16_t>(i);
+            const auto uq = static_cast<std::uint16_t>(q);
+            payload[k + 4] = static_cast<std::uint8_t>((ui >> 8) & 0xFF);   // I high
+            payload[k + 5] = static_cast<std::uint8_t>(ui & 0xFF);          // I low
+            payload[k + 6] = static_cast<std::uint8_t>((uq >> 8) & 0xFF);   // Q high
+            payload[k + 7] = static_cast<std::uint8_t>(uq & 0xFF);          // Q low
+        }
+    }
+}
+
 std::array<std::uint8_t, 64> metisCommand(std::uint8_t cmd) noexcept
 {
     std::array<std::uint8_t, 64> out{};                  // zero-filled pad

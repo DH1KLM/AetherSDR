@@ -44,6 +44,8 @@ public:
     void setSliceAgc(int sliceId, const QString& mode, int thresholdDb) override;
     void setPanCenter(const QString& panId, double hz) override;
     void setKeying(bool key) override;
+    void setTxFrequency(double hz);
+    void setTxDriveLevel(int level);
 
     void invokeExtension(const QString& ns, const QString& verb, quint64 requestId,
                          const QVariant& arg) override;
@@ -77,6 +79,10 @@ private:
     // header for why the EP2 pacer in particular must not share a thread with
     // the UI. Owned by this object; joined in the destructor.
     QThread* m_ioThread = nullptr;
+
+    // Process-wide transmit gate (AETHER_HL2_ALLOW_TX), read once at
+    // construction. Mirrored into MetisClient, which refuses independently.
+    bool m_txAllowed = false;
     // Authoritative AGC state, mirroring the DSP defaults in Hl2RxDsp::Config so
     // the first sliceChanged reports what WDSP was actually opened with.
     QString m_agcMode = QStringLiteral("med");

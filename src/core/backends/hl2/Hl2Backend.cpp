@@ -61,6 +61,14 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
     m_metis = new MetisClient(nullptr);
     m_dsp = new Hl2RxDsp(nullptr);
 
+    // Transmit is OFF unless explicitly enabled for this process. Read once here
+    // rather than per-key so the answer cannot change under a running key.
+    m_txAllowed = qEnvironmentVariableIsSet("AETHER_HL2_ALLOW_TX");
+    if (m_txAllowed) {
+        qWarning() << "Hl2Backend: TRANSMIT ENABLED (AETHER_HL2_ALLOW_TX)";
+        m_metis->enableTransmit(true);
+    }
+
     m_ioThread = new QThread(this);
     m_ioThread->setObjectName(QStringLiteral("hl2-io"));
     m_metis->moveToThread(m_ioThread);
@@ -144,8 +152,10 @@ RadioCapabilities Hl2Backend::capabilities() const
     c.maxSlices = 1;
     c.maxPanadapters = 1;
     c.sampleRatesHz = {48000, 96000, 192000, 384000};
-    c.canTransmit = false;              // RX-only: the engine TX guard denies keying
-    c.txPowerMaxWatts = 0.0;
+    // Reported from the gate, not hardcoded: the engine's TX guard keys off this,
+    // so a build with transmit disabled must look RX-only from above the seam.
+    c.canTransmit = m_txAllowed;
+    c.txPowerMaxWatts = 0.0;            // uncalibrated; see the oracle on power counts
     c.hasTuner = false;
     c.hasAmplifier = false;
     c.hasExtendedDsp = false;
@@ -166,7 +176,11 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
         m_sampleRateHz = request.params.value(QStringLiteral("sampleRateHz")).toInt();
     if (request.params.contains(QStringLiteral("lnaGainDb")))
         m_lnaGainDb = request.params.value(QStringLiteral("lnaGainDb")).toInt();
-        m_dbRef.setLnaGainDb(m_lnaGainDb);   // never let these two drift apart
+    // Outside the if ON PURPOSE, and now braced to say so: the reference must be
+    // seeded from m_lnaGainDb whether or not the caller overrode it, or a default
+    // connect leaves the dBm reference and the commanded gain disagreeing. The
+    // previous indentation implied this was inside the branch, which it never was.
+    m_dbRef.setLnaGainDb(m_lnaGainDb);
     if (request.params.contains(QStringLiteral("rxFrequencyHz")))
         m_rxFreqHz = request.params.value(QStringLiteral("rxFrequencyHz")).toDouble();
 
@@ -207,6 +221,12 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
         emit connectionError(QStringLiteral("HL2: could not open the UDP socket"));
         return;
     }
+    // Assert a known TX drive rather than inheriting whatever the board held.
+    // ZERO is deliberate: this backend has no drive-level control wired to the
+    // UI yet, so anything higher would be an un-commanded power level chosen by
+    // a default. An operator raising it explicitly is the only way it should go up.
+    setTxDriveLevel(0);
+
     // Initial slice/pan state is published from the linkUp handler above, once
     // connected() has fired and RadioModel has finished staging the old session.
 }
@@ -256,6 +276,17 @@ void Hl2Backend::setSliceFrequency(int /*sliceId*/, double hz)
     if (m_dsp)
         QMetaObject::invokeMethod(m_dsp, "setShift", Qt::QueuedConnection,
             Q_ARG(double, m_rxFreqHz - m_ncoHz));
+
+    // The TX NCO is a SEPARATE register (addr 0x01) from the RX DDC and does not
+    // follow the receiver. Without this the transmit oscillator keeps whatever
+    // it last held — zero on a fresh boot — so keying would radiate at the wrong
+    // frequency, or at DC, with nothing to indicate anything was wrong.
+    //
+    // The HL2 has one receiver and one transmitter, and its single slice is the
+    // TX slice, so the TX NCO simply tracks the slice. Sent whether or not
+    // transmit is enabled: this is oscillator setup, it keys nothing, and having
+    // it already correct is part of what makes the eventual key safe.
+    setTxFrequency(m_rxFreqHz);
 
     emitSliceState();
     emitPanState();
@@ -335,10 +366,38 @@ void Hl2Backend::setPanCenter(const QString& /*panId*/, double hz)
     emitPanState();
 }
 
-void Hl2Backend::setKeying(bool /*key*/)
+void Hl2Backend::setKeying(bool key)
 {
-    // RX-only. capabilities().canTransmit is false, so the engine guard already
-    // denies keying above the seam; this is a defensive no-op.
+    // Keying is gated twice on purpose. capabilities().canTransmit reflects the
+    // gate, so the engine guard above the seam already refuses when transmit is
+    // off; MetisClient refuses independently at the wire. Neither is trusted to
+    // be the only one -- this backend keyed nothing at all until very recently,
+    // and the cost of a wrong key is an unintended emission.
+    if (!m_txAllowed) {
+        if (key)
+            qWarning() << "Hl2Backend: key refused — transmit not enabled"
+                       << "(set AETHER_HL2_ALLOW_TX=1)";
+        return;
+    }
+    if (m_metis)
+        QMetaObject::invokeMethod(m_metis, "setMox", Qt::QueuedConnection,
+            Q_ARG(bool, key));
+}
+
+void Hl2Backend::setTxFrequency(double hz)
+{
+    if (!m_metis || hz <= 0.0)
+        return;
+    QMetaObject::invokeMethod(m_metis, "setTxFrequencyHz", Qt::QueuedConnection,
+        Q_ARG(std::uint32_t, static_cast<std::uint32_t>(hz)));
+}
+
+void Hl2Backend::setTxDriveLevel(int level)
+{
+    if (!m_metis)
+        return;
+    QMetaObject::invokeMethod(m_metis, "setTxDriveLevel", Qt::QueuedConnection,
+        Q_ARG(int, level));
 }
 
 void Hl2Backend::invokeExtension(const QString& /*ns*/, const QString& /*verb*/, quint64 requestId,
@@ -357,6 +416,16 @@ void Hl2Backend::emitSliceState()
     d.mode = m_mode;
     d.filterLow = m_filterLowHz;
     d.filterHigh = m_filterHighHz;
+    // The HL2 has exactly one receiver and one transmitter, so its single slice
+    // IS the transmit slice. Leaving this unset meant txSlice() was null and
+    // every key attempt died in RadioModel's interlock with "No transmit slice
+    // is assigned" -- before the backend was ever asked, which is why the
+    // refusal was silent from down here.
+    //
+    // Publishing it unconditionally is correct rather than convenient: there is
+    // no second slice for the assignment to be a choice between.
+    d.txSlice = true;
+    d.active = true;
     emit sliceChanged(kSliceId, d);
 }
 

@@ -85,6 +85,33 @@ public:
     // numRx clamped to what the board says it has. See Params.
     int effectiveNumRx() const;
 
+    // ---- TRANSMIT ----
+    //
+    // This class could not key a radio at all until TX was added; every C0 was
+    // even, so MOX was structurally always 0. That invariant is gone, and this
+    // gate is what replaces it.
+    //
+    // enableTransmit() must be called explicitly before setMox() will do
+    // anything. Default OFF, and setMox(true) with the gate closed is a no-op
+    // that leaves every outgoing frame unkeyed -- not an error, because a
+    // refused key must fail SAFE and stay refused rather than surfacing as
+    // something a caller might retry past.
+    //
+    // hl2_tx_gate_test asserts the property directly: with the gate closed, no
+    // emitted EP2 frame ever carries C0 bit 0, even with a key request standing.
+    void enableTransmit(bool allowed) noexcept { m_txAllowed = allowed; }
+    [[nodiscard]] bool transmitEnabled() const noexcept { return m_txAllowed; }
+
+    // Key / unkey. Ignored unless enableTransmit(true) was called.
+    Q_INVOKABLE void setMox(bool keyed);
+    [[nodiscard]] bool isKeyed() const noexcept { return m_mox; }
+    Q_INVOKABLE void setTxFrequencyHz(std::uint32_t hz);
+    Q_INVOKABLE void setTxDriveLevel(int level);
+
+    // Build the EP2 packet this client would send next, without sending it.
+    // Exists so the gate can be tested on the exact bytes that would go out.
+    std::array<std::uint8_t, kUsbPacketSize> buildNextControlPacket();
+
 signals:
     void linkUp();                                                  // first EP6 seen
     void linkDown();                                               // stopped
@@ -147,6 +174,11 @@ private:
     Cc m_ccConfig{};
     Cc m_ccGain{};
     Cc m_ccFreq{};
+    Cc m_ccTxFreq{};
+    Cc m_ccTxDrive{};
+
+    bool m_txAllowed = false;   // gate; see enableTransmit()
+    bool m_mox = false;         // requested key state, only honoured if m_txAllowed
 
     std::uint32_t m_txSeq = 0;           // outgoing EP2 sequence
     unsigned m_roundRobin = 0;

@@ -305,6 +305,49 @@ void MetisClient::requestPipelineReset()
     // on hardware, not just discrete tunes.
 }
 
+void MetisClient::setMox(bool keyed)
+{
+    if (keyed && !m_txAllowed) {
+        // Fail SAFE and stay refused. Not an error return: a caller that could
+        // retry past a refusal is exactly what this gate exists to prevent.
+        m_mox = false;
+        return;
+    }
+    m_mox = keyed;
+}
+
+void MetisClient::setTxFrequencyHz(std::uint32_t hz)
+{
+    m_ccTxFreq = ccTxFreq(hz);
+    m_oneShot.push_back(m_ccTxFreq);
+}
+
+void MetisClient::setTxDriveLevel(int level)
+{
+    m_ccTxDrive = ccTxDrive(level);
+    m_oneShot.push_back(m_ccTxDrive);
+}
+
+std::array<std::uint8_t, kUsbPacketSize> MetisClient::buildNextControlPacket()
+{
+    static const Cc kCcAdc = ccAdcAssign();
+    Cc b;
+    if (!m_oneShot.empty()) {
+        b = m_oneShot.front();
+        m_oneShot.pop_front();
+    } else {
+        const Cc* alt[3] = {&m_ccFreq, &m_ccGain, &kCcAdc};
+        b = *alt[m_roundRobin % 3];
+        ++m_roundRobin;
+    }
+    // MOX rides in C0 bit 0 of EVERY frame, so BOTH sub-frames carry it -- the
+    // radio keys off whichever bank is in flight. m_mox can only be true if the
+    // gate allowed it (see setMox), so this is the single place keying reaches
+    // the wire and it cannot be set behind the gate's back.
+    const bool keyed = m_mox && m_txAllowed;
+    return ep2Packet(m_txSeq++, withMox(m_ccConfig, keyed), withMox(b, keyed));
+}
+
 void MetisClient::sendControlPacket()
 {
     if (!m_socket)
@@ -317,17 +360,7 @@ void MetisClient::sendControlPacket()
     // device leaves every receiver unassigned (and therefore emits all-zero IQ)
     // until it has seen it. Re-asserting it rather than sending it once keeps a
     // device that reconnects or resets mid-session from silently going quiet.
-    static const Cc kCcAdc = ccAdcAssign();
-    Cc b;
-    if (!m_oneShot.empty()) {
-        b = m_oneShot.front();
-        m_oneShot.pop_front();
-    } else {
-        const Cc* alt[3] = {&m_ccFreq, &m_ccGain, &kCcAdc};
-        b = *alt[m_roundRobin % 3];
-        ++m_roundRobin;
-    }
-    sendTo(*m_socket, ep2Packet(m_txSeq++, m_ccConfig, b), m_host, m_port);
+    sendTo(*m_socket, buildNextControlPacket(), m_host, m_port);
 }
 
 void MetisClient::onReadyRead()
