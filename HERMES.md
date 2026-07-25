@@ -188,6 +188,23 @@ Each of these is "a Flex assumption that a DSP-owning backend violates".
 | 10 | `AETHER_AUTOMATION_NO_AUTOCONNECT` appears not to suppress autoconnect on the HL2 path | Test instance grabs a radio | *Open* |
 | 11 | `SpectrumWidget` **drops** inbound pan geometry during a gesture, assuming another status is coming | View parks at the old centre while slice/pan/waterfall move — measured **permanently 6.3 kHz** out after one drag-tune | `3d52d07d` |
 
+| 12 | Slice frequency WAS the DDC NCO, so the pan centre tracked every tune | Display re-centred on every click; a slice offset from centre was unrepresentable | `a1cbe154` |
+| 13 | RX filter set via `SetRXABandpassFreqs` alone, leaving the NBP stage — the filter actually in circuit — untouched | No sideband selection and no filtering AT ALL; 0 dB rejection of a tone outside the passband | `86a3d27b` |
+| 14 | HPSDR wire IQ handedness is opposite to WDSP's | USB demodulated the lower sideband and LSB the upper — audibly swapped, while the panadapter looked correct | `79c54266` |
+| 15 | AM in neither filter-polarity family | Switching to AM kept an SSB passband that filters the carrier OUT, so the envelope detector distorts rather than going quiet | `2996f0eb` |
+
+**Gap 13 is the second instance of the §2 lesson** — a plausible low-level API
+used where both reference clients use the canonical composite one
+(`RXASetPassband`). Neither call is wrong in isolation. Add to the Phase-0
+reference diff: *for every vendor call we make, check whether the references use
+a higher-level wrapper instead* — a wrapper usually exists because it sets more
+than one stage.
+
+**Gap 14 hid behind gap 13.** Until something actually selected a sideband, USB
+and LSB sounded equally wrong and the swap was indistinguishable from general
+breakage. Fixing the filter is what made it measurable. Expect this ordering:
+some defects are only observable once a more basic one is repaired.
+
 **Gap 11 is the most transferable lesson in this file.** The suppression is
 correct — an echo arriving mid-drag is stale. It was *safe* only because Flex
 re-echoes pan status continuously, so a dropped value is replaced within
@@ -246,7 +263,10 @@ byte), distinguishable from the real HL2 (`00:1C:C0:A2:13:DD`, gateware 7.4,
 4. `rx_adc[]` defaults to `-1` → all-zero IQ until `C0=0x1C` arrives.
 5. Its C&C logging is **change-only**, so a reconnect can look silent. Restart
    the sim between test runs rather than trusting a quiet log.
-6. Stale instances hold UDP 1024. `pkill -f hpsdrsim` — note a `./hpsdrsim`
+6. It carries a strong **DC offset on I**. Any stage that translates frequency
+   moves that spur too, where it impersonates the signal. Use a synthetic tone
+   for sign/scale questions, not the simulator.
+7. Stale instances hold UDP 1024. `pkill -f hpsdrsim` — note a `./hpsdrsim`
    invocation won't match a full-path pattern.
 
 **Open question:** with everything correct, the sim's tones still don't resolve
@@ -330,8 +350,14 @@ that would have found this session's real bugs.
    and after each, assert the **backend/DSP** state changed, not just the model.
    This is the dead-slider test, and it generalises to every future control.
 7b. Run `tools/tune_conformance.py`: all four tuning modes, asserting
-   `slice == pan model == view == waterfall row`. Catches gap 11, which is
+   `pan model == view == waterfall row` and that the slice lands where asked
+   and stays inside the displayed span. Catches gaps 11 and 12, which are
    invisible to unit tests and nearly invisible by eye.
+7c. Sweep any DSP stage whose SIGN or SCALE you are about to assume, against a
+   SYNTHETIC source. `tests/hl2_shift_test.cpp` is the model: the same question
+   measured against hpsdrsim was inconclusive because the simulator's DC offset
+   translates with the shift and impersonates the signal. Reasoning about the
+   direction got it backwards; one sweep settled it in seconds.
 8. Audio assertions: inject a known tone, assert dominant frequency within
    tolerance, peak below full scale, no comb.
 
