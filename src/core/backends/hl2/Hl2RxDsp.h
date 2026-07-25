@@ -57,18 +57,18 @@ public:
 
     // (Re)build the WdspChannel + Hl2Spectrum for this config. Returns false (and
     // sets error, if given) when the WDSP channel cannot be created.
-    bool configure(const Config& config, std::string* error = nullptr);
-    void setMode(WdspChannel::Mode mode);
-    void setFilter(double lowHz, double highHz);
+    Q_INVOKABLE bool configure(const Config& config, std::string* error = nullptr);
+    Q_INVOKABLE void setMode(WdspChannel::Mode mode);
+    Q_INVOKABLE void setFilter(double lowHz, double highHz);
     // Runtime AGC change. agcMode is the WDSP RXA AGC mode; maximumGainDb is
     // the AGC ceiling. Kept in m_config so a later reconfigure() (rate change)
     // rebuilds the channel with the operator's current AGC rather than the
     // construction-time default.
-    void setAgc(int agcMode, double maximumGainDb);
+    Q_INVOKABLE void setAgc(int agcMode, double maximumGainDb);
     // RX frequency shift in Hz relative to the NCO — how the backend tunes the
     // slice inside the passband without moving the DDC. Kept in m_config so a
     // later reconfigure() rebuilds the channel with the operator's offset.
-    void setShift(double shiftHz);
+    Q_INVOKABLE void setShift(double shiftHz);
     [[nodiscard]] bool isConfigured() const noexcept { return m_channel != nullptr; }
 
 public slots:

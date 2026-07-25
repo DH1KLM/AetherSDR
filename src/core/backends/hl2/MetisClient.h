@@ -22,9 +22,11 @@ namespace AetherSDR::hl2 {
 // the EP6 IQ torrent), and EP6 ingest into normalized IQ blocks. Below the seam;
 // the future Hl2Backend owns one MetisClient plus an Hl2RxDsp.
 //
-// Phase 1a drives the socket event-driven on the thread this object lives on;
-// relocating it onto a dedicated RX thread (as FlexBackend does with
-// PanadapterStream) is a later refinement once the data plane is wired through.
+// Lives on Hl2Backend's dedicated I/O thread, not the GUI thread. That is not
+// only about keeping WDSP off the UI: this class also paces EP2, and the HL2
+// gateware watchdog halts the stream if EP2 stops arriving. With the pacer on
+// the GUI thread, any GUI stall long enough to miss it would wedge the radio --
+// after which the board stops answering discovery until it is power-cycled.
 //
 // RX-ONLY: every C&C it sends comes from MetisProtocol's even-C0 encoders, so
 // the MOX bit is never set — this class cannot key the radio.
@@ -63,18 +65,22 @@ public:
                                const QHostAddress& broadcast = QHostAddress::Broadcast,
                                quint16 port = kMetisPort);
 
-    bool start(const Params& params);   // bind, send start + priming C&C, begin ingest
-    void stop();                        // send stop, close socket
+    // start()/stop() and every live-control setter below MUST execute on this
+    // object's own thread: start() constructs the QUdpSocket, and a socket takes
+    // the affinity of the thread that creates it. Hl2Backend owns an I/O thread
+    // and marshals these across; they are Q_INVOKABLE so it can.
+    Q_INVOKABLE bool start(const Params& params);   // bind, send start + priming C&C, begin ingest
+    Q_INVOKABLE void stop();                        // send stop, close socket
     [[nodiscard]] bool isRunning() const noexcept { return m_running; }
     [[nodiscard]] quint64 droppedPackets() const noexcept { return m_drops; }
 
     // Live control — latched into the next C&C round sent to the radio.
-    void setRxFrequencyHz(std::uint32_t hz);
-    void setSampleRate(SampleRate rate);
-    void setLnaGainDb(int db);
+    Q_INVOKABLE void setRxFrequencyHz(std::uint32_t hz);
+    Q_INVOKABLE void setSampleRate(SampleRate rate);
+    Q_INVOKABLE void setLnaGainDb(int db);
     // Queue a one-shot filter-pipeline reset (MetisProtocol kC0Sync) to be sent
     // on the next EP2 frame, ahead of the round robin.
-    void requestPipelineReset();
+    Q_INVOKABLE void requestPipelineReset();
 
     // numRx clamped to what the board says it has. See Params.
     int effectiveNumRx() const;

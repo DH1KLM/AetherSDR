@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QMetaType>
+
 #include <atomic>
 #include <cstddef>
 #include <memory>
@@ -163,3 +165,9 @@ private:
     std::atomic<bool> m_controlOperation {false};
     bool m_open = false;
 };
+
+// Mode crosses a thread boundary as a queued Q_ARG (Hl2Backend marshals control
+// verbs onto its I/O thread). An unregistered type there does not fail loudly --
+// invokeMethod just warns and DROPS the call, which would silently break mode
+// switching.
+Q_DECLARE_METATYPE(WdspChannel::Mode)

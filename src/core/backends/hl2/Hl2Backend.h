@@ -5,6 +5,8 @@
 
 #include <QString>
 
+#include <QThread>
+
 #include "core/backends/hl2/Hl2DbReference.h"
 
 namespace AetherSDR::hl2 {
@@ -70,6 +72,11 @@ private:
     int m_lnaGainDb = 20;
     // Owns the LNA gain <-> dBm coupling so a gain change cannot move the trace.
     Hl2DbReference m_dbRef;
+
+    // The wire and the DSP both live here, off the GUI thread. See MetisClient's
+    // header for why the EP2 pacer in particular must not share a thread with
+    // the UI. Owned by this object; joined in the destructor.
+    QThread* m_ioThread = nullptr;
     // Authoritative AGC state, mirroring the DSP defaults in Hl2RxDsp::Config so
     // the first sliceChanged reports what WDSP was actually opened with.
     QString m_agcMode = QStringLiteral("med");

@@ -55,10 +55,20 @@ QByteArray floatBytes(const std::vector<float>& v)
 
 Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
 {
-    m_metis = new MetisClient(this);
-    m_dsp = new Hl2RxDsp(this);
+    // No parent: moveToThread() refuses an object that has one, and both of
+    // these belong on the I/O thread rather than the GUI thread. They are
+    // destroyed explicitly in the destructor after the thread is joined.
+    m_metis = new MetisClient(nullptr);
+    m_dsp = new Hl2RxDsp(nullptr);
 
-    // Wire: raw IQ -> DSP (direct call on this thread, Phase 1b).
+    m_ioThread = new QThread(this);
+    m_ioThread->setObjectName(QStringLiteral("hl2-io"));
+    m_metis->moveToThread(m_ioThread);
+    m_dsp->moveToThread(m_ioThread);
+    m_ioThread->start();
+
+    // Wire: raw IQ -> DSP. Both objects live on the I/O thread, so this stays a
+    // DIRECT call -- the sample path never touches the GUI thread or a queue.
     connect(m_metis, &MetisClient::iqBlockReady, m_dsp, &Hl2RxDsp::processIqBlock);
 
     // Link lifecycle: first EP6 -> connected; stop -> disconnected.
@@ -109,8 +119,21 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
 
 Hl2Backend::~Hl2Backend()
 {
-    if (m_metis)
-        m_metis->stop();
+    if (m_ioThread) {
+        // Stop the wire ON its own thread and WAIT for it. A queued stop() would
+        // never run -- quit() below ends the event loop that would deliver it --
+        // and tearing the socket down from this thread is the affinity bug this
+        // whole change exists to avoid.
+        if (m_metis)
+            QMetaObject::invokeMethod(m_metis, "stop", Qt::BlockingQueuedConnection);
+        m_ioThread->quit();
+        m_ioThread->wait();
+    } else if (m_metis) {
+        QMetaObject::invokeMethod(m_metis, "stop");
+    }
+    // Safe now: the thread is joined, so nothing can be running in either object.
+    delete m_dsp;
+    delete m_metis;
 }
 
 RadioCapabilities Hl2Backend::capabilities() const
@@ -154,7 +177,13 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
     dc.filterLowHz = m_filterLowHz;
     dc.filterHighHz = m_filterHighHz;
     std::string err;
-    if (!m_dsp->configure(dc, &err)) {
+    // Blocking: the caller needs the result, and the DSP must be configured
+    // before the wire starts delivering samples into it.
+    bool dspOk = false;
+    QMetaObject::invokeMethod(m_dsp, [this, &dc, &err, &dspOk] {
+        dspOk = m_dsp->configure(dc, &err);
+    }, Qt::BlockingQueuedConnection);
+    if (!dspOk) {
         emit connectionError(QStringLiteral("HL2 DSP: %1").arg(QString::fromStdString(err)));
         return;
     }
@@ -168,7 +197,13 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
     // Seed the reference from the gain we are about to command, so the very
     // first spectrum frame is already on the same footing as every later one.
     m_dbRef.setLnaGainDb(m_lnaGainDb);
-    if (!m_metis->start(mp)) {
+    // Blocking: start() constructs the QUdpSocket, which must take the I/O
+    // thread's affinity, and we need to know whether the bind succeeded.
+    bool started = false;
+    QMetaObject::invokeMethod(m_metis, [this, &mp, &started] {
+        started = m_metis->start(mp);
+    }, Qt::BlockingQueuedConnection);
+    if (!started) {
         emit connectionError(QStringLiteral("HL2: could not open the UDP socket"));
         return;
     }
@@ -179,7 +214,8 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
 void Hl2Backend::disconnectRadio()
 {
     if (m_metis)
-        m_metis->stop();   // emits linkDown -> disconnected() when it was up
+        // Queued: serialises behind whatever the I/O thread is doing.
+        QMetaObject::invokeMethod(m_metis, "stop");   // linkDown -> disconnected()
 }
 
 bool Hl2Backend::isConnected() const
@@ -207,7 +243,8 @@ void Hl2Backend::setSliceFrequency(int /*sliceId*/, double hz)
     if (std::abs(hz - m_ncoHz) > usableHz) {
         m_ncoHz = hz;
         if (m_metis)
-            m_metis->setRxFrequencyHz(static_cast<std::uint32_t>(hz < 0 ? 0 : hz));
+            QMetaObject::invokeMethod(m_metis, "setRxFrequencyHz", Qt::QueuedConnection,
+                Q_ARG(std::uint32_t, static_cast<std::uint32_t>(hz < 0 ? 0 : hz)));
     }
 
     // Shift by the slice's offset from the NCO, with the SAME sign. Measured,
@@ -217,7 +254,8 @@ void Hl2Backend::setSliceFrequency(int /*sliceId*/, double hz)
     // intuition that "bringing a signal down to baseband must be negative" is
     // backwards here, and negative shifts push the signal out of the passband.
     if (m_dsp)
-        m_dsp->setShift(m_rxFreqHz - m_ncoHz);
+        QMetaObject::invokeMethod(m_dsp, "setShift", Qt::QueuedConnection,
+            Q_ARG(double, m_rxFreqHz - m_ncoHz));
 
     emitSliceState();
     emitPanState();
@@ -227,7 +265,8 @@ void Hl2Backend::setSliceMode(int /*sliceId*/, const QString& mode)
 {
     m_mode = mode;
     if (m_dsp)
-        m_dsp->setMode(modeFromString(mode));
+        QMetaObject::invokeMethod(m_dsp, "setMode", Qt::QueuedConnection,
+            Q_ARG(WdspChannel::Mode, modeFromString(mode)));
     emitSliceState();
 }
 
@@ -236,7 +275,8 @@ void Hl2Backend::setSliceFilter(int /*sliceId*/, int lowHz, int highHz)
     m_filterLowHz = lowHz;
     m_filterHighHz = highHz;
     if (m_dsp)
-        m_dsp->setFilter(lowHz, highHz);
+        QMetaObject::invokeMethod(m_dsp, "setFilter", Qt::QueuedConnection,
+            Q_ARG(double, lowHz), Q_ARG(double, highHz));
     emitSliceState();
 }
 
@@ -268,7 +308,8 @@ void Hl2Backend::setSliceAgc(int /*sliceId*/, const QString& mode, int threshold
     m_agcThresholdDb = qBound(0, thresholdDb, 100);
     const double ceilingDb = m_agcThresholdDb * kAgcCeilingDbPerUnit;
     if (m_dsp)
-        m_dsp->setAgc(wdspAgc, ceilingDb);
+        QMetaObject::invokeMethod(m_dsp, "setAgc", Qt::QueuedConnection,
+            Q_ARG(int, wdspAgc), Q_ARG(double, ceilingDb));
     emitSliceState();
 }
 
@@ -281,9 +322,11 @@ void Hl2Backend::setPanCenter(const QString& /*panId*/, double hz)
         return;
     m_ncoHz = hz;
     if (m_metis)
-        m_metis->setRxFrequencyHz(static_cast<std::uint32_t>(hz));
+        QMetaObject::invokeMethod(m_metis, "setRxFrequencyHz", Qt::QueuedConnection,
+            Q_ARG(std::uint32_t, static_cast<std::uint32_t>(hz)));
     if (m_dsp)
-        m_dsp->setShift(m_rxFreqHz - m_ncoHz);
+        QMetaObject::invokeMethod(m_dsp, "setShift", Qt::QueuedConnection,
+            Q_ARG(double, m_rxFreqHz - m_ncoHz));
     emitPanState();
 }
 

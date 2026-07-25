@@ -11,6 +11,10 @@ Hl2RxDsp::Hl2RxDsp(QObject* parent) : QObject(parent)
     // Registered so audioReady/spectrumReady can cross a thread boundary once
     // this object is moved onto its own DSP thread (queued connections).
     qRegisterMetaType<std::vector<float>>("std::vector<float>");
+    // Control verbs arrive here as queued invokeMethod calls from the GUI
+    // thread; without this the Mode argument has no metatype and Qt drops the
+    // call with only a warning.
+    qRegisterMetaType<WdspChannel::Mode>("WdspChannel::Mode");
 }
 
 Hl2RxDsp::~Hl2RxDsp() = default;
