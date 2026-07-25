@@ -2632,6 +2632,11 @@ target_include_directories(hl2_rxdsp_test PRIVATE src)
 target_link_libraries(hl2_rxdsp_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME hl2_rxdsp_test COMMAND hl2_rxdsp_test)
 
+add_executable(hl2_shift_test tests/hl2_shift_test.cpp)
+target_include_directories(hl2_shift_test PRIVATE src)
+target_link_libraries(hl2_shift_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME hl2_shift_test COMMAND hl2_shift_test)
+
 # HL2 backend — IRadioBackend seam contract against a capped fake HL2.
 add_executable(hl2_backend_test tests/hl2_backend_test.cpp)
 target_include_directories(hl2_backend_test PRIVATE src)

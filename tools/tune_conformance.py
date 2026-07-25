@@ -4,12 +4,16 @@
 Drives every way an operator moves the VFO and asserts, after each, that the
 four numbers which must agree actually agree:
 
-    slice frequency == pan model centre == spectrum view centre
-                    == waterfall row centre
+    pan model centre == spectrum view centre == waterfall row centre
 
-Any drift between them is the "waterfall is off / the pan won't follow" class
-of bug. They are all derived from one authoritative frequency, so at rest they
-should be identical; the tolerance is deliberately tight.
+Any drift between those is the "waterfall is off / the pan won't follow" class
+of bug: they all describe the RECEIVER'S WINDOW, so at rest they must be
+identical and the tolerance is deliberately tight.
+
+The slice is deliberately NOT in that equality. On a single-DDC backend the
+slice tunes inside the passband while the NCO — and therefore the pan centre —
+holds still, so a slice offset from centre is correct and expected. What is
+asserted about the slice is that it lands where it was asked to.
 
 Why this exists as a tool rather than a one-off: the failure it catches is
 invisible to unit tests (it needs a live data plane and real gesture handling)
@@ -92,13 +96,18 @@ class Suite:
         else:
             if abs((vc - pc) * 1e6) > self.tol:
                 errs.append(f"view vs pan model {(vc - pc) * 1e6:+.1f} Hz")
-            if abs((f - vc) * 1e6) > self.tol:
-                errs.append(f"slice vs view {(f - vc) * 1e6:+.1f} Hz")
             if wf is not None and abs((wf - vc) * 1e6) > self.tol:
                 errs.append(f"waterfall vs view {(wf - vc) * 1e6:+.1f} Hz")
         if expect_slice is not None and f is not None \
                 and abs((f - expect_slice) * 1e6) > 200.0:
             errs.append(f"slice {f} != expected ~{expect_slice}")
+        # The slice must stay inside the window the pan is showing, or it is
+        # tuned somewhere the operator cannot see.
+        if None not in (f, vc, sw.get("bandwidthMhz")):
+            half = sw["bandwidthMhz"] / 2.0
+            if abs(f - vc) > half:
+                errs.append(f"slice {f} outside the displayed span "
+                            f"({vc} +/- {half})")
         ok = not errs
         self.results.append((name, ok, "; ".join(errs)))
         print(f"  [{'PASS' if ok else 'FAIL'}] {name:<32} "

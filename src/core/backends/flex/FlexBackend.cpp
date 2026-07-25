@@ -204,6 +204,15 @@ void FlexBackend::setSliceAgc(int sliceId, const QString& mode, int thresholdDb)
     sendSlice(QStringLiteral("slice set %1 agc_threshold=%2").arg(sliceId).arg(thresholdDb));
 }
 
+void FlexBackend::setPanCenter(const QString& panId, double hz)
+{
+    // Flex owns the pan; this is the same write RadioModel already makes on the
+    // Flex path, expressed through the seam so a non-Flex backend can implement
+    // the same intent its own way.
+    sendSlice(QStringLiteral("display pan set %1 center=%2")
+                  .arg(panId).arg(hz / 1.0e6, 0, 'f', 6));
+}
+
 void FlexBackend::sendSliceWaveformCommand(int sliceId, const QString& command)
 {
     if (sliceId < 0 || command.trimmed().isEmpty()) {

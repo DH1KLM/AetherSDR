@@ -3258,6 +3258,21 @@ bool RadioModel::dispatchPanCenterBandwidth(const QString& panId,
                       .arg(bandwidthMhz, 0, 'f', 6);
     }
 
+    // A backend that owns its own pan geometry cannot be driven with Flex wire
+    // text — the command would go nowhere and the view would advance against a
+    // window the receiver never moved. Route the intent through the seam
+    // instead; the backend reports the new centre back via
+    // panCenterBandwidthChanged, which drives the model.
+    if (!m_flexBackend && m_backend) {
+        if (hasCenter)
+            m_backend->setPanCenter(panId, centerMhz * 1.0e6);
+        if (pan) {
+            pan->setCenterBandwidth(hasCenter ? centerMhz : pan->centerMhz(),
+                                    hasBandwidth ? bandwidthMhz : -1.0);
+        }
+        return true;
+    }
+
     // Wire BEFORE model, gated on the send actually happening. sendCommand()
     // reports the foreign-owner drop, the hold backstop, and a dead WAN
     // session; advancing the model on any of those would re-create the exact

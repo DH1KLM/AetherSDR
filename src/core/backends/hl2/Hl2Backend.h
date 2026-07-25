@@ -38,6 +38,7 @@ public:
     void setSliceMode(int sliceId, const QString& mode) override;
     void setSliceFilter(int sliceId, int lowHz, int highHz) override;
     void setSliceAgc(int sliceId, const QString& mode, int thresholdDb) override;
+    void setPanCenter(const QString& panId, double hz) override;
     void setKeying(bool key) override;
 
     void invokeExtension(const QString& ns, const QString& verb, quint64 requestId,

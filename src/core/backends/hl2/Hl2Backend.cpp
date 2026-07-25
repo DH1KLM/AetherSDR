@@ -187,10 +187,14 @@ void Hl2Backend::setSliceFrequency(int /*sliceId*/, double hz)
             m_metis->setRxFrequencyHz(static_cast<std::uint32_t>(hz < 0 ? 0 : hz));
     }
 
-    // WDSP shifts the spectrum, so bringing a signal that sits ABOVE the NCO
-    // down to baseband is a NEGATIVE shift.
+    // Shift by the slice's offset from the NCO, with the SAME sign. Measured,
+    // not reasoned: hl2_shift_test sweeps the stage and finds the mapping is
+    // exactly audio = tone + shift for positive values (a tone 800 Hz below the
+    // NCO lands at 2800 Hz of audio with the slice 2 kHz above it). The
+    // intuition that "bringing a signal down to baseband must be negative" is
+    // backwards here, and negative shifts push the signal out of the passband.
     if (m_dsp)
-        m_dsp->setShift(-(m_rxFreqHz - m_ncoHz));
+        m_dsp->setShift(m_rxFreqHz - m_ncoHz);
 
     emitSliceState();
     emitPanState();
@@ -237,6 +241,21 @@ void Hl2Backend::setSliceAgc(int /*sliceId*/, const QString& mode, int threshold
     if (m_dsp)
         m_dsp->setAgc(wdspAgc, static_cast<double>(m_agcThresholdDb));
     emitSliceState();
+}
+
+void Hl2Backend::setPanCenter(const QString& /*panId*/, double hz)
+{
+    // Moving the window means moving the DDC. The slice does NOT move with it —
+    // that is the point of keeping the two separate — so its offset from the new
+    // centre is recomputed and re-applied as a shift.
+    if (hz <= 0.0)
+        return;
+    m_ncoHz = hz;
+    if (m_metis)
+        m_metis->setRxFrequencyHz(static_cast<std::uint32_t>(hz));
+    if (m_dsp)
+        m_dsp->setShift(m_rxFreqHz - m_ncoHz);
+    emitPanState();
 }
 
 void Hl2Backend::setKeying(bool /*key*/)
