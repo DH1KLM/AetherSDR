@@ -782,7 +782,43 @@ The pattern: a seam verb with no consumer looks identical to a working one from
 below. Grep for callers of every verb a new backend implements, before trusting
 that implementing it does anything.
 
-### 14.5 Process failures worth not repeating
+### 14.5 Testing UX: exercise BOTH RadioModel and TransmitModel
+
+**The automation bridge is not a test of the user interface.** The two drive
+different models, and a verb that reaches the radio proves nothing about the
+button that is supposed to.
+
+| Path | Route | Reaches the seam? |
+|---|---|---|
+| Bridge `key ptt` | `RadioModel::setTransmit()` → `IRadioBackend::setKeying()` | yes |
+| **MOX button** | `TransmitModel::requestPttOn()` → `setMox()` → `commandReady("xmit 1")` | **no** — Flex TCP text |
+| **TUNE button** | `TransmitModel::startTune()` → `commandReady("transmit tune 1")` | **no** — same |
+| Bridge `tune` verb | `SliceModel::setFrequency()` | n/a |
+
+This produced a genuinely absurd state: hardware testing showed **1080 counts of
+forward power and a PA warming to 34 °C**, and the operator pressing MOX
+transmitted nothing. Every automated check passed. The operator's first attempt
+failed.
+
+**The rule:** when verifying anything user-facing — buttons, meters, keying,
+tune — exercise **both** models:
+
+- `RadioModel` is what the bridge and other clients drive.
+- `TransmitModel` is what the GUI controls drive, and it emits **Flex command
+  strings** (`xmit`, `transmit tune`, `transmit set rfpower=`) that reach a
+  backend with no command channel *not at all*.
+
+Any TransmitModel action that must work on a non-Flex backend needs a **typed
+signal** routed through the seam, gated to non-Flex families so Flex does not
+receive the command twice. `rfPowerChanged`, `moxCommandIssued` and
+`tuneCommandIssued` are the existing examples; the next one added should follow
+that shape.
+
+Practical check before claiming a control works: trace the widget's `connect()`
+to the model method it calls, and confirm that method reaches
+`IRadioBackend`. If it only emits `commandReady`, it is Flex-only.
+
+### 14.6 Process failures worth not repeating
 
 - **`0x39` wedged the radio.** The filter-pipeline reset was validated with 7
   writes spaced ~2 s apart and shipped. A pan drag issues centre commands every
@@ -797,6 +833,10 @@ that implementing it does anything.
   stored 10,000,000 MHz. It invalidated several "tested on the live radio"
   claims, and only surfaced because a screenshot's axis looked wrong. *A verb
   that accepts a wrong-unit value without complaint is a silent failure.*
+- **Verified the layer that could be scripted, not the layer the operator
+  presses.** Twice: once as the Hz-for-MHz harness bug, once as MOX keying
+  through a model the bridge never touches. See §14.5 — this is the single most
+  expensive recurring mistake of the bring-up.
 - **Test capture artifacts produced three wrong conclusions.** Block-buffered
   simulator stdout, `script` writing past a truncation, and reading a log delta
   before the pty flushed each looked like "the feature does not work". Add a
@@ -807,7 +847,7 @@ that implementing it does anything.
   that keys a transmitter is a bad trade against fifty lines whose correctness is
   a number a test prints.
 
-### 14.6 Still open
+### 14.7 Still open
 
 - **Absolute watts.** Counts are uncalibrated; oracle §6 forbids presenting them
   as watts. Needs a per-unit calibration curve.
