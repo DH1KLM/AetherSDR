@@ -4,8 +4,12 @@ Working notes from the HL2 receive bring-up on `feat/hl2-backend` (2026-07-24,
 macOS 26.5.2 / arm64). Written to be *studied*, not just read: the last section
 turns what happened into a proposed automated bring-up sequence.
 
-Status at the end of the session: HL2 receives, tunes, and demodulates AM and
-SSB with correct pitch on live hardware. Seven commits, `e556ad01..74f10f53`.
+Status: HL2 receives, tunes, and demodulates AM and SSB with correct pitch on
+live hardware, with the slice decoupled from the DDC so the panadapter holds
+still while tuning. Sixteen commits, `e556ad01..91b45ee0`.
+
+Section 11 audits all of this against the independent correctness oracles at
+`/Users/patj/oracles/hl2/` and is the best starting point for the next session.
 
 ---
 
@@ -398,3 +402,119 @@ AETHER_AUTOMATION_SOCKET=aethersdr-hl2 \
 - The `prototypes/hl2/` Python spike defaults to broadcasting
   `255.255.255.255`, which fails on macOS with `OSError 65` when multiple
   interfaces are up. Use `--bcast <subnet>.255`. The in-app Qt sweep is fine.
+
+
+---
+
+## 11. Audit against the HL2 correctness oracles
+
+Three oracles live at `/Users/patj/oracles/hl2/` — `hl2-oracle.md` plus addenda
+on spectrum/audio and on AGC/filtering/multi-stream. They are independent of
+this bring-up and worth reading before touching the backend again.
+
+Their §0 precedence ladder is the discipline this session lacked:
+
+> gateware Verilog > HL2 wiki > Quisk > openHPSDR protocol docs > anything else
+
+and their central claim — *"many address bits have two meanings depending on a
+mode flag; those dual-meaning fields are where implementations break"* — is
+confirmed below, by us, exactly.
+
+### 11.1 The one live defect: register `0x1C` is mislabeled
+
+`MetisProtocol.h` defines `kC0AdcAssign = 0x1C` and `5c6c2fdd` documents it as
+the receiver-to-ADC assignment bank. Since `C0 = ADDR << 1`, that is
+**address `0x0e`**, and on the HL2 the oracle's §4 map gives it a completely
+different meaning:
+
+| Bits | HL2 meaning |
+|---|---|
+| `0x0e[15]` | Enable hardware-managed LNA gain for TX |
+| `0x0e[14]` | LNA mode select for the TX value |
+| `0x0e[13:8]` | LNA gain during TX |
+
+ADC assignment at `0x0e` is the **generic openHPSDR** meaning. That is why
+hpsdrsim needs the bank and why sending it was genuinely correct — but the
+name and the commit message assert HL2 semantics that are wrong.
+
+No live impact today: we send all zeros, so bit 15 stays 0 and hardware-managed
+TX gain stays disabled, which is already the default. The hazard is latent and
+specific — addendum 2 §A2 makes `0x0e` the register behind the T/R gain switch,
+the mechanism Quisk (the designer's own client) uses, and the one PureSignal
+needs for an unclipped feedback path. The moment TX work starts, this round
+robin would be zeroing it every other frame.
+
+**Do not delete the write.** Rename it, record the dual meaning in a comment,
+and gate it before TX lands.
+
+### 11.2 Pipeline reset — a gap the decoupling created
+
+Addendum 2 §B2: the CIC/FIR decimation chain carries state, and a large
+frequency jump smears a transient across the change. `0x39[7:4] = 0x8` resets
+the pipeline; `0x9` also phase-aligns the NCOs.
+
+We never issue it — and `a1cbe154` made this newly relevant, because
+`setSliceFrequency` and `setPanCenter` now move the NCO on band-scale jumps,
+which is precisely the case named. Small fix, directly on the path just
+touched. Use `0x9` if coherent multi-RX ever lands.
+
+### 11.3 Watchdog versus our threading model
+
+We default the watchdog ENABLED, which the oracle recommends for anything that
+can transmit. But §2 also requires the command cadence to live on a thread that
+cannot be starved by rendering — and `Hl2Backend.h` states plainly that Phase 1b
+runs the wire AND the DSP on the backend's own (GUI) thread.
+
+A GUI stall therefore stops EP2 and the radio stops streaming on its own. We
+already measured a 17-second main-thread stall on first connect (FFTW wisdom).
+That one lands before the stream starts, but it proves the class exists, and at
+384 kHz the DSP shares the same thread. Moving the DSP off the GUI thread was
+always "a later refinement"; the watchdog turns it into a correctness issue.
+
+### 11.4 Absent subsystems, in rough value order
+
+| Missing | Why it matters |
+|---|---|
+| RQST/ACK state machine (§5) | Gate for everything below it. Single outstanding request, no transaction id, echo-matched. Do NOT model as RPC |
+| ADC overload bit + clip counter (§6) | Addendum 2 §A3: the CORRECT driver for any gain decision. Audio level in one slice says nothing about what saturates a converter seeing 0–38.4 MHz |
+| Discovery telemetry (§1) | Temperature, power, clip count, PTT are pollable WITHOUT a stream — cheapest possible first increment, and a diagnostic when the stream itself is broken |
+| Receiver count at discovery `0x13` | We hardcode `maxSlices = 1`. Standard gateware is 4; skimmer variants 9–12 with NO transmit |
+| TX FIFO depth (§6) | "The most important number in the protocol." TX pacing must servo against it, not a host timer — clock domains drift |
+| Wideband bandscope (§7) | Unimplemented by piHPSDR (dead code) and declined by SDR Console. A differentiation opportunity, with the 4-vs-32 packets-per-block trap already documented |
+
+### 11.5 Smaller corrections
+
+- **Normalization**: we use `1 << 23` (8388608); the oracle specifies
+  **8388607** (2²³−1) for dBFS parity with piHPSDR. Numerically irrelevant,
+  but parity is the whole point of matching a reference.
+- **LNA ↔ dB reference** (addendum 2 §A3): every LNA change shifts the absolute
+  reference, so the panadapter trace jumps and the waterfall shows a band users
+  read as a real event. Keep LNA value, calibration offset and AGC threshold in
+  ONE per-slice object. Worth doing before an RF AGC exists — manual gain
+  changes have the same problem.
+
+### 11.6 What the oracles do NOT cover — suggested fourth addendum
+
+The three defects that cost the most this session were all WDSP *channel
+geometry*, and none appear in the oracles (addendum 2 §A4 covers AGC internals
+only):
+
+1. `dsp_rate` is **always 48000**, independent of input and output rate —
+   Thetis `cmaster.c`, pihpsdr `receiver.c`. See §2.
+2. `RXASetPassband` vs `SetRXABandpassFreqs`: the latter leaves the NBP stage
+   untouched, so NOTHING selects a sideband. Gap 13.
+3. HPSDR wire IQ handedness is **opposite** to WDSP's, so USB and LSB come out
+   swapped. Gap 14 — and it hid behind gap 13.
+
+All three are only visible by reading the reference clients, which is exactly
+the oracles' own §0 discipline. They belong in that document.
+
+### 11.7 Open items, next session
+
+1. Rename `kC0AdcAssign`, document the `0x0e` dual meaning (11.1).
+2. Issue a pipeline reset after an NCO move (11.2).
+3. Read receiver count from discovery `0x13`; stop hardcoding `maxSlices`.
+4. RQST/ACK + the ADC overload/clip telemetry it unlocks.
+5. Move the HL2 DSP off the GUI thread (11.3).
+6. AM passband still inherits SSB width on Flex-shaped mode changes elsewhere —
+   see gap 15's fix for the pattern.
