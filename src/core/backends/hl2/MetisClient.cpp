@@ -242,6 +242,12 @@ void MetisClient::setRxFrequencyHz(std::uint32_t hz)
 {
     m_params.rxFrequencyHz = hz;
     m_ccFreq = ccRx1Freq(hz);
+    // Send the new NCO value immediately rather than waiting for the rotation,
+    // then reset the decimation pipeline behind it. The CIC/FIR chain holds
+    // state, so without the reset a large jump drags the old passband's stored
+    // history across the change and rings for a moment at the new frequency.
+    m_oneShot.push_back(m_ccFreq);
+    m_oneShot.push_back(ccPipelineReset());
 }
 
 void MetisClient::setSampleRate(SampleRate rate)
@@ -254,6 +260,11 @@ void MetisClient::setLnaGainDb(int db)
 {
     m_params.lnaGainDb = db;
     m_ccGain = ccRxGain(db);
+}
+
+void MetisClient::requestPipelineReset()
+{
+    m_oneShot.push_back(ccPipelineReset());
 }
 
 void MetisClient::sendControlPacket()
@@ -269,9 +280,15 @@ void MetisClient::sendControlPacket()
     // until it has seen it. Re-asserting it rather than sending it once keeps a
     // device that reconnects or resets mid-session from silently going quiet.
     static const Cc kCcAdc = ccAdcAssign();
-    const Cc* alt[3] = {&m_ccFreq, &m_ccGain, &kCcAdc};
-    const Cc& b = *alt[m_roundRobin % 3];
-    ++m_roundRobin;
+    Cc b;
+    if (!m_oneShot.empty()) {
+        b = m_oneShot.front();
+        m_oneShot.pop_front();
+    } else {
+        const Cc* alt[3] = {&m_ccFreq, &m_ccGain, &kCcAdc};
+        b = *alt[m_roundRobin % 3];
+        ++m_roundRobin;
+    }
     sendTo(*m_socket, ep2Packet(m_txSeq++, m_ccConfig, b), m_host, m_port);
 }
 

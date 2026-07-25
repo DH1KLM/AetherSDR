@@ -8,6 +8,7 @@
 
 #include <complex>
 #include <cstdint>
+#include <deque>
 #include <vector>
 
 #include "core/backends/hl2/MetisProtocol.h"
@@ -63,6 +64,9 @@ public:
     void setRxFrequencyHz(std::uint32_t hz);
     void setSampleRate(SampleRate rate);
     void setLnaGainDb(int db);
+    // Queue a one-shot filter-pipeline reset (MetisProtocol kC0Sync) to be sent
+    // on the next EP2 frame, ahead of the round robin.
+    void requestPipelineReset();
 
 signals:
     void linkUp();                                                  // first EP6 seen
@@ -128,7 +132,12 @@ private:
     Cc m_ccFreq{};
 
     std::uint32_t m_txSeq = 0;           // outgoing EP2 sequence
-    unsigned m_roundRobin = 0;           // which register pair to send next
+    unsigned m_roundRobin = 0;
+    // One-shot C&C banks, drained one per EP2 frame BEFORE the round robin.
+    // Ordering matters: a frequency change and its pipeline reset must reach the
+    // radio in that order, and neither should wait up to three frames for the
+    // rotation to come back around.
+    std::deque<Cc> m_oneShot;           // which register pair to send next
     std::uint32_t m_expectedRxSeq = 0;   // for EP6 drop detection
     bool m_haveRxSeq = false;
     quint64 m_drops = 0;

@@ -168,6 +168,42 @@ int main()
         check(!ep6Seq(wrongEp).has_value(), "EP2 packet not read as EP6");
     }
 
+    // ---- full scale normalises to exactly +-1.0 ----
+    //
+    // The largest magnitude a 24-bit two's-complement sample can take is
+    // 0x7FFFFF = 8388607, so that is the divisor. Dividing by 1<<23 instead
+    // leaves full scale reading 0.99999988 and every dBFS figure fractionally
+    // low -- tiny, but it is the reference point the S-meter, the spectrum
+    // floor, and the clip detector are all quoted against, so it should be the
+    // same reference pihpsdr uses rather than one count adrift.
+    {
+        std::vector<std::uint8_t> pkt(kUsbPacketSize, 0);
+        pkt[0] = 0xEF; pkt[1] = 0xFE; pkt[2] = 0x01; pkt[3] = 0x06;
+        for (const std::size_t fs : {std::size_t(8), std::size_t(8 + kFrameSize)}) {
+            pkt[fs] = pkt[fs + 1] = pkt[fs + 2] = 0x7F;
+            std::uint8_t* pay = pkt.data() + fs + 8;
+            pay[0] = 0x7F; pay[1] = 0xFF; pay[2] = 0xFF;     // I = +full scale
+            pay[3] = 0x80; pay[4] = 0x00; pay[5] = 0x00;     // Q = -full scale
+        }
+        std::vector<std::complex<float>> out;
+        check(ep6Samples(pkt, out) == kSamplesPerPacket, "full-scale packet decodes");
+        check(out[0].real() == 1.0f, "0x7FFFFF normalises to exactly +1.0");
+        // -0x800000 is one count larger in magnitude than +0x7FFFFF, so it maps
+        // just past -1.0. That asymmetry is inherent to two's complement.
+        check(out[0].imag() < -1.0f && out[0].imag() > -1.0001f,
+              "0x800000 normalises to just past -1.0 (two's-complement asymmetry)");
+    }
+
+    // ---- one-shot pipeline reset ----
+    {
+        const Cc r = ccPipelineReset();
+        check(r[0] == kC0Sync, "reset targets addr 0x39 (C0 = 0x72)");
+        check((r[0] & 0x01) == 0, "reset bank keeps MOX clear");
+        check(r[4] == 0x80, "DATA[7:4] = 0x8 requests a filter-pipeline reset");
+        check(r[1] == 0 && r[2] == 0 && r[3] == 0,
+              "every other command nibble left at no-action");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "hl2_metis_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

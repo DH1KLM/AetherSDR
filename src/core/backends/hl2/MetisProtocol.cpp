@@ -70,7 +70,14 @@ Cc ccAdcAssign() noexcept
 {
     // RX1..RX7 -> ADC0, TX attenuation 0. All-zero payload is the correct value
     // for a single-ADC Phase-1 receiver; what matters is that the bank is sent.
-    return {kC0AdcAssign, 0x00, 0x00, 0x00, 0x00};
+    return {kC0AdcAssignOrTxGain, 0x00, 0x00, 0x00, 0x00};
+}
+
+Cc ccPipelineReset() noexcept
+{
+    // DATA[7:4] = 0x8 -> C4 = 0x80. Everything else stays zero, which is "no
+    // action" for the other command nibbles in this register.
+    return {kC0Sync, 0x00, 0x00, 0x00, 0x80};
 }
 
 std::array<std::uint8_t, 64> metisCommand(std::uint8_t cmd) noexcept

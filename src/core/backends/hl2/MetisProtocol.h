@@ -28,7 +28,11 @@
 namespace AetherSDR::hl2 {
 
 inline constexpr std::uint16_t kMetisPort = 1024;
-inline constexpr int kFullScale = 1 << 23;   // 24-bit signed full scale (8388608)
+// 24-bit signed full scale. (1<<23)-1, not 1<<23: the largest magnitude a
+// 24-bit two's-complement sample can actually take is 8388607, and normalising
+// by it is what pihpsdr does — matching keeps our dBFS scale identical to the
+// reference rather than 0.0000001 dB adrift.
+inline constexpr int kFullScale = (1 << 23) - 1;
 
 // EP2 (host->radio) and EP6 (radio->host) are both 1032-byte USB-over-IP frames:
 //   EF FE 01 <ep> | seq[4] | frame512 | frame512
@@ -44,15 +48,32 @@ inline constexpr int kSamplesPerPacket = 126;         // 63 per frame * 2 frames
 inline constexpr std::uint8_t kC0Config = 0x00;   // addr 0x00: sample rate + #RX + ADC select
 inline constexpr std::uint8_t kC0Rx1Freq = 0x04;  // addr 0x02: RX1 NCO frequency (Hz, 32-bit BE)
 inline constexpr std::uint8_t kC0AdcGain = 0x14;  // addr 0x0a: AD9866 LNA gain
-// addr 0x0e: per-receiver ADC assignment. C1 holds RX1..RX4 (2 bits each, LSB
-// first), C2 holds RX5..RX7, C3 bits[4:0] are TX attenuation. The Hermes-Lite 2
-// has a single ADC and runs without this bank, which is why the Phase-0 spike
-// never sent it — but openHPSDR Protocol 1 defines the assignment as mandatory,
-// and a multi-ADC device leaves every receiver UNASSIGNED until it arrives. A
-// conforming device then emits correctly framed, correctly paced, all-ZERO IQ,
-// which is indistinguishable from a dead antenna. Verified against hpsdrsim,
-// whose rx_adc[] defaults to -1 and whose sample switch falls through to 0.
-inline constexpr std::uint8_t kC0AdcAssign = 0x1C;
+// addr 0x0e. THIS ADDRESS MEANS TWO DIFFERENT THINGS, which is exactly the
+// class of trap the HL2 oracle warns about:
+//
+//   generic openHPSDR : per-receiver ADC assignment. C1 holds RX1..RX4 (2 bits
+//                       each, LSB first), C2 holds RX5..RX7, C3[4:0] TX att.
+//   Hermes-Lite 2     : TX LNA gain. [15] enable hardware-managed TX gain,
+//                       [14] LNA mode select for it, [13:8] the gain itself.
+//
+// We send it because the GENERIC meaning is mandatory: a conforming multi-ADC
+// device leaves every receiver UNASSIGNED until this arrives and then emits
+// correctly framed, correctly paced, all-ZERO IQ — indistinguishable from a
+// dead antenna. Verified against hpsdrsim, whose rx_adc[] defaults to -1.
+//
+// On the HL2 itself the all-zero payload is inert: bit 15 clear leaves
+// hardware-managed TX gain disabled, which is already the default. BEFORE ANY
+// TX WORK, this must be reconciled — 0x0e is the register behind the T/R gain
+// switch (the mechanism Quisk uses) and PureSignal's unclipped feedback path,
+// and this round robin would otherwise zero it every third frame.
+inline constexpr std::uint8_t kC0AdcAssignOrTxGain = 0x1C;
+
+// addr 0x39: sync / reset. DATA[7:4] = 0x8 resets every decimation filter
+// pipeline; 0x9 also phase-aligns the NCOs (needed for coherent multi-RX).
+// Every other field in this register is a command nibble whose "act" encoding
+// has bit 3 set (0x8/0x9), so leaving them zero is "no action" — which is what
+// makes a targeted one-shot write safe.
+inline constexpr std::uint8_t kC0Sync = 0x72;
 
 // Config-register (C0=0x00) bit flags.
 //
@@ -80,10 +101,15 @@ Cc ccConfig(SampleRate rate, int numRx = 1) noexcept;
 Cc ccRx1Freq(std::uint32_t hz) noexcept;
 // AD9866 LNA gain in dB, clamped to [-12, +48]; C4 = 0x40 | (dB + 12).
 Cc ccRxGain(int db) noexcept;
-// Per-receiver ADC assignment (see kC0AdcAssign). Phase 1 runs one receiver on
+// Per-receiver ADC assignment (see kC0AdcAssignOrTxGain). Phase 1 runs one receiver on
 // ADC0, so every field is zero; the bank still has to be SENT for a conforming
 // device to route ADC samples to RX1 at all.
 Cc ccAdcAssign() noexcept;
+// One-shot filter-pipeline reset (see kC0Sync). The CIC/FIR decimation chain
+// carries state, and a large frequency jump smears that state across the change
+// as a transient. Issue after an NCO move, a sample-rate change, or before
+// starting coherent multi-receiver work.
+Cc ccPipelineReset() noexcept;
 
 // 64-byte Metis command: EF FE 04 <cmd>. cmd 0x01 = start IQ, 0x00 = stop.
 std::array<std::uint8_t, 64> metisCommand(std::uint8_t cmd) noexcept;
