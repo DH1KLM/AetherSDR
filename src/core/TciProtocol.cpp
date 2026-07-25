@@ -136,17 +136,37 @@ SliceModel* TciProtocol::sliceForVfo(int trx, int channel) const
     return rxSlice;
 }
 
-int TciProtocol::txTrx() const
+// TRX index of the TX slice for the request/response path — the init burst and
+// the DRIVE/TUNE_DRIVE replies. Falls back to 0 when no slice is marked TX,
+// because the wire needs a concrete index and 0 is what the burst has always
+// used.
+//
+// TciServer has a near-twin, txTrxIndex(), which returns -1 for "none" and
+// resolves that against a cached last-known TX trx. The difference is
+// deliberate and worth understanding before merging them: that one serves the
+// async broadcast, which is driven by the radio's own power restore during a
+// band change — i.e. it fires *inside* the window where the recreated slice has
+// not yet regained its TX flag, so without the cache it would reliably mislabel
+// (#4161). This path is driven by a client command arriving at an arbitrary
+// moment, so it only ever meets that window by coincidence, and a transiently
+// 0-labelled reply is the same fallback the burst has always emitted.
+int TciProtocol::txSliceTrxOrNone(RadioModel* model)
 {
-    if (!m_model) {
-        return 0;
+    if (!model) {
+        return -1;
     }
-    for (SliceModel* slice : m_model->slices()) {
+    for (SliceModel* slice : model->slices()) {
         if (slice && slice->isTxSlice()) {
-            return tciTrxForSlice(m_model, slice);
+            return tciTrxForSlice(model, slice);
         }
     }
-    return 0;
+    return -1;
+}
+
+int TciProtocol::txTrx() const
+{
+    const int trx = txSliceTrxOrNone(m_model);
+    return trx < 0 ? 0 : trx;  // request/response wire needs a concrete index
 }
 
 // DDS = the IQ-stream center frequency a skimmer (CW Skimmer / SDC) decodes
@@ -301,6 +321,15 @@ QString TciProtocol::generateInitBurst()
                          .arg(trx).arg(s->anfOn() ? "true" : "false");
             burst += QStringLiteral("rx_apf_enable:%1,%2;")
                          .arg(trx).arg(s->apfOn() ? "true" : "false");
+
+            // Mute. Seeded here for the same reason sql/DSP are: without it a
+            // connecting client's mute mirror starts at a default guess, and
+            // mute was the one flag in this family the burst never carried
+            // (#4161). audioMute() is the effective value -- it follows the
+            // external-receive source when one is replacing Flex RX audio,
+            // which is also what audioMuteChanged carries.
+            burst += QStringLiteral("mute:%1,%2;")
+                         .arg(trx).arg(s->audioMute() ? "true" : "false");
 
             // TX
             burst += QStringLiteral("tx_enable:%1,%2;")

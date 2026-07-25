@@ -25,6 +25,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
+#include <memory>
 #include <utility>
 
 namespace AetherSDR {
@@ -76,8 +78,45 @@ constexpr qint64 kTxChronoPeriodNs =
 constexpr int kTxChronoPollMs = 5;
 constexpr qint64 kTxSummaryEveryBlocks = 48;
 
+// Minimum gap between drive:/tune_drive: sends (#4161). Measured on a
+// FLEX-6600 over SmartLink: one RF-power slider drag emitted 40 `drive:`
+// broadcasts in ~900 ms — without this, every one of those reaches every
+// client. With it, the same drag settles to ~20 over 2.8 s.
+constexpr int kPowerRateLimitMs = 100;
+
 // parseStatusHandle / streamStatusBelongsToUs  → StreamStatus.h
 // tciTrxForSlice                               → TciProtocol::tciTrxForSlice
+
+// TRX index of the current TX slice, or -1 when none is currently marked.
+// Thin alias over TciProtocol::txSliceTrxOrNone() so the scan lives in one
+// place (see the header comment there). The async broadcast keeps the -1
+// sentinel and resolves it against a cached last-known TX trx: a band change
+// on a multi-slice setup recreates the TX slice and restores its TX flag
+// *after* the power change is processed, so a plain scan would momentarily
+// find no TX slice and mislabel drive with trx 0 (#4161). -1 (not 0) is
+// returned for "none" because trx 0 is a legitimate TX slice and must be
+// distinguishable.
+inline int txTrxIndex(RadioModel* model)
+{
+    return TciProtocol::txSliceTrxOrNone(model);
+}
+
+// True when some live slice currently maps to `trx`. Used to tell a genuine TX
+// slice *close* (nothing carries the cached trx anymore) apart from the
+// band-change recreation gap (the recreated slice carries the trx, it just has
+// not regained its TX flag yet). (#4161)
+bool trxHasLiveSlice(RadioModel* model, int trx)
+{
+    if (!model) {
+        return false;
+    }
+    for (auto* s : model->slices()) {
+        if (s && TciProtocol::tciTrxForSlice(model, s) == trx) {
+            return true;
+        }
+    }
+    return false;
+}
 
 } // namespace
 
@@ -129,6 +168,17 @@ TciServer::TciServer(RadioModel* model, QObject* parent)
                 this, [this](float dbfs) {
             m_cachedAlc = dbfs;
         });
+
+        // RF/tune power → `drive:` / `tune_drive:` broadcast (#4161). Without
+        // this, power was announced only in the init burst and as an echo to
+        // the client that set it: a GUI change or the radio's own per-band
+        // power restore on QSY stayed invisible to every TCI client until
+        // reconnect, leaving control-surface dials showing a stale figure
+        // while the operator keyed an amplifier against it (#4310).
+        connect(&m_model->transmitModel(), &TransmitModel::rfPowerChanged,
+                this, [this](int) { m_drivePending = true; queuePowerBroadcast(); });
+        connect(&m_model->transmitModel(), &TransmitModel::tunePowerChanged,
+                this, [this](int) { m_tuneDrivePending = true; queuePowerBroadcast(); });
     }
 
     // Capture DAX RX stream creation responses so we can register them
@@ -219,8 +269,31 @@ TciServer::TciServer(RadioModel* model, QObject* parent)
                 abortTciPtt();
             }
             m_tciDaxSlices.remove(sliceId);
+
             // Removal renumbers every later slice's trx (#4160).
             publishActiveTrx();
+
+            // m_lastTxTrx caches the last TX slice's trx so a power change
+            // during the band-change slice-recreation gap still labels
+            // drive:/tune_drive: correctly (the recreated slice exists but has
+            // not regained its TX flag yet). A TX slice that is *closed* —
+            // removed with no recreation — would instead leave the cache
+            // pointing at a trx no live slice carries, mislabelling a later
+            // power change with a dead index. Tell the two apart by deferring
+            // past the ~340 ms settle window: a band change re-adds the slice
+            // (same id) well within it, so the cache still resolves to a live
+            // slice and this is a no-op; a genuine close leaves nothing carrying
+            // that trx and resets the cache to the burst's historical default.
+            // (A renumber that leaves another live slice at that trx also
+            // no-ops; a surviving TX slice refreshes the cache in broadcastPower.)
+            if (!trxHasLiveSlice(m_model, m_lastTxTrx)) {
+                QTimer::singleShot(500, this, [this]() {
+                    if (m_model && !trxHasLiveSlice(m_model, m_lastTxTrx)) {
+                        m_lastTxTrx = 0;
+                    }
+                });
+            }
+
             auto* ps = m_model ? m_model->panStream() : nullptr;
             if (!ps) return;
             for (int ch = 1; ch <= 4; ++ch) {
@@ -293,6 +366,19 @@ TciServer::TciServer(RadioModel* model, QObject* parent)
     m_meterTimer = new QTimer(this);
     m_meterTimer->setInterval(200);
     connect(m_meterTimer, &QTimer::timeout, this, &TciServer::broadcastStatus);
+
+    // Rate limiter for drive:/tune_drive: — see queuePowerBroadcast().
+    m_powerRateTimer = new QTimer(this);
+    m_powerRateTimer->setSingleShot(true);
+    m_powerRateTimer->setInterval(kPowerRateLimitMs);
+    connect(m_powerRateTimer, &QTimer::timeout, this, [this]() {
+        if (!m_drivePending && !m_tuneDrivePending) {
+            return;  // no trailing change; let the timer lapse so the next
+                     // change gets a fresh leading edge
+        }
+        broadcastPower();
+        m_powerRateTimer->start();
+    });
 
     // Debounced DAX RX teardown — see scheduleDaxRelease(). Single-shot; a
     // reconnecting audio client cancels it before it fires.
@@ -421,6 +507,72 @@ void TciServer::broadcastMasterVolume(int pct)
     // 0-100 amplitude from the title bar slider / applyMasterVolume.
     broadcast(QStringLiteral("volume:%1;")
                   .arg(TciProtocol::volumeDbFromPercent(pct)));
+}
+
+// Rate-limited entry point for TransmitModel's power signals (#4161).
+//
+// Leading edge sends immediately, so a client's own SET still echoes in a few
+// ms and a band change announces the new per-band power without added latency.
+// Anything arriving inside the window is collapsed: one trailing send carries
+// whatever the latest value turned out to be. A power-slider drag steps ~40
+// times a second (each step is its own `transmit set rfpower=` to the radio),
+// and relaying every one floods clients that are often on the far side of a
+// SmartLink hop.
+void TciServer::queuePowerBroadcast()
+{
+    // The pending flag for the field that changed is set by the caller. Inside
+    // the rate window we do nothing more — the trailing flush picks it up.
+    if (m_powerRateTimer->isActive()) {
+        return;
+    }
+    broadcastPower();
+    m_powerRateTimer->start();
+}
+
+void TciServer::broadcastPower()
+{
+    if (m_clients.isEmpty() || !m_model) {
+        m_drivePending = false;
+        m_tuneDrivePending = false;
+        // Forget what was last sent. The de-dup below means "the clients
+        // already have this value", which is worthless with none attached:
+        // power moves while disconnected, a reconnecting client is seeded
+        // from the init burst, and a surviving cache would then suppress the
+        // next genuine change back to the remembered value — dial stuck on
+        // the old figure while the radio keys at the new one (#4161).
+        m_lastDriveSent = -1;
+        m_lastTuneDriveSent = -1;
+        return;
+    }
+    auto& tx = m_model->transmitModel();
+    // Resolve the TX trx, falling back to the last known one when a slice
+    // recreation has momentarily cleared every TX flag (#4161). Refresh the
+    // cache whenever a real TX slice is found.
+    int trx = txTrxIndex(m_model);
+    if (trx < 0) {
+        trx = m_lastTxTrx;
+    } else {
+        m_lastTxTrx = trx;
+    }
+
+    // Only the field that actually changed is sent — sending drive must not
+    // drag tune_drive onto the wire (and vice versa). Value de-dup still
+    // guards a change that lands back on the last-sent value inside a window.
+    if (m_drivePending) {
+        m_drivePending = false;
+        if (tx.rfPower() != m_lastDriveSent) {
+            m_lastDriveSent = tx.rfPower();
+            broadcast(QStringLiteral("drive:%1,%2;").arg(trx).arg(m_lastDriveSent));
+        }
+    }
+    if (m_tuneDrivePending) {
+        m_tuneDrivePending = false;
+        if (tx.tunePower() != m_lastTuneDriveSent) {
+            m_lastTuneDriveSent = tx.tunePower();
+            broadcast(QStringLiteral("tune_drive:%1,%2;")
+                          .arg(trx).arg(m_lastTuneDriveSent));
+        }
+    }
 }
 
 // Recompute the focused TRX and tell clients if it moved (#4160).
@@ -2186,11 +2338,23 @@ void TciServer::wireSlice(int trx, SliceModel* slice)
     });
 
     connect(slice, &SliceModel::txSliceChanged, this, [this, slice](bool tx) {
-        if (m_clients.isEmpty()) return;
         const int trx = TciProtocol::tciTrxForSlice(m_model,slice);
+        // Keep the drive:/tune_drive: label cache truthful even with no
+        // clients attached, so a later power change resolves the right trx
+        // (#4161). Only a slice *gaining* TX updates it; the losing edge
+        // leaves the cache pointing at the outgoing slice for the brief
+        // band-change gap, which is the value drive should still use.
+        if (tx) m_lastTxTrx = trx;
+        if (m_clients.isEmpty()) return;
         broadcast(QStringLiteral("tx_enable:%1,%2;")
                       .arg(trx).arg(tx ? "true" : "false"));
     });
+
+    // Seed the TX-trx cache from current state — txSliceChanged only fires on
+    // a change, so a slice that is already TX at wire time would never set it.
+    if (slice->isTxSlice()) {
+        m_lastTxTrx = TciProtocol::tciTrxForSlice(m_model, slice);
+    }
 
     connect(slice, &SliceModel::lockedChanged, this, [this, slice](bool locked) {
         if (m_clients.isEmpty()) return;
@@ -2245,6 +2409,98 @@ void TciServer::wireSlice(int trx, SliceModel* slice)
         broadcast(QStringLiteral("rx_volume:%1,%2;")
                       .arg(trx).arg(static_cast<int>(gain)));
     });
+
+    // DSP / squelch / RIT / XIT flags → per-slice broadcasts (#4161). These
+    // had no signal wiring at all, so a flag toggled in AetherSDR's own GUI
+    // was invisible to every TCI client, and the client that sent the SET was
+    // never told the radio accepted it (the command-echo path excludes the
+    // sender).
+    //
+    // Each relay is a change handler that de-dups repeats, plus a seed that
+    // announces the current state after a (re)wire. Both share one baseline
+    // (`last`, starting "unsent") so a value is never announced twice. The
+    // de-dup is needed because SliceModel's emit discipline is uneven —
+    // nb/nr/anf/squelch/rit/xit re-emit on every status refresh whether or not
+    // the value moved, while apf/audioMute guard — and squelchChanged/
+    // ritChanged/xitChanged carry (flag, value), so spinning a RIT offset would
+    // otherwise re-announce an unchanged rit_enable on every step. The trailing
+    // int on those three signals is simply dropped: Qt binds a 1-arg slot to a
+    // 2-arg signal, so one helper serves both shapes (#4161 is scoped to the
+    // *_enable family; sql_level/rit_offset/xit_offset are out of scope).
+    //
+    // The seed is DEFERRED ~400 ms and reads the *settled* value, exactly like
+    // the frequency push below and for the same reason: a Flex band change
+    // recreates the slice, and RadioModel decodes the radio's slice status
+    // BEFORE it emits sliceAdded (the signal that triggers this wiring), so at
+    // wire time the recreated slice still holds pre-settle DSP state. An
+    // immediate seed would broadcast that stale value, then the radio's restore
+    // (~250-340 ms later) would broadcast the corrected one — flapping every
+    // flag on every band change. Deferring past the settle window announces
+    // exactly the settled value: if a restore edge lands inside the window the
+    // handler announces it and the seed de-dups; if the new band's value equals
+    // the recreated default no edge fires and the seed is what announces it (the
+    // per-flag analog of the #2824 vfo: case handled by the frequency push).
+    //
+    // The seed no-ops before any client connects (slices are wired at startup);
+    // a client connecting later gets this state from the init burst. QPointer
+    // guards a rapid band change that destroys the slice before the timer fires.
+    auto emitFlag = [this](SliceModel* s, const char* cmd, bool on) {
+        if (m_clients.isEmpty()) {
+            return;
+        }
+        const int trx = TciProtocol::tciTrxForSlice(m_model, s);
+        broadcast(QStringLiteral("%1:%2,%3;")
+                      .arg(QLatin1String(cmd)).arg(trx)
+                      .arg(on ? "true" : "false"));
+    };
+
+    auto wireFlag = [this, slice, emitFlag](auto signal, const char* cmd,
+                                            std::function<bool()> read) {
+        auto last = std::make_shared<int>(-1);  // -1 = nothing announced yet
+        // Change handler. A 1-arg slot binds both bool and (bool,int) signals.
+        connect(slice, signal, this, [slice, cmd, emitFlag, last](bool on) {
+            const int v = on ? 1 : 0;
+            if (*last == v) {
+                return;
+            }
+            *last = v;
+            emitFlag(slice, cmd, on);
+        });
+        // Deferred settled seed, sharing `last` so it can't double-announce.
+        QPointer<SliceModel> guard(slice);
+        QTimer::singleShot(400, this, [this, guard, cmd, emitFlag, last, read]() {
+            if (!guard || m_clients.isEmpty()) {
+                return;
+            }
+            const bool on = read();
+            const int v = on ? 1 : 0;
+            if (*last == v) {
+                return;
+            }
+            *last = v;
+            emitFlag(guard, cmd, on);
+        });
+    };
+
+    wireFlag(&SliceModel::nbChanged,        "rx_nb_enable",  [slice]{ return slice->nbOn(); });
+    wireFlag(&SliceModel::nrChanged,        "rx_nr_enable",  [slice]{ return slice->nrOn(); });
+    wireFlag(&SliceModel::anfChanged,       "rx_anf_enable", [slice]{ return slice->anfOn(); });
+    wireFlag(&SliceModel::apfChanged,       "rx_apf_enable", [slice]{ return slice->apfOn(); });
+    wireFlag(&SliceModel::audioMuteChanged, "mute",          [slice]{ return slice->audioMute(); });
+
+    // squelch/rit/xit emit (flag, value); the value is dropped (see above).
+    // sql_enable keeps a known KiwiSDR-only quirk: three squelch sources are in
+    // play and diverge ONLY when m_externalReceiveAudioReplacement is set — the
+    // init burst and this seed report receiveSquelchOn() (effective), while
+    // squelchChanged carries squelchOn() (Flex-side). In that mode the seed and
+    // the first edge can disagree, producing one spurious sql_enable edge on
+    // connect; in normal mode all three are equal. Left as-is deliberately: a
+    // real fix aligns all three sources and can only be verified with a KiwiSDR
+    // RX source, out of this change's *_enable scope. (The band-change transient
+    // that used to compound this is gone now the seed is deferred and settled.)
+    wireFlag(&SliceModel::squelchChanged, "sql_enable", [slice]{ return slice->receiveSquelchOn(); });
+    wireFlag(&SliceModel::ritChanged,     "rit_enable", [slice]{ return slice->ritOn(); });
+    wireFlag(&SliceModel::xitChanged,     "xit_enable", [slice]{ return slice->xitOn(); });
 
     // State sync on (re)wire, deferred. A Flex band change (display pan set
     // band=) tears down and recreates the slice, so wireSlice() runs again for

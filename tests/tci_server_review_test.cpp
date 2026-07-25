@@ -4,9 +4,13 @@
 #include "core/QsoRecorder.h"
 #include "core/TciServer.h"
 #include "models/RadioModel.h"
+#include "models/SliceModel.h"
+#include "models/TransmitModel.h"
 
 #include <QCoreApplication>
+#include <QEventLoop>
 #include <QJsonObject>
+#include <QTimer>
 #include <QWebSocket>
 
 #include <cstdio>
@@ -77,6 +81,235 @@ public:
         return !server.m_routingState.splitRequested()
             && snapshot.value(QStringLiteral("lastRouteError")).toString()
                 == QStringLiteral("capacity test");
+    }
+
+    // ── #4161 power / flag broadcast internals ──────────────────────────────
+
+    // Run the event loop for `ms` so a QTimer (the power rate limiter) can fire,
+    // without pulling in QtTest.
+    static void spin(int ms)
+    {
+        QEventLoop loop;
+        QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+        loop.exec();
+    }
+
+    // Rapid rfPowerChanged collapses to a prompt leading edge plus one trailing
+    // send of the settled value; an unchanged value produces nothing.
+    static bool powerBroadcastRateLimits()
+    {
+        RadioModel model;
+        QWebSocket sock;
+        TciServer server(&model);
+        TciServer::ClientState cs;
+        cs.socket = &sock;
+        server.m_clients.append(cs);
+
+        QStringList drives;
+        QObject::connect(&server, &TciServer::tciMessage,
+            [&drives](const QString& dir, const QString& msg) {
+                if (dir == QLatin1String("tx")
+                    && msg.startsWith(QLatin1String("drive:")))
+                    drives << msg.trimmed();
+            });
+
+        auto& tx = model.transmitModel();
+        tx.setRfPower(55);                       // leading edge — sent at once
+        if (drives != QStringList{QStringLiteral("drive:0,55;")}) return false;
+
+        tx.setRfPower(56);                       // inside the 100 ms window:
+        tx.setRfPower(57);                       // collapsed, nothing on the wire
+        tx.setRfPower(58);
+        if (drives.size() != 1) return false;
+
+        spin(160);                               // trailing flush of the latest
+        if (drives != QStringList{QStringLiteral("drive:0,55;"),
+                                  QStringLiteral("drive:0,58;")}) return false;
+
+        tx.setRfPower(58);                       // unchanged → no broadcast
+        spin(160);
+        return drives.size() == 2;
+    }
+
+    // The #4161 mislabel fix: when the TX flag momentarily clears (the
+    // band-change slice-recreation gap), drive: keeps the last resolved TX trx
+    // from m_lastTxTrx rather than falling back to trx 0.
+    static bool driveTrxSurvivesTxFlagClear()
+    {
+        RadioModel model;
+        QWebSocket sock;
+        TciServer server(&model);
+        TciServer::ClientState cs;
+        cs.socket = &sock;
+        server.m_clients.append(cs);
+
+        QString err;
+        model.automationApplySliceFixture(0, QString(), &err);
+        model.automationApplySliceFixture(1, QString(), &err);
+        SliceModel* s0 = model.slice(0);
+        SliceModel* s1 = model.slice(1);
+        if (!s0 || !s1) return false;
+        // wireSlice() is driven by MainWindow_Session in the app; call it here.
+        server.wireSlice(s0->sliceId(), s0);
+        server.wireSlice(s1->sliceId(), s1);
+        // TX flag is radio-authoritative — setTxSlice() only sends a command, so
+        // drive the status path (as the radio would) to mark slice 1 TX.
+        SliceDelta txOn;
+        txOn.txSlice = true;
+        s1->applyChanges(txOn);                  // → txSliceChanged → caches trx
+
+        QStringList drives;
+        QObject::connect(&server, &TciServer::tciMessage,
+            [&drives](const QString& dir, const QString& msg) {
+                if (dir == QLatin1String("tx")
+                    && msg.startsWith(QLatin1String("drive:")))
+                    drives << msg.trimmed();
+            });
+
+        server.m_drivePending = true;
+        server.m_lastDriveSent = -1;
+        server.broadcastPower();
+        if (drives.size() != 1) return false;
+        const QString withTx = drives.first();   // e.g. "drive:1,100;"
+        // The TX slice must map to a non-zero trx, or the test can't tell the
+        // cache apart from the old trx-0 fallback.
+        if (withTx == QStringLiteral("drive:0,100;")) return false;
+
+        drives.clear();
+        SliceDelta txOff;
+        txOff.txSlice = false;
+        s1->applyChanges(txOff);                 // TX flag cleared → txTrxIndex -1
+        server.m_drivePending = true;
+        server.m_lastDriveSent = -1;
+        server.broadcastPower();
+        return drives.size() == 1 && drives.first() == withTx;
+    }
+
+    // The last-sent cache is forgotten when the last client leaves, so a genuine
+    // change back to the remembered value after a reconnect is not suppressed.
+    static bool powerCacheResetsWhenClientsLeave()
+    {
+        RadioModel model;
+        TciServer server(&model);
+        server.m_lastDriveSent = 55;
+        server.m_lastTuneDriveSent = 19;
+        server.m_drivePending = true;
+        server.m_tuneDrivePending = true;
+        server.broadcastPower();                 // no clients → reset + bail
+        return server.m_lastDriveSent == -1 && server.m_lastTuneDriveSent == -1;
+    }
+
+    // wireSlice schedules a de-duping change handler plus a *deferred* settled
+    // seed, both sharing one baseline. Nothing goes on the wire synchronously;
+    // after the settle window the seed announces the current value once, and a
+    // repeat edge does not re-announce.
+    static bool flagRelaySeedsAndDeDups()
+    {
+        RadioModel model;
+        QWebSocket sock;
+        TciServer server(&model);
+        TciServer::ClientState cs;
+        cs.socket = &sock;
+        server.m_clients.append(cs);
+
+        QStringList nb;
+        QObject::connect(&server, &TciServer::tciMessage,
+            [&nb](const QString& dir, const QString& msg) {
+                if (dir == QLatin1String("tx")
+                    && msg.startsWith(QLatin1String("rx_nb_enable:")))
+                    nb << msg.trimmed();
+            });
+
+        QString err;
+        model.automationApplySliceFixture(0, QString(), &err);
+        SliceModel* s0 = model.slice(0);
+        if (!s0) return false;
+        server.wireSlice(s0->sliceId(), s0);     // as MainWindow_Session does
+        if (!nb.isEmpty()) return false;         // seed is deferred, not sync
+        spin(450);                               // let the settled seed fire
+        const bool seeded
+            = nb == QStringList{QStringLiteral("rx_nb_enable:0,false;")};
+
+        nb.clear();
+        s0->setNb(true);                         // real edge → one broadcast
+        const bool oneOnChange
+            = nb == QStringList{QStringLiteral("rx_nb_enable:0,true;")};
+
+        s0->setNb(true);                         // same value again → de-duped
+        return seeded && oneOnChange && nb.size() == 1;
+    }
+
+    // The #4161 transient fix: on a band-change re-wire the seed reads the
+    // *settled* flag, not the recreated slice's pre-settle state, so a client
+    // sees exactly one correct edge — never a stale blip then a correction.
+    // Model it: wire a slice holding a pre-settle value, flip it inside the
+    // settle window (as the radio's restore does), and require the client to
+    // see only the final value, once. An immediate seed would emit the blip.
+    static bool flagSeedReadsSettledNotTransient()
+    {
+        RadioModel model;
+        QWebSocket sock;
+        TciServer server(&model);
+        TciServer::ClientState cs;
+        cs.socket = &sock;
+        server.m_clients.append(cs);
+
+        QStringList nb;
+        QObject::connect(&server, &TciServer::tciMessage,
+            [&nb](const QString& dir, const QString& msg) {
+                if (dir == QLatin1String("tx")
+                    && msg.startsWith(QLatin1String("rx_nb_enable:")))
+                    nb << msg.trimmed();
+            });
+
+        QString err;
+        model.automationApplySliceFixture(0, QString(), &err);
+        SliceModel* s0 = model.slice(0);
+        if (!s0) return false;
+        s0->setNb(true);                         // recreated slice's pre-settle
+        nb.clear();
+        server.wireSlice(s0->sliceId(), s0);     // re-wire; seed deferred
+        spin(120);                               // still inside the window
+        s0->setNb(false);                        // radio restores settled value
+        // Handler announces the settled edge exactly once...
+        if (nb != QStringList{QStringLiteral("rx_nb_enable:0,false;")})
+            return false;
+        spin(400);                               // ...and the deferred seed de-dups.
+        return nb.size() == 1;
+    }
+
+    // A TX slice *closed* (removed with no recreation) must not leave
+    // m_lastTxTrx pointing at a dead index. The deferred cleanup resets it once
+    // the settle window passes with no live slice carrying that trx; a
+    // same-id recreation (band change) inside the window must not reset it.
+    static bool lastTxTrxResetsOnClose()
+    {
+        RadioModel model;
+        QWebSocket sock;
+        TciServer server(&model);
+        TciServer::ClientState cs;
+        cs.socket = &sock;
+        server.m_clients.append(cs);
+
+        QString err;
+        model.automationApplySliceFixture(0, QString(), &err);
+        model.automationApplySliceFixture(1, QString(), &err);
+        SliceModel* s0 = model.slice(0);
+        SliceModel* s1 = model.slice(1);
+        if (!s0 || !s1) return false;
+        server.wireSlice(s0->sliceId(), s0);
+        server.wireSlice(s1->sliceId(), s1);
+        SliceDelta txOn;
+        txOn.txSlice = true;
+        s1->applyChanges(txOn);                  // caches m_lastTxTrx = trx(s1)
+        const int cachedTrx = server.m_lastTxTrx;
+        if (cachedTrx == 0) return false;        // need non-zero to detect a reset
+
+        model.automationRemoveSliceFixture(1, &err);   // close it for good
+        // Immediately after removal the cache is untouched (band-change grace).
+        if (server.m_lastTxTrx != cachedTrx) return false;
+        spin(600);                               // past the 500 ms cleanup
+        return server.m_lastTxTrx == 0;
     }
 
     // #4160 — GUI focus must reach TCI, and a slice must seed focus from
@@ -231,6 +464,18 @@ int main(int argc, char** argv)
         = AetherSDR::TciServerReviewTest::deferredAbortIsClientScoped();
     const bool observableFailure
         = AetherSDR::TciServerReviewTest::routeFailureIsObservable();
+    const bool powerRateLimits
+        = AetherSDR::TciServerReviewTest::powerBroadcastRateLimits();
+    const bool trxCacheHolds
+        = AetherSDR::TciServerReviewTest::driveTrxSurvivesTxFlagClear();
+    const bool cacheResets
+        = AetherSDR::TciServerReviewTest::powerCacheResetsWhenClientsLeave();
+    const bool flagSeedsDeDups
+        = AetherSDR::TciServerReviewTest::flagRelaySeedsAndDeDups();
+    const bool flagSeedSettled
+        = AetherSDR::TciServerReviewTest::flagSeedReadsSettledNotTransient();
+    const bool txTrxResets
+        = AetherSDR::TciServerReviewTest::lastTxTrxResetsOnClose();
     const bool activeSliceSeed
         = AetherSDR::TciServerReviewTest::activeSliceSeedsFromCurrentState();
     const bool activeSliceRemoval
@@ -242,11 +487,26 @@ int main(int argc, char** argv)
                 deferredAbort ? "PASS" : "FAIL");
     std::printf("%s  VFO-B route failure is observable\n",
                 observableFailure ? "PASS" : "FAIL");
+    std::printf("%s  drive: rate-limits and de-dups\n",
+                powerRateLimits ? "PASS" : "FAIL");
+    std::printf("%s  drive: trx survives a TX-flag clear\n",
+                trxCacheHolds ? "PASS" : "FAIL");
+    std::printf("%s  power cache resets when clients leave\n",
+                cacheResets ? "PASS" : "FAIL");
+    std::printf("%s  flag relay seeds and de-dups\n",
+                flagSeedsDeDups ? "PASS" : "FAIL");
+    std::printf("%s  flag seed reads settled, no band-change transient\n",
+                flagSeedSettled ? "PASS" : "FAIL");
+    std::printf("%s  m_lastTxTrx resets when TX slice is closed\n",
+                txTrxResets ? "PASS" : "FAIL");
     std::printf("%s  active_slice seeds from current GUI focus (#4160)\n",
                 activeSliceSeed ? "PASS" : "FAIL");
     std::printf("%s  active_slice renumbers/clears on slice removal (#4160)\n",
                 activeSliceRemoval ? "PASS" : "FAIL");
 
     return validProfile && deferredAbort && observableFailure
-        && activeSliceSeed && activeSliceRemoval ? 0 : 1;
+        && powerRateLimits && trxCacheHolds && cacheResets && flagSeedsDeDups
+        && flagSeedSettled && txTrxResets
+        && activeSliceSeed && activeSliceRemoval
+        ? 0 : 1;
 }
