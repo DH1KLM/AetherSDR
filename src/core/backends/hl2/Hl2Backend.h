@@ -14,6 +14,7 @@ namespace AetherSDR::hl2 {
 
 class MetisClient;
 class Hl2RxDsp;
+class Hl2TxDsp;
 
 // IRadioBackend implementation for the Hermes-Lite 2 (HPSDR Protocol 1, raw IQ).
 // Owns a MetisClient (UDP wire) and an Hl2RxDsp (demod + panadapter) and maps the
@@ -45,6 +46,7 @@ public:
     void setSliceAgc(int sliceId, const QString& mode, int thresholdDb) override;
     void setPanCenter(const QString& panId, double hz) override;
     void setKeying(bool key) override;
+    void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz) override;
     void setTxFrequency(double hz);
     void setTxDriveLevel(int level);
     // Baseband TX test tone, offsetHz from the carrier, amplitude 0..1.
@@ -63,6 +65,7 @@ private:
 
     MetisClient* m_metis = nullptr;
     Hl2RxDsp* m_dsp = nullptr;
+    Hl2TxDsp* m_txDsp = nullptr;
     bool m_connected = false;
 
     // Authoritative RX state (HL2 has no status wire echoing it back).
@@ -94,6 +97,7 @@ private:
     bool m_txAllowed = false;
     Hl2Telemetry m_telemetry;
     bool m_adcOverload = false;
+    bool m_keyed = false;
     // Authoritative AGC state, mirroring the DSP defaults in Hl2RxDsp::Config so
     // the first sliceChanged reports what WDSP was actually opened with.
     QString m_agcMode = QStringLiteral("med");

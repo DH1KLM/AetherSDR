@@ -5319,6 +5319,12 @@ void RadioModel::onMessageReceived(const ParsedMessage& msg)
 //   "meter 1"         → meter reading (handled by onMessageReceived)
 //   "removed=True"    → object was removed
 
+void RadioModel::submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz)
+{
+    if (m_backend)
+        m_backend->submitTxAudio(int16Stereo, sampleRateHz);
+}
+
 bool RadioModel::sendCommand(const QString& cmd)
 {
     // #3977: last-line ownership gate for pan writes. Every UI path that

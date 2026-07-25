@@ -6,6 +6,8 @@
 #include <QUdpSocket>
 #include <QtGlobal>
 
+#include <QDebug>
+
 #include <algorithm>
 #include <cmath>
 #include <span>

@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "core/backends/hl2/Hl2RxDsp.h"
+#include "core/backends/hl2/Hl2TxDsp.h"
 #include "core/backends/hl2/MetisClient.h"
 #include "core/backends/hl2/MetisProtocol.h"
 
@@ -62,6 +63,7 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
     // destroyed explicitly in the destructor after the thread is joined.
     m_metis = new MetisClient(nullptr);
     m_dsp = new Hl2RxDsp(nullptr);
+    m_txDsp = new Hl2TxDsp(nullptr);
 
     // Transmit availability, decided once here rather than per-key so the answer
     // cannot change under a running key.
@@ -100,6 +102,7 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
     m_ioThread->setObjectName(QStringLiteral("hl2-io"));
     m_metis->moveToThread(m_ioThread);
     m_dsp->moveToThread(m_ioThread);
+    m_txDsp->moveToThread(m_ioThread);
     m_ioThread->start();
 
     // Wire: raw IQ -> DSP. Both objects live on the I/O thread, so this stays a
@@ -144,6 +147,15 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
     });
     connect(m_dsp, &Hl2RxDsp::audioReady, this,
             [this](const std::vector<float>& pcm) { emit audioFrameReady(floatBytes(pcm)); });
+    // Modulated IQ -> the wire. Both live on the I/O thread, so this is a direct
+    // call and the transmit path never touches the GUI thread.
+    connect(m_txDsp, &Hl2TxDsp::iqReady, m_metis,
+            [this](const std::vector<std::complex<float>>& iq) {
+        m_metis->queueTxIq(iq);
+    });
+    connect(m_txDsp, &Hl2TxDsp::micPeak, this,
+            [this](float dbfs) { emit meterUpdate(QStringLiteral("TX:MICPEAK"), dbfs); });
+
     connect(m_metis, &MetisClient::telemetryUpdated, this,
             [this](const Hl2Telemetry& t) { publishTelemetry(t); });
     connect(m_dsp, &Hl2RxDsp::meterUpdate, this,
@@ -169,6 +181,7 @@ Hl2Backend::~Hl2Backend()
         QMetaObject::invokeMethod(m_metis, "stop");
     }
     // Safe now: the thread is joined, so nothing can be running in either object.
+    delete m_txDsp;
     delete m_dsp;
     delete m_metis;
 }
@@ -254,6 +267,19 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
     // ZERO is deliberate: this backend has no drive-level control wired to the
     // UI yet, so anything higher would be an un-commanded power level chosen by
     // a default. An operator raising it explicitly is the only way it should go up.
+    Hl2TxDsp::Config tc;
+    tc.inputSampleRateHz = 24000;    // AudioEngine's rate; submitTxAudio re-checks
+    tc.outputSampleRateHz = 48000;   // EP2 is fixed at 48 kHz
+    tc.mode = modeFromString(m_mode);
+    std::string txErr;
+    bool txOk = false;
+    QMetaObject::invokeMethod(m_txDsp, [this, &tc, &txErr, &txOk] {
+        txOk = m_txDsp->configure(tc, &txErr);
+    }, Qt::BlockingQueuedConnection);
+    if (!txOk)
+        qWarning() << "Hl2Backend: TX DSP unavailable —"
+                   << QString::fromStdString(txErr) << "(receive is unaffected)";
+
     setTxDriveLevel(0);
 
     // Initial slice/pan state is published from the linkUp handler above, once
@@ -326,6 +352,11 @@ void Hl2Backend::setSliceMode(int /*sliceId*/, const QString& mode)
     m_mode = mode;
     if (m_dsp)
         QMetaObject::invokeMethod(m_dsp, "setMode", Qt::QueuedConnection,
+            Q_ARG(WdspChannel::Mode, modeFromString(mode)));
+    // The transmit sideband follows the slice. Without this, switching to LSB
+    // would receive on the lower sideband and still transmit on the upper.
+    if (m_txDsp)
+        QMetaObject::invokeMethod(m_txDsp, "setMode", Qt::QueuedConnection,
             Q_ARG(WdspChannel::Mode, modeFromString(mode)));
     emitSliceState();
 }
@@ -408,9 +439,15 @@ void Hl2Backend::setKeying(bool key)
                           "without AETHER_AUTOMATION_ALLOW_TX";
         return;
     }
+    m_keyed = key;
     if (m_metis)
         QMetaObject::invokeMethod(m_metis, "setMox", Qt::QueuedConnection,
             Q_ARG(bool, key));
+    if (!key && m_txDsp) {
+        // Drop buffered audio and filter history on unkey, so the next
+        // transmission does not open with the tail of the previous one.
+        QMetaObject::invokeMethod(m_txDsp, "reset", Qt::QueuedConnection);
+    }
 }
 
 void Hl2Backend::setTxFrequency(double hz)
@@ -419,6 +456,41 @@ void Hl2Backend::setTxFrequency(double hz)
         return;
     QMetaObject::invokeMethod(m_metis, "setTxFrequencyHz", Qt::QueuedConnection,
         Q_ARG(std::uint32_t, static_cast<std::uint32_t>(hz)));
+}
+
+void Hl2Backend::submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz)
+{
+    // Only modulate while actually keyed. Feeding the modulator unkeyed would
+    // fill the transmit queue with audio that goes out the instant MOX asserts —
+    // the operator would hear the last second of the shack on their first
+    // syllable.
+    if (!m_txDsp || !m_keyed || int16Stereo.isEmpty())
+        return;
+    if (sampleRateHz != 24000) {
+        // Stated rather than silently resampled: the modulator's upsampler
+        // assumes this rate, and a mismatch transmits at the wrong pitch.
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            qWarning() << "Hl2Backend: TX audio arrived at" << sampleRateHz
+                       << "Hz, expected 24000 — not transmitting";
+        }
+        return;
+    }
+
+    // Interleaved stereo to mono. AudioEngine duplicates the mic across both
+    // channels, so averaging is right for that and still sane if they differ.
+    const auto* pcm = reinterpret_cast<const qint16*>(int16Stereo.constData());
+    const int frames = static_cast<int>(int16Stereo.size() / sizeof(qint16)) / 2;
+    std::vector<float> mono(static_cast<std::size_t>(frames));
+    for (int n = 0; n < frames; ++n) {
+        const float l = static_cast<float>(pcm[2 * n]) / 32768.0f;
+        const float r = static_cast<float>(pcm[2 * n + 1]) / 32768.0f;
+        mono[static_cast<std::size_t>(n)] = 0.5f * (l + r);
+    }
+    QMetaObject::invokeMethod(m_txDsp, [this, mono = std::move(mono)] {
+        m_txDsp->processAudioBlock(mono);
+    }, Qt::QueuedConnection);
 }
 
 void Hl2Backend::setTxTestTone(double offsetHz, double amplitude)

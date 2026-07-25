@@ -150,6 +150,75 @@ int main(int argc, char** argv)
               "the tone is >20 dB above the unkeyed floor at that bin");
     }
 
+    // ---- the REAL audio path: submitTxAudio -> modulator -> EP2 ----
+    //
+    // The tone above is generated inside MetisClient, so it proves the wire but
+    // not the chain an operator actually uses. This drives the same entry point
+    // AudioEngine feeds: processed int16 stereo at 24 kHz, which must arrive on
+    // the air as a single sideband at the audio frequency.
+    {
+        backend.setSliceMode(0, QStringLiteral("USB"));
+        spin(300);
+        backend.setKeying(true);
+
+        std::vector<float> voice;
+        constexpr double kAudioHz = 1500.0;
+        constexpr int kRate = 24000;
+        // ~2 s of audio in 20 ms blocks, the cadence AudioEngine delivers.
+        for (int blk = 0; blk < 100; ++blk) {
+            const int frames = kRate / 50;
+            QByteArray pcm(frames * 2 * static_cast<int>(sizeof(qint16)), 0);
+            auto* out = reinterpret_cast<qint16*>(pcm.data());
+            for (int n = 0; n < frames; ++n) {
+                const double t = static_cast<double>(blk * frames + n) / kRate;
+                const auto v = static_cast<qint16>(
+                    0.5 * 32767.0 * std::sin(2.0 * M_PI * kAudioHz * t));
+                out[2 * n] = v;
+                out[2 * n + 1] = v;      // AudioEngine duplicates across channels
+            }
+            backend.submitTxAudio(pcm, kRate);
+            spin(20);
+            // Capture WHILE transmitting. Sampling after the loop would read
+            // silence: the queue drains in well under a second once audio stops,
+            // and unlike the built-in tone (synthesised per packet, so it never
+            // stops) this path only carries what has been submitted.
+            if (blk == 80)
+                voice = lastSpectrum;
+        }
+        backend.setKeying(false);
+
+        if (voice.size() == baseline.size() && !voice.empty()) {
+            const int n = static_cast<int>(voice.size());
+            const int centre = n / 2;
+            const double binHz = 48000.0 / n;
+            const int expected = centre + static_cast<int>(std::lround(kAudioHz / binHz));
+            const int mirrored = centre - static_cast<int>(std::lround(kAudioHz / binHz));
+
+            int peak = 0;
+            for (int i = 1; i < n; ++i)
+                if (voice[static_cast<std::size_t>(i)] > voice[static_cast<std::size_t>(peak)])
+                    peak = i;
+
+            std::fprintf(stderr,
+                "mic path: peak bin %d (%.0f Hz), expected %d; wanted %.1f dB, "
+                "mirror %.1f dB, floor %.1f dB\n",
+                peak, (peak - centre) * binHz, expected,
+                voice[static_cast<std::size_t>(expected)],
+                voice[static_cast<std::size_t>(mirrored)],
+                baseline[static_cast<std::size_t>(expected)]);
+
+            check(std::abs(peak - expected) <= 4,
+                  "submitTxAudio: 1.5 kHz audio transmits at +1.5 kHz (USB)");
+            check(voice[static_cast<std::size_t>(expected)]
+                      - baseline[static_cast<std::size_t>(expected)] > 20.0f,
+                  "submitTxAudio: the tone is well above the unkeyed floor");
+            // The whole point of SSB: nothing on the other side of the carrier.
+            check(voice[static_cast<std::size_t>(expected)]
+                      - voice[static_cast<std::size_t>(mirrored)] > 20.0f,
+                  "submitTxAudio: opposite sideband suppressed on the air");
+        }
+    }
+
     backend.disconnectRadio();
     spin(500);
 
