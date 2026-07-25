@@ -388,9 +388,15 @@ std::array<std::uint8_t, kUsbPacketSize> MetisClient::buildNextControlPacket()
         std::vector<std::complex<float>> block(kTxSamplesPerPacket);
         const double dphi = 2.0 * 3.14159265358979323846 * m_toneHz / kEp2AudioRateHz;
         for (int n = 0; n < kTxSamplesPerPacket; ++n) {
+            // Negative sine: the HPSDR wire has the opposite handedness to the
+            // standard analytic convention, so this is the conjugate — the same
+            // correction Hl2TxDsp applies. ONE convention for both transmit
+            // paths, or a tone at a non-zero offset would land on the opposite
+            // side of the carrier from voice. (At the zero offset TUNE uses,
+            // handedness has no effect either way.)
             block[static_cast<std::size_t>(n)] = {
                 static_cast<float>(m_toneAmp * std::cos(m_tonePhase)),
-                static_cast<float>(m_toneAmp * std::sin(m_tonePhase))};
+                static_cast<float>(-m_toneAmp * std::sin(m_tonePhase))};
             m_tonePhase += dphi;
         }
         // Keep the accumulator bounded without introducing a phase step.

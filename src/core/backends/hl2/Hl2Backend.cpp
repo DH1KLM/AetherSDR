@@ -723,6 +723,14 @@ void Hl2Backend::publishTelemetry(const Hl2Telemetry& t)
         qCDebug(lcHl2Tx) << "HL2 directional: fwd" << *t.forwardPowerRaw
                          << "rev" << t.reversePowerRaw.value_or(-1);
     }
+    // TX IQ FIFO depth — the oracle calls this the most important number in the
+    // protocol. A queue-fed transmission can starve the radio's buffer in a way
+    // a per-packet generated tone never can, so this is what distinguishes
+    // "the audio is wrong" from "the audio never arrived".
+    if (m_keyed && t.txFifoCount)
+        qCDebug(lcHl2Tx) << "HL2 fifo:" << *t.txFifoCount
+                         << "under" << t.txFifoUnderflow.value_or(false)
+                         << "over" << t.txFifoOverflow.value_or(false);
     if (t.temperatureRaw)
         emit meterUpdate(QStringLiteral("RAD:PATEMP"), temperatureCelsius(*t.temperatureRaw));
 

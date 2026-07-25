@@ -1,9 +1,18 @@
 // SSB modulator correctness for the Hermes-Lite 2 transmit chain.
 //
-// The assertion that matters on the air: a 1 kHz audio tone must appear at
-// +1 kHz of baseband for USB and at -1 kHz for LSB. Getting this inverted
-// transmits on the wrong sideband — which sounds fine in a loopback and is
-// immediately obvious to everyone else on the band.
+// The assertion that matters on the air: for USB, a 1 kHz audio tone must leave
+// this modulator at -1 kHz of the IQ it hands to the wire, and for LSB at
+// +1 kHz.
+//
+// THAT SIGN LOOKS BACKWARDS AND IS NOT. The HPSDR wire order has the opposite
+// handedness to the standard analytic convention, which is why the receive path
+// conjugates with -imag() before WDSP sees anything. Transmit carries the same
+// correction, so the wire-facing sign is inverted from the textbook one.
+//
+// This was originally asserted the textbook way, and the test passed while every
+// transmission went out on the WRONG SIDEBAND — invisible from inside the
+// application, because the panadapter reads the same wire order and therefore
+// agreed with it. It took an operator with a second receiver to catch it.
 //
 // It also pins the rate conversion (24 kHz audio in, 48 kHz IQ out) and the
 // mic-gain path, both of which are easy to get subtly wrong in ways that only
@@ -118,8 +127,9 @@ int main(int argc, char** argv)
             const double ratioDb = 20.0 * std::log10((upper + 1e-12) / (lower + 1e-12));
             std::fprintf(stderr, "USB: +1kHz %.6f, -1kHz %.6f, suppression %.1f dB\n",
                          upper, lower, ratioDb);
-            check(upper > lower, "USB: energy is on the UPPER side");
-            check(ratioDb > 30.0, "USB: opposite sideband suppressed by >30 dB");
+            check(lower > upper,
+                  "USB: wire-facing IQ puts energy on the LOWER side (conjugated)");
+            check(-ratioDb > 30.0, "USB: opposite sideband suppressed by >30 dB");
         }
     }
 
@@ -132,8 +142,9 @@ int main(int argc, char** argv)
             const double ratioDb = 20.0 * std::log10((lower + 1e-12) / (upper + 1e-12));
             std::fprintf(stderr, "LSB: +1kHz %.6f, -1kHz %.6f, suppression %.1f dB\n",
                          upper, lower, ratioDb);
-            check(lower > upper, "LSB: energy is on the LOWER side");
-            check(ratioDb > 30.0, "LSB: opposite sideband suppressed by >30 dB");
+            check(upper > lower,
+                  "LSB: wire-facing IQ puts energy on the UPPER side (conjugated)");
+            check(-ratioDb > 30.0, "LSB: opposite sideband suppressed by >30 dB");
         }
     }
 

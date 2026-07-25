@@ -125,7 +125,11 @@ int main(int argc, char** argv)
         const int n = static_cast<int>(keyed.size());
         const int centre = n / 2;
         const double binHz = 48000.0 / n;
-        const int expected = centre + static_cast<int>(std::lround(kToneOffsetHz / binHz));
+        // NEGATIVE offset: hpsdrsim feeds the TX IQ back in WIRE order, and the
+        // wire is the conjugate of the standard analytic convention (see
+        // Hl2TxDsp). On the air this same IQ becomes +5 kHz; here we are looking
+        // at the wire, so it reads -5 kHz.
+        const int expected = centre - static_cast<int>(std::lround(kToneOffsetHz / binHz));
 
         // Find the strongest bin while keyed.
         int peak = 0;
@@ -191,8 +195,13 @@ int main(int argc, char** argv)
             const int n = static_cast<int>(voice.size());
             const int centre = n / 2;
             const double binHz = 48000.0 / n;
-            const int expected = centre + static_cast<int>(std::lround(kAudioHz / binHz));
-            const int mirrored = centre - static_cast<int>(std::lround(kAudioHz / binHz));
+            // Same wire-order reasoning as above: USB audio leaves the
+            // modulator BELOW centre in wire order and is transmitted above the
+            // carrier. Asserting the textbook sign here is precisely what let a
+            // wrong-sideband transmitter pass its own tests — it took an
+            // operator with a second receiver to catch it.
+            const int expected = centre - static_cast<int>(std::lround(kAudioHz / binHz));
+            const int mirrored = centre + static_cast<int>(std::lround(kAudioHz / binHz));
 
             int peak = 0;
             for (int i = 1; i < n; ++i)

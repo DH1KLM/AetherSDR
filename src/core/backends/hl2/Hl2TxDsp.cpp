@@ -252,9 +252,24 @@ void Hl2TxDsp::processAudioBlock(const std::vector<float>& mono)
             m_histPos = (m_histPos + 1) % N;
 
             // bi and bq are the in-phase and quadrature halves of the analytic
-            // signal. Negating Q mirrors the spectrum, which is the sideband
+            // signal; negating Q mirrors the spectrum, which is the sideband
             // choice.
-            m_iq.emplace_back(bi, lsb ? -bq : bq);
+            const float q = lsb ? -bq : bq;
+
+            // CONJUGATE FOR THE WIRE.
+            //
+            // The HPSDR wire order has the OPPOSITE handedness to the standard
+            // analytic convention — the receive path already compensates for
+            // exactly this, conjugating with -imag() before handing IQ to WDSP.
+            // Transmit needs the same correction in the same place and did not
+            // have it, so every transmission went out on the wrong sideband.
+            //
+            // Caught on the air, not on the bench: the operator's Yaesu heard
+            // our LSB on its USB. It is invisible from inside this application
+            // because the panadapter reads the same wire order, so our own
+            // display and our own transmission agreed with each other while
+            // both disagreed with the rest of the band.
+            m_iq.emplace_back(bi, -q);
         }
     }
 
