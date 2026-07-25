@@ -102,7 +102,17 @@ void Hl2RxDsp::processIqBlock(const std::vector<std::complex<float>>& iq)
     while (m_iqBuffer.size() - consumed >= block) {
         for (std::size_t n = 0; n < block; ++n) {
             m_i[n] = m_iqBuffer[consumed + n].real();
-            m_q[n] = m_iqBuffer[consumed + n].imag();
+            // Conjugate for WDSP. The HPSDR wire order (I then Q, decoded in
+            // MetisProtocol) produces a spectrum whose handedness is the
+            // opposite of what WDSP's sideband selection assumes, so USB
+            // demodulated the LOWER sideband and LSB the upper — audibly, the
+            // two sidebands were swapped while the panadapter looked right.
+            //
+            // Applied HERE and not in the decoder deliberately: Hl2Spectrum
+            // takes the same buffer and its handedness is already correct, so
+            // conjugating upstream would fix the audio and mirror the display.
+            // The narrow fix is that WDSP's convention differs from the wire's.
+            m_q[n] = -m_iqBuffer[consumed + n].imag();
         }
         consumed += block;
 
