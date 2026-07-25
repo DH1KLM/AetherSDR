@@ -508,6 +508,26 @@ void Hl2Backend::setTxTestTone(double offsetHz, double amplitude)
         Q_ARG(double, offsetHz), Q_ARG(double, amplitude));
 }
 
+void Hl2Backend::setTune(bool on)
+{
+    // A tune carrier is an unmodulated steady signal at the transmit frequency.
+    // The HL2 has no tune generator of its own, so it is the built-in test tone
+    // at ZERO offset — a carrier exactly on the TX NCO — with keying held for as
+    // long as tune is engaged.
+    //
+    // Ordering matters in both directions: bring the carrier up BEFORE keying so
+    // the first frames on the air already carry it rather than silence, and drop
+    // the key BEFORE the carrier on the way out so nothing is left radiating if
+    // the tone clear is delayed behind other queued control verbs.
+    if (on) {
+        setTxTestTone(0.0, kTuneCarrierAmplitude);
+        setKeying(true);
+    } else {
+        setKeying(false);
+        setTxTestTone(0.0, 0.0);
+    }
+}
+
 void Hl2Backend::setTxPower(int percent)
 {
     // The operator's 0..100 maps onto the HL2's 0..255 drive field. The gateware

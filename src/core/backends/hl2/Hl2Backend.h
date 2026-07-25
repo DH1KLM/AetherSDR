@@ -48,6 +48,7 @@ public:
     void setKeying(bool key) override;
     void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz) override;
     void setTxPower(int percent) override;
+    void setTune(bool on) override;
     void setTxFrequency(double hz);
     void setTxDriveLevel(int level);
     // Baseband TX test tone, offsetHz from the carrier, amplitude 0..1.
@@ -99,6 +100,11 @@ private:
     Hl2Telemetry m_telemetry;
     bool m_adcOverload = false;
     bool m_keyed = false;
+    // Tune-carrier amplitude, full scale into the modulator. Actual radiated
+    // power is governed by the TX drive register, which is where an operator
+    // sets it; scaling here as well would make the power control non-linear for
+    // no reason.
+    static constexpr double kTuneCarrierAmplitude = 1.0;
     int m_lastFwdRaw = -1;
     // Authoritative AGC state, mirroring the DSP defaults in Hl2RxDsp::Config so
     // the first sliceChanged reports what WDSP was actually opened with.

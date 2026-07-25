@@ -108,6 +108,12 @@ public:
     // compressor and EQ before this point. That is deliberate — the TONE button,
     // the microphone and any future source all reach the air through ONE path,
     // so what the operator monitors is what gets transmitted.
+    // Tune carrier on/off.
+    //
+    // Flex takes "transmit tune N" as a text command, so FlexBackend has nothing
+    // to do here. A backend that generates its own carrier implements it.
+    virtual void setTune(bool on) { Q_UNUSED(on); }
+
     // Transmit power as a percentage, 0..100.
     //
     // Flex takes this as a text command from TransmitModel, so FlexBackend has

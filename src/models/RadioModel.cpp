@@ -585,6 +585,29 @@ void RadioModel::setupBackend(const QString& family)
         if (m_backend)
             m_backend->setTxPower(percent);
     });
+    // Keying and tune from the GUI.
+    //
+    // These paths never reached a non-Flex backend: the MOX button goes through
+    // TransmitModel::setMox, which emits the Flex text command "xmit 1" and
+    // nothing else, and TUNE emits "transmit tune 1" the same way. Only the
+    // automation bridge's key verb went through setTransmit() and therefore
+    // through the seam — which is exactly why keying worked under test and did
+    // nothing when the operator pressed MOX.
+    //
+    // Gated to non-Flex families ON PURPOSE: for Flex the text command above
+    // already keys the radio, and routing this as well would send "xmit 1"
+    // twice.
+    connect(&m_transmitModel, &TransmitModel::moxCommandIssued, this,
+            [this](bool on) {
+        if (m_backend && m_family != QLatin1String("flex"))
+            m_backend->setKeying(on);
+    });
+    connect(&m_transmitModel, &TransmitModel::tuneCommandIssued, this,
+            [this](bool on) {
+        if (m_backend && m_family != QLatin1String("flex"))
+            m_backend->setTune(on);
+    });
+
     // Push the CURRENT power on connect, not only on change. rfPowerChanged
     // fires on edges, so a session that never touches the control left the
     // radio at whatever its own default was — on the HL2 that is drive 0, which

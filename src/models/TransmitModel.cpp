@@ -275,6 +275,7 @@ void TransmitModel::startTune(PttSource source)
     m_activePttSource = source;
 
     emit commandReady("transmit tune 1");
+    emit tuneCommandIssued(true);
 }
 
 void TransmitModel::startTwoToneTune(PttSource source)
@@ -285,6 +286,7 @@ void TransmitModel::startTwoToneTune(PttSource source)
     m_activePttSource = source;   // exclude local/TCI/DAX tune (see startTune, #4131)
     setTuneMode("two_tone");
     emit commandReady("transmit tune 1");
+    emit tuneCommandIssued(true);
 }
 
 void TransmitModel::toggleTwoToneTune()
@@ -305,6 +307,7 @@ void TransmitModel::toggleTwoToneTune()
 void TransmitModel::stopTune()
 {
     emit commandReady("transmit tune 0");
+    emit tuneCommandIssued(false);
 }
 
 void TransmitModel::setMox(bool on)
@@ -317,6 +320,7 @@ void TransmitModel::setMox(bool on)
         emit moxChanged(on);
     }
     emit commandReady(QString("xmit %1").arg(on ? 1 : 0));
+    emit moxCommandIssued(on);
 }
 
 void TransmitModel::setTransmitting(bool tx)

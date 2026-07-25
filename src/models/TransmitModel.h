@@ -252,6 +252,15 @@ signals:
     // Typed RF-power change, for backends that set drive through the seam
     // rather than by parsing the Flex command string above.
     void rfPowerChanged(int percent);
+    // Keying and tune as INTENT rather than as a Flex command string.
+    //
+    // setMox() and startTune() emit "xmit N" / "transmit tune N" through
+    // commandReady, which is a Flex TCP command and reaches a backend with no
+    // command channel not at all. These carry the same intent for backends that
+    // key through IRadioBackend. RadioModel routes them only for non-Flex
+    // families, so Flex keeps its single command and does not key twice.
+    void moxCommandIssued(bool on);
+    void tuneCommandIssued(bool on);
     void tuneChanged(bool tuning);
     void moxChanged(bool mox);
     // Fires whenever m_transmitting changes — from setMox() (optimistic edge)
