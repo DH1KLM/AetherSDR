@@ -380,6 +380,8 @@ public:
     // mirror back to the wire form without duplicating the mode list.
     static bool filterPolarityUsbFamily(const QString& mode);
     static bool filterPolarityLsbFamily(const QString& mode);
+    // Modes whose passband must straddle the carrier (AM/SAM/DSB/DRM/FM...).
+    static bool filterCarrierStraddlingFamily(const QString& mode);
 
 private:
     // Sign-guarded, idempotent (lo,hi)→(-hi,-lo) mirror of the stored filter
