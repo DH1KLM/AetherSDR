@@ -28,14 +28,23 @@ namespace AetherSDR::hl2 {
 // state a figure for it; Quisk and SparkSDR both build per-unit calibration
 // tables for the analogous TX power question rather than quoting a constant.
 //
-// So the default is 0.0, which reproduces exactly what this backend reported
-// before this type existed: dBFS on a dBm-labelled axis. That is still wrong,
-// but it is the SAME wrong, and it is now wrong in one labelled place with a
-// setter, instead of being invisible. Silently substituting an invented
-// constant would have made the numbers look calibrated without being so, which
-// is worse than an honest offset of zero.
+// So it defaults to 0.0 and the gain term is measured RELATIVE to a reference
+// gain, not absolutely. At the default LNA setting the offset is exactly zero
+// and this backend reports precisely what it reported before this type existed:
+// dBFS on a dBm-labelled axis. That is still wrong, but it is the SAME wrong,
+// in one labelled place with a setter, instead of being invisible.
+//
+// The relative form matters. Subtracting the gain ABSOLUTELY would have been
+// just as defensible in theory and was what the first version of this did --
+// and it silently moved the whole displayed noise floor by 20 dB, from about
+// -120 to about -140, because the default LNA gain is 20 dB. Neither number is
+// calibrated, so that shift bought nothing and would have looked to the
+// operator exactly like the regression this class exists to prevent.
 class Hl2DbReference {
 public:
+    // Matches Hl2Backend/MetisClient's default LNA setting.
+    static constexpr double kDefaultLnaGainDb = 20.0;
+
     // Gain we commanded on the AD9866 LNA, in dB.
     void setLnaGainDb(double db) noexcept { m_lnaGainDb = db; }
     double lnaGainDb() const noexcept { return m_lnaGainDb; }
@@ -46,18 +55,29 @@ public:
     double fullScaleDbm() const noexcept { return m_fullScaleDbm; }
     bool isCalibrated() const noexcept { return m_fullScaleDbm != 0.0; }
 
+    // The gain the uncalibrated scale is referred to. At this gain the offset
+    // is zero, so the reported number is raw dBFS. Defaults to the backend's
+    // default LNA setting, which is what keeps the displayed floor where the
+    // operator has always seen it.
+    void setReferenceLnaGainDb(double db) noexcept { m_referenceLnaGainDb = db; }
+    double referenceLnaGainDb() const noexcept { return m_referenceLnaGainDb; }
+
     // The whole point: subtracting the gain we applied is what keeps a signal
     // of constant strength reading the same dBm across a gain change.
     double toDbm(double dbfs) const noexcept
     {
-        return dbfs + m_fullScaleDbm - m_lnaGainDb;
+        return dbfs + offsetDb();
     }
 
     // Offset form, for applying to a whole spectrum frame without a call per bin.
-    double offsetDb() const noexcept { return m_fullScaleDbm - m_lnaGainDb; }
+    double offsetDb() const noexcept
+    {
+        return m_fullScaleDbm - (m_lnaGainDb - m_referenceLnaGainDb);
+    }
 
 private:
-    double m_lnaGainDb = 0.0;
+    double m_lnaGainDb = kDefaultLnaGainDb;
+    double m_referenceLnaGainDb = kDefaultLnaGainDb;
     double m_fullScaleDbm = 0.0;
 };
 

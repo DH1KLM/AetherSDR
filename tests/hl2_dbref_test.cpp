@@ -28,8 +28,15 @@ int main()
     // Uncalibrated by default: reports dBFS unchanged, exactly as this backend
     // did before the type existed. No silent recalibration.
     check(!ref.isCalibrated(), "defaults to uncalibrated");
-    check(near(ref.toDbm(-73.0), -73.0), "uncalibrated pass-through is identity");
-    check(near(ref.offsetDb(), 0.0), "uncalibrated offset is zero");
+    check(near(ref.toDbm(-73.0), -73.0),
+          "uncalibrated pass-through at the default gain is identity");
+    check(near(ref.offsetDb(), 0.0), "uncalibrated offset at the default gain is zero");
+
+    // The regression this guards: subtracting the gain ABSOLUTELY rather than
+    // relative to the reference moved the whole displayed floor by 20 dB.
+    ref.setLnaGainDb(Hl2DbReference::kDefaultLnaGainDb);
+    check(near(ref.toDbm(-120.0), -120.0),
+          "default gain leaves the displayed floor exactly where it was");
 
     // A fixed antenna signal. Raising the LNA by 20 dB raises the digitised
     // level by 20 dB -- and must NOT change the reported strength.
