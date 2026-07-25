@@ -406,6 +406,26 @@ QJsonObject describeWidget(const QWidget* w)
             o[QStringLiteral("centerLockSliceId")] = centerLockSliceId.toInt();
             o[QStringLiteral("centerMhz")] = w->property("centerMhz").toDouble();
             o[QStringLiteral("bandwidthMhz")] = w->property("bandwidthMhz").toDouble();
+            // Pan/waterfall alignment. Each waterfall row carries its own
+            // frequency extent and is resampled into the current view, so a row
+            // whose extent disagrees with the pan renders at the wrong
+            // frequency. Publishing the last row's extent alongside the pan's
+            // own geometry — plus the signed centre error in Hz — turns
+            // "the waterfall looks off" into an assertable number.
+            const QVariant wfLow = w->property("wfRowLowMhz");
+            const QVariant wfHigh = w->property("wfRowHighMhz");
+            if (wfLow.isValid() && wfHigh.isValid()) {
+                const double lo = wfLow.toDouble();
+                const double hi = wfHigh.toDouble();
+                if (!std::isnan(lo) && !std::isnan(hi)) {
+                    o[QStringLiteral("wfRowLowMhz")] = lo;
+                    o[QStringLiteral("wfRowHighMhz")] = hi;
+                    o[QStringLiteral("wfRowCenterMhz")] = (lo + hi) / 2.0;
+                    o[QStringLiteral("wfRowSpanMhz")] = hi - lo;
+                    o[QStringLiteral("wfCenterErrorHz")] =
+                        ((lo + hi) / 2.0 - w->property("centerMhz").toDouble()) * 1.0e6;
+                }
+            }
         }
     }
 
@@ -2570,6 +2590,17 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                 if (a.target.isEmpty())
                     return err(QStringLiteral("drag requires a target and '<dx> <dy>'"));
                 return s.doDrag(a.target, a.value);
+            });
+
+        add("wheel", {QStringLiteral("scroll")},
+            "wheel <target> <x> <y> <steps> [modifiers] — synthesize a wheel event "
+            "(positive steps = scroll up); drives wheel VFO tuning",
+            parseTargetRest,
+            [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
+                if (a.target.isEmpty())
+                    return err(QStringLiteral(
+                        "wheel requires a target and '<x> <y> <steps>'"));
+                return s.doWheel(a.target, a.value);
             });
 
         add("dragAt", {},
@@ -6734,6 +6765,65 @@ QJsonObject AutomationServer::doDrag(const QString& target, const QString& value
         {QStringLiteral("dx"), dx},
         {QStringLiteral("dy"), dy},
     };
+}
+
+QJsonObject AutomationServer::doWheel(const QString& target, const QString& value) const
+{
+    // Synthesize a real QWheelEvent. Wheel tuning is one of the four ways an
+    // operator moves the VFO, and it was the only one with no bridge verb — so
+    // it was the only one that could not be regression-tested. Steps are wheel
+    // detents (positive = away from the user / scroll up), converted at Qt's
+    // conventional 120 units per detent.
+    QWidget* w = resolveWidget(target);
+    if (!w)
+        return err(QStringLiteral("widget or window not found: ") + target);
+    const QJsonObject safetyError = pointerSafetyError(w, target, QStringLiteral("wheel"));
+    if (!safetyError.isEmpty())
+        return safetyError;
+
+    const QStringList parts = value.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    if (parts.size() < 3)
+        return err(QStringLiteral("wheel requires '<x> <y> <steps> [modifiers]'"));
+    bool okx = false, oky = false, oks = false;
+    const int x = parts.at(0).toInt(&okx);
+    const int y = parts.at(1).toInt(&oky);
+    const int steps = parts.at(2).toInt(&oks);
+    if (!okx || !oky || !oks)
+        return err(QStringLiteral("wheel x/y/steps must be integers"));
+    if (steps == 0)
+        return err(QStringLiteral("wheel steps must be non-zero"));
+
+    const QPoint pos(x, y);
+    if (!w->rect().contains(pos))
+        return err(QStringLiteral("wheel point is outside the target widget"));
+
+    Qt::KeyboardModifiers modifiers = Qt::NoModifier;
+    for (int i = 3; i < parts.size(); ++i) {
+        const QString m = parts.at(i).trimmed().toLower();
+        if (m == QStringLiteral("control") || m == QStringLiteral("ctrl"))
+            modifiers |= Qt::ControlModifier;
+        else if (m == QStringLiteral("shift"))
+            modifiers |= Qt::ShiftModifier;
+        else if (m == QStringLiteral("alt") || m == QStringLiteral("option"))
+            modifiers |= Qt::AltModifier;
+        else if (m == QStringLiteral("meta") || m == QStringLiteral("cmd"))
+            modifiers |= Qt::MetaModifier;
+        else if (m != QStringLiteral("none"))
+            return err(QStringLiteral("wheel unknown modifier: ") + parts.at(i));
+    }
+
+    const QPoint globalPos = w->mapToGlobal(pos);
+    const QPoint angle(0, steps * 120);
+    QWheelEvent ev(QPointF(pos), QPointF(globalPos), QPoint(0, 0), angle,
+                   Qt::NoButton, modifiers, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(w, &ev);
+
+    return QJsonObject{{QStringLiteral("ok"), true},
+                       {QStringLiteral("wheel"), target},
+                       {QStringLiteral("x"), x},
+                       {QStringLiteral("y"), y},
+                       {QStringLiteral("steps"), steps},
+                       {QStringLiteral("angleDeltaY"), angle.y()}};
 }
 
 QJsonObject AutomationServer::doDragAt(const QString& target, const QString& value) const
