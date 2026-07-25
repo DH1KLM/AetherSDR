@@ -658,6 +658,49 @@ bool MainWindow::snapCenterLockForSlice(SliceModel* slice, double mhz, bool send
     return changed;
 }
 
+// Re-push the pan's authoritative geometry into its spectrum view.
+//
+// SpectrumWidget suppresses inbound geometry while a local gesture owns the
+// view (drag, VFO drag, a settling zoom). That is correct — an echo arriving
+// mid-drag is stale. It was also SAFE only because Flex re-echoes pan status
+// continuously, so the next status replaced whatever was dropped within
+// milliseconds.
+//
+// A backend that emits geometry only when it CHANGES has no next status. The
+// HL2 publishes its pan centre from the RX NCO, once, on tune: if that lands
+// during a gesture hold it is gone for good, and the view stays parked at the
+// old centre while the slice, the pan model and every waterfall row have moved
+// on — measured at a permanent 6.3 kHz offset after a single drag-tune.
+//
+// So the widget reports that it suppressed something, and we re-push the model
+// value HERE rather than let it replay the value it saw. The model is the
+// authority for both families: for Flex it only advances once a command
+// actually reached the wire (#4142), and for a DSP-owning backend it mirrors
+// hardware state. Reading it now cannot resurrect a stale echo.
+void MainWindow::resyncPanGeometryToView(const QString& panId)
+{
+    if (m_shuttingDown || !m_panStack)
+        return;
+    auto* pan = m_radioModel.panadapter(panId);
+    auto* sw = m_panStack->spectrum(panId);
+    if (!pan || !sw)
+        return;
+    const double centerMhz = pan->centerMhz();
+    const double bandwidthMhz = pan->bandwidthMhz();
+    if (centerMhz <= 0.0 || bandwidthMhz <= 0.0)
+        return;
+    if (qFuzzyCompare(sw->centerMhz(), centerMhz)
+        && qFuzzyCompare(sw->bandwidthMhz(), bandwidthMhz)) {
+        return;   // already in agreement — nothing was actually lost
+    }
+    qCDebug(lcProtocol).noquote()
+        << "MainWindow: re-syncing suppressed pan geometry to view"
+        << QStringLiteral("pan=%1").arg(panId)
+        << QStringLiteral("view=%1").arg(sw->centerMhz(), 0, 'f', 6)
+        << QStringLiteral("model=%1").arg(centerMhz, 0, 'f', 6);
+    sw->setFrequencyRangeImmediate(centerMhz, bandwidthMhz);
+}
+
 void MainWindow::snapCenterLocksForTuningSlice(SliceModel* slice, double mhz,
                                                 bool sendCommand)
 {

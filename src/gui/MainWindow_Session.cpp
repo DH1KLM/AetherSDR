@@ -1203,6 +1203,15 @@ void MainWindow::wirePanLifecycle()
                 menu->setDeclaredBands(m_radioModel.declaredBands());
                 connect(pan, &PanadapterModel::infoChanged,
                         sw, &SpectrumWidget::setFrequencyRange);
+                // Re-push authoritative geometry when a gesture that was
+                // suppressing it releases. Without this a backend that emits
+                // geometry only on change (HL2's NCO) loses the update for good
+                // and the view stays parked at the old centre while the slice,
+                // pan model and waterfall have all moved.
+                connect(sw, &SpectrumWidget::panGeometryResyncNeeded,
+                        this, [this, panId = pan->panId()]() {
+                    resyncPanGeometryToView(panId);
+                });
                 connect(pan, &PanadapterModel::infoChanged,
                         this, [this, panId = pan->panId()](double, double) {
                     if (!profileLoadRadioStateWritesHeld()) {
@@ -1265,6 +1274,10 @@ void MainWindow::wirePanLifecycle()
         }
         connect(pan, &PanadapterModel::infoChanged,
                 applet->spectrumWidget(), &SpectrumWidget::setFrequencyRange);
+        connect(applet->spectrumWidget(), &SpectrumWidget::panGeometryResyncNeeded,
+                this, [this, panId = pan->panId()]() {
+            resyncPanGeometryToView(panId);
+        });
         connect(pan, &PanadapterModel::infoChanged,
                 this, [this, panId = pan->panId()](double, double) {
             if (!profileLoadRadioStateWritesHeld()) {

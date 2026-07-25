@@ -1397,6 +1397,7 @@ private:
     QString centerLockRadioKey() const;
     void syncCenterLockUi(const QString& panId);
     bool snapCenterLockForSlice(SliceModel* slice, double mhz, bool sendCommand);
+    void resyncPanGeometryToView(const QString& panId);
     void snapCenterLocksForTuningSlice(SliceModel* slice, double mhz,
                                        bool sendCommand);
     void holdCenterLockTuneTarget(SliceModel* slice, double mhz);
