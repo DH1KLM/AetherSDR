@@ -7,6 +7,7 @@
 #include <QtGlobal>
 
 #include <algorithm>
+#include <cmath>
 #include <span>
 
 #ifdef Q_OS_WIN
@@ -337,6 +338,14 @@ void MetisClient::queueTxIq(std::span<const std::complex<float>> iq)
         m_txIq.pop_front();
 }
 
+void MetisClient::setTxTestTone(double offsetHz, double amplitude)
+{
+    m_toneHz = offsetHz;
+    m_toneAmp = amplitude < 0.0 ? 0.0 : (amplitude > 1.0 ? 1.0 : amplitude);
+    if (m_toneAmp == 0.0)
+        m_tonePhase = 0.0;
+}
+
 std::array<std::uint8_t, kUsbPacketSize> MetisClient::buildNextControlPacket()
 {
     static const Cc kCcAdc = ccAdcAssign();
@@ -359,7 +368,21 @@ std::array<std::uint8_t, kUsbPacketSize> MetisClient::buildNextControlPacket()
     // Only put samples on the wire while actually keyed. Unkeyed frames carry
     // transmit silence, which is what ep2Packet's zero fill already gives us --
     // and which also keeps EADDR zero (see ep2WriteTxIq).
-    if (keyed && !m_txIq.empty()) {
+    if (keyed && m_toneAmp > 0.0) {
+        // EP2 is clocked at a fixed 48 kHz regardless of the RX sample rate.
+        std::vector<std::complex<float>> block(kTxSamplesPerPacket);
+        const double dphi = 2.0 * 3.14159265358979323846 * m_toneHz / kEp2AudioRateHz;
+        for (int n = 0; n < kTxSamplesPerPacket; ++n) {
+            block[static_cast<std::size_t>(n)] = {
+                static_cast<float>(m_toneAmp * std::cos(m_tonePhase)),
+                static_cast<float>(m_toneAmp * std::sin(m_tonePhase))};
+            m_tonePhase += dphi;
+        }
+        // Keep the accumulator bounded without introducing a phase step.
+        while (m_tonePhase > 2.0 * 3.14159265358979323846)
+            m_tonePhase -= 2.0 * 3.14159265358979323846;
+        ep2WriteTxIq(pkt, block);
+    } else if (keyed && !m_txIq.empty()) {
         std::vector<std::complex<float>> block;
         const std::size_t n = std::min<std::size_t>(kTxSamplesPerPacket, m_txIq.size());
         block.reserve(n);

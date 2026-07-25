@@ -419,6 +419,18 @@ void Hl2Backend::setTxFrequency(double hz)
         Q_ARG(std::uint32_t, static_cast<std::uint32_t>(hz)));
 }
 
+void Hl2Backend::setTxTestTone(double offsetHz, double amplitude)
+{
+    if (!m_metis)
+        return;
+    if (amplitude > 0.0 && !m_txAllowed) {
+        qWarning() << "Hl2Backend: test tone refused — transmit not available";
+        return;
+    }
+    QMetaObject::invokeMethod(m_metis, "setTxTestTone", Qt::QueuedConnection,
+        Q_ARG(double, offsetHz), Q_ARG(double, amplitude));
+}
+
 void Hl2Backend::setTxDriveLevel(int level)
 {
     if (!m_metis)

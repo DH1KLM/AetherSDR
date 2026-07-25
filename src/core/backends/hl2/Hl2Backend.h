@@ -46,6 +46,9 @@ public:
     void setKeying(bool key) override;
     void setTxFrequency(double hz);
     void setTxDriveLevel(int level);
+    // Baseband TX test tone, offsetHz from the carrier, amplitude 0..1.
+    // Opt-in only — never enabled by a default.
+    void setTxTestTone(double offsetHz, double amplitude);
 
     void invokeExtension(const QString& ns, const QString& verb, quint64 requestId,
                          const QVariant& arg) override;

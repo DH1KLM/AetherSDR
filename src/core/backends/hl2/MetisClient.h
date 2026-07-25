@@ -130,6 +130,19 @@ public:
     void queueTxIq(std::span<const std::complex<float>> iq);
     [[nodiscard]] std::size_t txQueueDepth() const noexcept { return m_txIq.size(); }
 
+    // A baseband test tone, offsetHz from the TX carrier, amplitude 0..1.
+    // amplitude <= 0 disables it. Takes precedence over queued IQ.
+    //
+    // Synthesised inside the packet builder, one packet's worth at a time, so it
+    // is paced by EP2 itself rather than by a producer thread that could drift
+    // against the pacer and underrun. Phase carries across packets, so the tone
+    // is continuous rather than restarting every 2.625 ms.
+    //
+    // NEVER enabled implicitly. A radio that emits a carrier because a default
+    // said so is an unintended transmission, so this is opt-in only.
+    Q_INVOKABLE void setTxTestTone(double offsetHz, double amplitude);
+    [[nodiscard]] bool txTestToneEnabled() const noexcept { return m_toneAmp > 0.0; }
+
 signals:
     void linkUp();                                                  // first EP6 seen
     void linkDown();                                               // stopped
@@ -200,6 +213,9 @@ private:
     // Roughly a quarter second at 48 kHz. Past this the operator is hearing
     // latency, so dropping is better than growing the backlog.
     static constexpr std::size_t kTxQueueMax = 12000;
+    double m_toneHz = 0.0;
+    double m_toneAmp = 0.0;
+    double m_tonePhase = 0.0;   // radians, carried across packets
     bool m_mox = false;         // requested key state, only honoured if m_txAllowed
 
     std::uint32_t m_txSeq = 0;           // outgoing EP2 sequence

@@ -3964,6 +3964,11 @@ if(Qt6WebSockets_FOUND)
 endif()
 
 # aetherd RFC 2.3 — MeterModel touchpoint: meter-status wire decode.
+add_executable(hl2_tx_loopback_test tests/hl2_tx_loopback_test.cpp)
+target_include_directories(hl2_tx_loopback_test PRIVATE src)
+target_link_libraries(hl2_tx_loopback_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME hl2_tx_loopback_test COMMAND hl2_tx_loopback_test)
+
 add_executable(hl2_tx_gate_test tests/hl2_tx_gate_test.cpp)
 target_include_directories(hl2_tx_gate_test PRIVATE src)
 target_link_libraries(hl2_tx_gate_test PRIVATE aethercore Qt6::Core Qt6::Network)
