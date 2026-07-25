@@ -227,7 +227,12 @@ bool WdspChannel::setFilter(double lowHz, double highHz) noexcept
     {
         const std::scoped_lock setupLock(g_setupMutex);
         if (m_config.direction == Direction::Receive) {
+            // RXASetPassband, not SetRXABandpassFreqs: the latter sets only the
+            // bandpass and leaves the NBP stage — the filter actually in
+            // circuit — untouched, so nothing selects a sideband. Both
+            // reference clients use the composite call.
             SetRXABandpassFreqs(m_channelId, lowHz, highHz);
+            RXANBPSetFreqs(m_channelId, lowHz, highHz);
         } else {
             SetTXABandpassFreqs(m_channelId, lowHz, highHz);
         }
@@ -336,6 +341,7 @@ void WdspChannel::open() noexcept
     if (m_config.direction == Direction::Receive) {
         SetRXAMode(m_channelId, wdspMode(m_config.mode));
         SetRXABandpassFreqs(m_channelId, m_config.filterLowHz, m_config.filterHighHz);
+        RXANBPSetFreqs(m_channelId, m_config.filterLowHz, m_config.filterHighHz);
         SetRXAAGCMode(m_channelId, m_config.agcMode);
         SetRXAAGCTop(m_channelId, m_config.maximumAgcGainDb);
     } else {

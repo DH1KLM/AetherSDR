@@ -32,6 +32,16 @@ void fexchange2(int channel, float* inputI, float* inputQ,
                 float* outputLeft, float* outputRight, int* error);
 void SetRXAMode(int channel, int mode);
 void SetRXABandpassFreqs(int channel, double lowHz, double highHz);
+// Canonical passband setter. RXASetPassband() is what both reference clients
+// (Thetis, pihpsdr) call: it sets the bandpass AND the SNBA output bandwidth
+// AND the NBP stage. SetRXABandpassFreqs() alone touches only the first, which
+// leaves the filter actually in circuit untouched — no sideband selection, so
+// USB and LSB demodulate identically and filter edges have no audible effect.
+void RXASetPassband(int channel, double lowHz, double highHz);
+// The two stages RXASetPassband sets in addition to the bandpass, exposed
+// separately so their effects can be attributed independently.
+void RXANBPSetFreqs(int channel, double lowHz, double highHz);
+void SetRXASNBAOutputBandwidth(int channel, double lowHz, double highHz);
 void SetRXAAGCMode(int channel, int mode);
 void SetRXAAGCTop(int channel, double maximumGainDb);
 void SetTXAMode(int channel, int mode);
