@@ -510,7 +510,7 @@ All three are only visible by reading the reference clients, which is exactly
 the oracles' own §0 discipline. **Addendum 3 now covers this ground** and
 independently confirms items 2 and 3 — see §12.
 
-### 11.7 Open items, next session
+### 11.7 Open items (superseded by §13)
 
 1. Rename `kC0AdcAssign`, document the `0x0e` dual meaning (11.1).
 2. Issue a pipeline reset after an NCO move (11.2).
@@ -626,9 +626,9 @@ averaging mode, **not a bigger FFT**.
   diagnostic pairing on the HL2, and it ties §11.4's missing telemetry to the
   bandscope.
 
-### 12.6 Revised next-session list
+### 12.6 Revised next-session list (superseded by §13)
 
-Supersedes §11.7. Cheap and high-value first:
+Cheap and high-value first:
 
 1. Mute ramps → `0.010, 0.025, 0.000, 0.010` (12.3). One line.
 2. S-meter → `GetRXAMeter(RXA_S_PK)` instead of post-AGC audio RMS (12.3).
@@ -639,3 +639,73 @@ Supersedes §11.7. Cheap and high-value first:
 7. RQST/ACK, then ADC overload + clip telemetry, paired with WDSP's own ADC
    meter (11.4, 12.5).
 8. Move the HL2 DSP off the GUI thread — watchdog correctness (11.3).
+
+
+---
+
+## 13. Consolidated backlog
+
+Everything still open, across all four oracles and our own gap list. This is the
+canonical to-do table; §11.7 and §12.6 are partial views kept for provenance.
+
+Effort is rough: **XS** under an hour, **S** a session, **M** a few sessions,
+**L** a design conversation first.
+
+### Tier 1 — cheap, high value, do first
+
+| # | Item | Source | Why it matters | Effort |
+|---|---|---|---|---|
+| 1 | Mute ramps `0.010/0.025/0.000/0.010` instead of all zeros | A3 §2 | The anti-click mechanism; invisible until you are debugging clicks | XS |
+| 2 | S-meter from `GetRXAMeter(RXA_S_PK)`, not post-AGC audio RMS | A3 §7 | Current meter is held flat by the AGC — it deflects but tracks nothing | XS |
+| 3 | Rename `kC0AdcAssign`; document the `0x0e` dual meaning | O §4 | It is TX LNA gain on HL2. Latent TX/PureSignal hazard | XS |
+| 4 | Pipeline reset `0x39[7:4]=0x8` after an NCO move | A2 §B2 | Decimation state smears a transient across band-scale jumps — which `a1cbe154` made routine | XS |
+| 5 | Normalize by `2^23-1`, not `2^23` | A1 §A2 | dBFS parity with piHPSDR. Numerically trivial, but parity is the point | XS |
+| 6 | `RXASetNC` / `RXASetMP` after `OpenChannel` | A3 §7 | Selectivity vs latency; matters to CW operators. We silently take defaults | XS |
+
+### Tier 2 — correctness gaps
+
+| # | Item | Source | Why it matters | Effort |
+|---|---|---|---|---|
+| 7 | Read receiver count from discovery `0x13` | O §1 | We hardcode `maxSlices=1`. Standard gateware is 4; skimmer variants 9–12 with no TX | S |
+| 8 | Move HL2 wire + DSP off the GUI thread | O §2 | Watchdog stops the stream when the host stalls; we run both on the GUI thread | M |
+| 9 | `SetChannelState` for start/stop; `CloseChannel` only for teardown | A3 §2 | Conflating them gives clicks or leaks. Needed before T/R | S |
+| 10 | RADE null-deref at `MainWindow_DigitalModes.cpp:461` | ours, gap 9 | Same shape as the DAX crash; will kill HL2 the moment RADE starts | XS |
+| 11 | `AETHER_AUTOMATION_NO_AUTOCONNECT` not honoured on the HL2 path | ours, gap 10 | Test instances grab a live radio | S |
+| 12 | One dB-reference object per slice (LNA + calibration + AGC threshold) | A2 §A3 | Every LNA change shifts the absolute reference; the trace jumps and users read it as a real event | S |
+
+### Tier 3 — absent subsystems, in dependency order
+
+| # | Item | Source | Why it matters | Effort |
+|---|---|---|---|---|
+| 13 | RQST/ACK state machine | O §5 | Gate for everything below. Single outstanding request, echo-matched, no transaction id. **Do not model as RPC** | M |
+| 14 | ADC overload bit + clip counter | O §6, A2 §A3 | The *correct* driver for gain decisions — audio level in one slice says nothing about what saturates a converter seeing 0–38.4 MHz | S |
+| 15 | Discovery-reply telemetry (temp, power, PTT, clip) | O §1 | Pollable **without a stream** — cheapest first increment, and a diagnostic when the stream is broken | S |
+| 16 | Pair WDSP `RXA_ADC_PK` with the hardware clip indicator | A3 §7 | Post-DDC slice vs pre-DDC full spectrum. They disagree by design; A3 calls this the most useful diagnostic pairing on the HL2 | S |
+| 17 | TX IQ FIFO depth + servo | O §6, A1 §B3 | "The most important number in the protocol." TX pacing must servo against it, not a host timer — clock domains drift | M |
+| 18 | Wideband bandscope (endpoint `0x04`) | O §7, A1 §A1 | Unimplemented by piHPSDR (dead code) and declined by SDR Console — a differentiation opportunity. **4 packets/block on HL2, not 32** | M |
+| 19 | Filter board (I2C `0x20`), PA bias, config EEPROM | O §8 | Band filtering, and the AM-broadcast HPF matters more here than on radios with better dynamic range | M |
+| 20 | Multi-slice: index-space mapping object | A3 §3 | `{ddcIndex, dspChannel, analyzerId, uiNumber}` — never derive arithmetically. Trivial now at one slice, which is when to build it | S |
+| 21 | Diversity as a **pre-channel combiner** | A3 §6 | `divEXT` takes two DDC streams and yields one. Modelling it as a two-input slice fights the DSP layer | M |
+| 22 | Hardware-managed T/R LNA gain (`0x0e[15]`) | A2 §A2 | Quisk uses it; lower latency than any host round trip; PureSignal needs an unclipped feedback path | S |
+| 23 | PureSignal | O §11, A1 §B6 | Needs everything above. Consumes 4 RX (2 feedback), halving the slice budget | L |
+
+### Tier 4 — deliberate divergences, do NOT "fix" by reflex
+
+| Divergence | Reference does | We do | Why ours is defensible |
+|---|---|---|---|
+| `output_samplerate` | 48000 | 24000 | AudioEngine's native rate; avoids a resample. Legitimate, but it IS a divergence in the area that produced our worst bug — keep it labelled |
+| Rate change | `SetAllRates` | Rebuild the channel | Dodges the intermediate-inconsistent-state hazard entirely; heavier (re-plans FFTW). Switch if rate changes get frequent |
+| Spectrum | WDSP analyzer (returns pixels) | Own `Hl2Spectrum` FFT | A3 §4 recommends exactly this for our architecture. **If it ever looks noisy, the lever is a detector/averaging mode, not a bigger FFT** |
+| FFTW wisdom | `WDSPwisdom(dir)` | Own `fftw_import_wisdom_from_filename` | `WDSPwisdom` is Windows-console-only. First-run slowness is expected — the fix is a progress indicator, not optimisation |
+
+### Settled — no action
+
+- **WDSP licensing.** GPL-2-**or-later** in 70 of 74 `.c` files, so it upgrades
+  into our GPL-3. Linking is fine. (Spot-check the four before any
+  redistribution question.)
+- **17-second first connect.** Expected FFTW planning, per A3 §9.
+- **Alex manual mode** (`0x09[22]`). Not implemented in gateware — do not build
+  UI for it.
+
+Legend: **O** = `hl2-oracle.md`, **A1** = spectrum/audio addendum,
+**A2** = AGC/filtering addendum, **A3** = WDSP channel setup addendum.
