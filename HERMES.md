@@ -493,7 +493,7 @@ always "a later refinement"; the watchdog turns it into a correctness issue.
   ONE per-slice object. Worth doing before an RF AGC exists — manual gain
   changes have the same problem.
 
-### 11.6 What the oracles do NOT cover — suggested fourth addendum
+### 11.6 What the oracles did not cover — now addendum 3 (see §12)
 
 The three defects that cost the most this session were all WDSP *channel
 geometry*, and none appear in the oracles (addendum 2 §A4 covers AGC internals
@@ -507,7 +507,8 @@ only):
    swapped. Gap 14 — and it hid behind gap 13.
 
 All three are only visible by reading the reference clients, which is exactly
-the oracles' own §0 discipline. They belong in that document.
+the oracles' own §0 discipline. **Addendum 3 now covers this ground** and
+independently confirms items 2 and 3 — see §12.
 
 ### 11.7 Open items, next session
 
@@ -518,3 +519,123 @@ the oracles' own §0 discipline. They belong in that document.
 5. Move the HL2 DSP off the GUI thread (11.3).
 6. AM passband still inherits SSB width on Flex-shaped mode changes elsewhere —
    see gap 15's fix for the pattern.
+
+
+---
+
+## 12. Audit against addendum 3 (WDSP channel setup)
+
+`hl2-oracle-addendum-wdsp-channel-setup.md`. This is the chapter that covers
+what §11.6 said was missing, and it independently confirms two of the three
+defects that cost this session the most.
+
+### 12.1 Confirmed by the oracle
+
+- **`RXASetPassband` supersedes `SetRXABandpassFreqs`** — §7 states the latter
+  is *deprecated* in favour of the former. Independent confirmation of
+  `86a3d27b`, which we arrived at by reading RXA.c.
+- **`dsp_rate` is 48000, fixed** — §2 and the §10 reference table. Confirms
+  `74f10f53`.
+- **First-run FFTW planning is slow BY DESIGN** (§9). Our measured 17-second
+  first connect is expected behaviour, not a performance bug. The oracle's
+  prescription is a progress indicator, not optimisation. That closes an open
+  question from earlier in the session.
+
+### 12.2 Licensing — resolved, we are fine
+
+§0 flags WDSP as GPL-2.0 and says to settle this *before* building the DSP
+layer. Checked: the WDSP sources carry **"either version 2 of the License, or
+(at your option) any later version"** — 70 of 74 `.c` files. GPL-2-or-later
+upgrades cleanly into AetherSDR's GPL-3, so linking is fine. The four files
+without the boilerplate are worth a spot check before any redistribution
+question, but the headline is settled.
+
+### 12.3 New defects found
+
+**Mute ramps are all zero.** `WdspChannel::open()` passes
+`0.0, 0.0, 0.0, 0.0` for `tdelayup / tslewup / tdelaydown / tslewdown`. Both
+references use `0.010, 0.025, 0.000, 0.010`. §2 calls these the anti-click
+mechanism and "the difference between clean and clicky T/R... easy to leave at
+defaults and never discover" — we did exactly that. Trivial fix, and it matters
+the moment anything mutes or starts a channel.
+
+**The S-meter measures the wrong thing.** `Hl2RxDsp::processIqBlock` computes
+`20*log10(rms)` of `m_left` — the *post-AGC* audio. Holding that level constant
+is precisely what AGC is for, so with AGC engaged our S-meter barely moves
+regardless of signal strength. WDSP already provides the real thing:
+
+```c
+double GetRXAMeter(int channel, int mt);   // RXA_S_PK, RXA_S_AV
+```
+
+This is a defect that looks like it works — the meter deflects, just not in
+proportion to anything. Worth fixing before anyone calibrates against it.
+
+**`RXASetNC` and `RXASetMP` are never called.** Filter tap count and
+minimum-phase mode — the selectivity-versus-latency controls. piHPSDR sets both
+right after `OpenChannel` (`RXASetNC(id, fft_size)`, `RXASetMP(id,
+low_latency)`); we take WDSP's defaults silently. §7 notes these matter a lot
+to CW operators.
+
+**`SetChannelState` is never used.** We pass `state = 1` at open and never stop
+the channel. §2 is explicit that `SetChannelState` is the T/R call (it applies
+the ramps) and `CloseChannel` is for teardown only — "conflating them means
+either clicks (closing) or leaks (never closing)."
+
+### 12.4 Divergences that are defensible, but should be deliberate
+
+**Output rate.** piHPSDR fixes `dsp_rate` AND `output_rate` at 48000 and varies
+only the input rate; §2 calls that "the simple, correct default." We use
+`output_samplerate = 24000` (AudioEngine's native rate) to avoid a resample.
+That is legitimate — the parameter exists to be set — but it IS a divergence
+from the reference, in exactly the area that produced our worst bug. Keep it
+labelled as a deliberate choice, not an accident.
+
+**Rate changes.** §2 says to use `SetAllRates`, never the individual setters,
+because stepping through them leaves the channel in intermediate inconsistent
+states that WDSP will happily process audio in. We use neither: `configure()`
+rebuilds the channel outright. That dodges the hazard completely but re-plans
+FFTW and discards channel state, so `SetAllRates` is the lighter correct path
+if rate changes ever become frequent.
+
+**Analyzer.** We run our own `Hl2Spectrum` FFT rather than WDSP's analyzer.
+§4's recommendation for our architecture is exactly this (its "option 2"), so
+the choice is right — but note WDSP's analyzer returns **pixels, not bins**, and
+carries detector and averaging modes that §4 says are "why WDSP panadapters look
+smooth." If ours ever looks noisy by comparison, the lever is a detector /
+averaging mode, **not a bigger FFT**.
+
+### 12.5 Design constraints to absorb before multi-slice
+
+- **Three index spaces** (§3): hardware DDC index, WDSP channel index, UI
+  receiver number — plus analyzer IDs in a fourth. Keep
+  `{ ddcIndex, dspChannel, analyzerId, uiNumber }` per slice and never derive
+  one from another arithmetically; PureSignal and diversity break the
+  arithmetic. Trivial today at one slice, which is exactly when to put it in.
+- **Diversity is a PRE-channel combiner** (§6). `divEXT` takes two DDC streams
+  and produces one, which then feeds a single WDSP channel — that is why
+  piHPSDR passes four sample arrays into what looks like one receiver. Modelling
+  diversity as "a slice with two inputs" fights the DSP layer.
+- **Noise blankers are also outside the channel** (§6): `xanbEXT` / `nobEXT`
+  operate on raw IQ before `fexchange`, not as RXA blocks.
+- **Two ADC level readings that disagree by design** (§7): WDSP's
+  `RXA_ADC_PK`/`RXA_ADC_AV` measure the post-DDC *slice*; the HL2's clip counter
+  and overload bit measure the pre-DDC *full spectrum*. You can be far from
+  clipping in a 48 kHz slice while a broadcast station saturates the converter.
+  Show both, labelled distinctly — §7 calls this the single most useful
+  diagnostic pairing on the HL2, and it ties §11.4's missing telemetry to the
+  bandscope.
+
+### 12.6 Revised next-session list
+
+Supersedes §11.7. Cheap and high-value first:
+
+1. Mute ramps → `0.010, 0.025, 0.000, 0.010` (12.3). One line.
+2. S-meter → `GetRXAMeter(RXA_S_PK)` instead of post-AGC audio RMS (12.3).
+3. Rename `kC0AdcAssign`, document the `0x0e` dual meaning (11.1).
+4. Pipeline reset after an NCO move (11.2).
+5. `RXASetNC` / `RXASetMP` (12.3).
+6. Receiver count from discovery `0x13`; stop hardcoding `maxSlices` (11.4).
+7. RQST/ACK, then ADC overload + clip telemetry, paired with WDSP's own ADC
+   meter (11.4, 12.5).
+8. Move the HL2 DSP off the GUI thread — watchdog correctness (11.3).
