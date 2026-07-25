@@ -98,6 +98,12 @@ public:
     // refused key must fail SAFE and stay refused rather than surfacing as
     // something a caller might retry past.
     //
+    // This class does not read the environment and has no policy of its own.
+    // Hl2Backend decides: an interactive run enables it, an automation run
+    // defers to the bridge's AETHER_AUTOMATION_ALLOW_TX gate. Keeping the
+    // mechanism here and the policy there is what lets the policy change --
+    // as it just did -- without touching the part that is actually tested.
+    //
     // hl2_tx_gate_test asserts the property directly: with the gate closed, no
     // emitted EP2 frame ever carries C0 bit 0, even with a key request standing.
     void enableTransmit(bool allowed) noexcept { m_txAllowed = allowed; }

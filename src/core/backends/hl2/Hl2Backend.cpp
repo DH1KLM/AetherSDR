@@ -6,6 +6,8 @@
 #include "core/backends/hl2/MetisClient.h"
 #include "core/backends/hl2/MetisProtocol.h"
 
+#include "core/AutomationBridgeSettings.h"
+
 #include <QByteArray>
 #include <QHostAddress>
 
@@ -61,12 +63,37 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
     m_metis = new MetisClient(nullptr);
     m_dsp = new Hl2RxDsp(nullptr);
 
-    // Transmit is OFF unless explicitly enabled for this process. Read once here
-    // rather than per-key so the answer cannot change under a running key.
-    m_txAllowed = qEnvironmentVariableIsSet("AETHER_HL2_ALLOW_TX");
+    // Transmit availability, decided once here rather than per-key so the answer
+    // cannot change under a running key.
+    //
+    // A normal interactive run can transmit: this is a transceiver, and an
+    // operator at the keyboard keying their own radio needs no special flag.
+    //
+    // An AUTOMATION run defers to the bridge's existing TX gate
+    // (AETHER_AUTOMATION_ALLOW_TX). That gate already exists precisely because
+    // a scripted client that can key is a different risk from a human at the
+    // controls, and adding a second, HL2-specific variable alongside it would
+    // have meant two things to get right instead of one -- and a script that
+    // satisfied the automation gate but silently could not key.
+    const bool automation = qEnvironmentVariableIsSet("AETHER_AUTOMATION");
+    // The bridge's TX gate has TWO sources and both must be honoured, or this
+    // backend disagrees with the layer the operator actually configured:
+    // AutomationServer::start() reads the env var, and MainWindow applies the
+    // persisted GUI toggle through setTxAllowed(). Checking only the env var
+    // meant the bridge would accept a key, log "key ptt ON" and return ok:true
+    // while nothing keyed — a silent disagreement, which is worse than either
+    // answer on its own.
+    const bool automationAllowsTx =
+        qEnvironmentVariableIsSet("AETHER_AUTOMATION_ALLOW_TX")
+        || AutomationBridgeSettings::txAllowed();
+    m_txAllowed = !automation || automationAllowsTx;
     if (m_txAllowed) {
-        qWarning() << "Hl2Backend: TRANSMIT ENABLED (AETHER_HL2_ALLOW_TX)";
         m_metis->enableTransmit(true);
+        qInfo() << "Hl2Backend: transmit available"
+                << (automation ? "(automation, ALLOW_TX)" : "(interactive)");
+    } else {
+        qInfo() << "Hl2Backend: transmit BLOCKED — automation bridge active "
+                   "without AETHER_AUTOMATION_ALLOW_TX";
     }
 
     m_ioThread = new QThread(this);
@@ -375,8 +402,8 @@ void Hl2Backend::setKeying(bool key)
     // and the cost of a wrong key is an unintended emission.
     if (!m_txAllowed) {
         if (key)
-            qWarning() << "Hl2Backend: key refused — transmit not enabled"
-                       << "(set AETHER_HL2_ALLOW_TX=1)";
+            qWarning() << "Hl2Backend: key refused — automation bridge is active "
+                          "without AETHER_AUTOMATION_ALLOW_TX";
         return;
     }
     if (m_metis)

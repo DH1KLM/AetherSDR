@@ -80,8 +80,10 @@ private:
     // the UI. Owned by this object; joined in the destructor.
     QThread* m_ioThread = nullptr;
 
-    // Process-wide transmit gate (AETHER_HL2_ALLOW_TX), read once at
-    // construction. Mirrored into MetisClient, which refuses independently.
+    // Process-wide transmit availability, decided once at construction:
+    // interactive runs may transmit; automation runs defer to the bridge's
+    // AETHER_AUTOMATION_ALLOW_TX gate. Mirrored into MetisClient, which refuses
+    // independently at the wire.
     bool m_txAllowed = false;
     // Authoritative AGC state, mirroring the DSP defaults in Hl2RxDsp::Config so
     // the first sliceChanged reports what WDSP was actually opened with.
