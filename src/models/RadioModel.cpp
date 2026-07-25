@@ -5797,6 +5797,17 @@ void RadioModel::onMessageReceived(const ParsedMessage& msg)
 //   "meter 1"         → meter reading (handled by onMessageReceived)
 //   "removed=True"    → object was removed
 
+bool RadioModel::backendCanTransmit() const
+{
+    return m_backend && m_backend->capabilities().canTransmit;
+}
+
+void RadioModel::setTxAudioMonitor(bool on)
+{
+    if (m_backend)
+        m_backend->setTxAudioMonitor(on);
+}
+
 void RadioModel::submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz)
 {
     if (m_backend)

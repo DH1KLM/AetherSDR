@@ -60,6 +60,7 @@ public:
     void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz) override;
     void setTxPower(int percent) override;
     void setTune(bool on) override;
+    void setTxAudioMonitor(bool on) override;
     void setTxFrequency(double hz);
     void setTxDriveLevel(int level);
     // Baseband TX test tone, offsetHz from the carrier, amplitude 0..1.
@@ -137,6 +138,7 @@ private:
     bool m_adcOverload = false;
     bool m_keyed = false;
     bool m_tuning = false;
+    bool m_txMonitor = false;
     bool m_toneFromTune = false;
     // Tune-carrier amplitude, full scale into the modulator. Actual radiated
     // power is governed by the TX drive register, which is where an operator

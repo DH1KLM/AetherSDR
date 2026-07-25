@@ -317,7 +317,7 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
         // that was already in flight when the key went down; Hl2RxDsp::
         // setAudioMuted stops the pipeline FILLING with our own transmission,
         // which is what stopped the tail draining out afterwards.
-        if (m_keyed)
+        if (m_keyed && !m_txMonitor)
             return;
         emit audioFrameReady(floatBytes(pcm));
     });
@@ -827,7 +827,7 @@ void Hl2Backend::setKeying(bool key)
     // unkey.
     if (m_dsp)
         QMetaObject::invokeMethod(m_dsp, "setAudioMuted", Qt::QueuedConnection,
-            Q_ARG(bool, key));
+            Q_ARG(bool, key && !m_txMonitor));
 
     // A VOICE key must never inherit a TUNE carrier.
     //
@@ -920,6 +920,16 @@ void Hl2Backend::setTxTestTone(double offsetHz, double amplitude)
     }
     QMetaObject::invokeMethod(m_metis, "setTxTestTone", Qt::QueuedConnection,
         Q_ARG(double, offsetHz), Q_ARG(double, amplitude));
+}
+
+void Hl2Backend::setTxAudioMonitor(bool on)
+{
+    m_txMonitor = on;
+    // Apply immediately if we are already keyed, so a diagnostic can enable the
+    // monitor mid-transmission rather than having to unkey and start again.
+    if (m_dsp)
+        QMetaObject::invokeMethod(m_dsp, "setAudioMuted", Qt::QueuedConnection,
+            Q_ARG(bool, m_keyed && !on));
 }
 
 void Hl2Backend::setTune(bool on)

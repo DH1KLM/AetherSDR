@@ -592,6 +592,7 @@ private:
     // and the mox_toggle shortcut make, but reachable headlessly. Keying is gated
     // by AETHER_AUTOMATION_ALLOW_TX (the same rail as txtest/atu); unkey is not.
     QJsonObject doKey(const QString& name, const QString& arg);
+    QJsonObject doTxCert(const QString& freqArg, const QString& modeArg);
     // Drive the CWX keyer (send a CW string / set WPM / abort). `send` keys the
     // transmitter so it sits on the AETHER_AUTOMATION_ALLOW_TX rail and arms the
     // force-unkey watchdog; speed/stop do not key. CW's rapid TX→RX edges are the

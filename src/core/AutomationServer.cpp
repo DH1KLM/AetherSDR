@@ -1,4 +1,5 @@
 #include "AutomationServer.h"
+#include "core/TxCertification.h"
 #include "LogManager.h"
 #include "AppSettings.h"          // StationName (restore the user's real station name)
 #include "DigitalVoiceWaveformProcess.h"
@@ -2993,6 +2994,13 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                     {QStringLiteral("txwaterfall"), on},
                     {QStringLiteral("note"),
                      QStringLiteral("radio echoes status; re-read with get transmit showTxInWaterfall")}};
+            });
+
+        add("txcert", {},
+            "txcert [freqMhz] [mode] — transmit bring-up diagnostic (TX-gated, keys repeatedly)",
+            parseActionValue,
+            [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
+                return s.doTxCert(a.action, a.value);
             });
 
         add("key", {}, "key <ptt on|off | mox> — semantic keying (TX-gated)",
@@ -6233,6 +6241,41 @@ QJsonObject AutomationServer::doMemory(const QString& action, const QString& arg
 // deterministic and focus-independent. KEYING is gated by the same
 // AETHER_AUTOMATION_ALLOW_TX rail as txtest/atu and arms the force-unkey
 // watchdog; UNKEY is always allowed (it only reduces TX risk).
+QJsonObject AutomationServer::doTxCert(const QString& freqArg, const QString& modeArg)
+{
+    if (!m_radioModel)
+        return err(QStringLiteral("no radio model available"));
+    if (!m_audioEngine)
+        return err(QStringLiteral("no audio engine available"));
+    // This keys the transmitter many times over tens of seconds. It is gated on
+    // the same permission as every other transmitting verb, for the same reason.
+    if (!m_txAllowed)
+        return err(QStringLiteral(
+            "blocked: txcert keys the transmitter — enable TX automation "
+            "(or set AETHER_AUTOMATION_ALLOW_TX=1) to allow"));
+
+    TxCertification::Options opts;
+    bool okF = false;
+    const double mhz = freqArg.trimmed().toDouble(&okF);
+    if (okF && mhz > 0.0)
+        opts.frequencyMhz = mhz;
+    const QString mode = modeArg.trimmed().toUpper();
+    if (mode == QLatin1String("USB") || mode == QLatin1String("LSB"))
+        opts.mode = mode;
+
+    // The run arms the force-unkey watchdog the same way any bridge-initiated
+    // transmission does, so a diagnostic that wedges cannot leave the radio keyed.
+    m_txKeyedSinceMs = QDateTime::currentMSecsSinceEpoch();
+    m_txBridgeInitiated = true;
+
+    TxCertification cert(m_radioModel, m_audioEngine);
+    QJsonObject report = cert.run(opts);
+
+    m_txKeyedSinceMs = 0;
+    m_txBridgeInitiated = false;
+    return report;
+}
+
 QJsonObject AutomationServer::doKey(const QString& name, const QString& arg)
 {
     if (!m_radioModel)
