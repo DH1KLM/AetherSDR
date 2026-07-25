@@ -354,7 +354,8 @@ void WdspChannel::open() noexcept
                 m_config.outputSampleRate,
                 m_config.direction == Direction::Receive ? kRxChannelType : kTxChannelType,
                 1,
-                0.0, 0.0, 0.0, 0.0,
+                m_config.muteDelayUpSec, m_config.muteSlewUpSec,
+                m_config.muteDelayDownSec, m_config.muteSlewDownSec,
                 m_config.blockForOutput ? 1 : 0);
     if (m_config.direction == Direction::Receive) {
         SetRXAMode(m_channelId, wdspMode(m_config.mode));
@@ -362,6 +363,11 @@ void WdspChannel::open() noexcept
         RXANBPSetFreqs(m_channelId, m_config.filterLowHz, m_config.filterHighHz);
         SetRXAAGCMode(m_channelId, m_config.agcMode);
         SetRXAAGCTop(m_channelId, m_config.maximumAgcGainDb);
+        // Filter length / phase mode. RXASetNC internally stops and restarts
+        // the channel (SetChannelState 0 then restore), so it is control-path
+        // work — safe here inside open(), never from processIq().
+        RXASetNC(m_channelId, m_config.filterTaps);
+        RXASetMP(m_channelId, m_config.minimumPhase ? 1 : 0);
     } else {
         SetTXAMode(m_channelId, wdspMode(m_config.mode));
         SetTXABandpassFreqs(m_channelId, m_config.filterLowHz, m_config.filterHighHz);

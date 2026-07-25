@@ -48,6 +48,25 @@ public:
         double filterHighHz = 3000.0;
         int agcMode = 3;
         double maximumAgcGainDb = 120.0;
+        // Channel mute envelope, in seconds. WDSP applies these when a channel
+        // starts and stops, and they are the anti-click mechanism: an abrupt DSP
+        // mute clicks on every transition, which on a full-duplex radio means
+        // every T/R change. Values match both reference clients (Thetis
+        // cmaster.c, pihpsdr receiver.c) — leaving them at zero, as this did,
+        // disables the ramp entirely and is invisible until you go hunting for
+        // the click.
+        double muteDelayUpSec = 0.010;
+        double muteSlewUpSec = 0.025;
+        double muteDelayDownSec = 0.000;
+        double muteSlewDownSec = 0.010;
+        // Bandpass filter length and phase mode — the selectivity/latency
+        // trade. More coefficients sharpen the skirt and add delay;
+        // minimum-phase trades linear phase for lower latency. 2048 is WDSP's
+        // own default (max(2048, dsp_size)), so this changes nothing on its own
+        // — it makes the value explicit and tunable instead of implicit.
+        // pihpsdr runs 8192 by comparison.
+        int filterTaps = 2048;
+        bool minimumPhase = false;
         bool blockForOutput = false;
     };
 

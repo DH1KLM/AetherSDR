@@ -46,6 +46,10 @@ void SetRXASNBAOutputBandwidth(int channel, double lowHz, double highHz);
 // panadapter centre) still while the slice tunes within the passband.
 void SetRXAShiftFreq(int channel, double shiftHz);
 void SetRXAShiftRun(int channel, int run);
+// Bandpass filter length and minimum-phase mode. Composite calls, like
+// RXASetPassband: RXASetNC also stops and restarts the channel.
+void RXASetNC(int channel, int nc);
+void RXASetMP(int channel, int mp);
 void SetRXAAGCMode(int channel, int mode);
 void SetRXAAGCTop(int channel, double maximumGainDb);
 void SetTXAMode(int channel, int mode);
