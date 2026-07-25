@@ -249,6 +249,9 @@ public:
 
 signals:
     void stateChanged();
+    // Typed RF-power change, for backends that set drive through the seam
+    // rather than by parsing the Flex command string above.
+    void rfPowerChanged(int percent);
     void tuneChanged(bool tuning);
     void moxChanged(bool mox);
     // Fires whenever m_transmitting changes — from setMox() (optimistic edge)

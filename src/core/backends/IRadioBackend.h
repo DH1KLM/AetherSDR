@@ -108,6 +108,13 @@ public:
     // compressor and EQ before this point. That is deliberate — the TONE button,
     // the microphone and any future source all reach the air through ONE path,
     // so what the operator monitors is what gets transmitted.
+    // Transmit power as a percentage, 0..100.
+    //
+    // Flex takes this as a text command from TransmitModel, so FlexBackend has
+    // nothing to do here. A backend that owns its own drive register (HL2)
+    // implements it.
+    virtual void setTxPower(int percent) { Q_UNUSED(percent); }
+
     virtual void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz)
     {
         Q_UNUSED(int16Stereo);

@@ -91,14 +91,15 @@ Cc ccTxFreq(std::uint32_t hz) noexcept
             static_cast<std::uint8_t>(hz & 0xFF)};
 }
 
-Cc ccTxDrive(int level) noexcept
+Cc ccTxDrive(int level, bool paEnable) noexcept
 {
     if (level < 0) level = 0;
     if (level > kTxDriveMax) level = kTxDriveMax;
-    // C1 = DATA[31:24]. Everything else in 0x09 (PA enable, ATU tune, Alex
-    // filters, VNA) stays zero: this is a bare drive-level write, and the PA
-    // enable in particular is not something to set as a side effect.
-    return {kC0TxDrive, static_cast<std::uint8_t>(level), 0x00, 0x00, 0x00};
+    // C1 = DATA[31:24] drive level. C2 = DATA[23:16]; bit 3 of it is DATA[19],
+    // the onboard PA enable. ATU tune, Alex filters and VNA stay zero — those
+    // are separate decisions and none of them belong in a drive-level write.
+    const auto c2 = static_cast<std::uint8_t>(paEnable ? 0x08 : 0x00);
+    return {kC0TxDrive, static_cast<std::uint8_t>(level), c2, 0x00, 0x00};
 }
 
 void ep2WriteTxIq(std::array<std::uint8_t, kUsbPacketSize>& pkt,

@@ -143,8 +143,16 @@ Cc ccPipelineReset() noexcept;
 
 // TX1 NCO frequency in Hz (32-bit big-endian across C1..C4).
 Cc ccTxFreq(std::uint32_t hz) noexcept;
-// TX drive level, clamped to 0..kTxDriveMax, carried in C1.
-Cc ccTxDrive(int level) noexcept;
+// TX drive level (0..kTxDriveMax, carried in C1) plus the onboard PA enable.
+//
+// PA ENABLE IS 0x09[19], i.e. C2 bit 3, and it is NOT optional for a useful
+// transmission: with the PA off the only output is the AD9866's own DAC level,
+// which is milliwatts. Measured on hardware — a correct, modulated, keyed
+// transmission with the PA disabled produced forward-power counts of zero.
+//
+// Defaulted OFF so that enabling the power amplifier is always something a
+// caller did on purpose.
+Cc ccTxDrive(int level, bool paEnable = false) noexcept;
 // Set MOX (C0 bit 0) on a C&C bank. Keying is per-FRAME, so this is applied to
 // whichever bank is being sent rather than to one dedicated register.
 inline Cc withMox(Cc cc, bool keyed) noexcept

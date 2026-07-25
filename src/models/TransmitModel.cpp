@@ -239,6 +239,7 @@ void TransmitModel::setRfPower(int power)
     if (m_rfPower != power) {
         m_rfPower = power;
         emit stateChanged();
+        emit rfPowerChanged(power);
     }
     emit commandReady(QString("transmit set rfpower=%1").arg(power));
 }

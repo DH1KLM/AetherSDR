@@ -11,8 +11,11 @@
 
 #include <QByteArray>
 #include <QHostAddress>
+#include <QLoggingCategory>
 
 #include <cstdint>
+
+Q_LOGGING_CATEGORY(lcHl2Tx, "aether.hl2.tx")
 
 namespace AetherSDR::hl2 {
 
@@ -505,6 +508,16 @@ void Hl2Backend::setTxTestTone(double offsetHz, double amplitude)
         Q_ARG(double, offsetHz), Q_ARG(double, amplitude));
 }
 
+void Hl2Backend::setTxPower(int percent)
+{
+    // The operator's 0..100 maps onto the HL2's 0..255 drive field. The gateware
+    // only decodes the top nibble, so the effective resolution is coarser than
+    // this suggests — the mapping is linear in the register, NOT calibrated to
+    // watts, and nothing here should imply otherwise.
+    const int clamped = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    setTxDriveLevel(clamped * kTxDriveMax / 100);
+}
+
 void Hl2Backend::setTxDriveLevel(int level)
 {
     if (!m_metis)
@@ -565,9 +578,29 @@ void Hl2Backend::publishTelemetry(const Hl2Telemetry& t)
     //
     // SWR is meaningful WITHOUT calibration because it is a ratio of two
     // readings from the same converter, so the unknown scale cancels.
-    if (t.forwardPowerRaw && t.reversePowerRaw) {
+    // SWR only means something with real forward power behind it.
+    //
+    // Measured on the live radio: with no carrier the forward and reverse counts
+    // are both near zero and dominated by noise, reverse frequently exceeds
+    // forward, and the computed ratio saturated the meter at 255.99:1 — a
+    // dramatic reading of nothing at all. An operator glancing at that sees a
+    // catastrophic mismatch on an antenna that is fine.
+    //
+    // The threshold is in raw counts because that is what we have; it is a
+    // noise floor, not a calibrated power level.
+    static constexpr int kMinForwardCountsForSwr = 16;
+    if (t.forwardPowerRaw && t.reversePowerRaw
+        && *t.forwardPowerRaw >= kMinForwardCountsForSwr) {
         if (const auto swr = swrFromRaw(*t.forwardPowerRaw, *t.reversePowerRaw))
             emit meterUpdate(QStringLiteral("TX:SWR"), *swr);
+    }
+    // Raw directional counts, logged rather than published: they are what a
+    // future calibration curve will be built from, and they are the only way to
+    // tell "the radio reports no power" from "we never asked".
+    if (t.forwardPowerRaw && (*t.forwardPowerRaw != m_lastFwdRaw)) {
+        m_lastFwdRaw = *t.forwardPowerRaw;
+        qCDebug(lcHl2Tx) << "HL2 directional: fwd" << *t.forwardPowerRaw
+                         << "rev" << t.reversePowerRaw.value_or(-1);
     }
     if (t.temperatureRaw)
         emit meterUpdate(QStringLiteral("RAD:PATEMP"), temperatureCelsius(*t.temperatureRaw));

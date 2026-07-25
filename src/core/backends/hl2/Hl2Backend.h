@@ -47,6 +47,7 @@ public:
     void setPanCenter(const QString& panId, double hz) override;
     void setKeying(bool key) override;
     void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz) override;
+    void setTxPower(int percent) override;
     void setTxFrequency(double hz);
     void setTxDriveLevel(int level);
     // Baseband TX test tone, offsetHz from the carrier, amplitude 0..1.
@@ -98,6 +99,7 @@ private:
     Hl2Telemetry m_telemetry;
     bool m_adcOverload = false;
     bool m_keyed = false;
+    int m_lastFwdRaw = -1;
     // Authoritative AGC state, mirroring the DSP defaults in Hl2RxDsp::Config so
     // the first sliceChanged reports what WDSP was actually opened with.
     QString m_agcMode = QStringLiteral("med");

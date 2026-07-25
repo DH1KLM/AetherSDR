@@ -219,7 +219,11 @@ int main()
         check(d[0] == kC0TxDrive, "TX drive targets addr 0x09 (C0 = 0x12)");
         check(d[1] == 200, "drive level lands in C1 (DATA[31:24])");
         check(d[2] == 0 && d[3] == 0 && d[4] == 0,
-              "a drive write does not set PA enable, ATU tune or Alex bits");
+              "PA stays OFF unless explicitly asked for");
+        const Cc dpa = ccTxDrive(200, true);
+        check(dpa[2] == 0x08, "PA enable is DATA[19] = C2 bit 3");
+        check(dpa[3] == 0 && dpa[4] == 0,
+              "enabling the PA does not set ATU tune or Alex bits");
         check(ccTxDrive(-5)[1] == 0 && ccTxDrive(9999)[1] == kTxDriveMax,
               "drive level clamps to 0..255");
     }

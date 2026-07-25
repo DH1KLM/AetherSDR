@@ -332,7 +332,10 @@ void MetisClient::setTxFrequencyHz(std::uint32_t hz)
 
 void MetisClient::setTxDriveLevel(int level)
 {
-    m_ccTxDrive = ccTxDrive(level);
+    // The PA follows the drive level: a non-zero drive means the operator wants
+    // output, and on this board that requires the onboard amplifier. Drive 0
+    // leaves it disabled, so the safe default state stays safe.
+    m_ccTxDrive = ccTxDrive(level, level > 0);
     m_oneShot.push_back(m_ccTxDrive);
 }
 

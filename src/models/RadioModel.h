@@ -744,6 +744,8 @@ public:
     // advance local state to match a command MUST gate that on this return,
     // or the client will claim state the radio never took.
     bool sendCommand(const QString& cmd);
+    // Backend family currently in use ("flex", "hl2", "kiwi", ...).
+    QString family() const { return m_family; }
     // Forward processed transmit audio to a host-modulating backend. No-op when
     // the backend modulates on the radio side.
     void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz);
