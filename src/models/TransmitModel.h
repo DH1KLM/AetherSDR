@@ -171,6 +171,16 @@ public:
 
     // ── Command methods (emit commandReady) ─────────────────────────────────
     void setRfPower(int power);
+
+    // The host modulates, so the microphone is a PC input and nothing else.
+    //
+    // The mic-source list (MIC / BAL / LINE / ACC / PC) enumerates a FlexRadio's
+    // physical input jacks. A Hermes-Lite 2 has none of them: audio is
+    // modulated here and handed to the radio as IQ, so "PC" is not a preference
+    // but the only thing that can possibly be true. Offering the others invites
+    // the operator to select an input that silently transmits nothing.
+    void setHostModulation(bool on);
+    [[nodiscard]] bool hostModulation() const { return m_hostModulation; }
     void setTunePower(int power);
     void setTuneMode(const QString& mode);
     void startTune(PttSource source = PttSource::Tune);
@@ -261,6 +271,7 @@ signals:
     // families, so Flex keeps its single command and does not key twice.
     void moxCommandIssued(bool on);
     void tuneCommandIssued(bool on);
+    void hostModulationChanged(bool on);
     void tuneChanged(bool tuning);
     void moxChanged(bool mox);
     // Fires whenever m_transmitting changes — from setMox() (optimistic edge)
@@ -317,6 +328,7 @@ private:
 
     // Transmit state
     int    m_rfPower{100};
+    bool   m_hostModulation{false};
     int    m_tunePower{10};
     bool   m_tune{false};
     bool   m_mox{false};

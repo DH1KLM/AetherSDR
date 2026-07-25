@@ -233,6 +233,25 @@ void TransmitModel::setActiveProfile(const QString& profile)
 
 // ── Commands ────────────────────────────────────────────────────────────────
 
+void TransmitModel::setHostModulation(bool on)
+{
+    if (m_hostModulation == on)
+        return;
+    m_hostModulation = on;
+    if (on) {
+        // PC is the only source that exists on a host-modulating backend, so it
+        // is asserted rather than defaulted — a stale "MIC" carried over from a
+        // Flex session would otherwise sit there transmitting silence.
+        m_micInputList = QStringList{QStringLiteral("PC")};
+        if (m_micSelection != QLatin1String("PC")) {
+            m_micSelection = QStringLiteral("PC");
+            emit phoneStateChanged();
+        }
+        emit micInputListChanged();
+    }
+    emit hostModulationChanged(on);
+}
+
 void TransmitModel::setRfPower(int power)
 {
     power = qBound(0, power, 100);

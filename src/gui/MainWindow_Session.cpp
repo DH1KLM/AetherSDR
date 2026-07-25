@@ -446,6 +446,11 @@ void MainWindow::wireRadioModel()
         const bool hostModulates =
             m_radioModel.family() != QLatin1String("flex");
         m_audio->setHostModulation(hostModulates && connected);
+        // PC audio is not optional on a host-modulating backend: all audio, both
+        // directions, lives on this computer. Turning it off would leave the
+        // operator deaf and mute with nothing to explain it.
+        if (m_titleBar)
+            m_titleBar->setPcAudioLocked(connected && hostModulates);
         if (connected && hostModulates) {
             if (!m_audio->isTxStreaming())
                 audioStartTx(m_radioModel.radioAddress(), 4991);

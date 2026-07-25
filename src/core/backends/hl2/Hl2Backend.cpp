@@ -123,6 +123,7 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
         emitSliceState();
         emitPanState();
         defineMeters();
+        pushInitialState();
     });
     connect(m_metis, &MetisClient::linkDown, this, [this] {
         if (m_connected) {
@@ -606,6 +607,52 @@ void Hl2Backend::invokeExtension(const QString& /*ns*/, const QString& /*verb*/,
     // No HL2 extension verbs yet; honor the async contract without hanging.
     if (requestId != 0)
         emit extensionError(requestId, QStringLiteral("hl2: no extension verbs implemented"));
+}
+
+void Hl2Backend::pushInitialState()
+{
+    // THE RADIO REPORTS NO VFO, SO THE APP IS AUTHORITATIVE AND MUST PUSH.
+    //
+    // A Hermes-Lite 2 has no state to read back: it never tells us its
+    // frequency, mode or drive. Every register simply retains whatever the last
+    // session left in it. So anything not explicitly asserted here is silently
+    // inherited from a previous connection, and the UI will confidently display
+    // something the hardware is not doing.
+    //
+    // That is not hypothetical. The TX NCO was set only when the operator
+    // retuned, so on reconnect the receiver moved to the app's frequency while
+    // the TRANSMITTER stayed on the previous session's — the VFO read 10 MHz
+    // and the radio transmitted on 14 MHz. Nothing in the app could have shown
+    // that, because nothing in the app was wrong.
+    //
+    // The rule for anything added later: if the radio cannot be asked for it, it
+    // belongs here.
+    setTxFrequency(m_rxFreqHz);
+    // NOT the drive level. connectRadio() already asserts a safe 0 before the
+    // link comes up, and by the time this runs RadioModel has pushed the
+    // operator's actual RF power — emit connected() above is synchronous, so
+    // resetting here silently undid it and the radio transmitted at drive 0
+    // with the PA disabled. Caught by measurement: forward power went to 0.
+
+    if (m_dsp) {
+        QMetaObject::invokeMethod(m_dsp, "setMode", Qt::QueuedConnection,
+            Q_ARG(WdspChannel::Mode, modeFromString(m_mode)));
+        QMetaObject::invokeMethod(m_dsp, "setFilter", Qt::QueuedConnection,
+            Q_ARG(double, static_cast<double>(m_filterLowHz)),
+            Q_ARG(double, static_cast<double>(m_filterHighHz)));
+        QMetaObject::invokeMethod(m_dsp, "setAudioMuted", Qt::QueuedConnection,
+            Q_ARG(bool, false));
+    }
+    if (m_txDsp) {
+        QMetaObject::invokeMethod(m_txDsp, "setMode", Qt::QueuedConnection,
+            Q_ARG(WdspChannel::Mode, modeFromString(m_mode)));
+        QMetaObject::invokeMethod(m_txDsp, "reset", Qt::QueuedConnection);
+    }
+    // Keying state is ours, not the radio's: a reconnect must never come up
+    // keyed because the previous session ended mid-transmission.
+    m_keyed = false;
+    m_tuning = false;
+    setKeying(false);
 }
 
 void Hl2Backend::defineMeters()

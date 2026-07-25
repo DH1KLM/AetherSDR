@@ -585,6 +585,15 @@ void RadioModel::setupBackend(const QString& family)
         if (m_backend)
             m_backend->setTxPower(percent);
     });
+    // Tell the transmit model whether the HOST modulates. It drives the
+    // mic-source list: a backend that modulates here has no physical input jacks
+    // to choose between, so "PC" is the only truthful answer.
+    connect(this, &RadioModel::connectionStateChanged, this,
+            [this](bool connected) {
+        m_transmitModel.setHostModulation(connected
+                                          && m_family != QLatin1String("flex"));
+    });
+
     // Keying and tune from the GUI.
     //
     // These paths never reached a non-Flex backend: the MOX button goes through

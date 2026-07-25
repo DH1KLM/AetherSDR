@@ -61,6 +61,7 @@ public:
 private:
     void emitSliceState();   // sliceChanged(delta) from current freq/mode/filter
     void emitPanState();
+    void pushInitialState();
     void defineMeters();
     void publishTelemetry(const Hl2Telemetry& t);
     static double temperatureCelsius(int raw);     // panCenterBandwidthChanged from freq + sample rate
