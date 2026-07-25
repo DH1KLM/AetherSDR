@@ -328,6 +328,15 @@ void MetisClient::setTxDriveLevel(int level)
     m_oneShot.push_back(m_ccTxDrive);
 }
 
+void MetisClient::queueTxIq(std::span<const std::complex<float>> iq)
+{
+    for (const auto& s : iq)
+        m_txIq.push_back(s);
+    // Drop the OLDEST on overflow: stale transmit audio is worse than a gap.
+    while (m_txIq.size() > kTxQueueMax)
+        m_txIq.pop_front();
+}
+
 std::array<std::uint8_t, kUsbPacketSize> MetisClient::buildNextControlPacket()
 {
     static const Cc kCcAdc = ccAdcAssign();
@@ -345,7 +354,22 @@ std::array<std::uint8_t, kUsbPacketSize> MetisClient::buildNextControlPacket()
     // gate allowed it (see setMox), so this is the single place keying reaches
     // the wire and it cannot be set behind the gate's back.
     const bool keyed = m_mox && m_txAllowed;
-    return ep2Packet(m_txSeq++, withMox(m_ccConfig, keyed), withMox(b, keyed));
+    auto pkt = ep2Packet(m_txSeq++, withMox(m_ccConfig, keyed), withMox(b, keyed));
+
+    // Only put samples on the wire while actually keyed. Unkeyed frames carry
+    // transmit silence, which is what ep2Packet's zero fill already gives us --
+    // and which also keeps EADDR zero (see ep2WriteTxIq).
+    if (keyed && !m_txIq.empty()) {
+        std::vector<std::complex<float>> block;
+        const std::size_t n = std::min<std::size_t>(kTxSamplesPerPacket, m_txIq.size());
+        block.reserve(n);
+        for (std::size_t i = 0; i < n; ++i) {
+            block.push_back(m_txIq.front());
+            m_txIq.pop_front();
+        }
+        ep2WriteTxIq(pkt, block);   // a short block leaves the rest as silence
+    }
+    return pkt;
 }
 
 void MetisClient::sendControlPacket()

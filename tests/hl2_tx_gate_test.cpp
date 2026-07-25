@@ -14,6 +14,7 @@
 #include <QCoreApplication>
 
 #include <cstdio>
+#include <vector>
 
 using namespace AetherSDR::hl2;
 
@@ -114,6 +115,61 @@ int main(int argc, char** argv)
             check(false, "revoking the gate did not drop the key on the wire");
             break;
         }
+    }
+
+    // ---- transmit IQ reaches the wire only while keyed ----
+    //
+    // The gate has to cover SAMPLES, not just MOX. A radio that is unkeyed but
+    // still being fed IQ is not transmitting, but it is one stray MOX bit away
+    // from doing so with whatever happens to be in the buffer.
+    {
+        auto payloadNonZero = [](const std::array<std::uint8_t, kUsbPacketSize>& pkt) {
+            const std::size_t frameStarts[2] = {8, 8 + kFrameSize};
+            for (const std::size_t fs : frameStarts) {
+                const std::uint8_t* pay = pkt.data() + fs + 8;
+                for (std::size_t k = 0; k < kFramePayload; ++k)
+                    if (pay[k] != 0) return true;
+            }
+            return false;
+        };
+
+        MetisClient c2;
+        std::vector<std::complex<float>> tone(512, std::complex<float>(0.5f, -0.5f));
+
+        // Gate closed, unkeyed: queued samples must not go out.
+        c2.queueTxIq(tone);
+        check(c2.txQueueDepth() == 512, "samples queue regardless of gate state");
+        for (int i = 0; i < 4; ++i) {
+            if (payloadNonZero(c2.buildNextControlPacket())) {
+                check(false, "IQ reached the wire with the gate CLOSED");
+                break;
+            }
+        }
+        check(c2.txQueueDepth() == 512, "an unkeyed frame consumes no samples");
+
+        // Gate open but still unkeyed: still silence.
+        c2.enableTransmit(true);
+        check(!payloadNonZero(c2.buildNextControlPacket()),
+              "an open gate alone does not put IQ on the wire");
+
+        // Keyed: now the samples flow.
+        c2.setMox(true);
+        const auto keyedPkt = c2.buildNextControlPacket();
+        check(payloadNonZero(keyedPkt), "keyed frames carry the queued IQ");
+        check(c2.txQueueDepth() == 512 - kTxSamplesPerPacket,
+              "one packet consumes exactly kTxSamplesPerPacket samples");
+        // 0.5 -> 16383 (0x3FFF), -0.5 -> -16383 (0xC001), big-endian.
+        const std::uint8_t* pay = keyedPkt.data() + 8 + 8;
+        check(pay[4] == 0x3F && pay[5] == 0xFF, "I sample encoded big-endian");
+        check(pay[6] == 0xC0 && pay[7] == 0x01, "Q sample encoded big-endian");
+        check(pay[0] == 0 && pay[1] == 0 && pay[2] == 0 && pay[3] == 0,
+              "EADDR still zero with IQ present");
+
+        // Underflow is silence, not a stall and not repeated stale audio.
+        while (c2.txQueueDepth() > 0)
+            c2.buildNextControlPacket();
+        check(!payloadNonZero(c2.buildNextControlPacket()),
+              "an empty queue transmits silence rather than repeating");
     }
 
     if (g_failures == 0)

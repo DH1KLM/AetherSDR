@@ -7,6 +7,7 @@
 #include <QObject>
 
 #include <complex>
+#include <span>
 #include <cstdint>
 #include <deque>
 #include <vector>
@@ -112,6 +113,17 @@ public:
     // Exists so the gate can be tested on the exact bytes that would go out.
     std::array<std::uint8_t, kUsbPacketSize> buildNextControlPacket();
 
+    // Queue transmit IQ. Samples are consumed kTxSamplesPerPacket at a time, one
+    // packet per EP2 frame, so the queue drains at the 48 kHz EP2 rate.
+    //
+    // Underflow is SILENCE, not a stall: a short queue emits zeros rather than
+    // repeating stale samples or blocking the pacer. Repeating would put a
+    // periodic artefact on the air, and blocking would starve the radio's
+    // watchdog. Overflow drops the oldest, because on transmit the freshest
+    // audio is the one that matters.
+    void queueTxIq(std::span<const std::complex<float>> iq);
+    [[nodiscard]] std::size_t txQueueDepth() const noexcept { return m_txIq.size(); }
+
 signals:
     void linkUp();                                                  // first EP6 seen
     void linkDown();                                               // stopped
@@ -178,6 +190,10 @@ private:
     Cc m_ccTxDrive{};
 
     bool m_txAllowed = false;   // gate; see enableTransmit()
+    std::deque<std::complex<float>> m_txIq;   // pending transmit samples
+    // Roughly a quarter second at 48 kHz. Past this the operator is hearing
+    // latency, so dropping is better than growing the backlog.
+    static constexpr std::size_t kTxQueueMax = 12000;
     bool m_mox = false;         // requested key state, only honoured if m_txAllowed
 
     std::uint32_t m_txSeq = 0;           // outgoing EP2 sequence
