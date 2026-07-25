@@ -4511,19 +4511,31 @@ void MainWindow::buildUI()
     gpsStack->setObjectName(QStringLiteral("gpsStatusButton"));
     gpsStack->setAutoDefault(false);
     gpsStack->setDefault(false);
+    gpsStack->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
     gpsStack->setCursor(Qt::PointingHandCursor);
     gpsStack->setFocusPolicy(Qt::TabFocus);
     gpsStack->setToolTip(QStringLiteral("Open GPS & Station Location"));
     gpsStack->setAccessibleName(QStringLiteral("GPS and station location"));
     gpsStack->setAccessibleDescription(
         QStringLiteral("Open the live GPS, map, satellite reception, and time dashboard"));
+    // Flat, label-style resting state so the two rows sit on the same baselines
+    // as the neighbouring plain-QWidget telemetry stacks, with hover / pressed /
+    // focus feedback so the click target stays discoverable.
+    //
+    // The focus ring uses `outline` rather than `border`: Qt honours QSS
+    // `outline` only on `:focus` (it is wired to the focus-rect paint path), so
+    // hover must use `border` instead — an `outline` there silently never
+    // paints. Neither property perturbs this widget's layout: QStyleSheetStyle
+    // does not fold the button's frame into the contents rect its child layout
+    // sees, so the two rows keep the sibling stacks' y positions and full label
+    // width in every state. Do not add `padding` here — that one does consume
+    // layout space and would offset the rows against the borderless siblings.
     ThemeManager::instance().applyStyleSheet(gpsStack, QStringLiteral(
-        "QPushButton { background: transparent; border: 1px solid transparent; "
-        "border-radius: 4px; padding: 1px 5px; }"
+        "QPushButton { background: transparent; border: none; padding: 0; }"
         "QPushButton:hover { background: {{color.background.1}}; "
-        "border-color: {{color.border.strong}}; }"
-        "QPushButton:focus { border-color: {{color.border.accent}}; }"
-        "QPushButton:pressed { background: {{color.background.2}}; }"));
+        "border: 1px solid {{color.border.strong}}; }"
+        "QPushButton:pressed { background: {{color.background.2}}; }"
+        "QPushButton:focus { outline: 1px solid {{color.border.accent}}; }"));
     connect(gpsStack, &QPushButton::clicked,
             this, &MainWindow::showGpsLocationDialog);
     reserveTelemetryStack(gpsStack, {
