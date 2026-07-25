@@ -1661,7 +1661,9 @@ void MainWindow::wireDaxIq()
                            << "ip=" << kvs.value("ip");
             m_radioModel.daxIqModel().applyStreamStatus(streamId, kvs);
             int ch = kvs.value("daxiq_channel").toInt();
-            if (streamId && ch >= 1 && ch <= 4)
+            // panStream() is null on a backend that carries its own IQ; there
+            // is no VITA-49 stream to register against.
+            if (streamId && ch >= 1 && ch <= 4 && m_radioModel.panStream())
                 m_radioModel.panStream()->registerIqStream(streamId, ch);
         });
 

@@ -752,6 +752,14 @@ void MainWindow::startWanRadioConnect(const WanRadioInfo& info, bool promptForCl
     // Pre-bind UDP socket for VITA-49 reception BEFORE requesting
     // connection, so we can pass our port to the SmartLink server.
     // The server tells the radio our public IP:port for UDP streaming.
+    // SmartLink is a Flex service, so in practice this path only runs with a
+    // PanadapterStream present -- but it dereferenced it bare, and "in practice"
+    // is what the HL2 bring-up kept disproving. Decline instead of crashing.
+    if (!m_radioModel.panStream()) {
+        qWarning() << "MainWindow: WAN connect requested with no PanadapterStream"
+                   << "— backend does not use VITA-49 transport";
+        return;
+    }
     quint16 udpPort = m_radioModel.panStream()->localPort();
     if (udpPort == 0) {
         // Not yet bound — start WAN early to get a port

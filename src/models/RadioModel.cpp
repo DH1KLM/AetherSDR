@@ -670,9 +670,21 @@ void RadioModel::setupBackend(const QString& family)
     connect(m_backend.get(), &IRadioBackend::profileChanged, this,
             [this](const ProfileDelta& delta) { applyProfileChanges(delta); });
 
+    // NOTE: the three connects below hang off the Flex PanadapterStream, which a
+    // backend carrying its own IQ does not have. They ran unconditionally, so an
+    // HL2 setup logged "QObject::connect: invalid nullptr parameter" and wired
+    // nothing -- including meterDataReady, which is part of why the S-meter has
+    // never reached the UI on this backend.
+    //
+    // Guarded individually rather than with an early return: the m_connection
+    // and IRadioBackend connects further down are interleaved with these and ARE
+    // needed by a self-IQ backend. Returning early here would have skipped
+    // IRadioBackend::connected and broken HL2 connection outright.
+
     // Centralized DAX RX channel ownership (#3305): PanadapterStream decides
     // WHEN a dax_rx stream must exist (refcounted acquire/release from the
     // bridge/TCI/RADE); RadioModel is the command plane that makes it so.
+    if (m_panStream)
     connect(m_panStream, &PanadapterStream::daxStreamCreateNeeded,
             this, [this](int ch) {
         if (!isConnected()) {
@@ -700,6 +712,7 @@ void RadioModel::setupBackend(const QString& family)
             // re-assert and blip audio, the very thing the gate avoids (#4017).
         });
     });
+    if (m_panStream)
     connect(m_panStream, &PanadapterStream::daxStreamRemoveNeeded,
             this, [this](quint32 streamId, int ch) {
         Q_UNUSED(ch);
@@ -710,6 +723,13 @@ void RadioModel::setupBackend(const QString& family)
     // RadioConnection (created + owned by the backend above, on its own worker
     // thread #502 so TCP I/O never blocks paintEvent) — wire its signals to us.
     // Signals from RadioConnection auto-queue to main thread (#502)
+    //
+    // RadioConnection is the Flex TCP command channel; a self-IQ backend has
+    // none and m_connection is null, so each of these logged an "invalid
+    // nullptr parameter" connect. The lifecycle it would have carried arrives
+    // through the neutral IRadioBackend signals below instead, which is why the
+    // block after this one is gated on !m_connection.
+    if (m_connection) {
     connect(m_connection, &RadioConnection::statusReceived,
             this, &RadioModel::onStatusReceived);
     connect(m_connection, &RadioConnection::messageReceived,
@@ -734,6 +754,8 @@ void RadioModel::setupBackend(const QString& family)
         }
     });
 
+    }  // if (m_connection)
+
     // aetherd Gap B (Step 2b): a non-Flex backend has no RadioConnection, so it
     // drives the connection lifecycle through the neutral IRadioBackend signals
     // instead of m_connection's. Purely additive and guarded to the m_connection-
@@ -750,6 +772,7 @@ void RadioModel::setupBackend(const QString& family)
     }
 
     // Forward VITA-49 meter packets to MeterModel (cross-thread, auto-queued)
+    if (m_panStream)
     connect(m_panStream, &PanadapterStream::meterDataReady,
             &m_meterModel, &MeterModel::updateValues);
 }
@@ -1124,8 +1147,10 @@ RadioModel::~RadioModel()
     // connection also delivers statusReceived → handlePanadapterStatus / the
     // waterfall handler, both of which now deref m_flexBackend — sever it too so
     // a late WAN status can't reach a half-destroyed backend. (#4065 review)
-    QObject::disconnect(m_connection, nullptr, this, nullptr);
-    QObject::disconnect(m_panStream, nullptr, this, nullptr);
+    if (m_connection)                   // absent on a self-IQ backend
+        QObject::disconnect(m_connection, nullptr, this, nullptr);
+    if (m_panStream)                    // likewise
+        QObject::disconnect(m_panStream, nullptr, this, nullptr);
     if (m_wanConn) {
         QObject::disconnect(m_wanConn, nullptr, this, nullptr);
     }
@@ -8419,6 +8444,31 @@ QJsonObject RadioModel::troubleshootingSnapshot() const
     snapshot["counts"] = counts;
 
     return snapshot;
+}
+
+bool RadioModel::acquireDaxChannel(int channel, PanadapterStream::DaxConsumer who)
+{
+    if (!m_panStream) {
+        qCDebug(lcDax) << "RadioModel: no PanadapterStream — declining DAX channel"
+                       << channel << "for consumer" << static_cast<int>(who);
+        return false;
+    }
+    m_panStream->acquireDaxChannel(channel, who);
+    return true;
+}
+
+void RadioModel::releaseDaxChannel(int channel, PanadapterStream::DaxConsumer who)
+{
+    if (!m_panStream)
+        return;                       // nothing was ever held
+    m_panStream->releaseDaxChannel(channel, who);
+}
+
+void RadioModel::releaseAllDaxChannels(PanadapterStream::DaxConsumer who)
+{
+    if (!m_panStream)
+        return;
+    m_panStream->releaseAllDaxChannels(who);
 }
 
 } // namespace AetherSDR

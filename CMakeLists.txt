@@ -3938,6 +3938,11 @@ if(Qt6WebSockets_FOUND)
 endif()
 
 # aetherd RFC 2.3 — MeterModel touchpoint: meter-status wire decode.
+add_executable(radiomodel_dax_null_test tests/radiomodel_dax_null_test.cpp)
+target_include_directories(radiomodel_dax_null_test PRIVATE src)
+target_link_libraries(radiomodel_dax_null_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME radiomodel_dax_null_test COMMAND radiomodel_dax_null_test)
+
 add_executable(aetherd_meter_decode_test tests/aetherd_meter_decode_test.cpp)
 target_include_directories(aetherd_meter_decode_test PRIVATE src)
 target_link_libraries(aetherd_meter_decode_test PRIVATE aethercore Qt6::Core Qt6::Test)

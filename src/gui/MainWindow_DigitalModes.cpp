@@ -458,7 +458,7 @@ void MainWindow::activateRADE(int sliceId)
         int daxCh = radeSlice ? radeSlice->daxChannel() : 0;
         if (daxCh >= 1 && daxCh <= 4) {
             m_radeDaxChannel = daxCh;
-            m_radioModel.panStream()->acquireDaxChannel(
+            m_radioModel.acquireDaxChannel(
                 daxCh, PanadapterStream::DaxConsumer::Rade);
         } else {
             qWarning() << "MainWindow: RADE slice" << sliceId
@@ -627,7 +627,7 @@ void MainWindow::deactivateRADE()
             // radio-side stream only when the LAST holder (TCI / DAX bridge /
             // RADE) releases — the ref-counting the old TODO here asked for
             // (#3305).
-            m_radioModel.panStream()->releaseDaxChannel(
+            m_radioModel.releaseDaxChannel(
                 m_radeDaxChannel, PanadapterStream::DaxConsumer::Rade);
             m_radeDaxChannel = 0;
         }
@@ -961,7 +961,7 @@ bool MainWindow::startDax()
         int ch = s->daxChannel();
         m_daxSliceLastCh[s->sliceId()] = ch;
         if (ch >= 1 && ch <= 4) {
-            m_radioModel.panStream()->acquireDaxChannel(
+            m_radioModel.acquireDaxChannel(
                 ch, PanadapterStream::DaxConsumer::Bridge);
         }
     }
@@ -1002,7 +1002,7 @@ bool MainWindow::startDax()
         for (auto* s : m_radioModel.slices()) {
             if (s && s->daxChannel() == ch) return;  // channel hopped slices
         }
-        m_radioModel.panStream()->releaseDaxChannel(
+        m_radioModel.releaseDaxChannel(
             ch, PanadapterStream::DaxConsumer::Bridge);
     }));
 
@@ -1086,7 +1086,7 @@ void MainWindow::stopDax()
     // or RADE still uses survives a bridge teardown — the #3363/#2886 failure
     // class, now enforced structurally instead of by cross-consumer peeking
     // (#3305).
-    m_radioModel.panStream()->releaseAllDaxChannels(
+    m_radioModel.releaseAllDaxChannels(
         PanadapterStream::DaxConsumer::Bridge);
 
     // Restore original mic selection

@@ -78,6 +78,26 @@ public:
     // Access the underlying connection and panadapter stream
     RadioConnection*  connection()  { return m_connection; }
     PanadapterStream* panStream()   { return m_panStream; }
+
+    // DAX channel holds, null-safe.
+    //
+    // A PanadapterStream is the Flex VITA-49 transport; a backend that carries
+    // its own IQ (HL2, KiwiSDR) has none, and panStream() is then null. Every
+    // caller of these three used to dereference it bare, so activating RADE or
+    // the DAX bridge on such a backend was a segfault rather than a decline --
+    // the same crash already fixed once at the startDax() entry, reachable by
+    // four more paths behind it.
+    //
+    // Routing the family through here makes "no stream means no channels to
+    // hold" a property of the seam instead of something every call site has to
+    // remember, which is the point: the next backend should not be able to
+    // reintroduce this by adding a call.
+    //
+    // Returns false when there is no stream, so callers can report honestly
+    // rather than believing they hold a channel they do not.
+    bool acquireDaxChannel(int channel, PanadapterStream::DaxConsumer who);
+    void releaseDaxChannel(int channel, PanadapterStream::DaxConsumer who);
+    void releaseAllDaxChannels(PanadapterStream::DaxConsumer who);
     // Sub-models owned by RadioModel (main thread). (#502)
     MeterModel&       meterModel()       { return m_meterModel; }
     TunerModel&       tunerModel()       { return m_tunerModel; }
