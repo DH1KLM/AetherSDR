@@ -818,7 +818,42 @@ Practical check before claiming a control works: trace the widget's `connect()`
 to the model method it calls, and confirm that method reaches
 `IRadioBackend`. If it only emits `commandReady`, it is Flex-only.
 
-### 14.6 Process failures worth not repeating
+### 14.6 The wrong-sideband bug, and why nothing internal could find it
+
+Transmit went out on the WRONG SIDEBAND for the entire bring-up. The HPSDR wire
+order has the opposite handedness to the standard analytic convention; the
+receive path already compensated (conjugating with `-imag()` before WDSP, the
+fix filed as "USB and LSB are swapped"), and transmit never got the same
+correction.
+
+**Every internal check agreed with the bug**, because the panadapter reads the
+same wire order as the transmitter. Our display and our transmission were
+consistent with each other while both disagreed with the rest of the band:
+
+| Check | Result | Verdict |
+|---|---|---|
+| `hl2_txdsp_test` sideband assertion | 85 dB suppression, "correct" side | passed, asserting the TEXTBOOK convention |
+| `hl2_tx_loopback_test` through hpsdrsim | tone at the expected bin | passed, measuring the sim's feedback in wire order |
+| Panadapter during TX, live radio | clean single sideband, correct side of centre | looked perfect |
+| Forward power, USB vs LSB at 14.200 | 3875 vs 3876 | identical, both "working" |
+| TX FIFO depth | stable 27–31, no under/overflow | refuted the starvation theory |
+
+It was found by an operator with a second receiver: *"I heard the LSB side of
+AetherSDR on the USB side of the Yaesu."*
+
+**The generalisable lesson.** A convention error is invisible to any test that
+shares the convention. Self-consistency is not correctness, and the more
+internal instruments agree, the more confident the wrong answer looks. For
+anything that leaves the machine — RF, a wire format, a file another program
+reads — at least one check must come from **outside the system**: a second
+receiver, a different decoder, an independent implementation. Measuring harder
+inside the loop cannot substitute.
+
+Related: this is why TUNE always worked and voice never did. A tune carrier sits
+at ZERO offset, where handedness has no effect — the one signal that could not
+have exposed the bug was the one that always looked fine.
+
+### 14.7 Process failures worth not repeating
 
 - **`0x39` wedged the radio.** The filter-pipeline reset was validated with 7
   writes spaced ~2 s apart and shipped. A pan drag issues centre commands every
@@ -833,6 +868,9 @@ to the model method it calls, and confirm that method reaches
   stored 10,000,000 MHz. It invalidated several "tested on the live radio"
   claims, and only surfaced because a screenshot's axis looked wrong. *A verb
   that accepts a wrong-unit value without complaint is a silent failure.*
+- **Trusted self-consistent internal instruments.** See §14.6 — the transmitter
+  was on the wrong sideband while every test, meter and display agreed it was
+  right, because they all shared the convention that was wrong.
 - **Verified the layer that could be scripted, not the layer the operator
   presses.** Twice: once as the Hz-for-MHz harness bug, once as MOX keying
   through a model the bridge never touches. See §14.5 — this is the single most
@@ -847,7 +885,7 @@ to the model method it calls, and confirm that method reaches
   that keys a transmitter is a bad trade against fifty lines whose correctness is
   a number a test prints.
 
-### 14.7 Still open
+### 14.8 Still open
 
 - **Absolute watts.** Counts are uncalibrated; oracle §6 forbids presenting them
   as watts. Needs a per-unit calibration curve.
