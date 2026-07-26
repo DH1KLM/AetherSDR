@@ -650,6 +650,14 @@ int MeterModel::findMeter(const QString& source, const QString& name, int source
     return -1;
 }
 
+qint64 MeterModel::valueAgeMs(int index) const
+{
+    const qint64 upd = m_valueUpdatedMs.value(index, 0);
+    if (upd <= 0 || !m_values.contains(index))
+        return -1;
+    return QDateTime::currentMSecsSinceEpoch() - upd;
+}
+
 float MeterModel::value(int index) const
 {
     return m_values.value(index, 0.0f);

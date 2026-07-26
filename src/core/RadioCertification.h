@@ -46,7 +46,22 @@ class AudioEngine;
 // checks a human must still perform.
 class RadioCertification {
 public:
-    enum class Phase { Rx, Tx, All };
+    // Bring-up order, and it is deliberate: each phase depends only on the ones
+    // before it.
+    //
+    //   Tune    control plane only — no DSP, no audio, no meters
+    //   Rx      demodulation and handedness — audio evidence, still no meters
+    //   Tx      keying and modulation — audio evidence where it exists
+    //   Meters  the instruments themselves, LAST, against known stimuli
+    //
+    // Meters come last because they are not trustworthy until something has
+    // checked them, and the earlier phases must therefore not lean on them. A
+    // transmit stage that concludes "no RF" from a missing SWR reading is really
+    // reporting "no SWR reading", and the two are only the same thing once the
+    // meters have been validated. Where a stage does use a meter, it labels the
+    // conclusion meterDependent so a failure can be attributed to the right
+    // subsystem instead of the nearest one.
+    enum class Phase { Tune, Rx, Tx, Meters, All };
 
     struct Options {
         Phase phase = Phase::All;
@@ -84,12 +99,19 @@ private:
                 const QString& concern = QString(),
                 const QString& reference = QString());
 
+    // ---- control-plane stages (no DSP, no meters) ----
+    void stageModeMap();
+    void stageTuning(const Options& o);
+
+    // ---- meter stages, LAST ----
+    void stageMeterInventory();
+    void stageMeterScale(const Options& o);
+
     // ---- receive stages ----
     //
     // These run FIRST when both phases are selected, and not by accident: the
     // wire's handedness is one fact that transmit and receive both consume, and
     // transmit cannot be reasoned about until it is settled (HERMES.md 15.6).
-    void stageModeMap();
     void stageConsumerAgreement(const Options& o);
     void stageZeroShift(const Options& o);
     void stageRxSidebands(const Options& o);
@@ -111,6 +133,11 @@ private:
     // gap (HERMES.md 14.5). A transmit diagnostic that keyed the way only the
     // bridge can would inherit exactly the blindness it exists to remove.
     void keyViaOperatorPath(bool on);
+
+    // Drive used for the sideband probe only. Enough to measure, low enough
+    // that the receiver listening to its own transmitter is not driven into
+    // clipping — at full power it saturates and the measurement is worthless.
+    static constexpr int kSidebandProbePowerPercent = 5;
 
     void spin(int ms);
     QJsonObject meterSnapshot() const;

@@ -2997,7 +2997,7 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
             });
 
         add("radiocert", {},
-            "radiocert <rx|tx|all> [freqMhz] [mode] — radio bring-up diagnostic (tx phases key repeatedly)",
+            "radiocert <tune|rx|tx|meters|all> [freqMhz] — radio bring-up diagnostic, in dependency order (tx/meters key)",
             parseActionValue,
             [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
                 return s.doTxCert(a.action, a.value);
@@ -6249,17 +6249,25 @@ QJsonObject AutomationServer::doTxCert(const QString& freqArg, const QString& mo
         return err(QStringLiteral("no audio engine available"));
     RadioCertification::Options opts;
     const QString phase = freqArg.trimmed().toLower();
-    if (phase == QLatin1String("rx"))       opts.phase = RadioCertification::Phase::Rx;
-    else if (phase == QLatin1String("tx"))  opts.phase = RadioCertification::Phase::Tx;
-    else if (phase == QLatin1String("all")) opts.phase = RadioCertification::Phase::All;
+    if (phase == QLatin1String("tune"))        opts.phase = RadioCertification::Phase::Tune;
+    else if (phase == QLatin1String("rx"))     opts.phase = RadioCertification::Phase::Rx;
+    else if (phase == QLatin1String("tx"))     opts.phase = RadioCertification::Phase::Tx;
+    else if (phase == QLatin1String("meters")) opts.phase = RadioCertification::Phase::Meters;
+    else if (phase == QLatin1String("all"))    opts.phase = RadioCertification::Phase::All;
 
     // Only the transmit phases key. A receive-only run is as safe as tuning, and
     // gating it would put the FIRST thing a new radio needs behind a permission
     // nobody would have granted yet.
-    if (opts.phase != RadioCertification::Phase::Rx && !m_txAllowed)
+    // tune and rx do not key; tx and meters do. Gating the non-keying phases
+    // would put the first things a new radio needs behind a permission nobody
+    // would have granted yet.
+    const bool keys = opts.phase == RadioCertification::Phase::Tx
+                   || opts.phase == RadioCertification::Phase::Meters
+                   || opts.phase == RadioCertification::Phase::All;
+    if (keys && !m_txAllowed)
         return err(QStringLiteral(
             "blocked: this phase keys the transmitter — enable TX automation "
-            "(or set AETHER_AUTOMATION_ALLOW_TX=1), or run 'radiocert rx'"));
+            "(or set AETHER_AUTOMATION_ALLOW_TX=1), or run 'radiocert tune' / 'radiocert rx'"));
 
     bool okF = false;
     const double mhz = modeArg.trimmed().toDouble(&okF);
