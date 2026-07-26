@@ -27,6 +27,7 @@
 #include "ConnectionPanel.h"
 #include "PhoneCwApplet.h"
 #include "SpectrumOverlayMenu.h"
+#include "core/backends/sim/SimBackend.h"   // demo owns its audio — see wirePanStreamRxAudioSinks
 #include "core/CwSidetoneGenerator.h"
 #include "core/CwTrace.h"
 #include "gui/CwDecodeSettings.h"   // rxEnabled() gate for the RX-audio CW feed
@@ -186,8 +187,19 @@ void MainWindow::wireDiscovery()
     // arrives on the PanadapterStream path instead and never reaches here, so
     // there is no double-feed. Bound to m_radioModel rather than the backend, so
     // it survives a backend swap without re-wiring.
+    //
+    // ⚠ The demo (SimBackend) ALSO emits IRadioBackend::audioFrameReady, and
+    // wireBackendSeam() already connects that signal straight to the AudioEngine.
+    // Without this gate the demo's frames arrive TWICE — once direct, once relayed
+    // via RadioModel::backendAudioFrameReady — and the engine consumes at double
+    // rate: an audible ~187.5 Hz (24 kHz / 128-sample frame) scratchy buzz.
+    // Qt::UniqueConnection cannot catch it: these are two DIFFERENT signals
+    // arriving at the same slot, so nothing looks duplicate to Qt.
     connect(&m_radioModel, &RadioModel::backendAudioFrameReady,
-            m_audio, &AudioEngine::feedAudioData);
+            m_audio, [this](const QByteArray& pcm) {
+        if (backendOwnsRxAudio()) return;   // demo feeds the engine directly
+        m_audio->feedAudioData(pcm);
+    });
 
     connect(&m_hl2Discovery, &hl2::Hl2Discovery::radioDiscovered,
             m_connPanel, &ConnectionPanel::onRadioDiscovered);
@@ -1643,15 +1655,37 @@ void MainWindow::wireCatPorts()
 // RX audio itself rides audioDataReady, so a missed one is silence, not a
 // degraded feature. Keeping the list here (not open-coded in two places) is why
 // a new sink added to buildUI cannot silently go un-rebound after a swap.
+bool MainWindow::backendOwnsRxAudio()
+{
+    // The demo (RFC #4288 Route A) is the one backend that BOTH vends a
+    // PanadapterStream and emits its own seam audio: SimBackend::onAudioTick →
+    // audioFrameReady carries the real demodulated demo audio, while the stream
+    // still carries the old shim's synthetic scene. Wiring both into
+    // feedAudioData() sums two independent streams at the sink — audible as
+    // wobble plus distortion, and recognisably "the waterfall you can hear".
+    // Backends with no PanadapterStream at all (HL2) never reach these sites.
+    return dynamic_cast<SimBackend*>(m_radioModel.backend()) != nullptr;
+}
+
 void MainWindow::wirePanStreamRxAudioSinks()
 {
     auto* ps = m_radioModel.panStream();
     if (!ps)
         return;   // RX-only/in-process backend (HL2/KiwiSDR): no VITA-49 stream
 
-    // Primary RX audio → QAudioSink.
-    connect(ps, &PanadapterStream::audioDataReady,
-            m_audio, &AudioEngine::feedAudioData);
+    // The demo (RFC #4288 Route A) is the one backend that BOTH vends a
+    // PanadapterStream and emits its own seam audio: SimBackend::onAudioTick →
+    // audioFrameReady carries the real demodulated demo audio, while the stream
+    // still carries the old shim's synthetic scene. Wiring both into
+    // feedAudioData() sums two independent streams at the sink — audible as
+    // wobble plus distortion, and recognisably "the waterfall you can hear".
+    // The backend's own audio wins; the stream's other RX taps below stay wired.
+    // Primary RX audio → QAudioSink (skipped when the backend owns its audio).
+    if (!backendOwnsRxAudio()) {
+        connect(ps, &PanadapterStream::audioDataReady,
+                m_audio, &AudioEngine::feedAudioData,
+                Qt::UniqueConnection);
+    }
 
     // QSO recorder RX tap (float32). TX monitor + MOX gating are wired to
     // AudioEngine/TransmitModel, which survive the swap, so they stay in buildUI.

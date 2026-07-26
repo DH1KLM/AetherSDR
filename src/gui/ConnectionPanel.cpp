@@ -1,6 +1,7 @@
 #include "ConnectionPanel.h"
 #include "core/AppSettings.h"
 #include "core/backends/hl2/Hl2Discovery.h"   // shared nickname settings helper
+#include "core/backends/sim/SimBackend.h"
 #include "core/NetworkPathResolver.h"
 #include "FramelessResizer.h"
 #include "FramelessWindowTitleBar.h"
@@ -656,6 +657,24 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     });
     root->addWidget(m_autoConnectCheck);
 
+    // Demo mode (RFC #4288): offer the synthetic "AetherSDR Demo — Simulator"
+    // entry in the radio list. Default on for discoverability; the choice
+    // persists. Toggling just writes the setting and shows/hides the entry — the
+    // connection (and backend selection) happens only when the user connects to
+    // it, exactly like a real radio.
+    m_showDemoCheck = new QCheckBox("Show the AetherSDR demo simulator", this);
+    m_showDemoCheck->setChecked(
+        AppSettings::instance().value("ShowDemoRadio", "True").toString() == "True");
+    m_showDemoCheck->setStyleSheet(lowBandwidthCheckStyle);
+    connect(m_showDemoCheck, &QCheckBox::toggled, this, [this](bool on) {
+        auto& s = AppSettings::instance();
+        s.setValue("ShowDemoRadio", on ? "True" : "False");
+        s.save();
+        if (on) addDemoRadio();
+        else    removeDemoRadio();
+    });
+    root->addWidget(m_showDemoCheck);
+
     // ── Footer ────────────────────────────────────────────────────────────
     auto* footerRow = new QHBoxLayout;
     footerRow->setSpacing(8);
@@ -1150,7 +1169,39 @@ void ConnectionPanel::onRadioDiscovered(const RadioInfo& radio)
     m_radioList->addItem(formatLocalRadioLabel(radio));
     if (m_radioList->count() == 1)
         m_radioList->setCurrentRow(0);
+
+    // Demo mode: keep the synthetic entry sorted LAST so a real radio always
+    // takes precedence in the list and the demo never gets in the way (RFC
+    // #4288). If a real radio was just added while the demo is present, move the
+    // demo to the bottom. (No-op when the entry being added IS the demo.)
+    if (radio.serial != SimBackend::demoSerial()) {
+        moveDemoRadioToBottom();
+    }
     updateLocalPageState();
+}
+
+void ConnectionPanel::moveDemoRadioToBottom()
+{
+    const QString demoSerial = SimBackend::demoSerial();
+    for (int i = 0; i < m_radios.size(); ++i) {
+        if (m_radios[i].serial != demoSerial) {
+            continue;
+        }
+        if (i == m_radios.size() - 1) {
+            return;   // already last
+        }
+        const bool wasSelected = m_radioList->currentRow() == i;
+        const RadioInfo demo = m_radios.takeAt(i);
+        delete m_radioList->takeItem(i);
+        m_radios.append(demo);
+        m_radioList->addItem(formatLocalRadioLabel(demo));
+        // A real radio outranks the demo: never leave the demo auto-selected
+        // once something real is present.
+        if (wasSelected && m_radioList->count() > 1) {
+            m_radioList->setCurrentRow(0);
+        }
+        return;
+    }
 }
 
 void ConnectionPanel::onRadioUpdated(const RadioInfo& radio)
@@ -1176,6 +1227,40 @@ void ConnectionPanel::onRadioLost(const QString& serial)
     }
 
     updateLocalPageState();
+}
+
+void ConnectionPanel::addDemoRadio()
+{
+    RadioInfo demo;
+    // Impersonate a FLEX so AE's model/band logic treats it like a normal radio;
+    // the nickname carries the unmistakable "not on the air" label. The serial is
+    // SimBackend::demoSerial() so the backend factory can recognize this target.
+    demo.name = QStringLiteral("FLEX-6700");
+    demo.model = SimBackend::demoModelName();
+    demo.serial = SimBackend::demoSerial();
+    // The demo is its own BACKEND FAMILY, even though it impersonates a Flex in
+    // the picker. RadioModel::connectToRadio switches backends on this field, so
+    // leaving it empty (defaulting to "flex") made the family switch build a
+    // FlexBackend for the demo target — and the demo then ran on the wrong
+    // backend entirely. One selector, and this is it.
+    demo.family = SimBackend::familyName();
+    demo.version = QStringLiteral("0.0.0.0");
+    demo.nickname = QStringLiteral("Simulator (not on the air)");
+    demo.callsign = QStringLiteral("DEMO");
+    demo.address = QHostAddress(QHostAddress::LocalHost);   // synthetic; never dialed
+    demo.port = 4992;
+    demo.status = QStringLiteral("Available");
+    demo.isSystemModel = false;
+    demo.multiFlexEnabled = false;
+
+    // Reuse the normal discovery ingest path (dedupes by serial), so the demo
+    // entry behaves exactly like a discovered radio in the list.
+    onRadioDiscovered(demo);
+}
+
+void ConnectionPanel::removeDemoRadio()
+{
+    onRadioLost(SimBackend::demoSerial());
 }
 
 void ConnectionPanel::onListSelectionChanged()

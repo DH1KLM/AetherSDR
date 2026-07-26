@@ -524,6 +524,9 @@ endif()
 # Sources
 set(CORE_SOURCES
     src/core/backends/flex/FlexBackend.cpp   # aetherd RFC step 2.2 (§5.5)
+    src/core/backends/sim/SimBackend.cpp     # demo mode — 2nd IRadioBackend (RFC #4288)
+    src/core/backends/sim/SpectrumPatternGenerator.cpp  # demo mode — signal engine (RFC #4288 Phase 2)
+    src/core/backends/sim/NoiseMixer.cpp                 # demo mode — audio engine (RFC #4288 Phase 2b)
     src/core/backends/hl2/MetisProtocol.cpp  # aetherd HL2 Phase 1a (HPSDR Protocol 1)
     src/core/backends/hl2/MetisClient.cpp    # aetherd HL2 Phase 1a (UDP wire + RX ingest)
     src/core/backends/hl2/Hl2Spectrum.cpp    # aetherd HL2 Phase 1a (FFT panadapter, FFTW)
@@ -887,6 +890,7 @@ set(GUI_SOURCES
     src/gui/ClientCompCurveWidget.cpp
     src/gui/ClientCompKnob.cpp
     src/gui/ClientGateApplet.cpp
+    src/gui/DemoApplet.cpp                # demo mode — noise-scene control tile (RFC #4288)
     src/gui/ClientGateCurveWidget.cpp
     src/gui/ClientGateEditor.cpp
     src/gui/StripGatePanel.cpp
@@ -3940,6 +3944,46 @@ add_test(NAME health_applet_test COMMAND health_applet_test)
 set_tests_properties(health_applet_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Demo-mode SimBackend lifecycle test (RFC #4288, Phase 1). SimBackend was once
+# wire-free, but Path B (RFC #4288) had it own a RadioConnection + PanadapterStream,
+# so it no longer links against a hand-picked subset of sources: those pull in
+# RadioDiscovery.h (<QUdpSocket>) at compile time and RadioConnection/PanadapterStream
+# symbols at link time. Link aethercore (which already contains SimBackend, NoiseMixer,
+# RadioConnection and PanadapterStream) exactly like flex_backend_lifecycle_test does,
+# so the dependency closure is resolved by the library rather than re-listed here.
+add_executable(sim_backend_test tests/sim_backend_test.cpp)
+target_include_directories(sim_backend_test PRIVATE src)
+target_link_libraries(sim_backend_test PRIVATE aethercore Qt6::Core Qt6::Test)
+if(UNIX)
+    target_link_libraries(sim_backend_test PRIVATE pthread)
+endif()
+set_target_properties(sim_backend_test PROPERTIES AUTOMOC ON)
+add_test(NAME sim_backend_test COMMAND sim_backend_test)
+
+# Demo-mode signal engine — pure pattern generator (RFC #4288, Phase 2a).
+add_executable(spectrum_pattern_test
+    tests/spectrum_pattern_test.cpp
+    src/core/backends/sim/SpectrumPatternGenerator.cpp
+)
+target_include_directories(spectrum_pattern_test PRIVATE src)
+target_link_libraries(spectrum_pattern_test PRIVATE Qt6::Core)
+if(UNIX)
+    target_link_libraries(spectrum_pattern_test PRIVATE pthread)
+endif()
+add_test(NAME spectrum_pattern_test COMMAND spectrum_pattern_test)
+
+add_executable(noise_mixer_test
+    tests/noise_mixer_test.cpp
+    src/core/backends/sim/NoiseMixer.cpp
+    resources/resources.qrc          # for the bundled demo voice clip (:/demo_voice.wav)
+)
+target_include_directories(noise_mixer_test PRIVATE src)
+target_link_libraries(noise_mixer_test PRIVATE Qt6::Core)
+if(UNIX)
+    target_link_libraries(noise_mixer_test PRIVATE pthread)
+endif()
+add_test(NAME noise_mixer_test COMMAND noise_mixer_test)
+
 add_executable(vu_meter_settings_test
     tests/vu_meter_settings_test.cpp
     src/gui/CrossNeedleMeterSettings.cpp
@@ -4030,6 +4074,11 @@ add_executable(radiomodel_dax_null_test tests/radiomodel_dax_null_test.cpp)
 target_include_directories(radiomodel_dax_null_test PRIVATE src)
 target_link_libraries(radiomodel_dax_null_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME radiomodel_dax_null_test COMMAND radiomodel_dax_null_test)
+
+add_executable(demo_backend_swap_test tests/demo_backend_swap_test.cpp)
+target_include_directories(demo_backend_swap_test PRIVATE src)
+target_link_libraries(demo_backend_swap_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME demo_backend_swap_test COMMAND demo_backend_swap_test)
 
 add_executable(hl2_family_transition_test tests/hl2_family_transition_test.cpp)
 target_include_directories(hl2_family_transition_test PRIVATE src)

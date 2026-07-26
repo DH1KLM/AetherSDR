@@ -107,6 +107,7 @@ class ContributeDialog;
 class TitleBar;
 class KiwiSdrManager;
 class SpectrumWidget;
+class IRadioBackend;
 class PanadapterApplet;
 class PanadapterStack;
 class AdaptiveFilterEngine;
@@ -403,6 +404,12 @@ private:
     // Every stream-bound sink lives in one of these; a new one added here is
     // automatically re-bound after a Flex->HL2->Flex swap.
     void wirePanStreamRxAudioSinks();         // MainWindow_Session.cpp
+    // True when the connected backend supplies RX audio over the IRadioBackend
+    // seam rather than through PanadapterStream — i.e. the demo (RFC #4288
+    // Route A), which is the one backend that owns BOTH. Every site that wires
+    // PanadapterStream::audioDataReady → AudioEngine::feedAudioData must consult
+    // this, or the two sources sum at the sink (wobble + distortion).
+    bool backendOwnsRxAudio();                // MainWindow_Session.cpp
     void wirePanStreamTxSink();               // MainWindow_Session.cpp
     void wirePanStreamTciSinks();             // MainWindow_Session.cpp
     void wirePanStreamDaxIqSink();            // MainWindow_Session.cpp
@@ -528,6 +535,14 @@ private:
         KiwiSdrUiSyncPanadapterStates = 0x08,
     };
     void scheduleKiwiSdrUiSync(int flags);
+    // (Re)wire the backend-owned seam signals (audioFrameReady/spectrumFrameReady)
+    // to the audio engine / spectrum renderer, plus the demo's ANF/NB and VFO/mode
+    // forwards. Re-run on RadioModel::backendRebuilt so the connect-time Flex<->Sim
+    // backend swap doesn't leave them dangling on the destroyed backend (RFC #4288 —
+    // the demo "no audio / stuck connecting" fix). Safe to re-run: Qt drops a
+    // connection when either endpoint dies, and the old backend is destroyed before
+    // the new one is built, so no duplicates. Guarded anyway - see the body.
+    void wireBackendSeam(AetherSDR::IRadioBackend* backend);
     void noteBandRecallForPan(const QString& panId);
     void wirePanadapter(PanadapterApplet* applet);
     void wirePanDisplayStatus(PanadapterApplet* applet, PanadapterModel* pan);

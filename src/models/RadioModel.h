@@ -79,6 +79,10 @@ public:
     // Access the underlying connection and panadapter stream
     RadioConnection*  connection()  { return m_connection; }
     PanadapterStream* panStream()   { return m_panStream; }
+    // The radio-facing backend seam (aetherd RFC §5.5). Non-owning; used to wire
+    // seam-native signals (e.g. a SimBackend's audioFrameReady) that don't flow
+    // through PanadapterStream. Null before the first connect.
+    IRadioBackend*    backend()     { return m_backend.get(); }
 
     // DAX channel holds, null-safe.
     //
@@ -99,6 +103,7 @@ public:
     bool acquireDaxChannel(int channel, PanadapterStream::DaxConsumer who);
     void releaseDaxChannel(int channel, PanadapterStream::DaxConsumer who);
     void releaseAllDaxChannels(PanadapterStream::DaxConsumer who);
+
     // Sub-models owned by RadioModel (main thread). (#502)
     MeterModel&       meterModel()       { return m_meterModel; }
     TunerModel&       tunerModel()       { return m_tunerModel; }
@@ -340,6 +345,7 @@ public:
     QStringList globalProfiles() const { return m_globalProfiles; }
     QString activeGlobalProfile() const { return m_activeGlobalProfile; }
     void loadGlobalProfile(const QString& name);
+    void buildBackend();   // RFC #4288 Route A: create + wire m_backend (Sim/Flex)
     void resetPanState();
     void createAudioStream();
     bool ensureDaxTxStream(DaxTxRequestReason reason);
@@ -611,6 +617,9 @@ signals:
     void infoChanged();
     void licenseFeaturesChanged();
     void connectionStateChanged(bool connected);
+    // Emitted whenever the backend instance is (re)built — including the
+    // connect-time swap between FlexBackend and SimBackend (RFC #4288). The old
+    // m_backend is already destroyed and m_backend now points at the new one.
     // Emitted whenever the local CW key transitions on/off — funnel for
     // serial CTS/DSR, MIDI Gate, TCI key, CWX, and HID encoder sources.
     // Wired to AudioEngine's CwSidetoneGenerator for low-latency local
@@ -1003,6 +1012,9 @@ private:
     // decide whether a connect needs a different backend.
     QString m_family;
     std::unique_ptr<IRadioBackend> m_backend;
+    // RFC #4288 Route A: when true, m_backend is a wire-less SimBackend (the demo
+    // simulator) instead of a FlexBackend. Selected per-connection from the target
+    // — see connectToRadio(). Also generalizes to future non-Flex backends (HL2).
     // Transitional (aetherd RFC 2.3): RadioModel drives the backend's Flex
     // status decode from its status choke points while touchpoints convert
     // one at a time. Non-owning alias of m_backend; goes away once the backend

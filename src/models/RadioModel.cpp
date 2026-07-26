@@ -6,6 +6,7 @@
 #include "DeclaredBands.h"
 #include "core/CommandParser.h"
 #include "core/backends/flex/FlexBackend.h"   // aetherd RFC 2.2 radio-facing seam
+#include "core/backends/sim/SimBackend.h"     // RFC #4288 demo-mode backend (Route A)
 #include "core/backends/hl2/Hl2Backend.h"      // aetherd Gap A — HL2 backend (family "hl2")
 #include "core/AppSettings.h"
 #include "core/CwTrace.h"
@@ -412,6 +413,13 @@ std::unique_ptr<IRadioBackend> RadioModel::makeBackend(const QString& family)
 {
     if (family.compare(QLatin1String("hl2"), Qt::CaseInsensitive) == 0)
         return std::make_unique<hl2::Hl2Backend>();
+    // RFC #4288 demo mode: the synthetic radio is selected here like any other
+    // family, which is what completes the "wire it through the real SimBackend
+    // factory" ask. Unlike HL2 it is a Route A hybrid — it owns a RadioConnection
+    // and a PanadapterStream and vends them, so setupBackend() harvests those the
+    // same way it does for Flex (see the dynamic_cast below).
+    if (family.compare(QLatin1String("sim"), Qt::CaseInsensitive) == 0)
+        return std::make_unique<SimBackend>();
     return std::make_unique<FlexBackend>();
 }
 
@@ -456,6 +464,28 @@ void RadioModel::setupBackend(const QString& family)
                     this, &RadioModel::panFeedWaterfallRowReady);
             connect(m_panStream, &PanadapterStream::waterfallAutoBlackLevel,
                     this, &RadioModel::panFeedWaterfallAutoBlackLevel);
+        } else if (auto* sim = dynamic_cast<SimBackend*>(m_backend.get())) {
+            // RFC #4288 Route A: SimBackend also owns a RadioConnection and a
+            // PanadapterStream (running synthetically — no socket, no wire), so it
+            // vends them here exactly as FlexBackend does. That keeps RadioModel's
+            // ~46 m_connection->/m_panStream-> sites pointing at real objects
+            // instead of needing null-guards, and routes the demo's spectrum
+            // through the same neutral render feed as every other family.
+            m_connection  = sim->connection();   // non-owning; SimBackend owns it
+            m_panStream   = sim->panStream();    // non-owning; SimBackend owns it
+            m_flexBackend = nullptr;             // no Flex alias in demo mode
+            // ⚠ Deliberately DO NOT wire the PanadapterStream render signals here.
+            // The demo has TWO spectrum producers: this stream's legacy shim tick
+            // (PanadapterStream::tickSyntheticDemo -> spectrumReady) and the seam
+            // (SimBackend::onAudioTick -> IRadioBackend::spectrumFrameReady, wired
+            // for every backend just below). Wiring both pushed two independent
+            // generators, on two different timers, into the same panFeed* render
+            // feed — the display received interleaved frames from each, which is
+            // what made the noise floor jump about (and was audible, since the
+            // audio comes from the same NoiseMixer scene). The seam is the correct
+            // producer post-re-home, so the stream's copy stays disconnected.
+            // The stream is still vended above because ~46 RadioModel call sites
+            // dereference m_panStream; it just no longer feeds the renderer.
         }
     }
 
@@ -882,12 +912,30 @@ void RadioModel::setupBackend(const QString& family)
 
     }  // if (m_connection)
 
-    // aetherd Gap B (Step 2b): a non-Flex backend has no RadioConnection, so it
-    // drives the connection lifecycle through the neutral IRadioBackend signals
-    // instead of m_connection's. Purely additive and guarded to the m_connection-
-    // null case → the Flex path (m_connection non-null) skips this entirely and is
-    // byte-for-byte unchanged. FlexBackend never emits these, so there is no
-    // double-drive even were the guard absent.
+    // aetherd Gap B (Step 2b): a backend that does not drive the lifecycle
+    // through a Flex RadioConnection drives it through the neutral
+    // IRadioBackend signals instead.
+    //
+    // The guard MUST mirror the connect dispatch in connectToRadio(): that does
+    // `if (m_connection) <dial the wire> else if (m_backend) <seam connect>`, so
+    // whichever side initiates the connect is the side that reports the lifecycle.
+    // Hence "!m_connection" here.
+    //
+    // A previous revision relaxed this to "!m_flexBackend" so that
+    // SimBackend::disconnectRadio() (the `sim disconnect` fault) would be heard —
+    // it emitted IRadioBackend::disconnected into nothing, leaving the model
+    // "connected" with dead audio. But SimBackend is an RFC #4288 Route A hybrid:
+    // it vends a synthetic RadioConnection AND re-emits that connection's
+    // lifecycle as its own IRadioBackend signals. With the relaxed guard, sim was
+    // the one family where BOTH blocks were live, so a single wire event reached
+    // onConnected/onDisconnected TWICE — running registerAsGuiClient twice (two
+    // GUI-client batches, two 10 s UDP health timers, a second m_panStream->start()),
+    // emitting connectionStateChanged twice, and staging session models twice
+    // (which zeroed m_staleSessionOwnHandle and defeated the #3977 reclaim guard).
+    //
+    // The real fix for `sim disconnect` belongs on the other side of the seam:
+    // SimBackend::disconnectRadio() now tears down its synthetic connection, so the
+    // wire reports the disconnect through this single path. See SimBackend.cpp.
     if (!m_connection) {
         connect(m_backend.get(), &IRadioBackend::connected,
                 this, &RadioModel::onConnected);
@@ -1340,11 +1388,25 @@ QString RadioModel::digitalVoiceWaveformHealthDetail() const
 
 bool RadioModel::isConnected() const
 {
-    // aetherd Gap B: a non-Flex backend (HL2) owns no RadioConnection — its
-    // connection state lives behind the IRadioBackend seam.
-    if (!m_connection)
-        return m_backend && m_backend->isConnected();
-    return m_connection->isConnected() || (m_wanConn && m_wanConn->isConnected());
+    // Whoever carries the link reports its state: a RadioConnection when one
+    // exists (Flex, and the demo's synthetic wire), otherwise the backend behind
+    // the seam (HL2). Mirrors both the connect dispatch in connectToRadio() and
+    // the lifecycle wiring in setupBackend().
+    //
+    // A previous revision keyed this on "!m_flexBackend" so the demo would answer
+    // from SimBackend instead — because `sim disconnect` used to drop the backend's
+    // state while leaving the synthetic connection "Connected", so this reported
+    // connected=true forever with dead audio. That is now fixed at the source:
+    // SimBackend::disconnectRadio() tears the synthetic connection down, so the
+    // connection is truthful for the demo too.
+    //
+    // Keying on the connection also preserves teardownBackend()'s fail-closed
+    // ordering: it nulls m_flexBackend BEFORE destroying the backend precisely so
+    // a status slot running during teardown cannot dereference a half-destroyed
+    // backend — which the "!m_flexBackend" form inverted into doing exactly that.
+    if (m_connection)
+        return m_connection->isConnected() || (m_wanConn && m_wanConn->isConnected());
+    return m_backend && m_backend->isConnected();
 }
 
 int RadioModel::maxSlicesForModel(const QString& model)
@@ -2153,6 +2215,15 @@ void RadioModel::connectToRadio(const RadioInfo& info)
     clearAutomationSliceFixtures();
     m_automationGpsNtpServerAddress.clear();
 
+    // RFC #4288 Route A: the demo is selected by its FAMILY ("sim") in the block
+    // above, exactly like HL2 — no separate demo path here. An earlier revision
+    // kept a parallel rebuildBackendForTarget(bool) alongside the family switch;
+    // the two disagreed (the demo RadioInfo carried the default family "flex"),
+    // so the family switch built a FlexBackend for the demo and the bool then
+    // early-returned believing the target was already correct. It also emitted
+    // only backendChanged, never backendRebuilt, leaving the rebuilt
+    // PanadapterStream with no sinks bound after a demo↔real swap. One selector.
+
     m_wanConn = nullptr;  // LAN mode
     m_lastInfo = info;
     m_intentionalDisconnect = false;
@@ -2182,6 +2253,11 @@ void RadioModel::connectToRadio(const RadioInfo& info)
                        info.guiClientStations,
                        info.guiClientIps,
                        info.guiClientHosts);
+    // The demo and Flex both go through the RadioConnection: the demo's
+    // connection (owned by SimBackend, RFC #4288 Route A hybrid) detects the demo
+    // serial in connectToRadio() and runs its synthetic-demo connect locally
+    // instead of dialing a socket, while a real radio dials as before. Families
+    // that own no RadioConnection (HL2) take the seam path below.
     if (m_connection) {
         QMetaObject::invokeMethod(m_connection, [conn = m_connection, info] {
             conn->connectToRadio(info);
@@ -3905,10 +3981,29 @@ void RadioModel::onBackendSpectrumFrame(int panId, const QByteArray& frame)
     memcpy(bins.data(), frame.constData(),
            static_cast<std::size_t>(binCount) * sizeof(float));
 
-    // No PanadapterModel exists for an HL2 session yet, so the UI's spectrum
-    // handler takes its empty-panadapters fallback and draws into the active
-    // pane — enough for first-light. Step 3 gives HL2 a real pan + unique id.
-    const quint32 streamId = kNeutralPanStreamIdBase + static_cast<quint32>(panId);
+    // Stream id: prefer the REAL pan's id when this session has a
+    // PanadapterModel, and only fall back to the neutral synthetic base when it
+    // does not.
+    //
+    // HL2 has no PanadapterModel yet, so the UI's spectrum handler takes its
+    // empty-panadapters fallback and draws into the active pane — enough for
+    // first-light, and the neutral id is right for it. Step 3 gives HL2 a real
+    // pan + unique id.
+    //
+    // The demo (RFC #4288 Route A) DOES own a pan — it claims 0x40000000 from
+    // its synthetic wire status — so emitting the neutral 0xE1000000 here meant
+    // the id never matched any pan, every frame hit the "unmatched" branch, and
+    // MainWindow logged `dropped unmatched FFT stream` ~20x/second for the whole
+    // session. The panadapter still painted only because wireBackendSeam() draws
+    // it directly, which ALSO bypassed the neutral consumers (the adaptive RX
+    // filter and the S-history markers), so those received nothing at all.
+    quint32 streamId = kNeutralPanStreamIdBase + static_cast<quint32>(panId);
+    // m_panadapters is keyed by the panId STRING, so resolve through the same
+    // helper the other backend-signal handlers use (addressed pan, else active).
+    if (auto* pan = resolvePan(neutralPanIdString(panId))) {
+        if (const quint32 realId = pan->panStreamId())
+            streamId = realId;
+    }
     const qint64 nowNs = PerfTelemetry::nowNs();
 
     // The PAN feed is already at the operator's rate — the backend caps its own
@@ -3926,7 +4021,17 @@ void RadioModel::onBackendSpectrumFrame(int panId, const QByteArray& frame)
     // row actually represent line_duration of time — the calibration the
     // widget's time axis already assumes.
     if (m_backendPanBandwidthMhz > 0.0) {
-        const PanadapterModel* pan = panadapter(neutralPanIdString(panId));
+        // Row PACING (origin/main #4476): emit at the pan's declared
+        // waterfallLineDuration rather than once per spectrum frame, advancing BY
+        // the interval so the rate does not quantise onto the frame grid.
+        // resolvePan(), NOT panadapter(): the latter is an exact-key lookup and
+        // the demo's pan is keyed by the id it CLAIMED from its synthetic wire
+        // status (0x40000000), not by the neutral string. The exact lookup misses,
+        // so the row goes out on the neutral id and MainWindow drops it as
+        // unmatched — 343 rows in a 20 s session, measured. resolvePan() falls
+        // back to the active pan, which is what the spectrum path above uses and
+        // why that side reports zero drops.
+        const PanadapterModel* pan = resolvePan(neutralPanIdString(panId));
         const int wfMs = (pan && pan->waterfallLineDuration() > 0)
                              ? pan->waterfallLineDuration()
                              : kBackendDefaultWfLineDurationMs;
@@ -3942,10 +4047,20 @@ void RadioModel::onBackendSpectrumFrame(int panId, const QByteArray& frame)
             if (nowNs - lastNs > dueNs)
                 lastNs = nowNs - dueNs;
             const double half = m_backendPanBandwidthMhz / 2.0;
-            emit panFeedWaterfallRowReady(
-                kNeutralWfStreamIdBase + static_cast<quint32>(panId), bins,
-                m_backendPanCenterMhz - half, m_backendPanCenterMhz + half,
-                m_backendWfTimecode++, nowNs);
+            // Stream ID (this branch, review finding 8): a session that owns a pan
+            // must use ITS waterfall id, or every row is dropped as unmatched and
+            // MainWindow logs "dropped unmatched waterfall stream" ~20x/s. The
+            // neutral base is correct only for a backend with no PanadapterModel
+            // (HL2 today). Kept INSIDE main's pacing gate so both apply.
+            quint32 wfId = kNeutralWfStreamIdBase + static_cast<quint32>(panId);
+            if (pan) {
+                if (const quint32 realWfId = pan->wfStreamId())
+                    wfId = realWfId;
+            }
+            emit panFeedWaterfallRowReady(wfId, bins,
+                                          m_backendPanCenterMhz - half,
+                                          m_backendPanCenterMhz + half,
+                                          m_backendWfTimecode++, nowNs);
         }
     }
 }
@@ -3953,7 +4068,7 @@ void RadioModel::onBackendSpectrumFrame(int panId, const QByteArray& frame)
 
 void RadioModel::onConnected()
 {
-    qCDebug(lcProtocol) << "RadioModel: connected";
+    qCDebug(lcProtocol) << "RadioModel: connected (family=" << m_family << ")";
     m_reconnectTimer.stop();
     m_rebootInProgress = false;
     // Belt-and-braces (#4122 review): the connect entry points clear fixtures,
@@ -4508,6 +4623,16 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
         // within 10 seconds (e.g. VPN blocks UDP), warn the user. (#894)
         QTimer::singleShot(10000, this, [this]() {
             if (!isConnected()) return;
+            // Flex-only check: it asks "did VITA-49 UDP arrive on the pan stream?",
+            // which is meaningful solely for a backend whose spectrum RIDES that
+            // UDP. The demo's spectrum arrives over the IRadioBackend seam and its
+            // pan stream binds no socket, so hasReceivedPackets() is false forever
+            // and this fired on every demo connect: a user-visible "No spectrum
+            // data received" error, status flipped to Error, and the panadapter
+            // connect animation cancelled — while demo spectrum and audio were
+            // working fine. (It also guards the m_panStream null deref for any
+            // backend that vends no stream at all.)
+            if (!m_flexBackend || !m_panStream) return;
             if (!m_wanConn && !m_panStream->hasReceivedPackets()) {
                 qCWarning(lcProtocol) << "RadioModel: no VITA-49 UDP data received after 10s"
                                       << "target=" << targetRadioIp()
