@@ -1188,6 +1188,28 @@ void TciServer::tuneSliceAndConfirm(
         const double halfBandwidth = pan->bandwidthMhz() / 2.0;
         inSpan = halfBandwidth > 0.0 && qAbs(mhz - pan->centerMhz()) <= halfBandwidth;
     }
+
+    // Seam backend (HL2): there is no text-command plane, so the sendCmdPublic
+    // below would be swallowed and its completion callback would never run —
+    // WSJT-X's band-hop was dropped AND its 2 s vfo-echo timeout expired, which
+    // it reports as a rig-control failure. Drive the model instead; it routes
+    // the intent through IRadioBackend::setSliceFrequency and, having no radio
+    // status to wait for, is authoritative the moment it returns. Recentering
+    // follows the same in-span rule as the Flex command choice below.
+    if (!m_model->usesFlexCommandPlane()) {
+        if (inSpan)
+            slice->setFrequency(mhz);
+        else
+            slice->tuneAndRecenter(mhz);
+        // A locked slice refuses the tune. Confirm what the model actually
+        // holds, never the request, so a client's mirror cannot drift.
+        const long long acceptedHz = TciProtocol::mhzToHz(slice->frequency());
+        if (acceptedHz > 0) {
+            broadcast(QStringLiteral("vfo:%1,%2,%3;").arg(trx).arg(channel).arg(acceptedHz));
+        }
+        return;
+    }
+
     const QString command = inSpan
         ? QStringLiteral("slice tune %1 %2 autopan=0").arg(sliceId).arg(mhz, 0, 'f', 6)
         : QStringLiteral("slice tune %1 %2").arg(sliceId).arg(mhz, 0, 'f', 6);
@@ -1235,6 +1257,22 @@ void TciServer::promoteTxSliceAndContinue(int sliceId, std::function<void(bool)>
         return;
     }
 
+    // Seam backend (HL2): `slice set N tx=1` is Flex text with no counterpart on
+    // this plane, so the sendCmdPublic below would be swallowed AND this
+    // continuation would never run. Every caller opens a route transition
+    // around it, so a silent drop leaks m_routeTransitionInFlight forever and
+    // wedges TCI keying for the rest of the connection. Answer honestly instead
+    // of hanging: there is no seam verb to promote a slice, and the one slice
+    // such a radio has already returned true above (Hl2Backend publishes
+    // txSlice=true — its single slice IS the transmitter), so this only fires
+    // for a route that genuinely cannot be built.
+    if (!m_model->usesFlexCommandPlane()) {
+        qCWarning(lcCat) << "TCI: TX-slice selection unsupported on this radio"
+                         << "slice=" << sliceId;
+        continuation(false);
+        return;
+    }
+
     QPointer<TciServer> self(this);
     m_model->sendCmdPublic(QStringLiteral("slice set %1 tx=1").arg(sliceId),
         [self, sliceId, continuation = std::move(continuation)](
@@ -1262,6 +1300,29 @@ void TciServer::createTxSliceForVfoB(QWebSocket* client,
     if (!client || !m_model || !rxSlice) {
         return;
     }
+
+    // Seam backend (HL2): `slice create` is Flex text this radio does not speak.
+    // The command below would be swallowed and its completion callback would
+    // never run, so the route transition opened just after it could never be
+    // closed -- and handleTrxRequest() defers every subsequent trx:true into
+    // m_pendingTrxRequest while a transition is in flight, so WSJT-X could not
+    // transmit again for the rest of the connection. That is the failure this
+    // guard exists to prevent, and the capacity test below does NOT catch it:
+    // maxSlices() is the model-string-derived Flex estimate (2 by default), not
+    // the backend's own maxSlices, so a single-slice HL2 looks like it has room.
+    //
+    // Refusing is also the honest answer, not merely the safe one: WSJT-X's
+    // "Split = Rig/Fake It" reaches exactly here, and reportVfoBRouteFailure
+    // sends split_enable:...,false; plus the authoritative channel-1 VFO, which
+    // is what makes it fall back to single-VFO operation instead of waiting.
+    if (!m_model->usesFlexCommandPlane()) {
+        reportVfoBRouteFailure(client, request,
+            QStringLiteral("this radio has no second VFO: split needs a TX slice "
+                           "it cannot create"),
+            !routeConfirmation.isEmpty());
+        return;
+    }
+
     if (m_model->slices().size() >= m_model->maxSlices()) {
         reportVfoBRouteFailure(client, request,
             QStringLiteral("cannot create VFO B: radio slice capacity reached"),
@@ -2722,7 +2783,13 @@ void TciServer::prepareTxAudio()
     // re-derives the source rate from each frame's hdr.sampleRate and rebuilds
     // this if a client transmits at a non-48k negotiated rate (#3306).
     m_txResampler = std::make_unique<Resampler>(48000.0, 24000.0, 4096);
-    if (m_model) {
+    // The DAX TX stream is how a Flex radio is told to modulate from the
+    // network instead of its mic jack. A host-modulating backend (HL2) has no
+    // such stream and no such command set: its modulator is AudioEngine's, so
+    // arranging a radio-side route here would send Flex text at a radio that
+    // does not speak it. AudioEngine::feedDaxTxAudio routes to the local
+    // modulator on that backend and never reaches the VITA-49 packetizers.
+    if (m_model && !hostModulatingBackend()) {
         // Always dax=1 for TCI TX. The DaxTxLowLatency flag only controls
         // VITA-49 packet format (PCC 0x03E3 vs 0x0123 in feedDaxTxAudio);
         // both formats require dax=1 so the radio routes the dax_tx stream
@@ -3144,9 +3211,27 @@ void TciServer::onWaterfallRowReady(quint32 streamId, const QVector<float>& bins
 // doesn't already have one, and release it when the last TCI audio client
 // disconnects.
 
+// True when the connected backend demodulates and modulates in this process
+// (Hermes-Lite 2) rather than inside the radio. Such a backend has no DAX /
+// VITA-49 data plane at all, so every DAX arrangement in this file is not just
+// unnecessary but actively wrong — it would push Flex slice/transmit text at a
+// radio that speaks HPSDR. Capability, not a family-name test.
+bool TciServer::hostModulatingBackend() const
+{
+    return m_model && m_model->backendCapabilities().hostModulates;
+}
+
 void TciServer::ensureDaxForTci()
 {
     if (!m_model || !m_model->isConnected()) return;
+
+    // In-process backend (HL2): there is no DAX plane to arrange. RX audio
+    // reaches onDaxAudioReady() on channel 1 straight from the backend's
+    // demodulator (MainWindow wires backendAudioFrameReady), and the
+    // channel→TRX fallback there maps channel 1 to trx 0 — which is the whole
+    // mapping on a single-slice radio. Assigning slice DAX channels here would
+    // emit Flex `slice set … dax=` commands into a socket that ignores them.
+    if (!m_model->panStream()) return;
 
     QSet<int> channelsNeeded;
 

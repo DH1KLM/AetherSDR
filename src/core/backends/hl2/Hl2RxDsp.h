@@ -131,6 +131,10 @@ private:
     QElapsedTimer m_spectrumClock;
     qint64 m_lastSpectrumMs = 0;
     std::vector<std::complex<float>> m_iqBuffer;   // IQ awaiting a full DSP block
+    // Wire IQ conjugated into the analytic convention, for the SPECTRUM only —
+    // the demodulator takes the raw wire. A member rather than a local: this
+    // runs per IQ block on the I/O thread.
+    std::vector<std::complex<float>> m_conjugated;
     std::vector<float> m_i, m_q;                    // deinterleaved input scratch
     std::vector<float> m_left, m_right;             // WdspChannel output scratch
     std::vector<float> m_stereo;                    // interleaved audio out

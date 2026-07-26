@@ -16,6 +16,7 @@
 #include <QLoggingCategory>
 
 #include <cstdint>
+#include <utility>
 
 Q_LOGGING_CATEGORY(lcHl2Tx, "aether.hl2.tx")
 
@@ -116,8 +117,15 @@ WdspChannel::Mode modeFromString(const QString& mode) noexcept
     if (u == QLatin1String("USB"))  return WdspChannel::Mode::Usb;
     if (u == QLatin1String("DSB"))  return WdspChannel::Mode::Dsb;
     if (u == QLatin1String("CWL"))  return WdspChannel::Mode::Cwl;
-    if (u == QLatin1String("CWU"))  return WdspChannel::Mode::Cwu;
-    if (u == QLatin1String("FM"))   return WdspChannel::Mode::Fm;
+    // "CW" is the upper-sideband CW mode name the rest of the app uses (it is
+    // what TciProtocol::tciToSmartSDR produces for TCI's `cw`, and what a Flex
+    // reports); "CWU" is the explicit spelling. Only CWU was listed, so plain CW
+    // fell through to the USB fallback below and was demodulated as SSB -- the
+    // mode indicator read CW while the passband and detector were not.
+    if (u == QLatin1String("CWU") || u == QLatin1String("CW"))
+        return WdspChannel::Mode::Cwu;
+    if (u == QLatin1String("FM") || u == QLatin1String("NFM"))
+        return WdspChannel::Mode::Fm;
     if (u == QLatin1String("AM"))   return WdspChannel::Mode::Am;
     if (u == QLatin1String("DIGU")) return WdspChannel::Mode::Digu;
     if (u == QLatin1String("DIGL")) return WdspChannel::Mode::Digl;
@@ -125,6 +133,69 @@ WdspChannel::Mode modeFromString(const QString& mode) noexcept
     if (u == QLatin1String("DRM"))  return WdspChannel::Mode::Drm;
     if (u == QLatin1String("WBFM") || u == QLatin1String("WFM")) return WdspChannel::Mode::Wbfm;
     return WdspChannel::Mode::Usb;
+}
+
+// Default RX passband per mode, in Hz relative to the carrier. Sign carries the
+// sideband, matching SliceModel's convention (USB-family positive, LSB-family
+// negative, carrier-straddling modes symmetric) -- a table with the wrong sign
+// here would be silently "corrected" by SliceModel::normalizeFilterPolarity and
+// the mistake would never surface.
+//
+// The digital entries are deliberately the widest of the set. DIGU is the mode
+// WSJT-X selects, and it must pass the whole 3 kHz audio window the decoder
+// expects; a snug SSB passband would clip the top of the FT8 sub-band and drop
+// exactly the signals at the edges.
+std::pair<int, int> defaultPassbandForMode(const QString& mode) noexcept
+{
+    const QString u = mode.toUpper();
+    if (u == QLatin1String("USB"))  return {100, 2900};
+    if (u == QLatin1String("LSB"))  return {-2900, -100};
+    if (u == QLatin1String("DIGU")) return {150, 3000};
+    if (u == QLatin1String("DIGL")) return {-3000, -150};
+    // CW: 500 Hz around the conventional 600 Hz pitch. The pitch itself is a
+    // client-side setting the backend is not told about, so this is the
+    // default-pitch case; an operator running another pitch retunes the filter
+    // and that edit survives until the next mode change.
+    if (u == QLatin1String("CWU") || u == QLatin1String("CW")) return {350, 850};
+    if (u == QLatin1String("CWL"))  return {-850, -350};
+    // Carrier-straddling modes: symmetric about the carrier, which the envelope
+    // and synchronous detectors both need.
+    if (u == QLatin1String("AM") || u == QLatin1String("SAM")) return {-4000, 4000};
+    if (u == QLatin1String("DSB")) return {-3000, 3000};
+    if (u == QLatin1String("FM") || u == QLatin1String("NFM")) return {-8000, 8000};
+    if (u == QLatin1String("WBFM") || u == QLatin1String("WFM")) return {-40000, 40000};
+    if (u == QLatin1String("DRM")) return {-5000, 5000};
+    return {150, 3000};   // matches modeFromString's USB fallback
+}
+
+// Default TRANSMIT passband per mode, in Hz. POSITIVE for every mode, and that
+// is not an oversight — TX and RX use opposite conventions and mixing them up
+// transmits on the wrong sideband:
+//
+//   RX (RXANBPSetFreqs): the SIGN of the passband selects the sideband. The
+//                        mode does not.
+//   TX (SetTXABandpassFreqs): the MODE selects the sideband; the bandpass is an
+//                        audio-domain magnitude. Handing it a negative pair
+//                        flips LSB and DIGL onto the upper sideband.
+//
+// Measured, not assumed: hl2_txdsp_test drives a 1 kHz tone through the real
+// modulator and reads the sideband off the emitted IQ. With a negative pair,
+// LSB lands on the same wire bin as USB.
+//
+// Voice stays at the established 300..2700 rather than inheriting the wider RX
+// window — that width is deliberate (see Hl2TxDsp::Config), and widening every
+// SSB transmission is not part of making WSJT-X work. The digital modes get the
+// full window because that is the one the decoder occupies.
+std::pair<int, int> defaultTxPassbandForMode(const QString& mode) noexcept
+{
+    const QString u = mode.toUpper();
+    if (u == QLatin1String("DIGU") || u == QLatin1String("DIGL")) return {150, 3000};
+    if (u == QLatin1String("CWU") || u == QLatin1String("CW")
+        || u == QLatin1String("CWL")) return {300, 900};
+    if (u == QLatin1String("AM") || u == QLatin1String("SAM")
+        || u == QLatin1String("DSB")) return {100, 3000};
+    if (u == QLatin1String("FM") || u == QLatin1String("NFM")) return {100, 3000};
+    return {300, 2700};   // USB/LSB and anything else: the voice default
 }
 
 // Phase-1 data-plane payload: a raw little-endian float32 array. RadioModel's
@@ -384,6 +455,15 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
     tc.inputSampleRateHz = 24000;    // AudioEngine's rate; submitTxAudio re-checks
     tc.outputSampleRateHz = 48000;   // EP2 is fixed at 48 kHz
     tc.mode = modeFromString(m_mode);
+    // Sideband-correct from the first key, not from the first mode change. The
+    // struct default is a positive 300..2700, so connecting straight into LSB
+    // or DIGL would otherwise transmit on the upper sideband until the operator
+    // happened to change mode.
+    {
+        const auto [txLo, txHi] = defaultTxPassbandForMode(m_mode);
+        tc.filterLowHz  = txLo;
+        tc.filterHighHz = txHi;
+    }
     std::string txErr;
     bool txOk = false;
     QMetaObject::invokeMethod(m_txDsp, [this, &tc, &txErr, &txOk] {
@@ -435,12 +515,14 @@ void Hl2Backend::setSliceFrequency(int /*sliceId*/, double hz)
                 Q_ARG(std::uint32_t, static_cast<std::uint32_t>(hz < 0 ? 0 : hz)));
     }
 
-    // Shift by the slice's offset from the NCO, with the SAME sign. Measured,
-    // not reasoned: hl2_shift_test sweeps the stage and finds the mapping is
-    // exactly audio = tone + shift for positive values (a tone 800 Hz below the
-    // NCO lands at 2800 Hz of audio with the slice 2 kHz above it). The
-    // intuition that "bringing a signal down to baseband must be negative" is
-    // backwards here, and negative shifts push the signal out of the passband.
+    // Shift by the slice's offset from the NCO, with the SAME sign.
+    //
+    // Derivable, now that the handedness is settled: the wire puts a signal at
+    // frequency F at -(F - NCO), so mapping the slice's own frequency to
+    // baseband needs -(slice - NCO) + shift == 0, i.e. shift = slice - NCO.
+    // hl2_shift_test measures exactly that. (This sign is unchanged — it was
+    // right all along; what was wrong was the conjugation in Hl2RxDsp, which is
+    // why the stage looked correct only in LSB.)
     if (m_dsp)
         QMetaObject::invokeMethod(m_dsp, "setShift", Qt::QueuedConnection,
             Q_ARG(double, m_rxFreqHz - m_ncoHz));
@@ -462,15 +544,64 @@ void Hl2Backend::setSliceFrequency(int /*sliceId*/, double hz)
 
 void Hl2Backend::setSliceMode(int /*sliceId*/, const QString& mode)
 {
+    const QString previous = m_mode;
     m_mode = mode;
-    if (m_dsp)
+    const WdspChannel::Mode wdsp = modeFromString(mode);
+
+    // The passband belongs to the mode. A radio that owns its own DSP echoes a
+    // mode-appropriate filter back on every mode change and heals this for
+    // free; we own the DSP, so nothing heals it and the previous mode's
+    // passband simply stays. Selecting DIGU out of CW left a ~200 Hz filter on
+    // the mode WSJT-X uses, which decodes nothing -- and the operator sees a
+    // mode that changed, so the filter is the last thing they suspect.
+    //
+    // Adopted on CHANGE only, so an operator's own filter edit survives until
+    // they change mode again (oracle addendum 2 §B3: "All clients tie default
+    // filter width to mode, with user overrides").
+    if (!previous.isEmpty() && previous.compare(mode, Qt::CaseInsensitive) != 0) {
+        const auto [lo, hi] = defaultPassbandForMode(mode);
+        m_filterLowHz  = lo;
+        m_filterHighHz = hi;
+    }
+
+    // ORDER IS LOAD-BEARING: mode FIRST, then passband -- and the passband is
+    // re-pushed on EVERY mode set, not only when its value changed.
+    //
+    // In WDSP the mode does not select the sideband; the NBP filter edges do
+    // (see WdspChannel::setFilter). SetRXAMode/SetTXAMode rebuild that stage
+    // from their own per-mode notion of the passband, so any filter applied
+    // BEFORE the mode call is discarded by it.
+    //
+    // What this cost: USB<->LSB happens to flip the filter's sign, so
+    // SliceModel::normalizeFilterPolarity re-pushed the passband after the mode
+    // and those two were always correct. USB->DIGU does not flip the sign,
+    // nothing re-pushed, and DIGU was left running on whatever sideband
+    // SetRXAMode had rebuilt -- FT8 sat on the wrong side of the passband and
+    // decoded nothing, while DIGL (reached via a sign flip) worked perfectly.
+    // A sideband bug that reverses itself depending on which mode you came
+    // from is exactly what an ordering bug looks like from the operator's seat.
+    if (m_dsp) {
         QMetaObject::invokeMethod(m_dsp, "setMode", Qt::QueuedConnection,
-            Q_ARG(WdspChannel::Mode, modeFromString(mode)));
+            Q_ARG(WdspChannel::Mode, wdsp));
+        QMetaObject::invokeMethod(m_dsp, "setFilter", Qt::QueuedConnection,
+            Q_ARG(double, static_cast<double>(m_filterLowHz)),
+            Q_ARG(double, static_cast<double>(m_filterHighHz)));
+    }
+
     // The transmit sideband follows the slice. Without this, switching to LSB
     // would receive on the lower sideband and still transmit on the upper.
-    if (m_txDsp)
+    //
+    // The passband half of that was missing entirely: Hl2TxDsp::setFilter
+    // existed and had no caller, so the TX chain ran on its construction-time
+    // 300..2700 for every mode of the session. Same ordering rule as RX.
+    if (m_txDsp) {
         QMetaObject::invokeMethod(m_txDsp, "setMode", Qt::QueuedConnection,
-            Q_ARG(WdspChannel::Mode, modeFromString(mode)));
+            Q_ARG(WdspChannel::Mode, wdsp));
+        const auto [txLo, txHi] = defaultTxPassbandForMode(mode);
+        QMetaObject::invokeMethod(m_txDsp, "setFilter", Qt::QueuedConnection,
+            Q_ARG(double, static_cast<double>(txLo)),
+            Q_ARG(double, static_cast<double>(txHi)));
+    }
     emitSliceState();
 }
 
