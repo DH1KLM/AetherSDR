@@ -1050,7 +1050,7 @@ void RadioCertification::stageCarrierSuppression(const Options& o)
            QStringLiteral("HERMES.md 14.1; queue flush on unkey"));
 }
 
-void RadioCertification::stageLifecycle(const Options& o)
+void RadioCertification::stageLifecycle(const Options&)
 {
     if (!m_audio || !m_radio)
         return;
