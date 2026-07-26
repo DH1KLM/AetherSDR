@@ -12,8 +12,7 @@ never type commands. For the full contribution rules, see
    [code.visualstudio.com](https://code.visualstudio.com)
 2. **A Claude plan that includes Claude Code** — the free tier is web-chat
    only and cannot drive VS Code
-3. **A GitHub account** — [github.com/signup](https://github.com/signup)
-   (your callsign makes a great username; turn on two-factor)
+3. **A GitHub account** — free; step-by-step below
 
 ### Which Claude plan?
 
@@ -26,6 +25,25 @@ never type commands. For the full contribution rules, see
 Current prices: **[claude.com/pricing](https://claude.com/pricing)**. If you
 hit a usage limit mid-session: nothing is lost, it resets the same day — and
 hitting it regularly is the upgrade signal, not a failure.
+
+### Creating your GitHub account
+
+GitHub is where AetherSDR lives, and this account is the one thing your AI
+partner can't create for you. It's free.
+
+1. Go to [github.com/signup](https://github.com/signup) and pick a username —
+   it's public, so **your callsign makes a great one**.
+2. Use an email you actually check, and click the verification link GitHub
+   sends you.
+3. Turn on **two-factor authentication** (Settings → Password and
+   authentication). Any authenticator app works. Print the recovery codes it
+   shows you, file them with your license paperwork, and **never paste them
+   anywhere — including into Claude**.
+4. Recommended: Settings → Emails → check **"Keep my email addresses
+   private"** so your address stays out of your public activity.
+
+That's it — you never need to learn the rest of the GitHub website. Your
+agent drives it from here.
 
 ## The four rules of working with your agent
 
@@ -40,7 +58,14 @@ hitting it regularly is the upgrade signal, not a failure.
 Copy, paste, replace anything in [brackets].
 
 1. `Hello! I'm brand new to this. What can you do?`
-2. `I want to contribute to the AetherSDR project at github.com/aethersdr/AetherSDR. My GitHub username is [YOURS]. Set up everything I need on this computer: install the tools, make my own copy of the project on GitHub, and download it into this folder.`
+2. `I want to contribute to the AetherSDR project at github.com/aethersdr/AetherSDR. My GitHub username is [YOURS]. Set up everything I need on this computer: install git and the GitHub command-line tool, sign me in, make my own copy of the project on GitHub, and download it into this folder.`
+   *(This installs **git** — the logbook tool — and the **GitHub CLI**
+   (`gh`), which is how your agent talks to GitHub on your behalf: signing
+   you in, creating your fork, and later commenting on issues and opening
+   pull requests for you. The sign-in shows a short code you type into your
+   browser — that's you authorizing it; the agent never sees your password.
+   If the agent ever seems unable to open an issue or pull request, say:
+   `Also install the GitHub command-line tool "gh" and sign me in with it.`)*
 3. `Before we change anything — what are this project's most important rules? Summarize them for a beginner.`
 4. `Read docs/COMMIT-SIGNING.md and help me set up commit signing.`
    *(One thing only you can do: paste the key it gives you into GitHub →
@@ -155,6 +180,16 @@ Windows adds: the VS 2022 MSVC environment (`vcvars64.bat`), two setup scripts
 (`scripts\setup\setup-fftw.ps1`, `scripts\setup\setup-qtkeychain.ps1`), and
 `-DCMAKE_PREFIX_PATH` pointing at your Qt kit — see the
 [Windows 11 section of the README](../README.md#windows-11).
+
+GitHub connection (sign-in, fork, and how the agent opens issues and PRs):
+
+```bash
+gh auth login                                # device-code sign-in via your browser
+gh repo fork aethersdr/AetherSDR --clone     # your fork + local download
+# later, on your behalf:
+gh issue comment <N> --body "..."            # claiming an issue
+gh pr create --fill                          # opening the pull request
+```
 
 Commit signing (SSH path):
 
