@@ -2644,24 +2644,29 @@ void SpectrumWidget::prepareForFftScaleChange()
     m_noiseFloorCandidateFrames = 0;
 }
 
+void SpectrumWidget::beginFftPixelScaleSettle()
+{
+    // Monotonic: never shorten a settle window already armed (e.g. by an
+    // earlier request in a rapid drag, or by the echo re-arm below).
+    m_flexDssFftScaleSettlingUntilMs = std::max(
+        m_flexDssFftScaleSettlingUntilMs,
+        QDateTime::currentMSecsSinceEpoch() + kDssFftPixelScaleSettleMs);
+}
+
 void SpectrumWidget::prepareForFftPixelScaleChange()
 {
     prepareForFftScaleChange();
-    m_flexDssFftScaleSettlingUntilMs =
-        QDateTime::currentMSecsSinceEpoch() + kDssFftPixelScaleSettleMs;
+    beginFftPixelScaleSettle();
 
-    // A y_pixels transition changes how raw FFT pixel values decode to dBm.
-    // Rows received before the radio echo (or queued immediately after it) are
-    // not comparable with the settled stream and must not survive in 3D
-    // history. Keep a Kiwi surface intact when only the hidden Flex decoder is
-    // changing.
+    // A y_pixels transition changes how future raw FFT pixel values decode to
+    // dBm. Already-decoded rows remain valid physical dBm samples, so preserve
+    // the visible surface and retained history across a resize. The settle gate
+    // rejects ambiguous in-flight rows; only its temporal filter inputs need
+    // resetting. Keep Kiwi state untouched when the hidden Flex decoder changes.
     DssRenderer& flexDss = m_kiwiSdrWaterfallActive
         ? m_nativeWaterfallState.dss
         : m_dss;
-    flexDss.clear();
-    if (!m_kiwiSdrWaterfallActive) {
-        resetDssUploadState();
-    }
+    flexDss.resetInputSmoothing();
 }
 
 void SpectrumWidget::setFftWeightedAvg(bool on) {

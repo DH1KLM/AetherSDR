@@ -2492,6 +2492,19 @@ void MainWindow::sendPanDimensionsToRadio(const QString& panId,
         QString("display pan set %1 xpixels=%2 ypixels=%3")
             .arg(panId).arg(xpix).arg(ypix));
 
+    // Arm the DSS settle gate now, before the radio echo switches the local
+    // decoder. The stream keeps decoding with the old y_pixels until the echo,
+    // so rows arriving in the request→echo window can be decoded against a stale
+    // scale; since retained 3D history is now preserved across a resize (rather
+    // than cleared on echo), those mis-scaled rows would otherwise survive in
+    // scrollback. Dropping them here costs only a few valid rows and matches the
+    // pre-preservation intent that pre-echo rows must not persist. Only for a
+    // genuine transition off an established scale — a width-only resize or first
+    // dimension push (fftYPixels()==0) has no prior history to protect.
+    if (pan->fftYPixels() > 0 && pan->fftYPixels() != ypix) {
+        sw->beginFftPixelScaleSettle();
+    }
+
     if (profileLoadRadioStateWritesHeld()) {
         m_profileLoadPendingFftYpixels.insert(panId, ypix);
         m_profileLoadPanDimensionsSettlingUntilMs.insert(
@@ -2514,12 +2527,19 @@ void MainWindow::sendPanDimensionsToRadio(const QString& panId,
                 || panYpixelsFor(swGuard.data()) != ypix) {
                 return;
             }
-            // Telling the radio is Flex-only (a non-Flex backend owns no
-            // PanadapterStream), but the local widget rescale must still happen.
-            // (Merge: keep the HL2 null-guard; adopt main's #4425 rename of the
-            // pixel-scale prep call, which this Y-pixels site should use.)
-            if (m_radioModel.panStream())
+            // A radio status echo updates both the model and stream decoder.
+            // Do not run the delayed fallback afterward: besides being
+            // redundant, it would restart the DSS scale-settle window for a
+            // width-only resize whose y_pixels never changed.
+            if (currentPan->fftYPixels() == ypix) {
+                return;
+            }
+            // Telling the radio the new scale is Flex-only — a non-Flex backend
+            // (HL2) owns no PanadapterStream (#4448) — but the local widget
+            // rescale below must still happen.
+            if (m_radioModel.panStream()) {
                 m_radioModel.panStream()->setYPixels(streamId, ypix);
+            }
             swGuard->prepareForFftPixelScaleChange();
         };
 
