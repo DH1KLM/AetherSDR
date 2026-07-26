@@ -164,20 +164,43 @@ is the sole authority on visual design and UX direction.
 ## Build
 
 ```bash
+bash scripts/setup/setup-deepfilter.sh   # once per checkout, BEFORE cmake
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build -j$(nproc)
+cmake --build build -j$(nproc)           # macOS: -j$(sysctl -n hw.ncpu)
 ./build/AetherSDR
 ```
 
-**Optional — DFNR (DeepFilterNet3) noise reduction.** Run
+**Step 1 is part of the build, not an optional extra.**
 `scripts/setup/setup-deepfilter.sh` (Windows: `setup-deepfilter.ps1`)
-*once before* `cmake` to fetch the prebuilt `libdeepfilter` for your
-platform; configure will otherwise report `DFNR ... disabled — library
-not found` and gate the feature off. CI runs this step automatically
-(cached) in the release-build workflows, so shipped binaries always
-include DFNR; it is a manual prereq only for local dev builds. NR still
-works without it — RN2 (RNNoise) is bundled and always built, needing no
-setup.
+fetches the prebuilt `libdeepfilter` for your platform. DFNR
+(DeepFilterNet3 noise reduction) is a shipping feature — a build without it
+is missing one, and you will be testing something users don't run. The
+script is a no-op once the library is present, so run it whenever you're
+unsure.
+
+**Configure fails if you skip it.** `ENABLE_DFNR` defaults to `ON`, so a
+missing library is now a `FATAL_ERROR` naming the script rather than a
+`STATUS` line that scrolls past. That check is the enforcement; this section
+is only the explanation (Principle XII). Building without DFNR is still
+supported, but has to be explicit:
+
+```bash
+cmake -B build -DENABLE_DFNR=OFF ...   # opt out, on the record
+```
+
+**Recovering needs a reconfigure, not a rebuild.** The check runs at
+configure time, so a bare `cmake --build` will never pick up a
+newly-fetched library — re-run the `cmake -B build ...` line first.
+
+To confirm DFNR is really in a build you already have, look for
+`-- DFNR (DeepFilterNet3) enabled — .../libdeepfilter.a` in configure
+output, or `available: true` under `DFNR` in the automation bridge's
+`get_state model=dsp`. Note that `ENABLE_DFNR:BOOL=ON` in `CMakeCache.txt`
+proves nothing on its own — it is the default, not a result.
+
+CI runs the setup step automatically (cached) in the release-build
+workflows, so shipped binaries always include DFNR. NR still works without
+it — RN2 (RNNoise) is bundled and always built, needing no setup.
 
 Full dependency list is in `README.md` — don't duplicate it here.
 

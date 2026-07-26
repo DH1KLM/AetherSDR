@@ -481,9 +481,20 @@ if(ENABLE_DFNR)
     if(EXISTS ${DFNR_LIB})
         message(STATUS "DFNR (DeepFilterNet3) enabled — ${DFNR_LIB}")
     else()
-        set(ENABLE_DFNR OFF)
-        message(STATUS "DFNR (DeepFilterNet3) disabled — library not found at ${DFNR_LIB} "
-                       "(run ./scripts/setup/setup-deepfilter.sh before cmake to enable)")
+        # Fail rather than silently gating the feature off. ENABLE_DFNR
+        # defaults to ON, so reaching here means DFNR was asked for and is
+        # missing. As a STATUS message this scrolled past unnoticed and every
+        # build afterwards succeeded cleanly with no further signal, so local
+        # builds silently diverged from what CI ships. Building without DFNR
+        # stays supported — it just has to be said out loud.
+        message(FATAL_ERROR
+                "DFNR (DeepFilterNet3) was requested but its library is missing:\n"
+                "    ${DFNR_LIB}\n"
+                "  Fix:     run ./scripts/setup/setup-deepfilter.sh "
+                "(Windows: scripts\\setup\\setup-deepfilter.ps1), then re-run cmake\n"
+                "  Opt out: configure with -DENABLE_DFNR=OFF\n"
+                "A plain 'cmake --build' will NOT pick up a newly fetched "
+                "library — this check runs at configure time.")
     endif()
 endif()
 
