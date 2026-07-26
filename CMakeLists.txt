@@ -2757,6 +2757,7 @@ foreach(APP_SETTINGS_SCENARIO
         missing-live-backup
         missing-live-corrupt
         failed-load
+        display-slice-depth-default
         nickname-key-roundtrip)
     add_test(
         NAME app_settings_safety_${APP_SETTINGS_SCENARIO}
