@@ -44,16 +44,26 @@ class AudioEngine;
 // independently. That is a genuinely different path — though still not as
 // strong as an unrelated receiver, which is why the report ends with the manual
 // checks a human must still perform.
-class TxCertification {
+class RadioCertification {
 public:
+    enum class Phase { Rx, Tx, All };
+
     struct Options {
+        Phase phase = Phase::All;
         double frequencyMhz = 14.200;   // mid-band: both sidebands stay in band
         QString mode = QStringLiteral("USB");
         int settleMs = 2500;            // per keyed measurement
         bool includeAudioProbe = true;  // the demodulated-sideband stage
+
+        // A known off-air carrier for the receive stages. WWV is the default
+        // because it is free, always on, on an exactly known frequency, and
+        // comes from a source that is not us — which makes it the one external
+        // reference available without a second radio.
+        double referenceCarrierMhz = 10.000;
+        double referenceOffsetHz = 1500.0;   // park the dial this far off it
     };
 
-    TxCertification(RadioModel* radio, AudioEngine* audio);
+    RadioCertification(RadioModel* radio, AudioEngine* audio);
 
     // Runs the whole sequence synchronously, spinning the event loop between
     // steps. Returns the report. Expect this to take tens of seconds and to key
@@ -74,7 +84,18 @@ private:
                 const QString& concern = QString(),
                 const QString& reference = QString());
 
-    // Stages, in the order the signal actually travels.
+    // ---- receive stages ----
+    //
+    // These run FIRST when both phases are selected, and not by accident: the
+    // wire's handedness is one fact that transmit and receive both consume, and
+    // transmit cannot be reasoned about until it is settled (HERMES.md 15.6).
+    void stageModeMap();
+    void stageConsumerAgreement(const Options& o);
+    void stageZeroShift(const Options& o);
+    void stageRxSidebands(const Options& o);
+    void stagePassbandAfterModeChange(const Options& o);
+
+    // ---- transmit stages, in the order the signal travels ----
     void stagePreconditions();
     void stageControlPlane(const Options& o);
     void stageDspLiveness(const Options& o);

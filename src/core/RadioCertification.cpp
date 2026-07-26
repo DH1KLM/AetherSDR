@@ -1,4 +1,4 @@
-#include "core/TxCertification.h"
+#include "core/RadioCertification.h"
 
 #include "core/AudioEngine.h"
 #include "core/ClientTxTestTone.h"
@@ -51,17 +51,17 @@ double db(double v) { return 20.0 * std::log10(std::max(1e-12, v)); }
 
 }  // namespace
 
-TxCertification::TxCertification(RadioModel* radio, AudioEngine* audio)
+RadioCertification::RadioCertification(RadioModel* radio, AudioEngine* audio)
     : m_radio(radio), m_audio(audio) {}
 
-void TxCertification::spin(int ms)
+void RadioCertification::spin(int ms)
 {
     QEventLoop loop;
     QTimer::singleShot(ms, &loop, &QEventLoop::quit);
     loop.exec();
 }
 
-void TxCertification::record(const QString& id, const QString& title,
+void RadioCertification::record(const QString& id, const QString& title,
                              const QJsonObject& measured,
                              const QString& observation,
                              const QString& concern,
@@ -80,7 +80,7 @@ void TxCertification::record(const QString& id, const QString& title,
     m_stages.append(stage);
 }
 
-void TxCertification::keyViaOperatorPath(bool on)
+void RadioCertification::keyViaOperatorPath(bool on)
 {
     if (!m_radio)
         return;
@@ -91,7 +91,7 @@ void TxCertification::keyViaOperatorPath(bool on)
         tx.requestPttOff(TransmitModel::PttSource::Mox);
 }
 
-QJsonObject TxCertification::meterSnapshot() const
+QJsonObject RadioCertification::meterSnapshot() const
 {
     QJsonObject out;
     if (!m_radio)
@@ -110,7 +110,254 @@ QJsonObject TxCertification::meterSnapshot() const
     return out;
 }
 
-void TxCertification::stagePreconditions()
+// ---------------------------------------------------------------------------
+// Receive stages. Every one of these is a transcription of HERMES.md 15.
+// ---------------------------------------------------------------------------
+
+void RadioCertification::stageModeMap()
+{
+    // A mode name the backend does not recognise falls through to a default —
+    // silently. On the HL2, plain "CW" was absent while "CWU" was present, so CW
+    // was demodulated as SSB with the mode indicator reading correctly, and
+    // "RTTY" is advertised over TCI to this day with no mapping behind it.
+    //
+    // This enumerates every mode the application can actually emit and asks the
+    // slice to take each one. It cannot see inside the backend's lookup, so what
+    // it reports is the readback — but a mode that does not survive a round trip
+    // is certainly wrong, and one that does is at least addressable.
+    static const QStringList kModes{
+        QStringLiteral("USB"), QStringLiteral("LSB"),
+        QStringLiteral("CW"),  QStringLiteral("CWU"), QStringLiteral("CWL"),
+        QStringLiteral("AM"),  QStringLiteral("SAM"),
+        QStringLiteral("FM"),  QStringLiteral("NFM"),
+        QStringLiteral("DIGU"), QStringLiteral("DIGL"),
+        QStringLiteral("RTTY"),
+    };
+
+    QJsonObject results;
+    QStringList notRetained;
+    auto* slice = m_radio ? m_radio->slice(0) : nullptr;
+    const QString restore = slice ? slice->mode() : QString();
+
+    for (const QString& mode : kModes) {
+        if (!slice)
+            break;
+        slice->setMode(mode);
+        spin(250);
+        const QString back = slice->mode();
+        results[mode] = back;
+        if (back.compare(mode, Qt::CaseInsensitive) != 0)
+            notRetained << (mode + QStringLiteral("->") + back);
+    }
+    if (slice && !restore.isEmpty())
+        slice->setMode(restore);
+
+    QString concern;
+    if (!notRetained.isEmpty())
+        concern = QStringLiteral(
+            "these modes did not survive a round trip: ") + notRetained.join(", ")
+            + QStringLiteral(". A mode the backend does not map does not fail — "
+                             "it becomes the default, usually USB, while the UI "
+                             "still shows what was asked for");
+
+    record(QStringLiteral("mode-map"),
+           QStringLiteral("Every mode the app can emit survives a round trip"),
+           results,
+           QStringLiteral(
+               "Readback is a weak proof — it shows the model kept the name, not "
+               "that the demodulator understood it. Treat a clean result as "
+               "'nothing obviously dropped', not as 'all modes work'."),
+           concern,
+           QStringLiteral("HERMES.md 15.7"));
+}
+
+void RadioCertification::stageConsumerAgreement(const Options& o)
+{
+    // The panadapter and the demodulator are INDEPENDENT consumers of the same
+    // IQ buffer, and on the HL2 each was wired to the other's convention. The
+    // audio was right at normal tuning and the panadapter was visibly mirrored —
+    // and the panadapter, the one instrument with no compensating error, was the
+    // easiest to dismiss as "a display bug".
+    //
+    // This stage does not try to decide which is right. It reports whether they
+    // agree, because a disagreement means one of them is compensating for
+    // something and that is the fact worth surfacing.
+    if (!m_radio)
+        return;
+
+    QJsonObject m{
+        {QStringLiteral("note"), QStringLiteral(
+            "Requires a signal OFF the pan centre. A mirror is invisible on its "
+            "own axis, which is how a live sideband sweep once confirmed 'all "
+            "four modes correct' while the display was plainly mirrored.")},
+        {QStringLiteral("referenceCarrierMhz"), o.referenceCarrierMhz},
+        {QStringLiteral("dialOffsetHz"), o.referenceOffsetHz},
+    };
+
+    record(QStringLiteral("consumer-agreement"),
+           QStringLiteral("Panadapter and demodulator agree on which side a signal is"),
+           m,
+           QStringLiteral(
+               "Park a known carrier off-centre, then compare where the "
+               "panadapter draws it against which sideband recovers it. They are "
+               "independent consumers and can disagree."),
+           QStringLiteral(
+               "NOT YET AUTOMATED — needs a spectrum tap through the seam. Until "
+               "then this is an operator check, and it is the one that found the "
+               "receive inversion"),
+           QStringLiteral("HERMES.md 15.5"));
+}
+
+void RadioCertification::stageZeroShift(const Options& o)
+{
+    // Two compensating errors cancel at any non-zero shift, so a measurement
+    // taken at normal off-centre tuning sees a corrected result and proves
+    // nothing. Zero shift is the one geometry where nothing can compensate.
+    //
+    // Force it by exploiting the NCO re-centre rule: tune far enough that the
+    // NCO must jump, then land on the target, and the NCO follows it exactly.
+    if (!m_radio)
+        return;
+    auto* slice = m_radio->slice(0);
+    if (!slice)
+        return;
+
+    const double target = o.referenceCarrierMhz - (o.referenceOffsetHz / 1.0e6);
+    slice->setFrequency(target - 3.0);   // far: forces the NCO to move
+    spin(1200);
+    slice->setFrequency(target);         // land: NCO re-centres, shift == 0
+    spin(1500);
+
+    QJsonObject m{
+        {QStringLiteral("dialMhz"), slice->frequency()},
+        {QStringLiteral("intendedMhz"), target},
+        {QStringLiteral("method"), QStringLiteral(
+            "tuned 3 MHz away to force an NCO jump, then landed on the target so "
+            "the NCO follows and the slice shift is exactly zero")},
+    };
+
+    record(QStringLiteral("zero-shift"),
+           QStringLiteral("Establish the zero-shift geometry"),
+           m,
+           QStringLiteral(
+               "Any handedness measurement taken at a non-zero shift can be "
+               "corrected by a second, opposite error. This puts the radio in the "
+               "one geometry where that cannot happen — do the sideband checks "
+               "from here."),
+           slice->frequency() > 0.0 ? QString()
+                                    : QStringLiteral("could not establish a dial frequency"),
+           QStringLiteral("HERMES.md 15.4"));
+}
+
+void RadioCertification::stageRxSidebands(const Options& o)
+{
+    // All FOUR SSB-family modes against a known off-centre carrier. Not one mode,
+    // and not at the pan centre.
+    //
+    // A sideband test that runs in a single mode proves nothing about handedness:
+    // hl2_shift_test validated in LSB, the one mode the inversion made correct,
+    // and passed throughout.
+    if (!m_audio || !m_radio)
+        return;
+    auto* slice = m_radio->slice(0);
+    if (!slice)
+        return;
+
+    QJsonObject perMode;
+    for (const QString& mode : {QStringLiteral("USB"), QStringLiteral("LSB"),
+                                QStringLiteral("DIGU"), QStringLiteral("DIGL")}) {
+        slice->setMode(mode);
+        spin(900);
+        m_audio->startAutomationAudioCapture(1500,
+                                             QStringList{QStringLiteral("output")});
+        spin(1700);
+        const QJsonObject snap = m_audio->automationAudioCaptureSnapshot(true);
+
+        std::vector<float> mono;
+        for (const QJsonValue& cv : snap.value(QStringLiteral("chunks")).toArray()) {
+            const QJsonObject c = cv.toObject();
+            const int ch = std::max(1, c.value(QStringLiteral("channels")).toInt(1));
+            const QByteArray pcm = QByteArray::fromBase64(
+                c.value(QStringLiteral("pcmBase64")).toString().toLatin1());
+            const auto* f = reinterpret_cast<const float*>(pcm.constData());
+            const int frames = static_cast<int>(pcm.size() / sizeof(float)) / ch;
+            for (int n = 0; n < frames; ++n)
+                mono.push_back(f[n * ch]);
+        }
+
+        const double fs = AudioEngine::DEFAULT_SAMPLE_RATE;
+        perMode[mode] = QJsonObject{
+            {QStringLiteral("toneAtOffsetDb"), db(tonePower(mono, o.referenceOffsetHz, fs))},
+            {QStringLiteral("overallRmsDb"), db(rms(mono))},
+            {QStringLiteral("frames"), static_cast<int>(mono.size())},
+        };
+    }
+    slice->setMode(o.mode);
+
+    record(QStringLiteral("rx-sidebands"),
+           QStringLiteral("All four SSB-family modes against a known carrier"),
+           perMode,
+           QStringLiteral(
+               "With the dial parked so a known carrier sits at the configured "
+               "offset, the modes whose passband covers that side should recover "
+               "the tone and the other two should not. USB and DIGU should agree "
+               "with each other, LSB and DIGL likewise, and the two pairs should "
+               "disagree — if all four recover it, the dial is probably not where "
+               "this stage thinks it is."),
+           QStringLiteral(
+               "Interpretation needs a real carrier present. With no antenna or "
+               "no signal at the reference frequency every mode reads the noise "
+               "floor and this stage is inconclusive rather than passing"),
+           QStringLiteral("HERMES.md 15.3, 15.4"));
+}
+
+void RadioCertification::stagePassbandAfterModeChange(const Options& o)
+{
+    // SetRXAMode DISCARDS a passband applied before it, so a backend that pushes
+    // the filter and then the mode ends up with a sticky window. Arriving at DIGU
+    // from CW handed the decoder a ~500 Hz passband and it decoded nothing, with
+    // the mode indicator reading correctly the whole time.
+    if (!m_radio)
+        return;
+    auto* slice = m_radio->slice(0);
+    if (!slice)
+        return;
+
+    slice->setMode(QStringLiteral("CW"));
+    spin(700);
+    const int cwLow = slice->filterLow(), cwHigh = slice->filterHigh();
+    slice->setMode(QStringLiteral("DIGU"));
+    spin(700);
+    const int digLow = slice->filterLow(), digHigh = slice->filterHigh();
+    slice->setMode(o.mode);
+    spin(500);
+
+    QJsonObject m{
+        {QStringLiteral("cwWidthHz"), cwHigh - cwLow},
+        {QStringLiteral("diguWidthHz"), digHigh - digLow},
+        {QStringLiteral("cwPassband"), QStringLiteral("%1..%2").arg(cwLow).arg(cwHigh)},
+        {QStringLiteral("diguPassband"), QStringLiteral("%1..%2").arg(digLow).arg(digHigh)},
+    };
+
+    QString concern;
+    if (digHigh - digLow <= cwHigh - cwLow)
+        concern = QStringLiteral(
+            "the passband did not widen moving from CW to DIGU — it looks sticky. "
+            "A radio that owns its DSP gets no mode echo to heal this, so the "
+            "backend must supply a per-mode default passband and apply it AFTER "
+            "the mode");
+
+    record(QStringLiteral("passband-after-mode-change"),
+           QStringLiteral("The passband follows a mode change"),
+           m,
+           QStringLiteral(
+               "CW then DIGU is the ordering that exposed this: the narrow window "
+               "survived into a wide mode and the decoder saw nothing."),
+           concern,
+           QStringLiteral("HERMES.md 15.7"));
+}
+
+void RadioCertification::stagePreconditions()
 {
     const bool connected = m_radio && m_radio->isConnected();
     const bool canTx = m_radio && m_radio->backendCanTransmit();
@@ -145,7 +392,7 @@ void TxCertification::stagePreconditions()
            QStringLiteral("HERMES.md 14.1 defects 1 and 2"));
 }
 
-void TxCertification::stageControlPlane(const Options& o)
+void RadioCertification::stageControlPlane(const Options& o)
 {
     if (!m_radio)
         return;
@@ -186,7 +433,7 @@ void TxCertification::stageControlPlane(const Options& o)
            QStringLiteral("HERMES.md 14.1 defect on connect-time state"));
 }
 
-void TxCertification::stageDspLiveness(const Options& o)
+void RadioCertification::stageDspLiveness(const Options& o)
 {
     if (!m_audio)
         return;
@@ -223,7 +470,7 @@ void TxCertification::stageDspLiveness(const Options& o)
            QStringLiteral("HERMES.md 14.1 defects 1 and 2"));
 }
 
-void TxCertification::stageRf(const Options& o)
+void RadioCertification::stageRf(const Options& o)
 {
     if (!m_audio)
         return;
@@ -274,7 +521,7 @@ void TxCertification::stageRf(const Options& o)
            QStringLiteral("HERMES.md 14.1 defects 3 and 4"));
 }
 
-void TxCertification::stageSideband(const Options& o)
+void RadioCertification::stageSideband(const Options& o)
 {
     if (!m_audio || !m_radio || !o.includeAudioProbe)
         return;
@@ -390,7 +637,7 @@ void TxCertification::stageSideband(const Options& o)
            QStringLiteral("HERMES.md 14.6"));
 }
 
-void TxCertification::stageCarrierSuppression(const Options& o)
+void RadioCertification::stageCarrierSuppression(const Options& o)
 {
     if (!m_audio)
         return;
@@ -421,7 +668,7 @@ void TxCertification::stageCarrierSuppression(const Options& o)
            QStringLiteral("HERMES.md 14.1; queue flush on unkey"));
 }
 
-void TxCertification::stageLifecycle(const Options& o)
+void RadioCertification::stageLifecycle(const Options& o)
 {
     if (!m_audio || !m_radio)
         return;
@@ -476,17 +723,34 @@ void TxCertification::stageLifecycle(const Options& o)
            QStringLiteral("HERMES.md 14.1; RX mute at the demodulator"));
 }
 
-QJsonObject TxCertification::run(const Options& o)
+QJsonObject RadioCertification::run(const Options& o)
 {
     m_stages = QJsonArray{};
 
-    stagePreconditions();
-    stageControlPlane(o);
-    stageDspLiveness(o);
-    stageRf(o);
-    stageCarrierSuppression(o);
-    stageSideband(o);
-    stageLifecycle(o);
+    const bool doRx = o.phase != Phase::Tx;
+    const bool doTx = o.phase != Phase::Rx;
+
+    // RECEIVE FIRST WHEN BOTH ARE SELECTED, and not for tidiness. The wire's
+    // handedness is ONE fact that both directions consume, and transmit cannot
+    // be reasoned about until it is settled — a transmit result read before the
+    // receive convention is known is a result about an unknown quantity.
+    if (doRx) {
+        stageModeMap();
+        stageZeroShift(o);
+        stageRxSidebands(o);
+        stageConsumerAgreement(o);
+        stagePassbandAfterModeChange(o);
+    }
+
+    if (doTx) {
+        stagePreconditions();
+        stageControlPlane(o);
+        stageDspLiveness(o);
+        stageRf(o);
+        stageCarrierSuppression(o);
+        stageSideband(o);
+        stageLifecycle(o);
+    }
 
     // Make sure we leave the radio unkeyed whatever happened above.
     keyViaOperatorPath(false);
@@ -501,7 +765,7 @@ QJsonObject TxCertification::run(const Options& o)
     // than omitted. Everything here needs either a second receiver, an ear, or
     // equipment this application does not have — and pretending otherwise is
     // exactly how a wrong-sideband transmitter passed every check it had.
-    const QJsonArray manual{
+    QJsonArray manual{
         QJsonObject{
             {QStringLiteral("check"), QStringLiteral("Sideband against an unrelated receiver")},
             {QStringLiteral("why"), QStringLiteral(
@@ -539,9 +803,32 @@ QJsonObject TxCertification::run(const Options& o)
                 "transmission is a different question for the PA.")}},
     };
 
+    if (doRx) {
+        manual.append(QJsonObject{
+            {QStringLiteral("check"), QStringLiteral(
+                "Panadapter versus demodulator, with a signal OFF centre")},
+            {QStringLiteral("why"), QStringLiteral(
+                "They are independent consumers of the same buffer and can "
+                "disagree; when they did, each had the other's convention. A "
+                "mirror is invisible on the pan centre, so the signal must be "
+                "off-axis. This is the check that found the receive inversion, "
+                "and it is not yet automated.")}});
+        manual.append(QJsonObject{
+            {QStringLiteral("check"), QStringLiteral(
+                "Spots from a third party in the mode under test")},
+            {QStringLiteral("why"), QStringLiteral(
+                "PSK Reporter or a cluster spot is evidence that cannot come "
+                "from a self-consistent loop. The receive bring-up ended with 63 "
+                "spots on 14.074 DIGU — the first proof that was not our own "
+                "code agreeing with itself.")}});
+    }
+
     return QJsonObject{
         {QStringLiteral("ok"), true},
-        {QStringLiteral("kind"), QStringLiteral("tx-bringup-diagnostic")},
+        {QStringLiteral("kind"), QStringLiteral("radio-bringup-diagnostic")},
+        {QStringLiteral("phase"), o.phase == Phase::Rx ? QStringLiteral("rx")
+                                : o.phase == Phase::Tx ? QStringLiteral("tx")
+                                                       : QStringLiteral("all")},
         {QStringLiteral("note"), QStringLiteral(
             "Diagnostic only — this deliberately does not pass or fail. Read the "
             "concerns, then the measurements.")},

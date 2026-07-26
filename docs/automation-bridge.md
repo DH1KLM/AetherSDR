@@ -2676,6 +2676,7 @@ The complete registry, generated from the `add(...)` table in `AutomationServer.
 | `tci` | — | tci start\|status\|stop\|send\|trace\|routes — TCI simulator and protocol diagnostics |
 | `audioCapture` | — | audioCapture <start\|stop\|status\|read\|probeNr2Stereo\|probeDspStereo> [args] |
 | `txwaterfall` | — | txwaterfall <on\|off> — show keyed TX in the waterfall |
+| `radiocert` | — | radiocert <rx\|tx\|all> [freqMhz] [mode] — radio bring-up diagnostic (tx phases key repeatedly) |
 | `key` | — | key <ptt on\|off \| mox> — semantic keying (TX-gated) |
 | `station` | — | station <name> — set the GUI-client station name |
 | `resize` | — | resize <w> <h> [target] — resize a window |

@@ -1,5 +1,5 @@
 #include "AutomationServer.h"
-#include "core/TxCertification.h"
+#include "core/RadioCertification.h"
 #include "LogManager.h"
 #include "AppSettings.h"          // StationName (restore the user's real station name)
 #include "DigitalVoiceWaveformProcess.h"
@@ -2996,8 +2996,8 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                      QStringLiteral("radio echoes status; re-read with get transmit showTxInWaterfall")}};
             });
 
-        add("txcert", {},
-            "txcert [freqMhz] [mode] — transmit bring-up diagnostic (TX-gated, keys repeatedly)",
+        add("radiocert", {},
+            "radiocert <rx|tx|all> [freqMhz] [mode] — radio bring-up diagnostic (tx phases key repeatedly)",
             parseActionValue,
             [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
                 return s.doTxCert(a.action, a.value);
@@ -6247,28 +6247,32 @@ QJsonObject AutomationServer::doTxCert(const QString& freqArg, const QString& mo
         return err(QStringLiteral("no radio model available"));
     if (!m_audioEngine)
         return err(QStringLiteral("no audio engine available"));
-    // This keys the transmitter many times over tens of seconds. It is gated on
-    // the same permission as every other transmitting verb, for the same reason.
-    if (!m_txAllowed)
-        return err(QStringLiteral(
-            "blocked: txcert keys the transmitter — enable TX automation "
-            "(or set AETHER_AUTOMATION_ALLOW_TX=1) to allow"));
+    RadioCertification::Options opts;
+    const QString phase = freqArg.trimmed().toLower();
+    if (phase == QLatin1String("rx"))       opts.phase = RadioCertification::Phase::Rx;
+    else if (phase == QLatin1String("tx"))  opts.phase = RadioCertification::Phase::Tx;
+    else if (phase == QLatin1String("all")) opts.phase = RadioCertification::Phase::All;
 
-    TxCertification::Options opts;
+    // Only the transmit phases key. A receive-only run is as safe as tuning, and
+    // gating it would put the FIRST thing a new radio needs behind a permission
+    // nobody would have granted yet.
+    if (opts.phase != RadioCertification::Phase::Rx && !m_txAllowed)
+        return err(QStringLiteral(
+            "blocked: this phase keys the transmitter — enable TX automation "
+            "(or set AETHER_AUTOMATION_ALLOW_TX=1), or run 'radiocert rx'"));
+
     bool okF = false;
-    const double mhz = freqArg.trimmed().toDouble(&okF);
+    const double mhz = modeArg.trimmed().toDouble(&okF);
     if (okF && mhz > 0.0)
         opts.frequencyMhz = mhz;
-    const QString mode = modeArg.trimmed().toUpper();
-    if (mode == QLatin1String("USB") || mode == QLatin1String("LSB"))
-        opts.mode = mode;
+
 
     // The run arms the force-unkey watchdog the same way any bridge-initiated
     // transmission does, so a diagnostic that wedges cannot leave the radio keyed.
     m_txKeyedSinceMs = QDateTime::currentMSecsSinceEpoch();
     m_txBridgeInitiated = true;
 
-    TxCertification cert(m_radioModel, m_audioEngine);
+    RadioCertification cert(m_radioModel, m_audioEngine);
     QJsonObject report = cert.run(opts);
 
     m_txKeyedSinceMs = 0;
