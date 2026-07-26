@@ -29,10 +29,12 @@ partner — you never type commands. For the full contribution rules, see
 Copilot Free is the simplest no-cost starting point because it uses the GitHub
 account you already need. It includes local **Agent mode** in VS Code, so it
 can read files, edit code, and run commands. The free allowance is deliberately
-limited: 2,000 code completions per month plus limited chat and agent use. That
-is enough to learn the workflow or try a small contribution, but a long
-build-debug-test session may reach the limit. The free plan also does not
-include the cloud coding agent or pull-request reviews.
+limited — a monthly cap on code completions, and a separate, smaller monthly
+cap on chat and agent requests. The second one is what this page runs on: every
+ask below is an agent request, so a long build-debug-test session is what
+reaches the limit, not typing. That is still enough to learn the workflow or
+try a small contribution. The free plan also does not include the cloud coding
+agent or pull-request reviews.
 
 Current limits:
 **[github.com/features/copilot/plans](https://github.com/features/copilot/plans)**.
@@ -118,15 +120,20 @@ Copy, paste, replace anything in [brackets].
    Key** — not Authentication Key.)*
 5. `Install everything this project needs, build it, and run it so I can see it.` *(Documentation-only contribution? Skip this one.)*
 6. `Show me this project's open issues labeled "good first issue" and explain the top few in plain English. Which one would you recommend for my very first contribution, and why?`
-7. `Let's work on issue #[N]. Make a branch for it, then explain the bug to me like I'm brand new.`
-8. `Show me exactly what you changed and walk me through it, line by line, in plain English.`
-9. `Are you sure you caught every case the issue mentions? Double-check before we go further.`
-10. `Rebuild and run it. Then tell me exactly how to reproduce the original bug, step by step, so I can check it's really fixed.`
-11. `Now prove it. Read docs/automation-bridge.md and use the automation bridge to test this change — show me the before-and-after evidence.` *(See [Prove it with the automation bridge](#prove-it-with-the-automation-bridge) below.)*
-12. `Write the commit for this fix following the project's conventions, and show me the message before you make it.`
-13. `Now push it to my fork and open a pull request against the project. Fill in their template, include the bridge evidence and screenshots, and show me everything before you submit.`
-14. *(When a reviewer comments)* `A reviewer asked for a change — here's their comment. Make the change, and update the pull request.`
-15. *(After the merge)* `The pull request was merged! Tidy up — sync my copy with the project and clean up the branch. Then: what should we look at next?`
+7. `Check whether issue #[N] is already claimed — is anyone assigned to it? If it's free, or only the triage bot is on it, assign me to claim it. If someone else has it, help me pick a different one.`
+   *(Claiming is how this project stops two people fixing the same bug. The
+   claim is the **assignees list** on the issue, not a comment. The triage bot
+   `@aethersdr-agent` is auto-assigned to everything, so seeing only that one
+   means the issue is free — add yourself alongside it.)*
+8. `Let's work on issue #[N]. Make a branch for it, then explain the bug to me like I'm brand new.`
+9. `Show me exactly what you changed and walk me through it, line by line, in plain English.`
+10. `Are you sure you caught every case the issue mentions? Double-check before we go further.`
+11. `Rebuild and run it. Then tell me exactly how to reproduce the original bug, step by step, so I can check it's really fixed.`
+12. `Now prove it. Read docs/automation-bridge.md and use the automation bridge to test this change — show me the before-and-after evidence.` *(See [Prove it with the automation bridge](#prove-it-with-the-automation-bridge) below.)*
+13. `Write the commit for this fix following the project's conventions, and show me the message before you make it.`
+14. `Now push it to my fork and open a pull request against the project. Fill in their template, include the bridge evidence and screenshots, and show me everything before you submit.`
+15. *(When a reviewer comments)* `A reviewer asked for a change — here's their comment. Make the change, and update the pull request.`
+16. *(After the merge)* `The pull request was merged! Tidy up — sync my copy with the project and clean up the branch. Then: what should we look at next?`
 
 ## Prove it with the automation bridge
 
@@ -155,9 +162,15 @@ written *for your agent*, so you do not have to read it. Just say the word
 
 ### Ground rules
 
-- **Check the radio is free first.** Ask: `Is the radio already connected or in
-  use by someone else? Don't collide with another session.` Two clients fighting
-  over one radio produces evidence that is simply wrong.
+- **Check the radio is free first.** A bridge launch reconnects to your last
+  radio exactly as a normal launch does, so it will happily join a session
+  someone else is already using — and two clients fighting over one radio
+  produce evidence that is simply wrong. Ask:
+  `Before launching: is AetherSDR already running, and is the radio in use? If
+  so, start this test run idle instead of auto-connecting, and don't touch the
+  other session.` Your agent can start idle by clearing the
+  `AutoConnectToLastRadio` setting, then pick a radio deliberately with the
+  bridge's `connect` verb.
 - **Transmit is gated on purpose.** The bridge refuses to key the radio unless
   transmit is explicitly enabled, and even then it belongs into a dummy load.
   As a first-timer, say: `Receive-only testing please — do not enable transmit.`
@@ -211,10 +224,9 @@ sudo apt install qt6-base-dev qt6-base-private-dev qt6-multimedia-dev \
   libxkbcommon-dev libopengl0 gstreamer1.0-pulseaudio gstreamer1.0-plugins-base
 ```
 
-Build and run:
+Build and run (from inside the clone the fork step below created):
 
 ```bash
-git clone https://github.com/[YOURS]/AetherSDR.git
 cd AetherSDR
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build -j$(nproc)
@@ -226,26 +238,49 @@ Windows adds: the VS 2022 MSVC environment (`vcvars64.bat`), two setup scripts
 `-DCMAKE_PREFIX_PATH` pointing at your Qt kit — see the
 [Windows 11 section of the README](../README.md#windows-11).
 
-GitHub connection (sign-in, fork, and how the agent opens issues and PRs):
+GitHub connection (sign-in, fork, and how the agent opens issues and PRs).
+This is the step that creates the `AetherSDR` folder the build block above
+runs in:
 
 ```bash
-gh auth login                                # device-code sign-in via your browser
-gh repo fork aethersdr/AetherSDR --clone     # your fork + local download
+gh auth login                                 # device-code sign-in via your browser
+gh repo fork aethersdr/AetherSDR --clone      # your fork + local download
 # later, on your behalf:
-gh issue comment <N> --body "..."            # claiming an issue
-gh pr create --fill                          # opening the pull request
+gh issue view <N> --json assignees            # is it already claimed?
+gh issue edit <N> --add-assignee @me          # claiming an issue
+gh pr create --fill                           # opening the pull request
 ```
 
-Commit signing (SSH path):
+Commit signing (SSH path). Note the sandbox: the verification commit is made
+in a throwaway repo under `/tmp`, so a stray empty commit never lands on your
+working branch and ships in your first PR:
 
 ```bash
+# 1. Key
 ls ~/.ssh/id_ed25519.pub || ssh-keygen -t ed25519 -C "you@example.com"
+
+# 2. Configure git
 git config --global gpg.format ssh
 git config --global user.signingkey ~/.ssh/id_ed25519.pub
 git config --global commit.gpgsign true
 git config --global tag.gpgsign true
 git config --global user.email "you@example.com"   # must match GitHub
-git commit --allow-empty -m "signing test" && git log --show-signature -1
+
+# 3. Register the PUBLIC key on GitHub — without this, commits sign locally
+#    but GitHub shows "Unverified" and branch protection blocks the merge.
+cat ~/.ssh/id_ed25519.pub
+#    Paste at GitHub > Settings > SSH and GPG keys > New SSH key
+#    Key type: Signing Key   (NOT Authentication Key)
+
+# 4. Teach git to verify your own SSH signatures, or step 5 reports
+#    "No signature" on a commit that is in fact correctly signed.
+echo "you@example.com $(cat ~/.ssh/id_ed25519.pub)" >> ~/.ssh/allowed_signers
+git config --global gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
+
+# 5. Verify, in a throwaway repo
+cd /tmp && mkdir -p sigtest && cd sigtest && git init
+git commit --allow-empty -m "signing test"
+git log --show-signature -1        # expect: Good "git" signature
 ```
 
 Full details: [docs/COMMIT-SIGNING.md](COMMIT-SIGNING.md) and
