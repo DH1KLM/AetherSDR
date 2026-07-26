@@ -52,6 +52,37 @@ double db(double v) { return 20.0 * std::log10(std::max(1e-12, v)); }
 
 }  // namespace
 
+
+namespace {
+
+// The meter table from docs/radio-certification.md, in executable form.
+//
+// Kept as DATA rather than a sequence of hand-written checks so that adding a
+// radio means adding rows, and so the documentation and the tool cannot drift
+// apart — anything here that a backend does not publish shows up as "defined
+// but never fed" or as absent, which are different findings and both useful.
+struct MeterSpec {
+    const char* source;
+    const char* name;
+    const char* unit;
+    bool expectedOnHl2;      // physically producible by this radio class
+    const char* note;
+};
+
+constexpr MeterSpec kMeterTable[] = {
+    {"SLC", "LEVEL",    "dBm",  true,  "receive signal level"},
+    {"TX",  "MICPEAK",  "dBFS", true,  "pre-ALC microphone peak"},
+    {"TX",  "SWR",      "SWR",  true,  "ratio — meaningful uncalibrated"},
+    {"TX",  "FWDPWR",   "dBm",  false, "counts available but uncalibrated; not published"},
+    {"TX",  "REFPWR",   "dBm",  false, "counts available but uncalibrated; not published"},
+    {"TX",  "ALC",      "dB",   false, "host ALC computes this and nothing consumes it"},
+    {"TX",  "COMPPEAK", "dB",   false, "host-side compressor; not wired"},
+    {"RAD", "PATEMP",   "degC", true,  "rise under key is the check, not the value"},
+    {"RAD", "+13.8A",   "Volts",false, "no supply telemetry on this radio"},
+};
+
+}  // namespace
+
 RadioCertification::RadioCertification(RadioModel* radio, AudioEngine* audio)
     : m_radio(radio), m_audio(audio) {}
 
@@ -135,6 +166,83 @@ QJsonObject RadioCertification::meterSnapshot() const
 // Meter stages. LAST, because nothing above may depend on them.
 // ---------------------------------------------------------------------------
 
+void RadioCertification::stageControlEffect(const Options& o)
+{
+    // CONTROLS ARE CERTIFIED BY THEIR EFFECT, NEVER BY READBACK.
+    //
+    // A slider that reports the value it was handed proves only that the model
+    // has a variable. The mode map passed for twelve modes while the backend
+    // mapped nine of them, and RTTY still reads back perfectly while being
+    // demodulated as USB. So each control here is moved by a known amount and
+    // the CONSEQUENCE is measured.
+    if (!m_audio || !m_radio)
+        return;
+    auto& tx = m_radio->transmitModel();
+
+    auto keyedMicPeak = [&](int micGainPercent) -> double {
+        m_audio->setPcMicGain(micGainPercent);
+        if (auto* t = m_audio->clientTxTestTone()) {
+            t->setFrequencyHz(1000.0f); t->setLevelDb(-20.0f); t->setEnabled(true);
+        }
+        keyViaOperatorPath(true);
+        spin(o.settleMs);
+        const QJsonObject s2 = meterSnapshot();
+        keyViaOperatorPath(false);
+        if (auto* t = m_audio->clientTxTestTone()) t->setEnabled(false);
+        spin(700);
+        return s2.value(QStringLiteral("micPeakDbfs")).toDouble(-999.0);
+    };
+
+    const int restoreMic = AppSettings::instance().value("PcMicGain", 100).toInt();
+    const double micFull = keyedMicPeak(100);
+    const double micHalf = keyedMicPeak(50);
+    m_audio->setPcMicGain(restoreMic);
+
+    // Halving a linear gain is -6.02 dB. This is arithmetic, not a guess about
+    // the radio, which is what makes it a usable threshold on hardware nobody
+    // has characterised.
+    const double micDelta = micFull - micHalf;
+
+    const int restorePower = tx.rfPower();
+    QJsonObject m{
+        {QStringLiteral("micGain100Dbfs"), micFull},
+        {QStringLiteral("micGain50Dbfs"), micHalf},
+        {QStringLiteral("micGainDeltaDb"), micDelta},
+        {QStringLiteral("micGainExpectedDb"), -6.02},
+        {QStringLiteral("rfPowerRestoredTo"), restorePower},
+    };
+
+    QStringList problems;
+    if (micFull < -998.0 || micHalf < -998.0)
+        problems << QStringLiteral("no mic peak reading — cannot certify mic gain by effect");
+    else if (std::fabs(micDelta - 6.02) > 1.5)
+        problems << QStringLiteral(
+            "halving mic gain moved the transmitted level by %1 dB, not the 6.0 dB "
+            "a linear halving must produce — the control and the meter disagree "
+            "about what the gain is")
+            .arg(micDelta, 0, 'f', 1);
+
+    // RF gain has no runtime path on this radio at all: the LNA value is sent
+    // once in the connect parameters. Report it rather than silently skipping,
+    // because it is the control an operator reaches for first when the ADC
+    // overloads, and a UI that offers it is making a promise.
+    m[QStringLiteral("rfGainRuntimePath")] = false;
+    problems << QStringLiteral(
+        "SliceModel::setRfGain has no runtime path on this backend — LNA gain is "
+        "connect-parameters only, so the preamp/attenuator control does nothing "
+        "after connect");
+
+    record(QStringLiteral("control-effect"),
+           QStringLiteral("Controls are certified by their effect, not readback"),
+           m,
+           QStringLiteral(
+               "Halving a linear gain is -6.02 dB. That is arithmetic rather than "
+               "a property of this radio, which is what makes it a threshold that "
+               "transfers to hardware nobody has characterised yet."),
+           problems.join(QStringLiteral("; ")),
+           QStringLiteral("docs/radio-certification.md — Controls"));
+}
+
 void RadioCertification::stageMeterInventory()
 {
     // Are the meters even connected? IRadioBackend::meterUpdate had NO consumer
@@ -146,32 +254,47 @@ void RadioCertification::stageMeterInventory()
         return;
     const auto& meters = m_radio->meterModel();
     QJsonObject m;
-    int defined = 0, everUpdated = 0;
-    for (const QJsonValue& v : meters.allMeters()) {
-        const QJsonObject o = v.toObject();
-        ++defined;
-        const int age = o.value(QStringLiteral("age_ms")).toInt(-1);
-        if (age >= 0) ++everUpdated;
-        m[o.value(QStringLiteral("source")).toString() + QStringLiteral(":")
-          + o.value(QStringLiteral("name")).toString()] = QJsonObject{
-            {QStringLiteral("unit"), o.value(QStringLiteral("unit"))},
-            {QStringLiteral("hasValue"), o.value(QStringLiteral("has_value"))},
-            {QStringLiteral("ageMs"), age},
+    QStringList definedNeverFed, expectedButMissing;
+
+    for (const MeterSpec& spec : kMeterTable) {
+        const QString key = QString::fromLatin1(spec.source) + QLatin1Char(':')
+                          + QString::fromLatin1(spec.name);
+        const int idx = meters.findMeter(QString::fromLatin1(spec.source),
+                                         QString::fromLatin1(spec.name));
+        const qint64 age = idx >= 0 ? meters.valueAgeMs(idx) : -1;
+        m[key] = QJsonObject{
+            {QStringLiteral("unit"), QString::fromLatin1(spec.unit)},
+            {QStringLiteral("defined"), idx >= 0},
+            {QStringLiteral("everFed"), age >= 0},
+            {QStringLiteral("ageMs"), static_cast<double>(age)},
+            {QStringLiteral("expectedOnThisRadio"), spec.expectedOnHl2},
+            {QStringLiteral("note"), QString::fromLatin1(spec.note)},
         };
+        // Defined but never fed renders as a real instrument reading nothing,
+        // which is worse than an absent one: the operator has no way to tell it
+        // apart from a quiet band.
+        // By the time this runs, the stages above have keyed and injected
+        // audio, so a meter with no value has genuinely never been fed rather
+        // than merely not exercised.
+        if (idx >= 0 && age < 0)
+            definedNeverFed << key;
+        if (spec.expectedOnHl2 && idx < 0)
+            expectedButMissing << key;
     }
-    m[QStringLiteral("definedCount")] = defined;
-    m[QStringLiteral("everUpdatedCount")] = everUpdated;
 
     QString concern;
-    if (defined == 0)
-        concern = QStringLiteral(
-            "no meters defined at all — the backend never emitted meterDefined");
-    else if (everUpdated == 0)
-        concern = QStringLiteral(
-            "meters are DEFINED but none has ever carried a value. That is the "
-            "signature of meterUpdate being wired to nothing, which is exactly "
-            "what happened here: values were computed and discarded, and the "
-            "meter read as a permanently quiet band");
+    if (!expectedButMissing.isEmpty())
+        concern = QStringLiteral("expected on this radio but not defined: ")
+                + expectedButMissing.join(QStringLiteral(", "));
+    if (!definedNeverFed.isEmpty()) {
+        if (!concern.isEmpty()) concern += QStringLiteral(". ");
+        concern += QStringLiteral(
+            "DEFINED BUT NEVER FED — these render as instruments reading a quiet "
+            "band and cannot be told apart from one: ")
+            + definedNeverFed.join(QStringLiteral(", "))
+            + QStringLiteral(". Either publish them with a documented scale or "
+                             "stop defining them");
+    }
 
     record(QStringLiteral("meter-inventory"),
            QStringLiteral("Meters exist and actually receive values"),
@@ -1019,8 +1142,13 @@ QJsonObject RadioCertification::run(const Options& o)
     }
 
     if (doMet) {
-        stageMeterInventory();
+        // INVENTORY LAST. A transmit meter cannot have a value before anything
+        // has transmitted, so running the inventory first reports every TX meter
+        // as "never fed" — true, and useless. Exercise them, then take stock:
+        // what is still unfed after a keyed stage is genuinely unfed.
         stageMeterScale(o);
+        stageControlEffect(o);
+        stageMeterInventory();
     }
 
     // Make sure we leave the radio unkeyed whatever happened above.

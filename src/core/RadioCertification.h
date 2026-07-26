@@ -106,6 +106,7 @@ private:
     // ---- meter stages, LAST ----
     void stageMeterInventory();
     void stageMeterScale(const Options& o);
+    void stageControlEffect(const Options& o);
 
     // ---- receive stages ----
     //
