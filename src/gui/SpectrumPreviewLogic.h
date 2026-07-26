@@ -118,6 +118,75 @@ private:
     std::optional<FrequencyRangeCommand> m_pending;
 };
 
+// Coalesces bandwidth changes into one post-settle 3D floor reacquisition.
+// A new zoom cancels any previously-armed frame so rapid gestures cannot
+// resynchronize against an intermediate bandwidth.
+class DssZoomFloorSyncGate {
+public:
+    void noteBandwidthChange()
+    {
+        m_bandwidthChangeQueued = true;
+        m_waitingForFreshFrame = false;
+    }
+
+    void settle(bool flex3dActive)
+    {
+        m_waitingForFreshFrame =
+            m_bandwidthChangeQueued && flex3dActive;
+        m_bandwidthChangeQueued = false;
+    }
+
+    bool consumeFreshFrame(bool frameReady)
+    {
+        if (!m_waitingForFreshFrame || !frameReady) {
+            return false;
+        }
+        m_waitingForFreshFrame = false;
+        return true;
+    }
+
+    void clear()
+    {
+        m_bandwidthChangeQueued = false;
+        m_waitingForFreshFrame = false;
+    }
+
+    bool bandwidthChangeQueued() const { return m_bandwidthChangeQueued; }
+    bool waitingForFreshFrame() const { return m_waitingForFreshFrame; }
+
+private:
+    bool m_bandwidthChangeQueued{false};
+    bool m_waitingForFreshFrame{false};
+};
+
+// Windows in which an FFT frame's dBm encoding does not correspond to the
+// settled zoom, so it must not anchor the 3D floor. Kept out of the widget so
+// the timing policy is testable without a live radio or a QWidget.
+struct DssZoomFloorFrameGuards {
+    // std::int64_t, not qint64: this header stays Qt-free so the logic can be
+    // unit-tested without linking Qt. Callers pass qint64 epoch values.
+    std::int64_t nowMs{0};
+    std::int64_t notBeforeMs{0};    // radio still switching bandwidth
+    std::int64_t txEndMs{0};        // 0 when no recent TX→RX transition
+    std::int64_t postTxSettleMs{0}; // receiver AGC recovery window (#2117)
+    bool scaleSettling{false};      // y_pixels change still settling
+    bool rebaseActive{false};       // bins may be reprojected preview data
+    bool draggingDbmScale{false};
+};
+
+inline bool dssZoomFloorFrameTrusted(const DssZoomFloorFrameGuards& guards)
+{
+    if (guards.nowMs < guards.notBeforeMs) {
+        return false;
+    }
+    if (guards.txEndMs > 0
+        && guards.nowMs - guards.txEndMs < guards.postTxSettleMs) {
+        return false;
+    }
+    return !guards.scaleSettling && !guards.rebaseActive
+        && !guards.draggingDbmScale;
+}
+
 enum class WaterfallPipelineMode {
     Legacy,
     RowFrequencyFrames,

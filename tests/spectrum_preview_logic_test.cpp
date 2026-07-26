@@ -132,6 +132,113 @@ int testCommandThrottle()
     return 0;
 }
 
+int testDssZoomFloorSyncGate()
+{
+    using namespace AetherSDR;
+    DssZoomFloorSyncGate gate;
+    if (gate.bandwidthChangeQueued() || gate.waitingForFreshFrame()
+        || gate.consumeFreshFrame(true)) {
+        return fail("3D zoom floor synchronization should start idle");
+    }
+
+    gate.noteBandwidthChange();
+    if (!gate.bandwidthChangeQueued() || gate.waitingForFreshFrame()
+        || gate.consumeFreshFrame(true)) {
+        return fail("3D zoom floor synchronization must wait for settle");
+    }
+
+    gate.settle(false);
+    if (gate.bandwidthChangeQueued() || gate.waitingForFreshFrame()
+        || gate.consumeFreshFrame(true)) {
+        return fail("2D or Kiwi zoom must not arm a Flex 3D floor sync");
+    }
+
+    gate.noteBandwidthChange();
+    gate.noteBandwidthChange();
+    gate.settle(true);
+    if (gate.bandwidthChangeQueued() || !gate.waitingForFreshFrame()
+        || gate.consumeFreshFrame(false)
+        || !gate.waitingForFreshFrame()) {
+        return fail("coalesced 3D zoom must wait for a usable FFT frame");
+    }
+    if (!gate.consumeFreshFrame(true) || gate.waitingForFreshFrame()
+        || gate.consumeFreshFrame(true)) {
+        return fail("only the first usable post-zoom FFT frame may resynchronize");
+    }
+
+    gate.noteBandwidthChange();
+    gate.settle(true);
+    gate.noteBandwidthChange();
+    if (!gate.bandwidthChangeQueued() || gate.waitingForFreshFrame()) {
+        return fail("a newer zoom must cancel an intermediate armed frame");
+    }
+    gate.clear();
+    if (gate.bandwidthChangeQueued() || gate.waitingForFreshFrame()) {
+        return fail("3D zoom floor synchronization should clear completely");
+    }
+    return 0;
+}
+
+int testDssZoomFloorFrameGuards()
+{
+    using namespace AetherSDR;
+
+    // A frame with every window clear is the one the gate is waiting for.
+    DssZoomFloorFrameGuards guards;
+    guards.nowMs = 10'000;
+    guards.notBeforeMs = 10'000;
+    guards.postTxSettleMs = 400;
+    if (!dssZoomFloorFrameTrusted(guards)) {
+        return fail("a settled post-zoom frame must anchor the 3D floor");
+    }
+
+    // The radio needs ~100-300 ms to switch bandwidth. Frames before the hold
+    // still carry the pre-zoom encoding; the drag-release path arms with no
+    // delay of its own, so this is the only thing keeping them out.
+    guards.nowMs = 9'999;
+    if (dssZoomFloorFrameTrusted(guards)) {
+        return fail("a frame before the bandwidth-switch hold must be rejected");
+    }
+    guards.nowMs = 10'000;
+
+    // Post-TX AGC recovery (#2117): the first RX frame after unkey reads hot.
+    guards.txEndMs = guards.nowMs - 399;
+    if (dssZoomFloorFrameTrusted(guards)) {
+        return fail("a post-TX AGC transient frame must not anchor the floor");
+    }
+    guards.txEndMs = guards.nowMs - 400;
+    if (!dssZoomFloorFrameTrusted(guards)) {
+        return fail("frames past the post-TX window are usable again");
+    }
+    guards.txEndMs = 0;
+
+    // A y_pixels change still settling decodes bins against the old height.
+    guards.scaleSettling = true;
+    if (dssZoomFloorFrameTrusted(guards)) {
+        return fail("a mis-decoded scale-settling frame must be rejected");
+    }
+    guards.scaleSettling = false;
+
+    // An open dBm-range rebase can hand the sync reprojected preview bins.
+    guards.rebaseActive = true;
+    if (dssZoomFloorFrameTrusted(guards)) {
+        return fail("reprojected preview bins must never anchor the floor");
+    }
+    guards.rebaseActive = false;
+
+    // The operator owns the scale while dragging it.
+    guards.draggingDbmScale = true;
+    if (dssZoomFloorFrameTrusted(guards)) {
+        return fail("a zoom sync must not fight an active dBm scale drag");
+    }
+    guards.draggingDbmScale = false;
+
+    if (!dssZoomFloorFrameTrusted(guards)) {
+        return fail("clearing every guard must restore a usable frame");
+    }
+    return 0;
+}
+
 int testWaterfallPipelineSelection()
 {
     using namespace AetherSDR;
@@ -455,6 +562,12 @@ int main()
         return result;
     }
     if (const int result = testCommandThrottle(); result != 0) {
+        return result;
+    }
+    if (const int result = testDssZoomFloorSyncGate(); result != 0) {
+        return result;
+    }
+    if (const int result = testDssZoomFloorFrameGuards(); result != 0) {
         return result;
     }
     if (const int result = testWaterfallPipelineSelection(); result != 0) {
