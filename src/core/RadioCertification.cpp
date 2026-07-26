@@ -145,7 +145,16 @@ void RadioCertification::stageModeMap()
         slice->setMode(mode);
         spin(250);
         const QString back = slice->mode();
-        results[mode] = back;
+        // Record the resulting passband as a FINGERPRINT. A mode the backend
+        // does not recognise falls through to its default, so a passband
+        // identical to the fallback mode's is evidence of that — weak evidence,
+        // but the only kind available from out here, and better than a readback
+        // that any string survives.
+        results[mode] = QJsonObject{
+            {QStringLiteral("readback"), back},
+            {QStringLiteral("passband"),
+             QStringLiteral("%1..%2").arg(slice->filterLow()).arg(slice->filterHigh())},
+        };
         if (back.compare(mode, Qt::CaseInsensitive) != 0)
             notRetained << (mode + QStringLiteral("->") + back);
     }
@@ -164,9 +173,13 @@ void RadioCertification::stageModeMap()
            QStringLiteral("Every mode the app can emit survives a round trip"),
            results,
            QStringLiteral(
-               "Readback is a weak proof — it shows the model kept the name, not "
-               "that the demodulator understood it. Treat a clean result as "
-               "'nothing obviously dropped', not as 'all modes work'."),
+               "READBACK IS NOT PROOF. The slice keeps whatever string it is "
+               "given, so every mode can come back clean while the backend maps "
+               "only some of them and silently demodulates the rest as its "
+               "default. Confirmed on this radio: RTTY survives the round trip "
+               "and the backend has no mapping for it. Compare each passband "
+               "against the fallback mode's — an exact match is a hint, and the "
+               "only one visible from outside the backend."),
            concern,
            QStringLiteral("HERMES.md 15.7"));
 }
@@ -273,10 +286,20 @@ void RadioCertification::stageRxSidebands(const Options& o)
         spin(1700);
         const QJsonObject snap = m_audio->automationAudioCaptureSnapshot(true);
 
+        // Take the rate from the CAPTURE, never from a constant.
+        //
+        // This originally used AudioEngine::DEFAULT_SAMPLE_RATE (24 kHz) while
+        // the "output" tap runs at the audio DEVICE's rate — 48 kHz here. The
+        // correlator therefore probed the wrong frequency and reported -80 to
+        // -109 dB for every mode while the RMS plainly showed a 25 dB signal.
+        // A tone detector that silently looks in the wrong place is worse than
+        // no tone detector, because it reads as "no signal".
+        double fs = 0.0;
         std::vector<float> mono;
         for (const QJsonValue& cv : snap.value(QStringLiteral("chunks")).toArray()) {
             const QJsonObject c = cv.toObject();
             const int ch = std::max(1, c.value(QStringLiteral("channels")).toInt(1));
+            fs = c.value(QStringLiteral("sampleRate")).toDouble(fs);
             const QByteArray pcm = QByteArray::fromBase64(
                 c.value(QStringLiteral("pcmBase64")).toString().toLatin1());
             const auto* f = reinterpret_cast<const float*>(pcm.constData());
@@ -284,9 +307,11 @@ void RadioCertification::stageRxSidebands(const Options& o)
             for (int n = 0; n < frames; ++n)
                 mono.push_back(f[n * ch]);
         }
+        if (fs <= 0.0)
+            fs = AudioEngine::DEFAULT_SAMPLE_RATE;   // last resort, and reported
 
-        const double fs = AudioEngine::DEFAULT_SAMPLE_RATE;
         perMode[mode] = QJsonObject{
+            {QStringLiteral("sampleRateHz"), fs},
             {QStringLiteral("toneAtOffsetDb"), db(tonePower(mono, o.referenceOffsetHz, fs))},
             {QStringLiteral("overallRmsDb"), db(rms(mono))},
             {QStringLiteral("frames"), static_cast<int>(mono.size())},
