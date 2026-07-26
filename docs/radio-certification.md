@@ -2,6 +2,9 @@
 
 The table `radiocert` works from, and the checklist for bringing a new radio up.
 
+Why the tool is shaped this way — and what it still cannot do — is in
+[`CERTIFICATION.md`](CERTIFICATION.md). Read that before trusting a clean report.
+
 Two rules run through all of it, both learned expensively:
 
 1. **Readback is not proof.** A model keeps whatever string or number it is
