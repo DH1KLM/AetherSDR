@@ -1,18 +1,43 @@
 # Your First AetherSDR Contribution — the cheat sheet
 
 Companion to the video tutorial *(link will be added when the video is
-published)*. Everything here is a sentence you say to your AI partner — you
-never type commands. For the full contribution rules, see
+published)*. The video uses Claude Code, but the same asks work with GitHub
+Copilot or OpenAI Codex. Everything here is a sentence you say to your AI
+partner — you never type commands. For the full contribution rules, see
 [CONTRIBUTING.md](../CONTRIBUTING.md); this page is the beginner's on-ramp.
 (Curious what the AI actually ran? Bottom of the page.)
 
 ## What you need
 
-1. **VS Code** (free) with the **Claude Code** extension —
-   [code.visualstudio.com](https://code.visualstudio.com)
-2. **A Claude plan that includes Claude Code** — the free tier is web-chat
-   only and cannot drive VS Code
+1. **VS Code** (free) — [code.visualstudio.com](https://code.visualstudio.com)
+2. **One AI coding agent — choose any one; these are separate alternatives:**
+   - **GitHub Copilot Free:** follow the
+     [Copilot quickstart](https://docs.github.com/en/copilot/get-started/quickstart?tool=vscode)
+     and sign in to VS Code with your GitHub account.
+   - **OpenAI Codex:** install the
+     [Codex extension](https://developers.openai.com/codex/ide) and sign in
+     with your ChatGPT account. The Free plan works in VS Code with lower
+     usage limits.
+   - **Claude Code:** install the
+     [Claude Code extension](https://code.claude.com/docs/en/vs-code) and use
+     a Claude plan that includes Claude Code. The free tier is web-chat only
+     and cannot drive VS Code.
 3. **A GitHub account** — free; step-by-step below
+
+### Start free with GitHub Copilot
+
+Copilot Free is the simplest no-cost starting point because it uses the GitHub
+account you already need. It includes local **Agent mode** in VS Code, so it
+can read files, edit code, and run commands. The free allowance is deliberately
+limited: 2,000 code completions per month plus limited chat and agent use. That
+is enough to learn the workflow or try a small contribution, but a long
+build-debug-test session may reach the limit. The free plan also does not
+include the cloud coding agent or pull-request reviews.
+
+Current limits:
+**[github.com/features/copilot/plans](https://github.com/features/copilot/plans)**.
+If you reach the free allowance, wait for it to reset or choose a paid plan;
+you do not need to switch agents unless you want to.
 
 ### Which Claude plan?
 
@@ -25,6 +50,26 @@ never type commands. For the full contribution rules, see
 Current prices: **[claude.com/pricing](https://claude.com/pricing)**. If you
 hit a usage limit mid-session: nothing is lost, it resets the same day — and
 hitting it regularly is the upgrade signal, not a failure.
+
+### Which Codex plan?
+
+Codex is included across ChatGPT plans, including Free and Go, and you can use
+it through the VS Code extension. Usage limits vary by plan.
+
+| Plan | What fits |
+|---|---|
+| Free | Try Codex in VS Code on a quick task or small documentation change |
+| Go | Lightweight coding tasks |
+| Plus | **Start here.** A few focused contribution sessions each week |
+| Pro | Higher limits for frequent or all-day work |
+
+Current plan details:
+**[developers.openai.com/codex/pricing](https://developers.openai.com/codex/pricing)**.
+The asks below work unchanged with any one of the three agents. Copilot reads
+[`.github/copilot-instructions.md`](../.github/copilot-instructions.md), Codex
+reads the canonical [AGENTS.md](../AGENTS.md) directly, and Claude Code reads
+[CLAUDE.md](../CLAUDE.md). Both tool-specific files point to `AGENTS.md`, so
+every option gets the same project rules.
 
 ### Creating your GitHub account
 
