@@ -363,6 +363,46 @@ See §4. Recorded as an input because its outcome gates the work.
   specific callsigns rather than generally available. Consistent with our
   decision to parse but never request it (§3.5).
 
+### 3.7 — 2026-07-29 · VarAC v15.0.18 installed on the bench
+
+- **What:** VarAC v15.0.18, operator-downloaded (the vendor gates distribution
+  behind a registration form and emails the link; no attempt was made to work
+  around that). `VarAC_V15_0_18.zip`,
+  sha256 `e8ea382a80bbea70ef9a03e16e949ebdf7da2906518479e14919b4b032e0dab0`.
+  Also supplied by the vendor: `VarAC_technical_deep_dive V11.pptx`, a 62-slide
+  technical overview by the author, Irad Deutsch 4Z1AC.
+- **Status:** **clean** — vendor-published software and vendor-published
+  documentation, observed from the outside. Not disassembled.
+- **Contents** (6 files, no installer needed): `VarAC.exe` (22 MB, .NET),
+  `PSKReporter.dll`, `VarAC_cat_commands.ini`, `VarAC_templates.ini`,
+  `VarAC_UI_languages.ini`, `License.txt`. **`VarAC_cat_commands.ini` is the
+  CAT dialect file** referenced in §3.2 as unavailable — it ships in the
+  archive, so what VarAC sends any given rig is now readable directly.
+- **Runs under WINE** on the soda runner with the bottle's existing wine-mono;
+  no extra .NET install was required. First run demands a callsign and a
+  6-character Maidenhead locator. **The bench uses `AA00AA` as an obvious
+  placeholder — it is not the operator's real grid and must be corrected before
+  any on-air use.**
+- **Configuration:** `VarAC.ini` `[VARAHF_CONFIG]` — `VarahfMainPort`,
+  `VarahfMainHost`, `VarahfMainPath`, plus `VarahfEnableKissInterface` and
+  `VarahfMainKissPort=8100`. The bench sets `VarahfMainPort=8310` so VarAC
+  drives modem instance B while instance A stays free to observe from the far
+  end of the link.
+- **MAJOR FINDING — the free licence caps speed at 170 bps.** Slide 7 of the
+  vendor deck: *"Free license version available with speed limit of 170 BPS."*
+  This **corrects an earlier conclusion in this document**: the bench link
+  settling at level 4 / 175 bps was attributed to the ~7 dB SN of the
+  null-sink path. It is licence-limited, not SNR-limited — consistent with the
+  `LINK UNREGISTERED` observed on every session. **Consequence for Phase 3:
+  characterising speed levels 5–11 requires a registered (paid) VARA licence.
+  No amount of bench SNR will reach them.**
+- **Observed behaviour:** VarAC connects to the modem, and CQ/beacon
+  transmissions are visible at the far end as repeated 1.5–2.5 s `BUSY ON/OFF`
+  bursts. The far modem does **not** yet decode them into `CQFRAME` or payload
+  at either 500 Hz or 2300 Hz. Open — see below.
+- **Note:** VarAC will not call CQ without a **Slot** selected; its own tooltip
+  states the Slot ID is embedded in the CQ frame.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
