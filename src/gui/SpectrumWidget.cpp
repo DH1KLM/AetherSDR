@@ -8,6 +8,7 @@
 #include "SpectrumOverlayMenu.h"
 #include "VfoWidget.h"
 #include "DisplaySettings.h"
+#include "MacCursorCompat.h"
 #include "SliceColors.h"
 #include "SliceColorManager.h"
 #include "SliceLabel.h"
@@ -408,16 +409,12 @@ static bool clampDbmRange(float& minDbm, float& maxDbm)
 static Qt::CursorShape normalizedSpectrumCursorShape(Qt::CursorShape shape)
 {
 #ifdef Q_OS_MAC
-    switch (shape) {
-    case Qt::SplitVCursor:
+    // Preserve SpectrumWidget's established vertical split appearance.
+    if (shape == Qt::SplitVCursor) {
         return Qt::SizeVerCursor;
-    case Qt::SizeAllCursor:
-        return Qt::OpenHandCursor;
-    default:
-        break;
     }
 #endif
-    return shape;
+    return macSafeCursorShape(shape);
 }
 
 static void setCursorOverride(QWidget* widget, Qt::CursorShape shape)
