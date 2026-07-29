@@ -677,6 +677,8 @@ set(CORE_SOURCES
     src/core/SpotModeResolver.cpp
     src/core/TciServer.cpp
     src/core/TciProtocol.cpp
+    src/core/VaraProtocol.cpp
+    src/core/VaraClient.cpp
     src/core/TciRoutingState.cpp
     src/core/TciTrxMap.cpp
     src/core/AutomationServer.cpp
@@ -3825,6 +3827,14 @@ add_executable(acom_protocol_test
 target_include_directories(acom_protocol_test PRIVATE src)
 target_link_libraries(acom_protocol_test PRIVATE Qt6::Core)
 add_test(NAME acom_protocol_test COMMAND acom_protocol_test)
+
+add_executable(vara_protocol_test
+    tests/vara_protocol_test.cpp
+    src/core/VaraProtocol.cpp
+)
+target_include_directories(vara_protocol_test PRIVATE src)
+target_link_libraries(vara_protocol_test PRIVATE Qt6::Core)
+add_test(NAME vara_protocol_test COMMAND vara_protocol_test)
 
 add_executable(ole_compound_file_test
     tests/ole_compound_file_test.cpp

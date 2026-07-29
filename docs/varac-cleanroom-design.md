@@ -1,7 +1,9 @@
 # VARA / VarAC Clean-Room Design Note
 
-Status: **Phase 0 — provenance framework established. No captures taken, no
-protocol code written, no VARA or VarAC software installed as of this entry.**
+Status: **Phase 1 — host-interface client implemented from published sources.
+No captures taken and no VARA or VarAC software installed as of this entry;
+everything so far derives from the documents and open-source references logged
+in §3.**
 
 Purpose: an append-only provenance record for AetherSDR's native VARA / VarAC
 interoperability work, per Constitution **Principle IV (Every Contribution Is
@@ -141,6 +143,59 @@ used for.
 ### 3.4 — 2026-07-29 · Patent clearance search
 
 See §4. Recorded as an input because its outcome gates the work.
+
+### 3.5 — 2026-07-29 · VARA host command vocabulary
+
+- **What:** the concrete command and notification vocabulary of the VARA host
+  interface — the exact ASCII strings on the command channel.
+- **Sources:**
+  - `petrkr/pyvara` — "Python library for VARA Modem", OK1PKR Petr Kracik,
+    2024, **MIT licence**, `https://github.com/petrkr/pyvara`.
+  - BPQ32's VARA driver documentation, John Wiseman G8BPQ,
+    `https://www.cantab.net/users/john.wiseman/Documents/VARA.html`
+    (confirms host/port configuration and the BW500/BW2300/BW2750 selectors).
+  - EA5HVK's own specification §3.6 (§3.1 above) — "VARA uses a TCP link to
+    connect with others applications".
+- **Status:** **clean.** Principle IV names open-source references and public
+  documentation as clean inputs. pyvara is an independent third-party
+  implementation of a public interface, published under a permissive licence.
+- **Method:** read for *protocol facts only* — which strings exist and what
+  they mean. **No code was copied, transcribed or translated**, and none of
+  pyvara's structure survives in ours: AetherSDR's implementation is a
+  C++/Qt design of our own (a protocol/transport split mirroring our existing
+  `AcomProtocol`/`AcomConnection` pair, with buffered CR framing and an
+  explicit FIFO for reply correlation). Facts about a public interface are not
+  copyrightable; the expression is, and none was taken.
+- **Vocabulary recorded** (implemented in `src/core/VaraProtocol.{h,cpp}`):
+  - *Transport:* command port 8300, data port 8301 (second instance
+    8302/8303). Command channel is ASCII terminated by a bare **CR**, not
+    CRLF. Data channel is an opaque bidirectional payload stream.
+  - *Commands:* `VERSION`, `MYCALL <c1..c5>`, `LISTEN ON|OFF`, `LISTEN CQ`,
+    `CONNECT <src> <dst>`, `DISCONNECT`, `ABORT`, `BW500|BW2300|BW2750`
+    (no space), `CQFRAME <call> <bw>`, `COMPRESSION OFF|TEXT|FILES`,
+    `CHAT ON|OFF`, `CLEANTXBUFFER`, `TUNE`.
+  - *Notifications:* `OK`, `WRONG`, `IAMALIVE`, `PENDING`, `CANCELPENDING`,
+    `CONNECTED <src> <dst> [<bw>]`, `DISCONNECTED`, `BUSY ON|OFF`,
+    `PTT ON|OFF`, `VERSION <text>`, `REGISTERED <calls>`, `SN <dB>`,
+    `TUNE <v>`, `BUFFER <bytes>`,
+    `CLEANTXBUFFER BUFFEREMPTY|FAILED|OK`,
+    `LINK REGISTERED|UNREGISTERED|ENCRYPTED|UNENCRYPTED`,
+    `ENCRYPTED LINK` / `UNENCRYPTED LINK` (opposite word order — both forms
+    occur), `BITRATE (<level>) <bps> bps`, `ENCRYPTION DISABLED|READY`,
+    `CQFRAME <call> <bw>`.
+- **Two findings worth carrying forward:**
+  1. **Replies are positional.** `OK`/`WRONG` identify nothing. Correlation is
+     by order against a FIFO of outstanding commands. A pipelining client that
+     ignores this misattributes results silently.
+  2. **`BITRATE` reports the adaptive speed level (1–11) directly.** The level
+     is therefore observable from the host interface, without demodulating
+     anything. This is how Phase 3 will confirm that AWGN injection has pinned
+     the modem to an intended level — see the plan's §5.1 graph.
+- **Used for:** `src/core/VaraProtocol.{h,cpp}`, `src/core/VaraClient.{h,cpp}`,
+  `tests/vara_protocol_test.cpp`, `tools/vara_probe.py`.
+- **Not adopted:** `TUNE` and `ENCRYPTION` are parsed but never issued — see
+  the header comment in `VaraProtocol.h` for why (transmit-keying and
+  §97.113(a)(4) respectively).
 
 ---
 
