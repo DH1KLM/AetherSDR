@@ -403,6 +403,59 @@ See §4. Recorded as an input because its outcome gates the work.
 - **Note:** VarAC will not call CQ without a **Slot** selected; its own tooltip
   states the Slot ID is embedded in the CQ frame.
 
+### 3.8 — 2026-07-29 · Level 4 is NOT OFDM. VARA is a dual-waveform system.
+
+Measured from a bench capture (48 kHz, no radio, no RF, verified unclipped:
+peak 0.38, RMS 0.27, zero samples near full scale).
+
+- **The level-4 waveform is CONSTANT ENVELOPE.** Peak/RMS = 1.42 = **3.05 dB
+  crest factor**, the textbook value for constant modulus; analytic-envelope
+  PAPR ~1 dB, power kurtosis 1.00. **OFDM cannot be constant-envelope** — it
+  would show ~9 dB PAPR and kurtosis ~2, exactly as the spec claims for its
+  DATA frame. So level 4 is not the waveform the spec describes.
+- **Instantaneous-frequency analysis shows discrete tones**: ~15 clusters
+  between ~842 and ~2161 Hz, mean spacing 94.25 Hz — consistent with
+  **93.75 Hz = 48000/512**, centred near 1500 Hz. Constant envelope plus a
+  regular discrete tone grid is **M-FSK**.
+- **The arithmetic closes.** 16 tones × 93.75 Hz = 1500 Hz occupied. At
+  93.75 baud and 4 bits/symbol that is 375 bps raw; against level 4's known
+  175 bps net this implies a code rate of **~0.47 ≈ 1/2** — an entirely
+  ordinary turbo rate. (Exact figures pending the cross-validation in §3.9.)
+- **CORRECTION to an earlier entry.** A previous commit here concluded "the
+  2018 spec does not describe VARA 4.9.0". That was overstated. The accurate
+  statement is that **it does not describe level 4**, because level 4 is not
+  OFDM at all. The spec may well be accurate for the high levels, which a free
+  licence cannot reach (§3.7). We were analysing the wrong waveform, not
+  reading a stale document.
+- **The reconciling hypothesis: VARA is dual-waveform** — constant-envelope
+  MFSK for the robust low levels, OFDM for the high-rate levels. This explains
+  every anomaly at once: no cyclic prefix was found because there is no OFDM
+  here; PAPR was 3 dB not 9 dB because MFSK is constant-modulus; and the
+  advertised **−22 dB SNR** performance is reachable precisely because MFSK
+  excels there (the same reason FT8 and JS8 use it). The switchover level is
+  unknown and is a structural fact worth establishing before implementing
+  either half.
+- **Consequence for Phase 3:** the job changed shape rather than growing. An
+  MFSK demodulator is materially simpler than an OFDM one — no cyclic prefix,
+  no channel estimation, no equalisation; just per-symbol tone detection — and
+  symbol boundaries are unambiguous, which makes bit alignment for the
+  differential attack far easier than it would have been in OFDM. Levels 1–4
+  are fully reachable on the free licence.
+
+**METHOD NOTE, recorded because it cost four wrong answers.** Every estimator
+used here must be validated against a synthetic signal with known parameters
+*before* its output on real data is believed. That discipline is what turned
+"I cannot get a clean CP reading" into the firm negative result that redirected
+the whole investigation: the CP estimator recovers the true period on synthetic
+OFDM at peak/mean 2.64, and scores 1.1 — noise — on the real capture. Four
+unvalidated measurements preceded it, each of which looked like a result:
+a passband correlation swamped by its double-frequency term; a lag scan whose
+window scaled with the lag so the metric rose trivially; a spectrum
+autocorrelation over too long a window; and a recorder (`pw-record --target`)
+that silently fell back to the default source and captured a microphone instead
+of the sink. Assume the first attempt is wrong until synthetic truth says
+otherwise.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
