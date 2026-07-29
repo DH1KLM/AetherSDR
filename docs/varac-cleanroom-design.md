@@ -613,6 +613,66 @@ Symbol-to-bit mapping (natural binary vs Gray vs something else) is NOT yet
 determined and is not needed for the differential attack, which operates on
 whatever consistent labelling the demodulator produces.
 
+### 3.13 — 2026-07-29 · Reconciled inventory; the model is exact; burst 9 is a CW ID
+
+Five independent analyses (four methods plus a reconciler that rebuilt every
+estimator and re-measured every contested quantity against its own synthetics
+with negative controls) converge. Supersedes the burst table in §3.12.
+
+**The modulation model is exact, not fitted.** Resynthesising each DATA burst
+from `round(12510 * sin(2*pi*k*n/512))` — that expression and nothing else —
+reproduces the capture with **80.9 % of samples bit-exact and 100.000 % within
++/-1 LSB** (rms 0.437 LSB against a 16-bit dither floor of 0.289). Per-symbol
+off-bin energy is **1.17e-9 (-89.3 dB)**: the quantisation floor and nothing
+else. Symbol amplitude is 12509.71 +/- 0.07 LSB (5.6 ppm over 812 symbols) and
+every symbol starts at phase -90.00002 deg with R = 1.00000000.
+
+**Corrected burst inventory.** Inter-burst regions are **exact digital zeros**
+(70.28 % of the file), so boundaries carry zero uncertainty, and every length is
+an exact multiple of 512 samples:
+
+| # | start | ms | symbol | #sym | class |
+|---|---|---|---|---|---|
+| 0 | 1123840 | 1749.333 | 2048 | 41 | control type A |
+| 1 | 1265856 | **4341.333** | **512** | **407** | **DATA** |
+| 2 | 1507584 | 682.667 | 2048 | 16 | control type B |
+| 3 | 1571328 | 1365.333 | 2048 | 32 | control type A |
+| 4 | 1668608 | 1365.333 | 2048 | 32 | control type A |
+| 5 | 1994752 | 1365.333 | 2048 | 32 | control type A |
+| 6 | 2091712 | **4341.333** | **512** | **407** | **DATA** |
+| 7 | 2333696 | 725.333 | 2048 | 17 | control type B |
+| 8 | 2399168 | 682.667 | 2048 | 16 | control type B |
+| 9 | 2432512 | 3413.333 | — | — | **CW identifier** |
+
+**My `demod3.json` boundaries were wrong** — starts 168-239 samples early,
+lengths ~478 samples (~10 ms) long. The DATA frame is **4341.333 ms**, not the
+4351.2 ms recorded in §3.11/§3.12; the 407-symbol count was right. The
+"lead-in / trailing ramp" seen earlier was **my energy detector over-running**,
+not a feature of the signal.
+
+**Burst 9 is a Morse station identifier, and it decodes to `KK7GWY`.** A
+continuous 750.0 Hz sub-tone (amplitude identical in all 320 blocks, min = max)
+with 1500.0 Hz OOK-keyed on top at exactly 2x amplitude; bin 24 (2250 Hz) is
+**exactly zero in all 320 blocks**. Keying runs are exact multiples of 4 blocks
+(2048 samples = 42.667 ms = one Morse unit, 28.125 WPM), runs of 4 and 12 only,
+decoding `-.- -.- --... --. .-- -.--` = **K K 7 G W Y**. I had recorded this
+burst merely as "3423.3 ms, other". VARA transmits a CW station ID at session
+end — worth knowing, and a rare piece of *known plaintext* present in every
+session.
+
+**Two waveform classes below the OFDM levels**, both constant-envelope FSK:
+DATA on a 512-sample symbol / 93.75 Hz grid with M = 16, and **control frames
+on a 2048-sample symbol / 23.4375 Hz grid with M = 70**, in two length families
+(type A: 41/32 symbols; type B: 16/17 symbols).
+
+**A real anomaly, mechanism unknown:** DATA symbol amplitude is 12509.71 LSB
+and control-frame amplitude is 12472.42 LSB — a stable **0.0264 dB (0.3 %)**
+difference across all bursts of each class. Not a quantisation artifact (both
+classes contain odd-k tones whose peak sample equals A exactly). Two modulator
+paths with slightly different scaling. Also: DATA bursts end with a 16-sample
+raised-cosine taper beginning at sample 496 of 512; control bursts have **no
+taper at all**.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
