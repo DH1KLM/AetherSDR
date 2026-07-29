@@ -173,6 +173,12 @@ int main()
                er.type == MessageType::Encryption && er.encryption == EncryptionState::Ready);
     }
 
+    // ── Observed on real VARA HF v4.9.0 but absent from every published
+    //    description of the interface. Two words, so it must not be mistaken
+    //    for a prefixed form.
+    report("MISSING SOUNDCARD is typed, not Unknown",
+           parse("MISSING SOUNDCARD").type == MessageType::MissingSoundcard);
+
     // ── An unrecognised message must survive intact for logging, not vanish.
     {
         const Message m = parse("SOMETHINGNEW 42");

@@ -202,6 +202,13 @@ void VaraClient::handleMessage(const Vara::Message& msg)
         emit cqFrameReceived(msg.source, msg.bandwidthHz);
         return;
 
+    case Vara::MessageType::MissingSoundcard:
+        // Repeats every few seconds while unresolved, so warn rather than
+        // spam at a higher level, and let the consumer latch it.
+        qCWarning(lcVara) << "modem reports no usable soundcard - no link is possible";
+        emit missingSoundcard();
+        return;
+
     case Vara::MessageType::Tune:
         // We never issue TUNE (see VaraProtocol.h), but the modem can report
         // one driven from its own UI. Surface it rather than dropping it.

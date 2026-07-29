@@ -82,6 +82,10 @@ Message parseMessage(const QString& line)
         msg.type = MessageType::CancelPending;
         return msg;
     }
+    if (line == QLatin1String("MISSING SOUNDCARD")) {
+        msg.type = MessageType::MissingSoundcard;
+        return msg;
+    }
     if (line == QLatin1String("ENCRYPTED LINK")) {
         msg.type = MessageType::Link;
         msg.link = LinkState::Encrypted;
@@ -345,6 +349,8 @@ QString toString(MessageType type)
         return QStringLiteral("Encryption");
     case MessageType::CqFrame:
         return QStringLiteral("CqFrame");
+    case MessageType::MissingSoundcard:
+        return QStringLiteral("MissingSoundcard");
     }
     return QStringLiteral("Unknown");
 }

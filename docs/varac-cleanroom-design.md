@@ -248,8 +248,24 @@ See §4. Recorded as an input because its outcome gates the work.
     under **both** the `pulse` and `alsa` drivers, and PulseAudio reports the
     **same 19 clients before and after** launching VARA. The driver loads but
     never opens a connection to the sound server.
-  - Not yet tried: **Bottles** (installed on this host; the Winlink-on-Linux
-    community reports VARA HF and FM working under it), or a VM.
+  - **Bottles / soda-9.0-1 fails identically.** A separate bottle (`VARA-HF`,
+    port 8310/8311 via `VARA.ini`) with the soda runner — which carries a
+    complete audio stack *including* the 32-bit halves
+    (`lib32/wine/i386-unix/winepulse.so`) that a 32-bit VB6 app needs — still
+    emits `MISSING SOUNDCARD`. That makes **three independent wine builds**
+    (tkg 11.9, cachyos 10.0, soda 9.0) failing the same way, so this is
+    systemic to wine audio on this host rather than a per-build defect.
+  - **Beware the misleading indicator:** the operator's *working* SmartSDR
+    bottle also has **zero** `MMDevices` entries in its registry, so that key
+    is not evidence of anything either way. The only meaningful signals are
+    whether a PulseAudio client appears (it never does) and whether the modem
+    stops emitting `MISSING SOUNDCARD`.
+  - Untested, in rough order of expected value: running under a **real
+    session display** rather than Xvfb (every attempt so far has been
+    headless, and wine audio init may depend on session context); driving
+    VARA's own Settings → Soundcard dialog with `xdotool` to see whether the
+    device list is empty or merely unselected; a **Windows VM**, which
+    removes this whole class of problem.
   - A prefix cannot be moved between wine builds — wine's unixlib interface is
     version-locked, so the prefix must be created by the build that runs it.
 - **Configuration surface** (`C:\VARA\VARA.ini`, plain INI): `[Soundcard]`

@@ -103,6 +103,14 @@ enum class MessageType {
     Bitrate,         // speedLevel (1-11) and bitsPerSecond
     Encryption,      // encryption
     CqFrame,         // source, bandwidthHz
+    // Observed on VARA HF v4.9.0 (see docs/varac-cleanroom-design.md §3.6) but
+    // absent from every published description of the interface: the modem
+    // repeats this roughly every six seconds while it has no usable audio
+    // device. It means "no soundcard selected OR none found" — the modem does
+    // not distinguish the two, so a first-run install with empty
+    // VARA.ini [Soundcard] entries looks identical to a broken audio stack.
+    // Fatal to a session: no link can be established until it stops.
+    MissingSoundcard,
 };
 
 // One decoded message. Only the fields relevant to `type` are populated; the

@@ -109,6 +109,11 @@ signals:
 
     void cqFrameReceived(const QString& source, int bandwidthHz);
 
+    // The modem has no usable audio device and cannot carry a session. It
+    // repeats this every few seconds, so consumers should latch it rather than
+    // treat each one as a new event.
+    void missingSoundcard();
+
     // Payload off the data channel.
     void dataReceived(const QByteArray& payload);
 
