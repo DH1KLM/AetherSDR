@@ -818,6 +818,47 @@ bits would be a suspiciously tidy field size. A wider destination sweep settles
 it, and the answer determines the symbol-to-bit mapping that generator recovery
 depends on.
 
+### 3.17 — 2026-07-29 · Alphabet is exactly 35 per position. This breaks the GF(2) plan.
+
+**Settled by a 21-destination sweep** (651 content symbols):
+
+| Parity class | Distinct values | Draws | Missing |
+|---|---|---|---|
+| EVEN tones (odd positions) | **35 of 35** | 336 | none |
+| ODD tones (even positions) | **35 of 35** | 315 | none |
+
+The position-parity rule held with **zero violations** across all 21 frames,
+so §3.16's constraint is now on very firm ground.
+
+**The per-position alphabet is 35, not 32.** The tidy "5 bits per symbol"
+hypothesis is refuted — every one of the 35 values in each class appears.
+
+**Why this matters, and it is not a detail.** 35 is not a power of two, and
+35 = 5 x 7 is not a prime power, so **GF(35) does not exist**. The planned
+attack — recover a generator matrix by XOR-differencing codewords over GF(2) —
+assumed a bit-to-symbol mapping. There is none:
+
+* If the encoder converts a bit string into base-35 digits, that conversion is
+  **not linear over GF(2)**, so XOR differences do not compose and the
+  differential attack as designed **does not apply**.
+* A non-binary code over a field would need GF(37) or GF(41) with values
+  truncated to 35, which is possible but speculative.
+* 31 symbols x log2(35) = **159.0 bits** of capacity, suspiciously close to
+  160 bits (20 bytes) — consistent with a fixed-size field packed by base
+  conversion rather than by bit-grouping.
+
+**Assessment: this is the point to stop and decide rather than continue.** The
+waveform and framing layers are solved exactly and reproducibly. The coding
+layer now requires either (a) determining the base-35 packing and working over
+the right algebraic structure, which is a research question rather than a
+measurement campaign, or (b) a fundamentally different approach. The
+~900-experiment GF(2) campaign that looked like the path forward would produce
+differences that do not compose linearly, and would waste the effort.
+
+Recorded here so the next person does not spend that effort on the strength of
+§3.14's determinism result alone. Determinism is necessary for the differential
+attack but not sufficient — the algebra has to close too, and here it does not.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
