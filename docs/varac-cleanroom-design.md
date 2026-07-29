@@ -230,9 +230,49 @@ See §4. Recorded as an input because its outcome gates the work.
   classified it as `Unknown` and surfaced it rather than dropping it, which is
   the behaviour that header comment was written for. To be added as a typed
   error message.
-- **Audio is NOT yet working — open bench issue.** VARA emits
-  `MISSING SOUNDCARD` and no ARQ link is therefore possible yet. What has been
-  established, in order:
+- **RESOLVED — the bench now carries a live VARA-to-VARA ARQ link.**
+  **Root cause: `VARA.ini` `[Soundcard]` device names were empty.** WINE was
+  exposing audio devices the whole time — VARA's own Settings → SoundCard
+  dialog lists `PulseAudio Input` and `PulseAudio Output`. Nothing was
+  *selected*, and `MISSING SOUNDCARD` conflates "none selected" with "none
+  found", so the symptom is indistinguishable from a broken audio stack. Three
+  wine builds were investigated over a first-run configuration field.
+  - The fix is to populate, in each instance's `VARA.ini`:
+    `Input Device Name=PulseAudio Input` / `Output Device Name=PulseAudio Output`.
+    Selecting them once in the dialog writes exactly those strings.
+  - Confirmation: `MISSING SOUNDCARD` ceases, `IAMALIVE` keepalives begin, and
+    a PulseAudio client named **"VARA HF Modem"** appears.
+  - **Runner matters even so.** With identical ini settings, Bottles'
+    `soda-9.0-1` works; `wine-cachyos-opt` 10.0 still fails and never opens a
+    sound-server connection. Use soda.
+  - **WINE exposes ONE generic device pair**, not one entry per PipeWire node.
+    Two instances therefore cannot be pointed at different sinks from inside
+    VARA's dialog — separate them with **`PULSE_SINK` / `PULSE_SOURCE` per
+    process** instead.
+  - **Two instances, one prefix**, using separate program folders
+    (`C:\VARA`, `C:\VARA2`) each with its own `VARA.ini` — the pattern VarAC's
+    own manual prescribes for clustering.
+  - **Live link achieved** (no radio, no RF, audio crossing two null sinks):
+    `CONNECTED KK7GWY-1 KK7GWY 2300` on both sides, `SN 6.6` / `SN 7.5`,
+    `BITRATE (4)  175 bps TX` / `RX`, `UNENCRYPTED LINK`, `LINK UNREGISTERED`,
+    with PTT alternating as ARQ turns over. Reproducible.
+  - **NEW protocol finding:** `BITRATE` carries a trailing **`TX`/`RX`
+    direction token** that no published description mentions. Now parsed
+    (`BitrateDirection`), optional so older builds still parse.
+  - **Correction to the plan's §5.1 assumption.** It predicted a digitally
+    perfect loopback would pin the modem at level 11 and that AWGN injection
+    would therefore be mandatory. Observed reality: the virtual path yields
+    **SN ≈ 7 dB and settles at level 4**, not level 11. The null-sink path is
+    not high-SNR — likely the −5 dB ALC drive level plus format conversion.
+    Level control still needs deliberate handling, but the premise was wrong
+    and the mechanism must be re-derived from measurement.
+  - **Still open:** a payload written to the ISS data socket drains
+    (`BUFFER 0`) but has not yet surfaced on the receiving side's data socket
+    within a 90 s hold at 175 bps. The link itself is solid; the data path
+    needs one more iteration.
+
+- Historical record of the diagnosis, kept because the false trails are
+  instructive:
   - `VARA.ini` `[Soundcard]` has `Input Device Name=` and
     `Output Device Name=` **empty** — first-run state. VARA cannot distinguish
     "no device selected" from "no device exists" in this message.
