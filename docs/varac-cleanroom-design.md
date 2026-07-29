@@ -503,6 +503,39 @@ It also reframes the whole effort: we do not have to *infer* the waveform and
 hope. We can *propose* one and be told, by the authoritative implementation,
 whether we are right.
 
+### 3.10 — 2026-07-29 · Frame-type ablation: the 1759 ms burst is the connect frame
+
+Each burst from a captured session was cut out with 300 ms of leading and
+trailing silence and replayed **individually** into a listening modem
+(§3.9 oracle). What VARA does with a frame in isolation identifies it:
+
+| burst | length | modem response | conclusion |
+|---|---|---|---|
+| 0 | **1759.3 ms** | **`PENDING`** | **connection-request frame — self-contained** |
+| 1 | 4351.2 ms | none | session-dependent (data) |
+| 2 | 692.6 ms | none | session-dependent |
+| 3 | 1375.3 ms | none, then `CANCELPENDING` | session-dependent |
+
+**Why this matters more than it looks.** The connect frame is the ideal target
+for the differential attack, better than any data frame:
+
+1. **It is self-contained and independently verifiable.** Replay it alone and
+   the modem says `PENDING`. That is a binary oracle for "is this frame
+   well-formed?", available without establishing a session.
+2. **Its payload is known and operator-controlled.** A connect frame encodes
+   the source and destination callsigns. Issuing
+   `CONNECT KK7GWY-1 KK7GWY` versus `CONNECT KK7GWY-2 KK7GWY` changes exactly
+   one character of known plaintext — which is precisely the controlled
+   single-symbol perturbation the generator-matrix recovery needs, on a frame
+   we can validate in isolation.
+3. **It is cheap and endlessly repeatable.** One command produces one, with no
+   ARQ session, no payload transfer and no waiting.
+
+So the recovery work should start on the **connect frame**, not the data
+frames. Vary one callsign character at a time, capture, align, and difference.
+The oracle confirms each captured frame is well-formed before it enters the
+analysis, which removes an entire class of silent error.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
