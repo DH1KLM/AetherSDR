@@ -68,24 +68,36 @@ Hermes-Lite 2 can physically produce it.
 **Every control is certified by its effect, never by readback.** A slider that
 reports the value it was given proves only that the model has a variable.
 
-| Control | Range | HL2 path | Observable effect | Tolerance |
-|---|---|---|---|---|
-| `TransmitModel::setRfPower` | 0–100 | drive `0x09[31:28]` + PA enable | halve → `TX:FWDPWR` drops ≈6 dB | ±3 dB |
-| `TransmitModel::setRfPower(0)` | — | disables the PA | forward power to the floor | — |
-| `AudioEngine::setPcMicGain` | 0–100 | host-side, pre-modulator | halve → `TX:MICPEAK` drops ≈6 dB | ±1 dB |
-| `SliceModel::setAgcThreshold` | 0–100 | WDSP `SetRXAAGCTop` | raise → audio floor rises | ±3 dB |
-| `SliceModel::setRfGain` | dB | **NOT WIRED** | LNA gain is connect-params only on HL2 | — |
-| `TransmitModel::setTunePower` | 0–100 | **NOT WIRED** | tune uses full drive | — |
-| `SliceModel::setSquelch` | on/off | **NOT WIRED** | — | — |
-| `setFilter(low, high)` | Hz | WDSP passband | tone outside the passband is rejected | ≥30 dB |
-| `setMode` | enum | WDSP mode + passband | sideband flips; passband follows the mode | — |
+The **Certified** column says whether `radiocert meters` actually exercises the
+control today. A row that cannot be run is marked as such rather than quietly
+omitted — an uncertified control and a certified one must never look alike in
+this table, which is the same rule the report itself follows.
+
+| Control | Range | HL2 path | Observable effect | Tolerance | Certified |
+|---|---|---|---|---|---|
+| `TransmitModel::setRfPower` | 0–100 | drive `0x09[31:28]` + PA enable | halve → `TX:FWDPWR` drops ≈6 dB | ±3 dB | **no — unrunnable** |
+| `TransmitModel::setRfPower(0)` | — | disables the PA | forward power to the floor | — | **no — unrunnable** |
+| `AudioEngine::setPcMicGain` | 0–100 | host-side, pre-modulator | halve → `TX:MICPEAK` drops ≈6 dB | ±1 dB | **yes — 6.023 dB measured** |
+| `SliceModel::setAgcThreshold` | 0–100 | WDSP `SetRXAAGCTop` | raise → audio floor rises | ±3 dB | no |
+| `SliceModel::setRfGain` | dB | **NOT WIRED** | LNA gain is connect-params only on HL2 | — | n/a |
+| `TransmitModel::setTunePower` | 0–100 | **NOT WIRED** | tune uses full drive | — | n/a |
+| `SliceModel::setSquelch` | on/off | **NOT WIRED** | — | — | n/a |
+| `setFilter(low, high)` | Hz | WDSP passband | tone outside the passband is rejected | ≥30 dB | no |
+| `setMode` | enum | WDSP mode + passband | sideband flips; passband follows the mode | — | partly — `rx` phase |
 
 ### Gaps this table makes visible
 
+- **The RF power rows are unrunnable, not unimplemented.** Certifying them by
+  effect needs `TX:FWDPWR`, which is defined-but-never-fed on this backend (see
+  below). Until a power meter is published with a documented scale, the drive
+  control cannot be certified by effect on the HL2 at all — so `radiocert`
+  reports `rfPowerExercised: false` rather than implying a sweep happened.
 - **`SliceModel::setRfGain` has no runtime path.** The AD9866 LNA gain is sent
   once in the connect parameters and never again, so the preamp/attenuator
   control does nothing after connect. It is also the control an operator reaches
-  for first when the ADC overloads.
+  for first when the ADC overloads. `radiocert` only reports this on a radio
+  whose `family()` is `hl2` — asserting it generically told Flex operators a
+  working control was broken.
 - **`TX:FWDPWR` and `TX:REFPWR` are defined but never fed.** The counts are
   uncalibrated, so they are deliberately not published — which leaves two power
   meters on screen that can never move. Either publish with a documented scale

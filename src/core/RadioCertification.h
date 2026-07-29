@@ -2,7 +2,10 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QPointer>
 #include <QString>
+
+#include <functional>
 
 namespace AetherSDR {
 
@@ -80,6 +83,16 @@ public:
 
     RadioCertification(RadioModel* radio, AudioEngine* audio);
 
+    // Called on every key EDGE (true = keyed, false = unkeyed) so the caller can
+    // arm and disarm its own safety machinery per key.
+    //
+    // The automation server's force-unkey watchdog needs this: it disowns any
+    // transmission it finds unkeyed at poll time, so arming once around a
+    // diagnostic that unkeys between every stage left the rest of the run
+    // unpoliced, and timed the key limit against wall clock rather than
+    // continuous key time.
+    void setKeyObserver(std::function<void(bool)> observer);
+
     // Runs the whole sequence synchronously, spinning the event loop between
     // steps. Returns the report. Expect this to take tens of seconds and to key
     // the transmitter repeatedly — the caller is responsible for having decided
@@ -94,10 +107,17 @@ private:
     // the suspicion rather than declaring failure. `reference` points at the
     // HERMES.md section that explains the failure mode, so the next agent gets
     // the history rather than a bare number.
+    //
+    // `meterDependent` marks a conclusion that was drawn from meterSnapshot(),
+    // and therefore cannot be stronger than the meters themselves — which the
+    // Meters phase has not validated yet when the transmit stages run. It is
+    // emitted into the report so a reader can attribute a failure to the right
+    // subsystem instead of the nearest one.
     void record(const QString& id, const QString& title,
                 const QJsonObject& measured, const QString& observation,
                 const QString& concern = QString(),
-                const QString& reference = QString());
+                const QString& reference = QString(),
+                bool meterDependent = false);
 
     // ---- control-plane stages (no DSP, no meters) ----
     void stageModeMap();
@@ -143,8 +163,13 @@ private:
     void spin(int ms);
     QJsonObject meterSnapshot() const;
 
-    RadioModel* m_radio = nullptr;
-    AudioEngine* m_audio = nullptr;
+    // QPointer, not raw: run() holds these across nested event loops for minutes
+    // at a time. If the session tears down mid-run — a disconnect, an app quit —
+    // raw pointers would have the remaining stages resume against freed objects.
+    // Every stage already opens with a null check, so this costs nothing.
+    QPointer<RadioModel> m_radio;
+    QPointer<AudioEngine> m_audio;
+    std::function<void(bool)> m_onKey;
     QJsonArray m_stages;
 };
 

@@ -139,6 +139,62 @@ modulation.
 
 **Consequence.** Silence the source, do not merely stop driving it.
 
+### 1.13 Fixing a bug once does not fix it everywhere it lives
+
+§1.9 was found and fixed in `stage-rx-sidebands`. Review found the *same* bug
+still sitting in `stage-sideband` — the flagship stage, the one this tool is
+named for — reading the *same* `output` tap through the *same* wrong constant.
+The fix had been applied to the site where the symptom appeared rather than to
+the class of defect.
+
+It survived because of a second-order effect worth remembering on its own: the
+saturation guard (§1.10) returned INCONCLUSIVE before the tone comparison was
+ever reached, so the stage never got far enough to be wrong on the bench. A
+guard that suppresses a symptom also suppresses the evidence. The first person
+to add attenuation and get a usable measurement would have received a confident
+`SIDEBAND LOOKS INVERTED` computed from noise.
+
+**Consequence.** When a defect is found, grep for its *shape* — here, every
+`DEFAULT_SAMPLE_RATE` against a device-rate tap — not just its site. The
+measurement primitives were moved to `RadioCertificationMath.h` and given a test
+that asserts the failure directly: a 48 kHz tone probed at an assumed 24 kHz
+reads 228 dB down, while `rms()` reads *identically* at both rates. That last
+number is the whole lesson — the rate-independent statistic is exactly the one
+that let the bug hide.
+
+### 1.14 A generic tool that hardcodes one radio's facts reports false defects
+
+`radiocert` asserted "`setRfGain` has no runtime path" and applied a
+Hermes-Lite-2 meter-expectation table to whatever backend was connected. On a
+Flex, the first is a working control reported as broken and the second is a
+clean bill of health for meters that were never checked for.
+
+A hardcoded false finding is worse than a missing one: nothing distinguishes it
+from a measured result, and the report's own docs tell readers to read
+`concern` first.
+
+**Consequence.** Radio-specific claims are gated on `RadioModel::family()` and
+say so in the report when they are skipped. This is a stopgap — the real answer
+is the radio profile in §2.1.
+
+### 1.15 A diagnostic must leave the radio where it found it
+
+Every stage that moved the dial restored it to the *option* frequency rather
+than the operator's. `radiocert tune` — the one phase safe enough to need no TX
+permission — silently relocated the VFO to 20 m and left it there. Mic gain and
+drive level were both carefully saved and restored, which is what marked this as
+an oversight rather than a decision.
+
+Worse, in an `all` run the receive stages parked the dial on WWV and the
+transmit stages never re-tuned, so **every keyed stage transmitted a few hundred
+Hz off a standards station, out of band** — while the report's `radio` block
+faithfully said 14.2 MHz throughout. That is §1.11 again: a value that answers a
+different question than the one being asked.
+
+**Consequence.** `run()` saves the operator's frequency and mode at entry and
+restores both at exit; the transmit block re-establishes the dial before
+anything keys. Restoration is RAII where a throw could strand hardware state.
+
 ---
 
 ## 2. Next steps

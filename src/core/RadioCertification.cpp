@@ -1,5 +1,6 @@
 #include "core/RadioCertification.h"
 
+#include "core/RadioCertificationMath.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ClientTxTestTone.h"
@@ -10,6 +11,7 @@
 
 #include <QByteArray>
 #include <QEventLoop>
+#include <QScopeGuard>
 #include <QTimer>
 
 #include <cmath>
@@ -18,39 +20,9 @@
 
 namespace AetherSDR {
 
-namespace {
-
-constexpr double kPi = 3.14159265358979323846;
-
-// Correlate a real audio buffer against a frequency. Used instead of a full FFT
-// because we are asking one question about one known frequency.
-double tonePower(const std::vector<float>& mono, double hz, double fs)
-{
-    if (mono.empty() || fs <= 0.0)
-        return 0.0;
-    std::complex<double> acc{0.0, 0.0};
-    const double w = -2.0 * kPi * hz / fs;
-    for (std::size_t n = 0; n < mono.size(); ++n) {
-        const double ph = w * static_cast<double>(n);
-        acc += static_cast<double>(mono[n])
-             * std::complex<double>(std::cos(ph), std::sin(ph));
-    }
-    return std::abs(acc) / static_cast<double>(mono.size());
-}
-
-double rms(const std::vector<float>& mono)
-{
-    if (mono.empty())
-        return 0.0;
-    double acc = 0.0;
-    for (const float v : mono)
-        acc += static_cast<double>(v) * static_cast<double>(v);
-    return std::sqrt(acc / static_cast<double>(mono.size()));
-}
-
-double db(double v) { return 20.0 * std::log10(std::max(1e-12, v)); }
-
-}  // namespace
+using certmath::db;
+using certmath::rms;
+using certmath::tonePower;
 
 
 namespace {
@@ -97,7 +69,8 @@ void RadioCertification::record(const QString& id, const QString& title,
                              const QJsonObject& measured,
                              const QString& observation,
                              const QString& concern,
-                             const QString& reference)
+                             const QString& reference,
+                             bool meterDependent)
 {
     QJsonObject stage{
         {QStringLiteral("id"), id},
@@ -105,6 +78,8 @@ void RadioCertification::record(const QString& id, const QString& title,
         {QStringLiteral("measured"), measured},
         {QStringLiteral("observation"), observation},
     };
+    if (meterDependent)
+        stage[QStringLiteral("meterDependent")] = true;
     if (!concern.isEmpty())
         stage[QStringLiteral("concern")] = concern;
     if (!reference.isEmpty())
@@ -112,15 +87,26 @@ void RadioCertification::record(const QString& id, const QString& title,
     m_stages.append(stage);
 }
 
+void RadioCertification::setKeyObserver(std::function<void(bool)> observer)
+{
+    m_onKey = std::move(observer);
+}
+
 void RadioCertification::keyViaOperatorPath(bool on)
 {
     if (!m_radio)
         return;
+    // Tell the observer BEFORE keying and AFTER unkeying, so the caller's safety
+    // window always encloses the transmission rather than trailing it.
+    if (on && m_onKey)
+        m_onKey(true);
     auto& tx = m_radio->transmitModel();
     if (on)
         tx.requestPttOn(TransmitModel::PttSource::Mox);
     else
         tx.requestPttOff(TransmitModel::PttSource::Mox);
+    if (!on && m_onKey)
+        m_onKey(false);
 }
 
 QJsonObject RadioCertification::meterSnapshot() const
@@ -177,7 +163,6 @@ void RadioCertification::stageControlEffect(const Options& o)
     // the CONSEQUENCE is measured.
     if (!m_audio || !m_radio)
         return;
-    auto& tx = m_radio->transmitModel();
 
     auto keyedMicPeak = [&](int micGainPercent) -> double {
         m_audio->setPcMicGain(micGainPercent);
@@ -203,13 +188,19 @@ void RadioCertification::stageControlEffect(const Options& o)
     // has characterised.
     const double micDelta = micFull - micHalf;
 
-    const int restorePower = tx.rfPower();
+    // NOTE: this stage does not exercise the RF power slider, and must not claim
+    // to. It previously reported `rfPowerRestoredTo`, which named a restore that
+    // never happened — in a report whose entire value is that it does not
+    // overstate what it verified. The power row in docs/radio-certification.md
+    // is certified by TX:FWDPWR dropping ~6 dB on a halving, and FWDPWR is
+    // defined-but-never-fed on this backend, so that row is currently unrunnable
+    // rather than unimplemented.
     QJsonObject m{
         {QStringLiteral("micGain100Dbfs"), micFull},
         {QStringLiteral("micGain50Dbfs"), micHalf},
         {QStringLiteral("micGainDeltaDb"), micDelta},
         {QStringLiteral("micGainExpectedDb"), -6.02},
-        {QStringLiteral("rfPowerRestoredTo"), restorePower},
+        {QStringLiteral("rfPowerExercised"), false},
     };
 
     QStringList problems;
@@ -222,15 +213,25 @@ void RadioCertification::stageControlEffect(const Options& o)
             "about what the gain is")
             .arg(micDelta, 0, 'f', 1);
 
-    // RF gain has no runtime path on this radio at all: the LNA value is sent
+    // RF gain has no runtime path ON THE HERMES-LITE 2: the LNA value is sent
     // once in the connect parameters. Report it rather than silently skipping,
     // because it is the control an operator reaches for first when the ADC
     // overloads, and a UI that offers it is making a promise.
-    m[QStringLiteral("rfGainRuntimePath")] = false;
-    problems << QStringLiteral(
-        "SliceModel::setRfGain has no runtime path on this backend — LNA gain is "
-        "connect-parameters only, so the preamp/attenuator control does nothing "
-        "after connect");
+    //
+    // GATED ON THE FAMILY, because this is the one radio-specific fact in an
+    // otherwise backend-generic tool. Emitted unconditionally it told a Flex
+    // operator their working preamp was broken — a hardcoded false finding is
+    // worse than a missing one, since nothing distinguishes it from a real
+    // result. Properly this belongs in the capability seam or the per-backend
+    // radio profile (docs/CERTIFICATION.md 2.1); the family gate is the
+    // stopgap that stops it lying in the meantime.
+    if (m_radio->family().compare(QStringLiteral("hl2"), Qt::CaseInsensitive) == 0) {
+        m[QStringLiteral("rfGainRuntimePath")] = false;
+        problems << QStringLiteral(
+            "SliceModel::setRfGain has no runtime path on this backend — LNA gain is "
+            "connect-parameters only, so the preamp/attenuator control does nothing "
+            "after connect");
+    }
 
     record(QStringLiteral("control-effect"),
            QStringLiteral("Controls are certified by their effect, not readback"),
@@ -256,6 +257,10 @@ void RadioCertification::stageMeterInventory()
     QJsonObject m;
     QStringList definedNeverFed, expectedButMissing;
 
+    // kMeterTable's `expectedOnHl2` column is a fact about ONE radio class.
+    const bool tableAppliesToThisRadio =
+        m_radio->family().compare(QStringLiteral("hl2"), Qt::CaseInsensitive) == 0;
+
     for (const MeterSpec& spec : kMeterTable) {
         const QString key = QString::fromLatin1(spec.source) + QLatin1Char(':')
                           + QString::fromLatin1(spec.name);
@@ -267,7 +272,10 @@ void RadioCertification::stageMeterInventory()
             {QStringLiteral("defined"), idx >= 0},
             {QStringLiteral("everFed"), age >= 0},
             {QStringLiteral("ageMs"), static_cast<double>(age)},
-            {QStringLiteral("expectedOnThisRadio"), spec.expectedOnHl2},
+            // Named for the radio class it describes, not "this radio" — the
+            // old key claimed the table had been evaluated against whatever
+            // backend happened to be connected.
+            {QStringLiteral("expectedOnHl2Class"), spec.expectedOnHl2},
             {QStringLiteral("note"), QString::fromLatin1(spec.note)},
         };
         // Defined but never fed renders as a real instrument reading nothing,
@@ -278,14 +286,31 @@ void RadioCertification::stageMeterInventory()
         // than merely not exercised.
         if (idx >= 0 && age < 0)
             definedNeverFed << key;
-        if (spec.expectedOnHl2 && idx < 0)
+        if (tableAppliesToThisRadio && spec.expectedOnHl2 && idx < 0)
             expectedButMissing << key;
     }
+    m[QStringLiteral("expectationsApplied")] = tableAppliesToThisRadio;
 
     QString concern;
-    if (!expectedButMissing.isEmpty())
+    if (!tableAppliesToThisRadio) {
+        // THE EXPECTATIONS ARE ONE RADIO'S, so do not apply them to another and
+        // present the result as a verdict. Run against a Flex, FWDPWR/REFPWR/ALC
+        // are real published meters marked expected=false here, so the inventory
+        // would have reported a clean bill of health for meters it never checked
+        // for — a confident verdict derived from a different radio's
+        // expectations, which is the exact shape of error this tool exists to
+        // catch. The per-meter defined/everFed data below is measured and stays
+        // valid on any backend.
+        concern = QStringLiteral(
+            "the expected-meter table is Hermes-Lite 2 specific and this radio "
+            "reports family '%1', so no expectation was applied. The per-meter "
+            "defined/everFed readings below are still measured and valid; add a "
+            "family column (docs/CERTIFICATION.md 2.1 — radio profile) to get an "
+            "inventory verdict on this radio").arg(m_radio->family());
+    } else if (!expectedButMissing.isEmpty()) {
         concern = QStringLiteral("expected on this radio but not defined: ")
                 + expectedButMissing.join(QStringLiteral(", "));
+    }
     if (!definedNeverFed.isEmpty()) {
         if (!concern.isEmpty()) concern += QStringLiteral(". ");
         concern += QStringLiteral(
@@ -812,25 +837,53 @@ void RadioCertification::stageRf(const Options& o)
     spin(1200);
     const QJsonObject after = meterSnapshot();
 
+    // ABSENCE OF A METER IS NOT ABSENCE OF RF.
+    //
+    // Both branches below used to read a missing meter as a transmit defect: an
+    // absent SWR became "the transmitter is not producing RF", and an absent
+    // PATEMP became a fabricated 0.0 rise and the accusation that dissipation
+    // did not happen — on a radio that simply has no temperature telemetry.
+    //
+    // That is precisely the misattribution the meters-last ordering exists to
+    // avoid, and this stage was committing it. The meters have NOT been
+    // validated at this point in the run, so anything concluded from them is
+    // labelled meterDependent and worded as a statement about the meter.
+    const bool haveSwr = keyed.contains(QStringLiteral("swr"));
+    const bool haveTemp = idle.contains(QStringLiteral("paTempC"))
+                       && keyed.contains(QStringLiteral("paTempC"));
     const double tempIdle = idle.value(QStringLiteral("paTempC")).toDouble();
     const double tempKeyed = keyed.value(QStringLiteral("paTempC")).toDouble();
     QJsonObject m{
         {QStringLiteral("idle"), idle},
         {QStringLiteral("keyed"), keyed},
         {QStringLiteral("afterUnkey"), after},
-        {QStringLiteral("paTempRiseC"), tempKeyed - tempIdle},
+        {QStringLiteral("swrAvailable"), haveSwr},
+        {QStringLiteral("paTempAvailable"), haveTemp},
     };
+    if (haveTemp)
+        m[QStringLiteral("paTempRiseC")] = tempKeyed - tempIdle;
 
     QString concern;
-    if (!keyed.contains(QStringLiteral("swr")))
+    bool meterDependent = false;
+    if (!haveSwr) {
         concern = QStringLiteral(
-            "no SWR reading while keyed, which usually means the radio reported "
-            "no forward power — the transmitter is not producing RF even though "
-            "audio reached the modulator. Check the PA enable and the drive level");
-    else if (tempKeyed - tempIdle < 0.2)
+            "METER-DEPENDENT: no SWR reading while keyed. This is 'no SWR "
+            "reading', NOT 'no RF' — the two are only the same thing once the "
+            "meters phase has validated this radio's telemetry. Run "
+            "'radiocert meters' before concluding anything about the PA");
+        meterDependent = true;
+    } else if (!haveTemp) {
+        concern = QStringLiteral(
+            "METER-DEPENDENT: no PA temperature meter on this radio, so "
+            "dissipation could not be checked. Every other reading here can be "
+            "faked by a wiring error; this was the one that could not");
+        meterDependent = true;
+    } else if (tempKeyed - tempIdle < 0.2) {
         concern = QStringLiteral(
             "PA temperature did not rise. A wiring error can fake every other "
             "reading here; dissipation is the one that cannot be faked");
+        meterDependent = true;
+    }
 
     record(QStringLiteral("rf"),
            QStringLiteral("The radio actually produces RF"),
@@ -840,7 +893,8 @@ void RadioCertification::stageRf(const Options& o)
                "converter. Absolute power is NOT reported: raw counts dressed up "
                "as watts would be a confident lie."),
            concern,
-           QStringLiteral("HERMES.md 14.1 defects 3 and 4"));
+           QStringLiteral("HERMES.md 14.1 defects 3 and 4"),
+           meterDependent);
 }
 
 void RadioCertification::stageSideband(const Options& o)
@@ -871,14 +925,37 @@ void RadioCertification::stageSideband(const Options& o)
     // reporting INCONCLUSIVE.
     //
     // This check needs enough signal to measure and no more. Drop the drive,
-    // measure, restore. The operator's setting is restored even if a stage
-    // below throws.
+    // measure, restore.
+    //
+    // RAII, because the comment here used to CLAIM the setting was restored even
+    // if something below threw while the code was plain sequential — an early
+    // return or a throw would have left the operator's radio at 5% drive with the
+    // TX audio monitor still on (RX unmuted during transmit), and nothing in the
+    // UI to explain either. run()'s epilogue clears the monitor and the key but
+    // has never restored the power.
     auto& tx = m_radio->transmitModel();
     const int restorePower = tx.rfPower();
+    const auto restore = qScopeGuard([this, restorePower] {
+        // Re-check the pointers rather than capturing tx by reference: the whole
+        // reason this stage can unwind early is a teardown mid-run, which is
+        // also what would leave m_radio dangling.
+        if (m_radio) {
+            m_radio->transmitModel().setRfPower(restorePower);
+            m_radio->setTxAudioMonitor(false);
+            keyViaOperatorPath(false);
+        }
+        if (m_audio) {
+            if (auto* t = m_audio->clientTxTestTone())
+                t->setEnabled(false);
+        }
+    });
     tx.setRfPower(kSidebandProbePowerPercent);
     spin(600);
 
-    auto capture = [&](const QString& mode) -> std::vector<float> {
+    // Each capture reports the rate it ACTUALLY saw, in its own out-parameter.
+    // See the block below the captures for why this is not a constant.
+    double sameFs = 0.0, oppFs = 0.0;
+    auto capture = [&](const QString& mode, double& fsOut) -> std::vector<float> {
         if (auto* slice = m_radio->slice(0))
             slice->setMode(mode);
         spin(900);
@@ -896,6 +973,7 @@ void RadioCertification::stageSideband(const Options& o)
         for (const QJsonValue& cv : snap.value(QStringLiteral("chunks")).toArray()) {
             const QJsonObject c = cv.toObject();
             const int ch = std::max(1, c.value(QStringLiteral("channels")).toInt(1));
+            fsOut = c.value(QStringLiteral("sampleRate")).toDouble(fsOut);
             const QByteArray pcm = QByteArray::fromBase64(
                 c.value(QStringLiteral("pcmBase64")).toString().toLatin1());
             const auto* f = reinterpret_cast<const float*>(pcm.constData());
@@ -912,24 +990,42 @@ void RadioCertification::stageSideband(const Options& o)
         tone->setEnabled(true);
     }
 
-    const std::vector<float> sameSb = capture(o.mode);
+    const std::vector<float> sameSb = capture(o.mode, sameFs);
     const QString oppositeMode = o.mode.compare(QStringLiteral("LSB"),
                                                 Qt::CaseInsensitive) == 0
                                      ? QStringLiteral("USB") : QStringLiteral("LSB");
-    const std::vector<float> oppSb = capture(oppositeMode);
+    const std::vector<float> oppSb = capture(oppositeMode, oppFs);
 
-    if (auto* tone = m_audio->clientTxTestTone())
-        tone->setEnabled(false);
-    tx.setRfPower(restorePower);
-    m_radio->setTxAudioMonitor(false);
+    // Power, monitor, key and tone are all handled by the scope guard above.
     if (auto* slice = m_radio->slice(0))
         slice->setMode(o.mode);
 
-    // AudioEngine's native rate. The capture reports its own, but every chunk
-    // here comes from the same sink.
-    const double fs = AudioEngine::DEFAULT_SAMPLE_RATE;
-    const double sameTone = tonePower(sameSb, 1000.0, fs);
-    const double oppTone  = tonePower(oppSb, 1000.0, fs);
+    // TAKE THE RATE FROM THE CAPTURE. This is HERMES.md 1.9, and it was still
+    // here — in the one stage this whole tool exists for — after the same defect
+    // had already been found and fixed in stage-rx-sidebands.
+    //
+    // The old comment said the rate was safe because "every chunk here comes
+    // from the same sink". That was true and was exactly why it was wrong: the
+    // sink is the "output" tap, which runs at the audio DEVICE's rate, not
+    // AudioEngine::DEFAULT_SAMPLE_RATE. On a 48 kHz device, probing a 1 kHz tone
+    // at an assumed 24 kHz lands on 2 kHz — both sidebands read the noise floor
+    // and the verdict reduces to a coin toss that can print SIDEBAND LOOKS
+    // INVERTED. The saturation guard below masked it, because rms() does not
+    // care about the rate; the first person to add attenuation would have got a
+    // confident wrong answer.
+    //
+    // The rate is reported in `measured` so a future wrong one is visible in the
+    // output instead of silent, and a disagreement between the two captures is a
+    // concern in its own right — comparing two buffers measured at different
+    // rates is not a sideband comparison at all.
+    const double fs = sameFs > 0.0 ? sameFs
+                    : (oppFs > 0.0 ? oppFs : AudioEngine::DEFAULT_SAMPLE_RATE);
+    const bool rateAssumed  = sameFs <= 0.0 && oppFs <= 0.0;
+    const bool rateMismatch = sameFs > 0.0 && oppFs > 0.0
+                           && std::fabs(sameFs - oppFs) > 1.0;
+
+    const double sameTone = tonePower(sameSb, 1000.0, sameFs > 0.0 ? sameFs : fs);
+    const double oppTone  = tonePower(oppSb, 1000.0, oppFs > 0.0 ? oppFs : fs);
     const double sameAll  = rms(sameSb);
     const double oppAll   = rms(oppSb);
 
@@ -937,13 +1033,17 @@ void RadioCertification::stageSideband(const Options& o)
 
     QJsonObject m{
         {QStringLiteral("transmitMode"), o.mode},
+        {QStringLiteral("sampleRateHz"), fs},
+        {QStringLiteral("sampleRateAssumed"), rateAssumed},
         {QStringLiteral("demodMatched"), QJsonObject{
             {QStringLiteral("mode"), o.mode},
+            {QStringLiteral("sampleRateHz"), sameFs},
             {QStringLiteral("tone1kDb"), db(sameTone)},
             {QStringLiteral("overallRmsDb"), db(sameAll)},
             {QStringLiteral("frames"), static_cast<int>(sameSb.size())}}},
         {QStringLiteral("demodOpposite"), QJsonObject{
             {QStringLiteral("mode"), oppositeMode},
+            {QStringLiteral("sampleRateHz"), oppFs},
             {QStringLiteral("tone1kDb"), db(oppTone)},
             {QStringLiteral("overallRmsDb"), db(oppAll)},
             {QStringLiteral("frames"), static_cast<int>(oppSb.size())}}},
@@ -968,6 +1068,19 @@ void RadioCertification::stageSideband(const Options& o)
             "no receive audio captured while transmitting. The TX audio monitor "
             "may not be implemented for this backend, in which case this stage "
             "cannot run and the sideband must be checked against a second receiver");
+    } else if (rateMismatch) {
+        concern = QStringLiteral(
+            "INCONCLUSIVE — the two captures reported different sample rates "
+            "(%1 Hz and %2 Hz). Two buffers measured at different rates are not a "
+            "sideband comparison, so no verdict can be drawn")
+            .arg(sameFs, 0, 'f', 0).arg(oppFs, 0, 'f', 0);
+    } else if (rateAssumed) {
+        concern = QStringLiteral(
+            "INCONCLUSIVE — no capture reported a sample rate, so the correlator "
+            "fell back to the assumed %1 Hz. An assumed rate is the HERMES.md 1.9 "
+            "defect: the probe lands on the wrong frequency and both sidebands "
+            "read the noise floor, which looks exactly like an inverted sideband")
+            .arg(fs, 0, 'f', 0);
     } else if (saturated) {
         concern = QStringLiteral(
             "INCONCLUSIVE — the receiver is still saturated by our own "
@@ -1109,6 +1222,23 @@ QJsonObject RadioCertification::run(const Options& o)
 {
     m_stages = QJsonArray{};
 
+    // LEAVE THE RADIO WHERE WE FOUND IT.
+    //
+    // Every stage that moves the dial restored it to o.frequencyMhz (14.200 by
+    // default), not to where the operator actually had it — so `radiocert tune`,
+    // the one phase safe enough to need no TX permission, silently relocated the
+    // operator's VFO to 20 m and left it there. Mic gain and drive level were
+    // both carefully saved and restored, which is what made this an oversight
+    // rather than a decision.
+    double operatorMhz = 0.0;
+    QString operatorMode;
+    if (m_radio) {
+        if (auto* slice = m_radio->slice(0)) {
+            operatorMhz = slice->frequency();
+            operatorMode = slice->mode();
+        }
+    }
+
     const bool all    = o.phase == Phase::All;
     const bool doTune = all || o.phase == Phase::Tune;
     const bool doRx   = all || o.phase == Phase::Rx;
@@ -1122,7 +1252,11 @@ QJsonObject RadioCertification::run(const Options& o)
     if (doTune) {
         stageModeMap();
         stageTuning(o);
-        stageControlPlane(o);
+        // In an `all` run the transmit block re-runs this, because by then the
+        // receive stages have moved the dial. Running it twice would file two
+        // stages with the same id, so tune-only owns it when tx is not selected.
+        if (!doTx)
+            stageControlPlane(o);
     }
 
     if (doRx) {
@@ -1133,6 +1267,21 @@ QJsonObject RadioCertification::run(const Options& o)
     }
 
     if (doTx) {
+        // RE-ESTABLISH THE DIAL BEFORE ANYTHING KEYS, and this is a transmit
+        // safety property, not tidiness.
+        //
+        // stageControlPlane is the only thing that sets the frequency, and it
+        // used to live in the tune block alone. The receive stages that run
+        // between them park the dial on the reference carrier — WWV at
+        // 9.9985 MHz — and restore the MODE but not the frequency. So every
+        // keyed stage of an `all` run transmitted a few hundred Hz off a
+        // standards station, out of band, while the report's `radio` block
+        // faithfully said 14.2 MHz throughout: a value answering a different
+        // question than the one being asked (HERMES.md 1.11).
+        //
+        // It also fixes `radiocert tx` standalone, which otherwise keys on
+        // whatever the operator last tuned, with no record of where that was.
+        stageControlPlane(o);
         stagePreconditions();
         stageDspLiveness(o);
         stageRf(o);
@@ -1157,8 +1306,16 @@ QJsonObject RadioCertification::run(const Options& o)
         if (auto* tone = m_audio->clientTxTestTone())
             tone->setEnabled(false);
     }
-    if (m_radio)
+    if (m_radio) {
         m_radio->setTxAudioMonitor(false);
+        // ...and back on the operator's frequency and mode, not ours.
+        if (auto* slice = m_radio->slice(0)) {
+            if (operatorMhz > 0.0)
+                slice->setFrequency(operatorMhz);
+            if (!operatorMode.isEmpty())
+                slice->setMode(operatorMode);
+        }
+    }
 
     // What this instrument CANNOT determine, stated as work for a human rather
     // than omitted. Everything here needs either a second receiver, an ear, or
