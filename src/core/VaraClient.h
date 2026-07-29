@@ -104,8 +104,10 @@ signals:
     void encryptionStateChanged(Vara::EncryptionState state);
 
     // The modem's adaptive speed level (1..11) and its throughput. Reported by
-    // the modem itself, so the level is observable without demodulating.
-    void bitrateChanged(int speedLevel, int bitsPerSecond);
+    // the modem itself, so the level is observable without demodulating — which
+    // is how a bench can confirm which level a link settled on. `direction` is
+    // Unspecified on builds that omit the trailing TX/RX token.
+    void bitrateChanged(int speedLevel, int bitsPerSecond, Vara::BitrateDirection direction);
 
     void cqFrameReceived(const QString& source, int bandwidthHz);
 

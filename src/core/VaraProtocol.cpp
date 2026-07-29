@@ -158,12 +158,21 @@ Message parseMessage(const QString& line)
     //    from the host interface rather than having to be inferred from the
     //    air. Whitespace between the level and the number varies.
     if (line.startsWith(QLatin1String("BITRATE"))) {
-        static const QRegularExpression re(QStringLiteral(R"(BITRATE\s*\((\d+)\)\s+(\d+)\s*bps)"));
+        // The trailing TX/RX token is optional — observed on v4.9.0, absent
+        // from every published description, so treat it as an extra.
+        static const QRegularExpression re(
+            QStringLiteral(R"(BITRATE\s*\((\d+)\)\s+(\d+)\s*bps(?:\s+(TX|RX))?)"));
         const QRegularExpressionMatch m = re.match(line);
         if (m.hasMatch()) {
             msg.type = MessageType::Bitrate;
             msg.speedLevel = m.captured(1).toInt();
             msg.bitsPerSecond = m.captured(2).toInt();
+            const QString dir = m.captured(3);
+            if (dir == QLatin1String("TX")) {
+                msg.bitrateDirection = BitrateDirection::Transmit;
+            } else if (dir == QLatin1String("RX")) {
+                msg.bitrateDirection = BitrateDirection::Receive;
+            }
             return msg;
         }
         return msg;

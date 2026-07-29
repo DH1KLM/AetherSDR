@@ -128,6 +128,19 @@ int main()
         report("BITRATE parses the slowest level",
                one.type == MessageType::Bitrate && one.speedLevel == 1
                    && one.bitsPerSecond == 60);
+        // Observed on v4.9.0: a trailing direction token, undocumented anywhere.
+        const Message tx = parse("BITRATE (4)  175 bps TX");
+        report("BITRATE with a TX suffix parses level, bps and direction",
+               tx.type == MessageType::Bitrate && tx.speedLevel == 4
+                   && tx.bitsPerSecond == 175
+                   && tx.bitrateDirection == BitrateDirection::Transmit);
+        const Message rx = parse("BITRATE (4)  175 bps RX");
+        report("BITRATE with an RX suffix parses direction",
+               rx.bitrateDirection == BitrateDirection::Receive);
+        report("BITRATE without a suffix leaves direction Unspecified",
+               parse("BITRATE (11) 7536 bps").bitrateDirection
+                   == BitrateDirection::Unspecified);
+
         const Message bad = parse("BITRATE garbage");
         report("a malformed BITRATE is Unknown rather than level 0",
                bad.type == MessageType::Unknown);

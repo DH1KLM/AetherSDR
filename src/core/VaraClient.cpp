@@ -195,7 +195,7 @@ void VaraClient::handleMessage(const Vara::Message& msg)
         return;
 
     case Vara::MessageType::Bitrate:
-        emit bitrateChanged(msg.speedLevel, msg.bitsPerSecond);
+        emit bitrateChanged(msg.speedLevel, msg.bitsPerSecond, msg.bitrateDirection);
         return;
 
     case Vara::MessageType::CqFrame:

@@ -82,6 +82,16 @@ enum class EncryptionState {
     Ready,
 };
 
+// Which direction a BITRATE report describes. Observed on VARA HF v4.9.0 as a
+// trailing "TX" / "RX" token ("BITRATE (4)  175 bps TX") that no published
+// description of the interface mentions; older or other builds omit it, so
+// Unspecified is a normal value and not an error.
+enum class BitrateDirection {
+    Unspecified,
+    Transmit,
+    Receive,
+};
+
 enum class MessageType {
     Unknown,         // unrecognised — surfaced rather than dropped
     Ok,              // acks the oldest outstanding command
@@ -129,6 +139,7 @@ struct Message {
     int count = 0;          // Buffer
     int speedLevel = 0;     // Bitrate — the 1..11 level; see below
     int bitsPerSecond = 0;  // Bitrate
+    BitrateDirection bitrateDirection = BitrateDirection::Unspecified;
     QString text;           // Version
     LinkState link = LinkState::Unknown;
     CleanTxResult cleanTx = CleanTxResult::Unknown;
