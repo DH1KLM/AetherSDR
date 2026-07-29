@@ -673,6 +673,52 @@ paths with slightly different scaling. Also: DATA bursts end with a 16-sample
 raised-cosine taper beginning at sample 496 of 512; control bursts have **no
 taper at all**.
 
+### 3.14 — 2026-07-29 · DETERMINISM PROBE: PASS. The encoder is a pure function.
+
+**The gate on generator-matrix recovery is passed, decisively.**
+
+Two independent sessions, same payload, captured separately (DATA frames at
+different absolute file offsets, so genuinely different runs):
+
+| Comparison | Result |
+|---|---|
+| Frame 0 symbols | **407 / 407 = 100.00 %** identical |
+| Frame 1 symbols | **407 / 407 = 100.00 %** identical |
+| Frame 0 raw audio | **sample-exact — 0 differing samples of 208384** |
+| Frame 1 raw audio | **sample-exact — 0 differing samples of 208384** |
+
+Chance agreement at symbol level is 6.25 % (1 in 16). Sample-exact audio
+equality across separate sessions is far stronger still: it means the DATA path
+carries **no session key, no sequence number, no seeded scrambler, and no
+timestamp** — nothing that varies between runs. Encode() is a pure function of
+the payload.
+
+**Consequences.**
+
+* The differential attack is **tractable linear algebra over GF(2)**, exactly
+  as designed: capture Encode(0), capture Encode(e_i), XOR, and each difference
+  is a row of the generator matrix. No per-session re-derivation of a baseline,
+  no statistical averaging.
+* The spec's note that ACK codes "are different for each session" is therefore
+  **confined to the control/ACK path** and does not touch DATA. That was the
+  single most likely hard blocker, and it is ruled out for the frames that
+  matter.
+* Captures are reusable across sessions, so the ~900 single-bit experiments can
+  be batched and compared freely rather than needing a within-session baseline.
+
+**Probe validation.** `tools/vara_determinism.py --selftest` recovers a known
+407-symbol truth exactly (407/407) *and* correctly flags a deliberately seeded
+control as non-identical (348/407 = 85.5 %). Both directions matter: a probe
+that could not detect seeding would report "deterministic" for everything.
+
+The self-test also caught a real bug before it reached live data. Because every
+symbol is `A*sin(2*pi*k*n/512)`, **the first sample of a burst is an exact
+zero**, so first-nonzero detection lands late and breaks the 512-sample
+alignment. The splitter now snaps starts back onto the grid. This is the same
+class of boundary error that made an earlier energy detector over-run by ~478
+samples — with the alignment wrong, the comparison would have shown ~6 % and
+been reported as a hard blocker.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
