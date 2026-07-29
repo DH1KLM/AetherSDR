@@ -591,6 +591,28 @@ mandatory synthetic validation resolved in one pass what four sequential
 single-method attempts got wrong. Where a number matters, measure it more than
 one way.
 
+### 3.12 — 2026-07-29 · DATA frames demodulate cleanly to a symbol stream
+
+Using the §3.11 parameters, `tools/vara_mfsk.py` locks onto both DATA bursts:
+
+- Tone grid lands on **DFT bins 9.000 … 24.000** exactly, confirming §3.11.
+- **Median detection confidence 4296 and 5218** (winning tone over runner-up),
+  against 1.6 for the earlier wrong parameter set. Unambiguous.
+- **407 symbols** per frame; burst length 208859 samples = 407.93 x 512.
+- Both DATA bursts align at the same symbol offset (240 samples).
+- Symbol histogram is near-uniform over all 16 tones (counts 19-34), i.e. the
+  symbol stream is whitened or coded — there is no plaintext structure visible
+  at symbol level, which is expected and is what makes differential analysis
+  the right approach rather than inspection.
+
+Rate check: 407 symbols x 4 bits = **1628 raw bits** per frame. At rate 1/2
+that is 814 information bits over 4.3512 s = 187 bps, against the modem's
+reported 175 bps net after protocol overhead. Consistent.
+
+Symbol-to-bit mapping (natural binary vs Gray vs something else) is NOT yet
+determined and is not needed for the differential attack, which operates on
+whatever consistent labelling the demodulator produces.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
