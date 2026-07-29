@@ -242,9 +242,31 @@ See §4. Recorded as an input because its outcome gates the work.
     Selecting them once in the dialog writes exactly those strings.
   - Confirmation: `MISSING SOUNDCARD` ceases, `IAMALIVE` keepalives begin, and
     a PulseAudio client named **"VARA HF Modem"** appears.
-  - **Runner matters even so.** With identical ini settings, Bottles'
-    `soda-9.0-1` works; `wine-cachyos-opt` 10.0 still fails and never opens a
-    sound-server connection. Use soda.
+  - **`wine-cachyos-opt` is NOT broken** — an earlier note here said it was,
+    and that was wrong. Its prefix registry contains
+    `Software\Wine\Drivers\winepulse.drv\devices\0,alsa_output…` and
+    `…\devices\0,varaA`; those keys are written only by a *successful*
+    enumeration. It was unconfigured, not defective. The bench uses soda
+    because that is what is proven end to end, not because cachyos cannot work.
+  - **`wine-tkg-staging-wow64-bin` 11.9 genuinely cannot do audio** — no
+    `winepulse.drv` / `winealsa.drv` PE modules exist for either architecture.
+    That is the one build where the message reflects a real driver failure.
+  - **VARA uses the MME path (`winmm`: `waveIn*` / `waveOut*`), not
+    `mmdevapi`.** This is why `MMDevices` registry entries were never a valid
+    signal in either direction. Drop them from the mental model.
+  - **WINE's `winmm` builds its device list ONCE per process**, behind
+    `InitOnceExecuteOnce`, and never refreshes. Two consequences:
+    (a) the `varaA` / `varaB` sinks must exist **before** VARA starts;
+    (b) if PipeWire restarts, every running VARA keeps a stale, dead device
+    list and fails **silently** — no new error, no re-enumeration. Mitigated by
+    declaring the sinks in
+    `~/.config/pipewire/pipewire.conf.d/99-vara-null-sinks.conf` rather than
+    creating them at runtime with `pactl`. After any PipeWire restart, restart
+    the modems too.
+  - **The SmartSDR bottle is not a control** — it has never been run (no
+    sessions recorded, its configured runner no longer exists, newest file
+    2025-06-21). It was cited earlier as evidence that wine audio worked on
+    this host; it is not evidence of anything.
   - **WINE exposes ONE generic device pair**, not one entry per PipeWire node.
     Two instances therefore cannot be pointed at different sinks from inside
     VARA's dialog — separate them with **`PULSE_SINK` / `PULSE_SOURCE` per
@@ -266,10 +288,14 @@ See §4. Recorded as an input because its outcome gates the work.
     not high-SNR — likely the −5 dB ALC drive level plus format conversion.
     Level control still needs deliberate handling, but the premise was wrong
     and the mechanism must be re-derived from measurement.
-  - **Still open:** a payload written to the ISS data socket drains
-    (`BUFFER 0`) but has not yet surfaced on the receiving side's data socket
-    within a 90 s hold at 175 bps. The link itself is solid; the data path
-    needs one more iteration.
+  - **The data path works — payload crosses the modulated link.** VARA's own
+    session logs record, on three separate sessions:
+    `VARA2  Disconnected  TX: 35 Bytes (Max: 175 bps)` and
+    `VARA   Disconnected  RX: 35 Bytes (Max: 175 bps)` — exactly the length of
+    the 35-byte probe payload. An earlier entry here called this unresolved;
+    that was a fault in the *test harness* (a data-socket reader thread dying
+    without reporting), not in the data path. **This is the Phase 2 mechanism
+    demonstrated: bytes handed to one modem arrive at the other in the clear.**
 
 - Historical record of the diagnosis, kept because the false trails are
   instructive:
