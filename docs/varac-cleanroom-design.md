@@ -771,6 +771,53 @@ destination-callsign sweep — one character at a time — is the cheapest
 available probe into the coding, because the plaintext is fully known and
 operator-chosen and each capture is verifiable before use.
 
+### 3.16 — 2026-07-29 · Addressee is fully diffused; tone parity alternates by position
+
+**Destination sweep.** Source held fixed, destination varied one character at a
+time (W1AAA / W1AAB / W1AAC / W1BAA / W2AAA, plus a repeat control and the
+earlier NOBODY / KK7GWY captures). All eight retries within every capture are
+symbol-identical, and the repeat of W1AAA reproduced exactly — determinism
+holds on this path too.
+
+**Result: FULL DIFFUSION.** A single character change alters **28-31 of the 31
+content symbols**. Nothing is positionally encoded; the addressee is spread
+across the whole field by FEC plus interleaving or scrambling. Symbol 0 (the
+type marker, bin 74) is the only invariant.
+
+That settles the shape of the remaining work: symbol-to-character
+correspondence cannot be read off directly, and **generator-matrix recovery is
+the only route** to the coding layer. The differential machinery is still the
+right tool — full diffusion is exactly what a linear code with an interleaver
+produces, and §3.14 proved the encoder deterministic, so each single-character
+difference is a valid linear combination of generator rows.
+
+**A hard structural constraint: tone parity alternates with symbol position.**
+Verified across all six frames, all 31 content positions, with **zero
+violations**:
+
+```
+odd-numbered  positions (1,3,5,...)  ->  EVEN tone index
+even-numbered positions (2,4,6,...)  ->  ODD  tone index
+```
+
+Consequences:
+
+* The effective alphabet is **~35 values per position, not 70**. Even-parity
+  bins {30,32,...,98} and odd-parity bins {29,31,...,97} are 35 each.
+* Every symbol boundary carries a guaranteed frequency change, which removes
+  timing ambiguity when consecutive symbols would otherwise repeat a tone.
+* This is plausibly what the specification means by ACK frames using "two
+  parallel FSK modulations" — not simultaneous (the signal is constant
+  envelope, one tone at a time) but **time-interleaved** between two tone sets.
+
+**Open question, needs more data.** Of the 35 even-parity bins, 32 distinct
+values were observed; of the 35 odd-parity, 34. Six frames undersample the
+alphabet, so this cannot yet distinguish "35 values, three unseen" from
+"exactly 32 values, i.e. a clean 5 bits per symbol". 31 symbols x 5 bits = 155
+bits would be a suspiciously tidy field size. A wider destination sweep settles
+it, and the answer determines the symbol-to-bit mapping that generator recovery
+depends on.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
