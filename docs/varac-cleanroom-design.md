@@ -719,6 +719,58 @@ class of boundary error that made an earlier energy detector over-run by ~478
 samples — with the alignment wrong, the comparison would have shown ~6 % and
 been reported as a hard blocker.
 
+### 3.15 — 2026-07-29 · Control-frame structure: preamble, type marker, addressee
+
+**The control waveform.** 2048-sample symbols (42.667 ms, 23.4375 baud) on a
+23.4375 Hz grid (= 48000/2048). Occupied bins **29…98 — exactly 70 tones**,
+679.7…2296.9 Hz, independently confirming M = 70. Per-symbol spectral purity is
+**1.000**: one clean tone per symbol, no residual.
+
+**Symbol 0 is a frame-type marker.** Bin **74** opens every 41- and 32-symbol
+frame; bin **62** opens every 16- and 17-symbol frame. The frame declares its
+class before any content, so frames can be classified without decoding them.
+
+**The 41-symbol frame is a 9-symbol preamble plus the 32-symbol frame.**
+Verified exactly: `f41[9:] == f32`, symbol for symbol. The preamble is
+
+```
+[74, 68, 70, 60, 60, 77, 50, 76, 78]
+```
+
+and is **identical in every 41-symbol frame ever captured**, across different
+destinations and different sessions. A first transmission carries it; the eight
+retries that follow omit it and send the bare 32-symbol frame. That is an
+acquisition/sync preamble, not content.
+
+**Symbols 10…40 encode the DESTINATION callsign — not the source.** The
+differential capture is unambiguous:
+
+| Capture | source | destination | 32-sym frame |
+|---|---|---|---|
+| conn_KK7GWY-1 | KK7GWY-1 | NOBODY | identical |
+| conn_KK7GWY-2 | KK7GWY-2 | NOBODY | identical |
+| conn_KK7GWY-3 | KK7GWY-3 | NOBODY | identical |
+| varaB_tx / det1 | KK7GWY-1 | **KK7GWY** | **31/41 symbols differ** |
+
+Varying the *source* SSID across three captures changes **nothing** — 0/41
+symbols differ. Changing the *destination* changes all 31 content symbols.
+**The source callsign is not carried in this frame at all.**
+
+**All eight retries within a capture are symbol-identical**, which is further
+determinism evidence on the control path — and note this is the path whose ACK
+codes the specification says vary per session. Whatever that per-session
+variation is, it does not reach the connect frame's content.
+
+**Capacity check.** 31 content symbols x log2(70) = ~190 bits to carry a
+callsign plus whatever CRC and framing accompany it — comfortable for a
+FEC-coded 6-12 character callsign, and consistent with heavy coding.
+
+**Consequence for the attack.** The addressee field is now localised to symbols
+10…40 of a self-validating frame (replaying one alone yields `PENDING`). A
+destination-callsign sweep — one character at a time — is the cheapest
+available probe into the coding, because the plaintext is fully known and
+operator-chosen and each capture is verifiable before use.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
