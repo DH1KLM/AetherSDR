@@ -456,6 +456,53 @@ that silently fell back to the default source and captured a microphone instead
 of the sink. Assume the first attempt is wrong until synthetic truth says
 otherwise.
 
+### 3.9 — 2026-07-29 · The modem itself is a decoder oracle (replay validated)
+
+The single most useful thing the bench can do, and it was sitting unused for
+most of a day: **play a candidate waveform into the sink that a VARA instance
+is listening on, and let VARA tell you whether it decodes.** Binary verdict, no
+statistics, no confidence metric to misread.
+
+Routing (from `tools/vara_bench_up.sh`): instance A captures `varaB.monitor`,
+so `paplay --device=varaB <file>` feeds audio to instance A. The reverse holds
+for instance B via `varaA`.
+
+**Test 1 — replay fidelity: PASS.** A previously captured 66.9 s recording of
+instance B's transmissions, replayed into `varaB` with instance A in
+`LISTEN ON`, produced on A:
+
+```
+PENDING
+SN 6.6                       ...later SN 5.3
+UNENCRYPTED LINK
+CONNECTED KK7GWY-1 KK7GWY 2300
+LINK UNREGISTERED
+BITRATE (4)  175 bps RX
+PAYLOAD 44 bytes: b'AETHERSDR PHASE2 PLAINTEXT READ 0123456789\r\n'
+DISCONNECTED
+```
+
+The 44-byte payload returned byte-exact from replayed audio alone. Two
+consequences:
+
+1. **The capture chain is lossless.** The WAV contains everything needed to
+   reconstruct a full ARQ session, so every measurement taken from these
+   captures is being taken on a faithful signal. The constant-envelope /
+   not-OFDM finding in §3.8 rests on good data.
+2. **One-way replay is sufficient to test decodability.** The far end never
+   had to answer; VARA decoded the data frames from the recording alone.
+
+**This is the definitive Phase 3 validation loop.** Synthesise a waveform from
+hypothesised parameters, play it in, and see whether VARA decodes it. If it
+does, the model is right — there is no interpretation step and no metric to
+argue with. That is a far stronger oracle than any internal goodness-of-fit
+score, and it should be the acceptance test for every parameter claim from here
+on.
+
+It also reframes the whole effort: we do not have to *infer* the waveform and
+hope. We can *propose* one and be told, by the authoritative implementation,
+whether we are right.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
