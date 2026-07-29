@@ -478,6 +478,33 @@ if(ENABLE_DFNR)
         endif()
         set(DFNR_LIB "${DFNR_LIB_DIR}/libdeepfilter.a")
     endif()
+
+    # Is there a prebuilt asset for this platform AT ALL?
+    #
+    # The branches above fall through to the x86_64 directory for any processor
+    # they do not recognise, so on armv7l or riscv64 they name a library that
+    # will never exist. Without this distinction the failure below tells the
+    # operator to run setup-deepfilter.sh — which exits 1 with "Unsupported
+    # architecture: armv7l" — and then offers -DENABLE_DFNR=OFF as if they had
+    # opted into something. Both messages are wrong in that case: nothing was
+    # requested incorrectly, the asset simply does not exist for their machine.
+    #
+    # Mirrors the arch table in scripts/setup/setup-deepfilter.sh; the two have
+    # to agree, because that script is what would produce the file.
+    set(DFNR_ASSET_EXISTS_FOR_PLATFORM TRUE)
+    if(WIN32)
+        if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64)$")
+            set(DFNR_ASSET_EXISTS_FOR_PLATFORM FALSE)
+        endif()
+    elseif(APPLE)
+        if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|x86_64)$")
+            set(DFNR_ASSET_EXISTS_FOR_PLATFORM FALSE)
+        endif()
+    else()
+        if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|x86_64)$")
+            set(DFNR_ASSET_EXISTS_FOR_PLATFORM FALSE)
+        endif()
+    endif()
     if(EXISTS ${DFNR_LIB})
         message(STATUS "DFNR (DeepFilterNet3) enabled — ${DFNR_LIB}")
     else()
@@ -487,6 +514,18 @@ if(ENABLE_DFNR)
         # build afterwards succeeded cleanly with no further signal, so local
         # builds silently diverged from what CI ships. Building without DFNR
         # stays supported — it just has to be said out loud.
+        if(NOT DFNR_ASSET_EXISTS_FOR_PLATFORM)
+            # Nothing to fetch. Pointing at the setup script here would send the
+            # operator to a script that exits 1 on the same architecture check.
+            message(FATAL_ERROR
+                    "DFNR (DeepFilterNet3) has no prebuilt library for this "
+                    "platform:\n"
+                    "    ${CMAKE_SYSTEM_NAME} / ${CMAKE_SYSTEM_PROCESSOR}\n"
+                    "  Prebuilt assets exist for linux-x86_64, linux-aarch64, "
+                    "darwin-arm64, darwin-x86_64 and windows-x86_64 only.\n"
+                    "  Build without it: configure with -DENABLE_DFNR=OFF\n"
+                    "NR still works — RN2 (RNNoise) is bundled and needs no setup.")
+        endif()
         message(FATAL_ERROR
                 "DFNR (DeepFilterNet3) was requested but its library is missing:\n"
                 "    ${DFNR_LIB}\n"

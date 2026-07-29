@@ -299,6 +299,10 @@ Build and run (from inside the clone the fork step below created):
 
 ```bash
 cd AetherSDR
+# Configure FAILS without this — it fetches the prebuilt DeepFilterNet3 library.
+# Building without DFNR is fine, but has to be said out loud: skip this line and
+# add -DENABLE_DFNR=OFF below instead.
+./scripts/setup/setup-deepfilter.sh
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build -j$(nproc)
 ./build/AetherSDR

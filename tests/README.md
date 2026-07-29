@@ -4,6 +4,8 @@ Automated unit tests — `*_test.cpp` files compiled by CMake and run
 in CI. To run the suite locally:
 
 ```sh
+# Configure fails without libdeepfilter; fetch it once (or use -DENABLE_DFNR=OFF).
+./scripts/setup/setup-deepfilter.sh
 cmake -B build -S .
 cmake --build build --target test
 ctest --test-dir build --output-on-failure

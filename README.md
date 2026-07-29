@@ -167,6 +167,11 @@ brew install qt@6 ninja cmake pkgconf autoconf automake libtool \
 ```bash
 git clone https://github.com/aethersdr/AetherSDR.git
 cd AetherSDR
+# Fetch the prebuilt DeepFilterNet3 library. Configure FAILS without it, because
+# a build that quietly drops DFNR diverges from what CI ships. To build without
+# it deliberately, skip this and configure with -DENABLE_DFNR=OFF instead — NR
+# still works either way, since RN2 (RNNoise) is bundled and needs no setup.
+./scripts/setup/setup-deepfilter.sh
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build -j$(nproc)
 ./build/AetherSDR
@@ -204,13 +209,19 @@ powershell -File scripts\setup\setup-fftw.ps1
 ::    won't be saved between runs.
 powershell -File scripts\setup\setup-qtkeychain.ps1
 
-:: 5. Configure. Ninja is required: the default Visual Studio generator is
+:: 5. Fetch the prebuilt DeepFilterNet3 library. Configure FAILS without it —
+::    a build that quietly drops DFNR diverges from what CI ships. To build
+::    without it deliberately, skip this and add -DENABLE_DFNR=OFF below. NR
+::    still works either way: RN2 (RNNoise) is bundled and needs no setup.
+powershell -File scripts\setup\setup-deepfilter.ps1
+
+:: 6. Configure. Ninja is required: the default Visual Studio generator is
 ::    multi-config (it ignores CMAKE_BUILD_TYPE) and takes a different
 ::    manifest-embed path. Point CMAKE_PREFIX_PATH at your Qt kit so
 ::    find_package(Qt6) resolves.
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_PREFIX_PATH="%QT_KIT%"
 
-:: 6. Build
+:: 7. Build
 cmake --build build --target AetherSDR
 ```
 

@@ -413,7 +413,9 @@ replace it.
 ## 10. Environment quick reference
 
 ```bash
-# Build (8 cores)
+# Build (8 cores). setup-deepfilter.sh is a one-time prereq — configure fails
+# without libdeepfilter (or pass -DENABLE_DFNR=OFF to build without it).
+./scripts/setup/setup-deepfilter.sh
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build -j8
 
 # Simulator

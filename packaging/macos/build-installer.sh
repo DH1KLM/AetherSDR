@@ -12,6 +12,10 @@ VERSION=$(grep 'project(AetherSDR' CMakeLists.txt | grep -oE '[0-9]+\.[0-9]+\.[0
 echo "=== Building AetherSDR macOS installer v${VERSION} ==="
 
 # 1. Build app
+# Fetch libdeepfilter first: configure hard-fails without it, and this script is
+# `set -e`, so a fresh checkout would abort here rather than produce a .pkg. The
+# setup script is idempotent and returns quickly when the library is present.
+bash scripts/setup/setup-deepfilter.sh
 cmake -B "${BUILD_DIR}" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "${BUILD_DIR}" -j$(sysctl -n hw.ncpu)
 
