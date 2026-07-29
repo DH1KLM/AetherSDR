@@ -203,10 +203,12 @@ def main():
     parser.add_argument("wav", nargs="?")
     parser.add_argument("--selftest", action="store_true",
                         help="validate the demodulator against synthetic truth")
+    # Defaults are the MEASURED level-4 DATA parameters (§3.11): 16-ary
+    # orthogonal CPFSK on the 48000/512 grid, tones at DFT bins 9..24.
     parser.add_argument("--tones", type=int, default=16)
     parser.add_argument("--spacing", type=float, default=93.75)
     parser.add_argument("--baud", type=float, default=93.75)
-    parser.add_argument("--center", type=float, default=1500.0)
+    parser.add_argument("--center", type=float, default=1546.875)
     parser.add_argument("--start", type=float, help="segment start, seconds")
     parser.add_argument("--stop", type=float, help="segment stop, seconds")
     parser.add_argument("--scan", action="store_true",

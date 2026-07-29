@@ -536,6 +536,61 @@ frames. Vary one callsign character at a time, capture, align, and difference.
 The oracle confirms each captured frame is well-formed before it enters the
 analysis, which removes an entire class of silent error.
 
+### 3.11 — 2026-07-29 · Level-4 DATA modulation determined exactly
+
+Three independent analyses — instantaneous-frequency, spectral/cyclostationary,
+and frame-timing — each validated against synthetic ground truth first, agree
+to the digit. These are not fitted estimates with error bars; the residual
+against the model sits at the WAV's 16-bit quantisation floor, so they are the
+generator's own constants recovered exactly.
+
+**DATA frames (the 4351.2 ms bursts, indices 1 and 6):**
+
+| Parameter | Value |
+|---|---|
+| Modulation | **16-ary orthogonal CPFSK**, modulation index h = 1.000 |
+| Tones | **16**, contiguous DFT bins 9…24 |
+| Tone spacing | **93.750000 Hz** = 48000/512 |
+| Tone range | **843.750 … 2250.000 Hz** |
+| Centre | **1546.875 Hz** = 16.5 × 93.75 |
+| Symbol period | **512 samples = 10.666667 ms** |
+| Symbol rate | **93.7500 baud** |
+| Phase at symbol start | **−90.000°** (pure sine) on all 814 symbols |
+| Raw bit rate | 4 bits × 93.75 = **375 bps** |
+| Implied FEC | **rate 1/2** → 187.5 bps → 175 bps net after overhead |
+
+The rate-½ fit against the known 175 bps net is the independent arithmetic
+check, and it closes cleanly.
+
+**A SECOND waveform exists.** The frame-timing analysis found the ten bursts
+split into two structurally distinct classes: the two long DATA bursts above,
+and **eight bursts using a 2048-sample symbol on a 23.4375 Hz tone grid**
+(= 48000/2048). Those are the control/ACK-class frames — a different, much
+finer tone grid with four times the symbol length. Combined with the OFDM the
+published spec describes for high levels, VARA uses **at least three distinct
+waveforms**. All burst lengths are exact integer multiples of 512 samples, and
+inter-burst regions are true digital zeros, so burst boundaries are exact
+rather than threshold-dependent.
+
+**CORRECTIONS to earlier entries in this document.**
+
+* §3.8 recorded "~15 clusters, mean spacing 94.25 Hz". The true spacing is
+  **93.750 Hz** and there are **16** tones — the instantaneous-frequency
+  histogram missed one and its bin quantisation inflated the spacing. That
+  first reading was closer to right than what followed.
+* A later single-threaded scan concluded "**8 active tones at 187.5 Hz**".
+  That is **wrong and is withdrawn**. 187.5 Hz is exactly twice the true
+  spacing, so a 187.5 Hz grid samples every second real tone and lands 8 of
+  them — a textbook aliasing artifact, made worse by a confidence metric that
+  was already known to be defective. The correct reading was the one I
+  second-guessed.
+* The top tone is **2250.0 Hz**, not the ~2161 Hz previously recorded.
+
+The lesson generalises beyond this measurement: three independent methods with
+mandatory synthetic validation resolved in one pass what four sequential
+single-method attempts got wrong. Where a number matters, measure it more than
+one way.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
