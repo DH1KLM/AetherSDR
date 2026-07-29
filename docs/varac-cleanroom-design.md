@@ -294,8 +294,23 @@ See §4. Recorded as an input because its outcome gates the work.
     `VARA   Disconnected  RX: 35 Bytes (Max: 175 bps)` — exactly the length of
     the 35-byte probe payload. An earlier entry here called this unresolved;
     that was a fault in the *test harness* (a data-socket reader thread dying
-    without reporting), not in the data path. **This is the Phase 2 mechanism
-    demonstrated: bytes handed to one modem arrive at the other in the clear.**
+    without reporting), not in the data path.
+  - **Confirmed directly** by `tools/vara_link_selftest.py` once the harness
+    was fixed — a 44-byte payload written to the sending modem's data socket
+    arrived byte-exact on the receiving modem's data socket ~30 s later at
+    level 4:
+
+    ```
+    A  <== PLAINTEXT 44 bytes: b'AETHERSDR PHASE2 PLAINTEXT READ 0123456789\r\n'
+    PAYLOAD MATCH: True
+    ```
+
+    **This is the Phase 2 mechanism demonstrated end to end: whatever an
+    application frames inside a VARA ARQ link is readable in the clear at the
+    far end, with no access to that application's internals.** Put VarAC on one
+    modem and our client on the other, and VarAC's protocol is observable
+    without decompiling anything — which is precisely the clean-room route
+    Principle IV sanctions.
 
 - Historical record of the diagnosis, kept because the false trails are
   instructive:
