@@ -199,6 +199,73 @@ See §4. Recorded as an input because its outcome gates the work.
 
 ---
 
+### 3.6 — 2026-07-29 · VARA HF v4.9.0 installed on the bench; observed behaviour
+
+- **What:** VARA HF v4.9.0 (`VARA HF v4.9.0  setup.zip`, note the double space
+  in the filename; 4,511,767 bytes, dated 2026-01-07,
+  sha256 `5ad7d75c722e4414705dec998c28a711b7567f8568bea75cb84e8aa7c991f48a`),
+  obtained from the author's official distribution point,
+  `https://downloads.winlink.org/VARA%20Products/`.
+- **Status:** **clean.** Running the program and observing its external
+  outputs — TCP messages on its own published host interface — is behaviour
+  observed on the wire, which Principle IV names as a clean input. The binary
+  has not been, and will not be, disassembled or decompiled.
+- **Environment:** WINE prefix `~/.local/share/wineprefixes/vara-hf`, running
+  under `/opt/wine-cachyos/bin/wine`, headless on Xvfb `:99`. Setup is
+  scripted and reproducible.
+- **Observed structure** (from the installed tree, not from the binary):
+  VARA is a **Visual Basic 6** application. It ships and requires the ActiveX
+  controls `MSWINSCK.OCX` (Winsock — this is what provides the 8300/8301 host
+  interface), `MSCOMM32.OCX` (serial, for CAT/PTT), `MSCOMCTL.OCX`,
+  `MSCHRT20.OCX`, `COMDLG32.OCX`, `MSSTDFMT.DLL`. It also ships three
+  bandwidth data files — `VARAHF500.dat`, `VARAHF2300.dat`, `VARAHF2750.dat` —
+  which correspond exactly to the `BW500` / `BW2300` / `BW2750` commands.
+- **Observed messages**, confirming the §3.5 vocabulary against the real
+  modem:
+  - `VERSION` → `VERSION VARA HF v4.9.0`
+  - `LISTEN ON` → `OK` (positional reply correlation confirmed working)
+  - unprompted `BUSY OFF` / `BUSY ON` immediately after connect
+- **NEW message not in the §3.5 vocabulary: `MISSING SOUNDCARD`.** Emitted
+  repeatedly when the modem can enumerate no audio device. Our parser
+  classified it as `Unknown` and surfaced it rather than dropping it, which is
+  the behaviour that header comment was written for. To be added as a typed
+  error message.
+- **Audio is NOT yet working — open bench issue.** VARA emits
+  `MISSING SOUNDCARD` and no ARQ link is therefore possible yet. What has been
+  established, in order:
+  - `VARA.ini` `[Soundcard]` has `Input Device Name=` and
+    `Output Device Name=` **empty** — first-run state. VARA cannot distinguish
+    "no device selected" from "no device exists" in this message.
+  - `wine-tkg-staging-wow64-bin` (`/usr/bin/wine`) ships `winepulse.so` /
+    `winealsa.so` but no matching `.drv` PE modules — genuinely incomplete.
+  - **But that was not the whole cause.** `wine-cachyos-opt`
+    (`/opt/wine-cachyos/bin/wine`) ships the complete stack (`.drv` for i386
+    and x86_64 plus the `.so` counterparts) and **still** produces
+    `MISSING SOUNDCARD`.
+  - Under wine-cachyos, `winepulse.so`, `libpulse.so.0`, `mmdevapi.dll` and
+    `winmm.dll` are all mapped into the VARA process, and `libpulse` resolves
+    correctly — yet `HKCU\...\MMDevices\Audio\{Render,Capture}` is absent
+    under **both** the `pulse` and `alsa` drivers, and PulseAudio reports the
+    **same 19 clients before and after** launching VARA. The driver loads but
+    never opens a connection to the sound server.
+  - Not yet tried: **Bottles** (installed on this host; the Winlink-on-Linux
+    community reports VARA HF and FM working under it), or a VM.
+  - A prefix cannot be moved between wine builds — wine's unixlib interface is
+    version-locked, so the prefix must be created by the build that runs it.
+- **Configuration surface** (`C:\VARA\VARA.ini`, plain INI): `[Soundcard]`
+  input/output device names, ALC drive level, channel; `[PTT]` rig/port/CAT;
+  `[Setup]` **`TCP Command Port=8300`**, registration codes, `Encryption=0`,
+  `Enable KISS=0` / `KISS Port=8100`, retries, persistence. The TCP port being
+  settable here is how the bench's second instance will be stood up on 8302.
+- **Note for the bench:** VARA binds its host ports on **`0.0.0.0`**, not
+  loopback — i.e. reachable from the whole LAN. Firewall it or bind the bench
+  to an isolated interface.
+- **Changelog note (public, shipped with the product):** v4.8.9 records
+  "Encryption enabled for MWXXXX callsigns (Emergency control centers in
+  Cardiff County and Vale of Glamorgan area)" — i.e. encryption is gated to
+  specific callsigns rather than generally available. Consistent with our
+  decision to parse but never request it (§3.5).
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
