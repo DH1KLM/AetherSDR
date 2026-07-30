@@ -1122,9 +1122,22 @@ carry information of their own rather than being derivable from the linear part.
 so the sweep needs 256 captures rather than 512. A 16-byte payload does not: its
 bursts come out misaligned and it emits a 468-symbol frame. 32 bytes is the floor.
 
+Confirmed at that length: a 32-byte triple gives **0 / 814** `lo` violations,
+85 `hi` violations, and a three-term control violating at 409 / 814.
+
 `tools/vara_fec_sweep.py` runs the campaign — resumable, one capture per payload
 bit, strict validation of each capture, and it discards WAVs after extracting
-symbols because 256 captures would otherwise be about 1.3 GB.
+symbols because 256 captures would otherwise be about 1.3 GB. Its extraction and
+analysis paths were exercised against the existing 64-byte captures before being
+trusted: all seven were accepted at 407 symbols, and a negative control
+(`probe_16.wav`, known-misaligned) was correctly **rejected** with
+"burst 6 is not a whole number of symbols". From six rows the partial generator
+matrix has full rank 6, row weights 288-333 of 814 (38.4 %), and 212 of 814
+columns untouched by any row — payload-independent positions whose count should
+fall as rows accumulate.
+
+The 256-capture sweep is running. Captures are serialised (single-client host
+interface) at roughly three minutes each, so about 13 hours.
 
 ## 4. Patent clearance
 
