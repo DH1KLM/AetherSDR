@@ -6302,6 +6302,12 @@ QJsonObject AutomationServer::doRadioCert(const QString& phaseArg, const QString
     if (okF && mhz > 0.0)
         opts.frequencyMhz = mhz;
 
+    // Hand the bridge's power ceiling to the run. The widget-setpoint clamp does
+    // not cover this verb — radiocert keys through its own path — so without this
+    // every keyed stage transmitted at the operator's full RF power, which is
+    // exactly what AETHER_AUTOMATION_TX_MAX_POWER exists to prevent.
+    opts.maxRfPowerPercent = m_txMaxPower;
+
     m_certRunning = true;
     const auto clearRunning = qScopeGuard([this] {
         m_certRunning = false;

@@ -79,6 +79,16 @@ public:
         // reference available without a second radio.
         double referenceCarrierMhz = 10.000;
         double referenceOffsetHz = 1500.0;   // park the dial this far off it
+
+        // Hard ceiling on RF power for the whole run, as a percentage, or -1 for
+        // none. Set from AETHER_AUTOMATION_TX_MAX_POWER by the bridge.
+        //
+        // The bridge's existing ceiling is applied where a widget setpoint is
+        // written, and radiocert keys through its own path — so every keyed stage
+        // ran at whatever RF power the operator happened to have set, on the one
+        // verb that keys repeatedly and unattended. The ceiling exists precisely
+        // so automation cannot do that.
+        int maxRfPowerPercent = -1;
     };
 
     RadioCertification(RadioModel* radio, AudioEngine* audio);

@@ -3,6 +3,7 @@
 #include "core/RadioCertificationMath.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
+#include "core/LogManager.h"
 #include "core/ClientTxTestTone.h"
 #include "models/MeterModel.h"
 #include "models/RadioModel.h"
@@ -848,7 +849,13 @@ void RadioCertification::stageRf(const Options& o)
     // avoid, and this stage was committing it. The meters have NOT been
     // validated at this point in the run, so anything concluded from them is
     // labelled meterDependent and worded as a statement about the meter.
-    const bool haveSwr = keyed.contains(QStringLiteral("swr"));
+    // A STALE reading is not a reading. meterSnapshot() already records
+    // swrStale, and without consulting it a value left over from a previous
+    // transmission satisfies this check — so the stage would report a healthy
+    // SWR path on a radio that sent nothing this key. That is the same
+    // meter-trust problem the wording below is careful about, one level up.
+    const bool haveSwr = keyed.contains(QStringLiteral("swr"))
+                      && !keyed.contains(QStringLiteral("swrStale"));
     const bool haveTemp = idle.contains(QStringLiteral("paTempC"))
                        && keyed.contains(QStringLiteral("paTempC"));
     const double tempIdle = idle.value(QStringLiteral("paTempC")).toDouble();
@@ -1239,6 +1246,33 @@ QJsonObject RadioCertification::run(const Options& o)
         }
     }
 
+    // CLAMP RF POWER FOR THE WHOLE RUN, before any stage can key.
+    //
+    // The bridge's power ceiling is applied where a widget setpoint is written,
+    // and this verb keys through its own path — so every keyed stage ran at
+    // whatever RF power the operator had set, on the one verb that keys
+    // repeatedly and unattended. That is the case the ceiling exists for.
+    //
+    // Restored on the way out via the same scope guard style stageSideband()
+    // already uses for its own probe power, so an early return cannot leave the
+    // operator's radio turned down.
+    int powerToRestore = -1;
+    if (m_radio && o.maxRfPowerPercent >= 0) {
+        auto& tx = m_radio->transmitModel();
+        const int current = tx.rfPower();
+        if (current > o.maxRfPowerPercent) {
+            powerToRestore = current;
+            tx.setRfPower(o.maxRfPowerPercent);
+            qCInfo(lcAutomation).noquote()
+                << "radiocert: RF power clamped" << current << "->"
+                << o.maxRfPowerPercent << "for the run (automation ceiling)";
+        }
+    }
+    const auto restoreRunPower = qScopeGuard([this, powerToRestore] {
+        if (powerToRestore >= 0 && m_radio)
+            m_radio->transmitModel().setRfPower(powerToRestore);
+    });
+
     const bool all    = o.phase == Phase::All;
     const bool doTune = all || o.phase == Phase::Tune;
     const bool doRx   = all || o.phase == Phase::Rx;
@@ -1291,6 +1325,19 @@ QJsonObject RadioCertification::run(const Options& o)
     }
 
     if (doMet) {
+        // THIS BLOCK KEYS TOO, so it needs the same dial guarantee the transmit
+        // block above established.
+        //
+        // stageMeterScale() and stageControlEffect() both transmit. Without this,
+        // `radiocert meters` standalone keyed on whatever the operator last tuned
+        // — the identical defect fixed for the transmit block, left in place for
+        // this one because the keying here is less obvious from the phase name.
+        // In an `all` run doTx has already done it, and re-running would file two
+        // stages under one id, so this mirrors doTune's guard.
+        if (!doTx) {
+            stageControlPlane(o);
+            stagePreconditions();
+        }
         // INVENTORY LAST. A transmit meter cannot have a value before anything
         // has transmitted, so running the inventory first reports every TX meter
         // as "never fed" — true, and useless. Exercise them, then take stock:
