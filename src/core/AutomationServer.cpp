@@ -2861,12 +2861,17 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                 return s.doTestTone(a.action, a.value);
             });
 
-        add("pan", {}, "pan <create|add|remove|close|center> [value]",
-            parseActionValue,
+        // parseActionRest, not parseActionValue: `pan rfgain <panId> <dB>` needs
+        // BOTH remaining tokens. parseActionValue keeps only the first, so the dB
+        // was dropped and the two-argument form could never work — doPan()'s
+        // rfgain branch already splits the joined value and handles both shapes,
+        // so the handler was right and only the parser choice was wrong.
+        add("pan", {}, "pan <create|add|remove|close|center|rfgain> [value]",
+            parseActionRest,
             [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
                 if (a.action.isEmpty())
                     return err(QStringLiteral(
-                        "pan requires an action (create|add|remove|close|center)"));
+                        "pan requires an action (create|add|remove|close|center|rfgain)"));
                 return s.doPan(a.action, a.value);
             });
 
@@ -5695,11 +5700,22 @@ QJsonObject AutomationServer::doSlice(const QString& action, const QString& arg)
     if (action == QLatin1String("select")) {
         bool okId = false;
         const int id = arg.toInt(&okId);
-        if (!okId || !radio->slice(id))
+        SliceModel* s = okId ? radio->slice(id) : nullptr;
+        if (!s)
             return err(QStringLiteral("slice select requires a valid slice id"));
-        radio->sendCommand(QStringLiteral("slice set %1 active=1").arg(id));
+        // Through the SliceModel setter, not raw wire text. This used to send
+        // `slice set N active=1` straight at the connection, which is Flex text
+        // a seam backend never sees — so on a Hermes-Lite 2 the verb reported ok
+        // and selected nothing. setActive() emits the identical command for a
+        // Flex AND the operator-issued signal a seam backend needs, so this is
+        // strictly the same behaviour there and correct behaviour here.
+        //
+        // Same reasoning as `slice tx` immediately below, which already routes
+        // through the model for exactly this reason.
+        s->setActive(true);
         return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("slice"), QStringLiteral("select")},
-                           {QStringLiteral("id"), id}};
+                           {QStringLiteral("id"), id},
+                           {QStringLiteral("active"), s->isActive()}};
     }
     if (action == QLatin1String("tx")) {
         // Make slice <id> the TX slice — the literal external-split transition
@@ -7930,6 +7946,36 @@ QJsonObject AutomationServer::doPan(const QString& action, const QString& arg)
                            {QStringLiteral("centerMhz"), mhz}, {QStringLiteral("requested"), true}};
     }
 
+    if (action == QLatin1String("rfgain")) {
+        // `pan rfgain <dB>` or `pan rfgain <panId> <dB>`.
+        //
+        // Added because the control itself lives in the SpectrumOverlayMenu,
+        // which is hidden until the operator opens it — so the only way to
+        // exercise RF gain from a script was to drive a popup. On a radio where
+        // the preamp is RADIO-WIDE (the HL2's single AD9866 behind every DDC)
+        // the thing worth asserting is that one change reaches EVERY pan, and
+        // that is exactly what could not be tested before.
+        const QStringList parts = arg.trimmed().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        if (parts.isEmpty())
+            return err(QStringLiteral("pan rfgain requires a gain in dB"));
+        bool okG = false;
+        const QString panId = (parts.size() > 1) ? parts.first() : QString();
+        const int gain = parts.last().toInt(&okG);
+        if (!okG)
+            return err(QStringLiteral("pan rfgain requires an integer gain in dB"));
+        const QString target = panId.isEmpty()
+                                   ? (radio->activePanadapter()
+                                          ? radio->activePanadapter()->panId()
+                                          : QString())
+                                   : panId;
+        if (target.isEmpty())
+            return err(QStringLiteral("pan rfgain: no panadapter to address"));
+        radio->setPanRfGainFor(target, gain);
+        return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("pan"), QStringLiteral("rfgain")},
+                           {QStringLiteral("panId"), target},
+                           {QStringLiteral("gain"), gain}, {QStringLiteral("requested"), true}};
+    }
+
     if (action == QLatin1String("close") || action == QLatin1String("remove")) {
         const QString a = arg.trimmed();
         if (a.isEmpty())
@@ -7989,7 +8035,7 @@ QJsonObject AutomationServer::doPan(const QString& action, const QString& arg)
     }
 
     return err(QStringLiteral("unknown pan action: ") + action
-               + QStringLiteral(" (create|add|remove|close|center)"));
+               + QStringLiteral(" (create|add|remove|close|center|rfgain)"));
 }
 
 // ── Panadapter layout (bridge test hook) ────────────────────────────────────

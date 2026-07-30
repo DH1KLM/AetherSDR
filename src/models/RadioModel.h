@@ -223,7 +223,23 @@ public:
     QString gpsNtpServerAddress() const;
 
     // Max slices reported by radio
-    int maxSlices() const { return m_maxSlices; }
+    int maxSlices() const {
+        // Same authority rule as maxPanadapters(): a backend that reports its
+        // own slice capacity knows its radio, and m_maxSlices is either a
+        // FlexLib model-table estimate or a Flex `slices=N` status — neither of
+        // which a Hermes-Lite 2 ever produces, so it sat at the 2-slice default
+        // regardless of how many receivers the board actually has.
+        //
+        // TciServer's own comment recorded the consequence: "maxSlices() is the
+        // model-string-derived Flex estimate (2 by default), not the backend's
+        // own maxSlices, so a single-slice HL2 looks like it has room."
+        if (!m_flexBackend && m_backend) {
+            const int reported = m_backend->capabilities().maxSlices;
+            if (reported > 0)
+                return reported;
+        }
+        return m_maxSlices;
+    }
     static int maxSlicesForModel(const QString& model);
 
     // Per-model feature flags from the central ModelCapabilities table.
@@ -312,6 +328,20 @@ public:
     // instead of 4.  Examples: FLEX-6700 -> 8; 6600/6500/8600/AU-520/ML/CL -> 4;
     // 6300/6400/8400/AU-510/RT-2122 -> 2.
     int maxPanadapters() const {
+        // A backend that reports its own capability is the AUTHORITY for its
+        // radio. capabilitiesFor() is a FlexLib platform table keyed by model
+        // string (Principle I) and has nothing true to say about a non-Flex
+        // radio — "Hermes-Lite 2" simply falls through it to the 2-pan default,
+        // which then refused a third receiver on a board that reported four.
+        //
+        // This is consulted by more than one caller (the GUI's Add Panadapter,
+        // the automation bridge's `pan create`), which is exactly why it is
+        // fixed here rather than at either call site.
+        if (!m_flexBackend && m_backend) {
+            const int reported = m_backend->capabilities().maxPanadapters;
+            if (reported > 0)
+                return reported;
+        }
         return capabilitiesFor(m_model).maxSlices;
     }
 
@@ -762,6 +792,11 @@ signals:
     // 24 kHz stereo float32 — the format AudioEngine::feedAudioData expects.
     // Flex never emits this; its audio arrives on the PanadapterStream path.
     void backendAudioFrameReady(const QByteArray& pcm);
+    // ONE slice's demodulated audio, relayed from IRadioBackend. The per-slice
+    // counterpart of backendAudioFrameReady, which is the mixed speaker feed.
+    // Only a backend that demodulates in this process emits it; Flex per-slice
+    // audio arrives as DAX channels instead.
+    void backendSliceAudioFrameReady(int sliceId, const QByteArray& pcm);
 
     // ── The normalized demodulated-RX-audio bus ────────────────────────────
     //
@@ -1179,9 +1214,56 @@ private:
     // spectra through IRadioBackend (HL2). Kept on RadioModel because such a
     // backend has no PanadapterModel yet, and the neutral waterfall rows still
     // need frequency edges.
-    double  m_backendPanCenterMhz{0.0};
-    double  m_backendPanBandwidthMhz{0.0};
+    // Per-pan, keyed by NEUTRAL pan index, because a backend may run several
+    // receivers at once (HL2 runs up to four). These were single scalars while
+    // only one non-Flex pan could exist, which quietly made every extra pan's
+    // waterfall scale against the FIRST pan's band edges.
+    QHash<int, double> m_backendPanCenterMhz;
+    QHash<int, double> m_backendPanBandwidthMhz;
     quint32 m_backendWfTimecode{0};
+
+    // Backend pan id ("hl2-2") -> neutral pan index, allocated in first-seen
+    // order. The backend's ids are OPAQUE here: RadioModel must not parse a
+    // family's naming scheme, and a backend must not have to know about the
+    // 0xE1000000 stream-id space. This table is the translation between them.
+    QHash<QString, int> m_backendPanIndex;
+    // The inverse, for commands going DOWN. Filled alongside the forward map.
+    QHash<int, QString> m_backendPanIdByIndex;
+    // Allocate (or recall) the neutral index for a backend pan id.
+    int neutralPanIndexFor(const QString& backendPanId);
+    // Resolve a BACKEND-namespaced pan id to its PanadapterModel, translating
+    // through the neutral index. Every IRadioBackend pan signal must use this
+    // rather than resolvePan(), whose active-pan fallback silently misdirects a
+    // multi-pan backend's updates. See the definition.
+public:
+    // Test hooks for the backend<->model pan-id mapping.
+    //
+    // Exposed because the property they pin is exactly the one that broke: the
+    // mapping was built in ONE direction, so every pan signal arrived correctly
+    // and every pan COMMAND was refused by a backend that could not resolve the
+    // model's id. A round-trip assertion is the cheapest thing that fails when
+    // half of a two-way mapping goes missing.
+    int panIndexForBackendIdForTest(const QString& backendPanId)
+    {
+        return neutralPanIndexFor(backendPanId);
+    }
+    QString backendPanIdForTest(const QString& modelPanId) const
+    {
+        return backendPanIdFor(modelPanId);
+    }
+    static QString neutralPanIdStringForTest(int panIdx);
+
+private:
+    PanadapterModel* resolveBackendPan(const QString& backendPanId);
+    // Connect a slice's operator-issued AUDIO and TX-slice intents to the
+    // backend seam. Must be called from EVERY site that constructs a
+    // SliceModel — see the definition for why that is not a style preference.
+    void wireSliceAudioIntentsToBackend(SliceModel* s);
+    // Translate a MODEL pan id to the backend's own id for a command going down
+    // the seam. The inverse of resolveBackendPan(); both are needed or the
+    // mapping is one-way and every pan command addresses a pan the backend
+    // cannot resolve. Identity for Flex.
+    QString backendPanIdFor(const QString& modelPanId) const;
 
     // ---- waterfall pacing for raw-spectrum backends (HL2) ------------------
     //

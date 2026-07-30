@@ -63,6 +63,9 @@ QString neutralWfIdString(int panIdx)
                                       8, 16, QLatin1Char('0'));
 }
 
+// A pan index that cannot collide with a real one, for the "no id at all" case.
+constexpr int kNeutralPanIndexNone = -1;
+
 constexpr int kDefaultPanDimensionThreshold = 100;
 constexpr int kSessionRestorePruneDelayMs = 5000;
 constexpr int kWaterfallLineDurationMinMs = 1;
@@ -501,6 +504,11 @@ void RadioModel::setupBackend(const QString& family)
     connect(m_backend.get(), &IRadioBackend::audioFrameReady,
             this, &RadioModel::backendAudioFrameReady);
 
+    // Per-slice demodulated audio. Signal-to-signal like the mixed feed above:
+    // the payload is already the engine's native format.
+    connect(m_backend.get(), &IRadioBackend::sliceAudioFrameReady,
+            this, &RadioModel::backendSliceAudioFrameReady);
+
     // Pick the one producer for the normalized RX-audio bus. Done here, once
     // per backend, so every consumer of rxDemodAudioReady is family-blind and
     // survives a swap without rewiring. See the signal's header comment.
@@ -515,18 +523,29 @@ void RadioModel::setupBackend(const QString& family)
         // aetherd Gap B (Step 2c): remember the geometry even when no
         // PanadapterModel resolves — an HL2 session has none, and the neutral
         // waterfall rows below still need the band edges.
-        m_backendPanCenterMhz = centerMhz;
-        m_backendPanBandwidthMhz = bandwidthMhz;
-        auto* pan = resolvePan(panId);
+        // Which pane this geometry belongs to. Was pan index 0 unconditionally,
+        // which is right at one receiver and wrong at four: every pan's
+        // waterfall then scaled against the first pan's band edges, so three of
+        // them drew the correct spectrum over the wrong frequency axis.
+        const int panIdx = m_flexBackend ? kNeutralPanIndexNone
+                                         : neutralPanIndexFor(panId);
+        if (panIdx != kNeutralPanIndexNone) {
+            m_backendPanCenterMhz[panIdx] = centerMhz;
+            m_backendPanBandwidthMhz[panIdx] = bandwidthMhz;
+        }
+        auto* pan = resolveBackendPan(panId);
         if (!pan && !m_flexBackend) {
             // aetherd Gap B (Step 2c): materialise the pan for a non-Flex backend.
             // No Flex "display pan" status exists to create one, so without this
             // there is no PanadapterModel to route frames to and the UI never
             // builds a pane — the render path was falling back to the active
             // spectrum widget, which is null when no pan applet exists.
-            pan = ensureOwnedPanadapter(neutralPanIdString(0));
+            //
+            // One pane per backend pan id, so a multi-receiver backend gets a
+            // pane each instead of four receivers sharing one.
+            pan = ensureOwnedPanadapter(neutralPanIdString(panIdx));
             if (pan)
-                pan->setWaterfallId(neutralWfIdString(0));
+                pan->setWaterfallId(neutralWfIdString(panIdx));
         }
         if (!pan) return;
         const bool spanChanged = pan->setCenterBandwidth(centerMhz, bandwidthMhz);
@@ -556,7 +575,7 @@ void RadioModel::setupBackend(const QString& family)
     // emit is intentionally dropped rather than resurrected. #4065 review.)
     connect(m_backend.get(), &IRadioBackend::panRangeChanged, this,
             [this](const QString& panId, double minDbm, double maxDbm) {
-        auto* pan = resolvePan(panId);
+        auto* pan = resolveBackendPan(panId);
         if (!pan) return;
         if (pan->setRange(minDbm, maxDbm)) {
             m_panStream->setDbmRange(pan->panStreamId(), pan->minDbm(), pan->maxDbm());
@@ -571,7 +590,7 @@ void RadioModel::setupBackend(const QString& family)
     // report has to reach the widgets already on screen.
     connect(m_backend.get(), &IRadioBackend::panBandwidthLimitsChanged, this,
             [this](const QString& panId, double minMhz, double maxMhz) {
-        auto* pan = resolvePan(panId);
+        auto* pan = resolveBackendPan(panId);
         if (!pan) return;
         if (pan->setBandwidthLimits(minMhz, maxMhz)) {
             emit panBandwidthLimitsChanged(pan->panId(),
@@ -587,21 +606,21 @@ void RadioModel::setupBackend(const QString& family)
     // parse of ant_list in handlePanadapterStatus onto this single source.
     connect(m_backend.get(), &IRadioBackend::panRfGainChanged, this,
             [this](const QString& panId, int gain) {
-        if (auto* pan = resolvePan(panId)) pan->setRfGain(gain);
+        if (auto* pan = resolveBackendPan(panId)) pan->setRfGain(gain);
     });
     connect(m_backend.get(), &IRadioBackend::panRfGainInfoChanged, this,
             [this](const QString& panId, int low, int high, int step) {
         if (step <= 0)
             return;                       // a zero step would freeze the slider
-        if (auto* pan = resolvePan(panId)) pan->setRfGainInfo(low, high, step);
+        if (auto* pan = resolveBackendPan(panId)) pan->setRfGainInfo(low, high, step);
     });
     connect(m_backend.get(), &IRadioBackend::panRxAntennaChanged, this,
             [this](const QString& panId, const QString& ant) {
-        if (auto* pan = resolvePan(panId)) pan->setRxAntenna(ant);
+        if (auto* pan = resolveBackendPan(panId)) pan->setRxAntenna(ant);
     });
     connect(m_backend.get(), &IRadioBackend::panAntennaListChanged, this,
             [this](const QString& panId, const QStringList& ants) {
-        if (auto* pan = resolvePan(panId)) pan->setAntList(ants);
+        if (auto* pan = resolveBackendPan(panId)) pan->setAntList(ants);
         // Converged RadioModel-level antenna list (the old inline dual-parse).
         // Not gated on a resolved pan — matches the old unconditional emit.
         if (ants != m_antList) {
@@ -611,7 +630,66 @@ void RadioModel::setupBackend(const QString& family)
     });
     connect(m_backend.get(), &IRadioBackend::panWaterfallLineDurationChanged, this,
             [this](const QString& panId, int ms) {
-        if (auto* pan = resolvePan(panId)) pan->setWaterfallLineDuration(ms);
+        if (auto* pan = resolveBackendPan(panId)) pan->setWaterfallLineDuration(ms);
+    });
+
+    // The backend confirms a pan is GONE. Only now is the pane dropped: the
+    // backend can refuse a close (the last receiver on an HL2), and tearing the
+    // model down optimistically would leave a receiver streaming into nothing.
+    connect(m_backend.get(), &IRadioBackend::panRemoved, this,
+            [this](const QString& backendPanId) {
+        auto* pan = resolveBackendPan(backendPanId);
+        if (!pan)
+            return;
+        const QString modelPanId = pan->panId();
+        // Retire the id translation for this pan. The index IS reused —
+        // neutralPanIndexFor() hands out the lowest free one, deliberately, and
+        // says why. What makes that safe is the cleanup below: freeing the index
+        // also drops the center, bandwidth and waterfall-row state recorded
+        // against it, so the pan that inherits the number cannot inherit the
+        // previous occupant's geometry and start painting with it.
+        if (const int idx = m_backendPanIndex.take(backendPanId); true) {
+            m_backendPanIdByIndex.remove(idx);
+            m_backendPanCenterMhz.remove(idx);
+            m_backendPanBandwidthMhz.remove(idx);
+            m_backendWfLastRowNs.remove(idx);
+        }
+        m_panadapters.remove(modelPanId);
+        if (m_panStream) {
+            m_panStream->unregisterPanStream(pan->panStreamId());
+            m_panStream->unregisterWfStream(pan->wfStreamId());
+        }
+        qCDebug(lcProtocol) << "RadioModel: backend pan removed" << backendPanId
+                            << "->" << modelPanId;
+        emit panadapterRemoved(modelPanId);
+        pan->deleteLater();
+        if (m_activePanId == modelPanId) {
+            m_activePanId = m_panadapters.isEmpty() ? QString()
+                                                    : m_panadapters.firstKey();
+        }
+    });
+
+    // The backend confirms a slice is GONE. Paired with panRemoved above,
+    // because on a backend where a slice IS a receiver, closing one retires
+    // both. Without this the SliceModel outlived its receiver and every later
+    // capacity check counted it.
+    connect(m_backend.get(), &IRadioBackend::sliceRemoved, this,
+            [this](int sliceId) {
+        SliceModel* s = slice(sliceId);
+        if (!s)
+            return;
+        m_slices.removeAll(s);
+        qCDebug(lcProtocol) << "RadioModel: backend slice removed" << sliceId;
+        emit sliceRemoved(sliceId);
+        emit slotOccupancyChanged(sliceId);
+        s->deleteLater();
+    });
+
+    // The pan's front end is wide (its band filter had to be bypassed).
+    connect(m_backend.get(), &IRadioBackend::panWideChanged, this,
+            [this](const QString& panId, bool wide) {
+        if (auto* pan = resolveBackendPan(panId))
+            pan->setWide(wide);
     });
 
     // aetherd RFC 2.3 extension channel: Flex-specific pan fields ride the
@@ -767,8 +845,13 @@ void RadioModel::setupBackend(const QString& family)
         // panadapter even though the VFO shows the right frequency. Re-address the
         // delta at the pan we materialised.
         SliceDelta mapped = delta;
-        if (!m_flexBackend && mapped.panId)
-            mapped.panId = neutralPanIdString(0);
+        if (!m_flexBackend && mapped.panId) {
+            // Through the SAME allocator the geometry handler uses, so a slice
+            // lands on the pane its own receiver feeds. Pinned to index 0 while
+            // one pan existed; at four receivers that put every slice flag on
+            // the first panadapter.
+            mapped.panId = neutralPanIdString(neutralPanIndexFor(*mapped.panId));
+        }
         if (!s && !m_flexBackend) {
             // aetherd Gap B (Step 2c): no Flex "slice" status ever runs for a
             // non-Flex backend, so nothing would create the model and every delta
@@ -802,6 +885,7 @@ void RadioModel::setupBackend(const QString& family)
                     [this, s](const QString& mode, int thresholdDb) {
                 if (m_backend) m_backend->setSliceAgc(s->sliceId(), mode, thresholdDb);
             });
+            wireSliceAudioIntentsToBackend(s);
             m_slices.append(s);
             s->applyChanges(mapped);
             emit sliceAdded(s);
@@ -990,6 +1074,14 @@ void RadioModel::teardownBackend()
     m_backend.reset();
     m_connection = nullptr;
     m_panStream = nullptr;
+    // Backend pan ids are only meaningful to the backend that issued them, so
+    // the translation table dies with it. Carrying it across a family swap would
+    // let a new backend's first pan inherit an index the old one had allocated,
+    // and every pan after it would be off by one.
+    m_backendPanIndex.clear();
+    m_backendPanIdByIndex.clear();
+    m_backendPanCenterMhz.clear();
+    m_backendPanBandwidthMhz.clear();
 }
 
 RadioModel::RadioModel(QObject* parent)
@@ -3338,6 +3430,31 @@ void RadioModel::addSliceOnPan(const QString& panId, double freqMhz)
 
 void RadioModel::createPanadapter()
 {
+    // A backend that owns its own receivers creates them at the seam. The Flex
+    // wire text below (`display panafall create`) goes nowhere on such a radio,
+    // which is why "Add Panadapter" did nothing on an HL2 and the only way to
+    // get a second receiver was a persisted count applied at connect.
+    //
+    // Checked BEFORE the limit below, because that limit is a FLEX MODEL-STRING
+    // TABLE (capabilitiesFor(m_model)) and has nothing to say about this radio.
+    // Applying it to an HL2 would refuse the add against a number derived from
+    // a FlexLib platform lookup that never heard of the board.
+    //
+    // The backend is the only thing that knows the real limits — the receiver
+    // count the board reported at discovery, and the link budget at the span
+    // currently running — so it decides, and says which limit it hit.
+    //
+    // The new pan is reported through panCenterBandwidthChanged, which
+    // materialises the model exactly as it does for the pans that exist at
+    // connect — so there is ONE path that creates a pane, not two.
+    if (!m_flexBackend && m_backend) {
+        if (!m_backend->createPanadapter()) {
+            qCWarning(lcProtocol) << "RadioModel::createPanadapter: backend declined";
+            emit panadapterLimitReached(m_backend->capabilities().maxPanadapters, m_model);
+        }
+        return;
+    }
+
     int limit = maxPanadapters();
     if (static_cast<int>(m_panadapters.size()) >= limit) {
         qCWarning(lcProtocol) << "RadioModel::createPanadapter: limit of" << limit
@@ -3399,6 +3516,17 @@ void RadioModel::removePanadapter(const QString& panId)
     const QString wfId = pan ? pan->waterfallId() : QString();
     qCDebug(lcProtocol) << "RadioModel::removePanadapter:" << panId
                         << "waterfall:" << (wfId.isEmpty() ? QStringLiteral("(none)") : wfId);
+
+    // Same reasoning as createPanadapter(): on a backend that owns its
+    // receivers this is a seam verb, and the Flex teardown pair below would go
+    // nowhere. The model pane is dropped when the backend confirms with
+    // panRemoved — never optimistically, or a refused close (the last receiver)
+    // would take the pane away while the receiver kept streaming into nothing.
+    if (!m_flexBackend && m_backend) {
+        if (!m_backend->removePanadapter(backendPanIdFor(panId)))
+            qCWarning(lcProtocol) << "RadioModel::removePanadapter: backend declined" << panId;
+        return;
+    }
     sendCommand(QStringLiteral("display pan remove ") + panId);
     if (!wfId.isEmpty())
         sendCommand(QStringLiteral("display panafall remove ") + wfId);
@@ -3685,7 +3813,7 @@ bool RadioModel::requestPanDisplayRates(const QString& panId, int fps,
         // production. Only the waterfall's line_duration is paced up here —
         // see onBackendSpectrumFrame for why the two live in different places.
         if (fps > 0)
-            m_backend->setPanFrameRate(panId, fps);
+            m_backend->setPanFrameRate(backendPanIdFor(panId), fps);
         return true;
     }
 
@@ -3808,14 +3936,14 @@ bool RadioModel::dispatchPanCenterBandwidth(const QString& panId,
     // panCenterBandwidthChanged, which drives the model.
     if (!m_flexBackend && m_backend) {
         if (hasCenter)
-            m_backend->setPanCenter(panId, centerMhz * 1.0e6);
+            m_backend->setPanCenter(backendPanIdFor(panId), centerMhz * 1.0e6);
         // Bandwidth goes through the seam for the same reason center does. This
         // used to fall straight into the model write below, which is why zooming
         // an HL2 produced black bars: the span the operator asked for became the
         // view's span while the receiver kept sending its old, narrower window,
         // and the honest VITA-49 tiles left the difference unpainted.
         if (hasBandwidth)
-            m_backend->setPanBandwidth(panId, bandwidthMhz * 1.0e6);
+            m_backend->setPanBandwidth(backendPanIdFor(panId), bandwidthMhz * 1.0e6);
         if (pan) {
             // Center only. The backend snaps a span REQUEST to a rate it can
             // actually run, so the resulting bandwidth is not ours to predict —
@@ -4026,7 +4154,7 @@ void RadioModel::setPanRfGainFor(const QString& panId, int gain)
     // Without this the HL2's RF Gain slider moved, persisted, and changed
     // nothing: lnaGainDb was applied once at connect and never again.
     if (!m_flexBackend && m_backend) {
-        m_backend->setPanRfGain(panId, gain);
+        m_backend->setPanRfGain(backendPanIdFor(panId), gain);
         return;
     }
     sendCmd(QString("display pan set %1 rfgain=%2").arg(panId).arg(gain));
@@ -4172,7 +4300,11 @@ void RadioModel::onBackendSpectrumFrame(int panId, const QByteArray& frame)
     // than the frame rate (100 ms against 25-40 fps). That gate is what makes a
     // row actually represent line_duration of time — the calibration the
     // widget's time axis already assumes.
-    if (m_backendPanBandwidthMhz > 0.0) {
+    // Geometry for THIS pan. `panId` here is already the neutral index, which is
+    // the same key the geometry handler stores under.
+    const double panBandwidthMhz = m_backendPanBandwidthMhz.value(panId, 0.0);
+    const double panCenterMhz = m_backendPanCenterMhz.value(panId, 0.0);
+    if (panBandwidthMhz > 0.0) {
         // Row PACING (origin/main #4476): emit at the pan's declared
         // waterfallLineDuration rather than once per spectrum frame, advancing BY
         // the interval so the rate does not quantise onto the frame grid.
@@ -4198,7 +4330,7 @@ void RadioModel::onBackendSpectrumFrame(int panId, const QByteArray& frame)
             lastNs = (lastNs == 0) ? nowNs : lastNs + dueNs;
             if (nowNs - lastNs > dueNs)
                 lastNs = nowNs - dueNs;
-            const double half = m_backendPanBandwidthMhz / 2.0;
+            const double half = panBandwidthMhz / 2.0;
             // Stream ID (this branch, review finding 8): a session that owns a pan
             // must use ITS waterfall id, or every row is dropped as unmatched and
             // MainWindow logs "dropped unmatched waterfall stream" ~20x/s. The
@@ -4210,8 +4342,8 @@ void RadioModel::onBackendSpectrumFrame(int panId, const QByteArray& frame)
                     wfId = realWfId;
             }
             emit panFeedWaterfallRowReady(wfId, bins,
-                                          m_backendPanCenterMhz - half,
-                                          m_backendPanCenterMhz + half,
+                                          panCenterMhz - half,
+                                          panCenterMhz + half,
                                           m_backendWfTimecode++, nowNs);
         }
     }
@@ -6420,6 +6552,142 @@ quint32 RadioModel::clientHandle() const
     return m_connection ? m_connection->clientHandle() : 0u;
 }
 
+PanadapterModel* RadioModel::resolveBackendPan(const QString& backendPanId)
+{
+    // Every pan signal from a non-Flex backend has to come through here.
+    //
+    // A backend labels its pans in its own namespace ("hl2-2"); the models are
+    // keyed by the NEUTRAL id ("0xe1000002"). resolvePan() on the raw backend id
+    // therefore never matches, and its fallback is the ACTIVE pan — so with one
+    // pan everything looked correct (the only pan was the active one), and with
+    // four, every pan-addressed update landed on whichever pane happened to be
+    // selected. Measured: RF gain reported 20 dB on one pan and 0 on the other
+    // three, from a single radio-wide LNA.
+    //
+    // Flex keeps its existing behaviour: its pan ids ARE the model keys.
+    if (m_flexBackend)
+        return resolvePan(backendPanId);
+    return panadapter(neutralPanIdString(neutralPanIndexFor(backendPanId)));
+}
+
+void RadioModel::wireSliceAudioIntentsToBackend(SliceModel* s)
+{
+    if (!s)
+        return;
+
+    // ONE place, called from EVERY site that constructs a SliceModel.
+    //
+    // These were originally written inline in the backend's slice-materialising
+    // branch, which is the path a real radio takes — and only that path. A slice
+    // built any other way (the automation slice fixture, a session restore) got
+    // none of them, so its mute, level, balance and TX-slice requests were
+    // silently dropped while every other slice's worked. That is the failure
+    // mode `wirePanStreamRxAudioSinks()` was retired for in #4537: a sink added
+    // at one construction site and missed at another is a dead feature nobody
+    // can see is dead.
+    //
+    // A Flex applies mute/level/pan ON THE RADIO and sends one mixed stream, so
+    // these no-op there (m_backend's defaults). A backend that demodulates every
+    // receiver on this host has to apply them in its own mixer.
+    connect(s, &SliceModel::audioMuteCommandIssued, this,
+            [this, s](bool mute) {
+        if (m_backend) m_backend->setSliceAudioMute(s->sliceId(), mute);
+    });
+    connect(s, &SliceModel::audioGainCommandIssued, this,
+            [this, s](int gainPercent) {
+        if (m_backend) m_backend->setSliceAudioGain(s->sliceId(), gainPercent);
+    });
+    connect(s, &SliceModel::audioPanCommandIssued, this,
+            [this, s](int panPercent) {
+        if (m_backend) m_backend->setSliceAudioPan(s->sliceId(), panPercent);
+    });
+    // "Make this the transmit slice." On a radio with one transmitter the
+    // backend MOVES transmit rather than setting a flag, and republishes both
+    // the old and the new slice so the indicator follows — which is why nothing
+    // is assumed here about the outcome.
+    connect(s, &SliceModel::txSliceCommandIssued, this,
+            [this, s]() {
+        if (m_backend) m_backend->setTxSlice(s->sliceId());
+    });
+    // Selecting a slice. Distinct from taking transmit: the operator listens on
+    // one slice while transmitting on another routinely, so this must not drag
+    // transmit with it. The backend clears the previously active slice, which on
+    // a Flex arrives as a status echo and here has no other way of happening.
+    connect(s, &SliceModel::activeSliceCommandIssued, this,
+            [this, s]() {
+        if (m_backend) m_backend->setActiveSlice(s->sliceId());
+    });
+}
+
+QString RadioModel::neutralPanIdStringForTest(int panIdx)
+{
+    return neutralPanIdString(panIdx);
+}
+
+QString RadioModel::backendPanIdFor(const QString& modelPanId) const
+{
+    // THE RETURN TRIP. resolveBackendPan() translates backend -> model for every
+    // signal coming UP; this translates model -> backend for every command going
+    // DOWN, and both directions are required for the pair to be a mapping at all.
+    //
+    // Without it the app sends the MODEL's id ("0xe1000002") to a backend whose
+    // pan ids are its own ("hl2-2"). A backend that ignored the argument (as the
+    // single-pan HL2 did) never noticed. One that resolves it — as it must, to
+    // know WHICH of four receivers to move — refuses the command outright, and
+    // the symptom is a panadapter whose centre never moves while the widget's
+    // own drag preview slides over a waterfall still drawn at the old edges.
+    //
+    // Flex pan ids ARE the model keys, so this is identity there.
+    if (m_flexBackend || modelPanId.isEmpty())
+        return modelPanId;
+    bool ok = false;
+    const quint32 id = modelPanId.toUInt(&ok, 0);   // base 0: honours the "0x"
+    if (ok && id >= kNeutralPanStreamIdBase) {
+        const int idx = static_cast<int>(id - kNeutralPanStreamIdBase);
+        const auto it = m_backendPanIdByIndex.constFind(idx);
+        if (it != m_backendPanIdByIndex.constEnd())
+            return it.value();
+    }
+    // Not one of ours: hand it back untouched rather than inventing an id. A
+    // backend that does not recognise it will refuse, which is the correct
+    // outcome for a pan this session never mapped.
+    return modelPanId;
+}
+
+int RadioModel::neutralPanIndexFor(const QString& backendPanId)
+{
+    // Backend pan ids are opaque strings. They are assigned neutral indices in
+    // FIRST-SEEN order rather than parsed, so that this stays family-agnostic:
+    // a backend numbering its pans "hl2-0..hl2-3", "rx1..rx4" or by UUID all
+    // work, and no naming convention is load-bearing across the seam.
+    //
+    // Allocation is stable for the life of a connection, which is what lets the
+    // waterfall geometry and the slice->pan association below stay addressed to
+    // the same pane across reconnects of the same layout.
+    if (backendPanId.isEmpty())
+        return 0;   // a backend that names no pan gets the first one
+    const auto it = m_backendPanIndex.constFind(backendPanId);
+    if (it != m_backendPanIndex.constEnd())
+        return it.value();
+    // LOWEST FREE index, not size().
+    //
+    // size() is only collision-free while nothing is ever removed. Closing one
+    // pan of four leaves size() == 3 while index 3 is still in use, so the next
+    // pan was handed an index that already belonged to a live pane: the new pan
+    // resolved to the EXISTING PanadapterModel, no pane was created, and the
+    // occupant's geometry and frames were quietly taken over. Observed as
+    // pans=3 slices=4 after closing the middle of four and reopening — a slice
+    // with no panadapter behind it.
+    int assigned = 0;
+    while (m_backendPanIdByIndex.contains(assigned))
+        ++assigned;
+    m_backendPanIndex.insert(backendPanId, assigned);
+    // Both directions are filled at the same moment, from the same allocation,
+    // so the pair cannot drift. See backendPanIdFor().
+    m_backendPanIdByIndex.insert(assigned, backendPanId);
+    return assigned;
+}
+
 PanadapterModel* RadioModel::ensureOwnedPanadapter(const QString& panId)
 {
     const QString normalizedPanId = normalizePanadapterId(panId);
@@ -8223,6 +8491,9 @@ void RadioModel::handleSliceStatus(int id,
             connect(s, &SliceModel::commandReady, this, [this, s](const QString& cmd){
                 sendSliceCommand(s, cmd);
             });
+            // The per-slice audio and TX-slice intents, wired at EVERY
+            // construction site rather than only the backend-materialising one.
+            wireSliceAudioIntentsToBackend(s);
             // aetherd RFC 2.3 encode template: mode intent routes through the
             // backend verb, whose output goes through the guarded slice sink.
             // TODO(2.x): route via IRadioBackend once encode is backend-owned —

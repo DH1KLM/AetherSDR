@@ -530,6 +530,7 @@ set(CORE_SOURCES
     src/core/backends/hl2/MetisProtocol.cpp  # aetherd HL2 Phase 1a (HPSDR Protocol 1)
     src/core/backends/hl2/MetisClient.cpp    # aetherd HL2 Phase 1a (UDP wire + RX ingest)
     src/core/backends/hl2/Hl2EmergencyStop.cpp # release the radio from a signal handler
+    src/core/backends/hl2/Hl2Receivers.cpp   # per-receiver index-space map (HERMES.md §12.5)
     src/core/backends/hl2/Hl2Spectrum.cpp    # aetherd HL2 Phase 1a (FFT panadapter, FFTW)
     src/core/backends/hl2/Hl2RxDsp.cpp       # aetherd HL2 Phase 1a (IQ -> WdspChannel demod + spectrum)
     src/core/backends/hl2/Hl2TxDsp.cpp       # SSB transmit chain (TX audio -> baseband IQ)
@@ -2654,6 +2655,22 @@ target_include_directories(hl2_metis_client_test PRIVATE src)
 target_link_libraries(hl2_metis_client_test PRIVATE aethercore Qt6::Core Qt6::Network Qt6::Test)
 add_test(NAME hl2_metis_client_test COMMAND hl2_metis_client_test)
 
+# HL2 receiver-count restart — a fake radio that "loses" a metis-start, proving
+# the restart retries it and that the recovery is not mistaken for a reconnect.
+add_executable(hl2_receiver_count_restart_test tests/hl2_receiver_count_restart_test.cpp)
+target_include_directories(hl2_receiver_count_restart_test PRIVATE src)
+target_link_libraries(hl2_receiver_count_restart_test
+    PRIVATE aethercore Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME hl2_receiver_count_restart_test COMMAND hl2_receiver_count_restart_test)
+
+# HL2 per-receiver index-space map — standalone, needs only QtCore for QString.
+add_executable(hl2_receivers_test
+    tests/hl2_receivers_test.cpp
+    src/core/backends/hl2/Hl2Receivers.cpp)
+target_include_directories(hl2_receivers_test PRIVATE src)
+target_link_libraries(hl2_receivers_test PRIVATE Qt6::Core)
+add_test(NAME hl2_receivers_test COMMAND hl2_receivers_test)
+
 # HL2 spectrum (FFT panadapter) — standalone, links FFTW3 directly.
 add_executable(hl2_spectrum_test
     tests/hl2_spectrum_test.cpp
@@ -2691,6 +2708,18 @@ add_executable(hl2_backend_test tests/hl2_backend_test.cpp)
 target_include_directories(hl2_backend_test PRIVATE src)
 target_link_libraries(hl2_backend_test PRIVATE aethercore Qt6::Core Qt6::Network Qt6::Test)
 add_test(NAME hl2_backend_test COMMAND hl2_backend_test)
+
+# HL2 receiver churn — add/close receivers against a LIVE EP6 stream. The only
+# test that puts the m_rx reshape and the I/O-thread fan-out in contention, which
+# is what lets the weekly TSan job (.github/workflows/sanitizers.yml) exercise the
+# ordering that keeps them apart: Hl2Backend::publishIoDsps() hands the sample
+# path its own copy (m_ioDsps) and blocks until the I/O thread has taken it, so
+# the reshape never mutates a container a fan-out is walking. (There is no
+# fenceIo() — an earlier draft named one and this comment outlived it.)
+add_executable(hl2_receiver_churn_test tests/hl2_receiver_churn_test.cpp)
+target_include_directories(hl2_receiver_churn_test PRIVATE src tests)
+target_link_libraries(hl2_receiver_churn_test PRIVATE aethercore Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME hl2_receiver_churn_test COMMAND hl2_receiver_churn_test)
 
 add_executable(client_eq_test
     tests/client_eq_test.cpp
@@ -4135,6 +4164,11 @@ add_executable(radiomodel_dax_null_test tests/radiomodel_dax_null_test.cpp)
 target_include_directories(radiomodel_dax_null_test PRIVATE src)
 target_link_libraries(radiomodel_dax_null_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME radiomodel_dax_null_test COMMAND radiomodel_dax_null_test)
+
+add_executable(radiomodel_pan_id_mapping_test tests/radiomodel_pan_id_mapping_test.cpp)
+target_include_directories(radiomodel_pan_id_mapping_test PRIVATE src)
+target_link_libraries(radiomodel_pan_id_mapping_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME radiomodel_pan_id_mapping_test COMMAND radiomodel_pan_id_mapping_test)
 
 add_executable(demo_backend_swap_test tests/demo_backend_swap_test.cpp)
 target_include_directories(demo_backend_swap_test PRIVATE src)
