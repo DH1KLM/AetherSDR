@@ -1399,6 +1399,57 @@ listening VARA decodes it. That test has not been run and nothing here should be
 read as claiming a working modem — soft-decision decoding for real HF noise,
 control-frame generation and the ARQ state machine all remain.
 
+### 3.29 — 2026-07-29 · A real VARA decoded a waveform we generated
+
+Everything up to here was self-referential: the model predicted captures, and
+those captures are what built the model. This is the test that is not.
+
+**Method.** A recorded session is replayed into the listening instance's input
+sink, with the payload-bearing DATA frame (burst 6) **replaced** by one
+synthesised from `tools/vara_codec.py` + `tools/vara_synth.py` for a payload that
+was never transmitted. Everything else — connect handshake, control frames,
+session frame — is the original recording, so the receiver sees a well-formed
+session. The listening modem is a genuine VARA HF v4.9.0 that knows nothing about
+any of this work.
+
+**The control ran first and mattered.** Trial 1 replays the recording unmodified.
+Without it, a negative result in trial 2 could not be distinguished from a broken
+replay path.
+
+    target payload  : 1000400000200000000000000000000000000000000000000000000000000000
+    modem delivered : 1000400000200000000000000000000000000000000000000000000000000000
+
+| trial | result |
+|---|---|
+| CONTROL — original recording replayed | decoded 32 bytes of zeros, **exact** |
+| TEST — synthesised payload frame spliced in | decoded the target payload, **exact** |
+
+The synthesised frame differs from the all-zero frame at 269 of 407 symbol
+positions and changed 138 688 samples, so this is not a near-miss that happened
+to decode.
+
+**What this proves.** The level-4 DATA **encode** path is correct end to end:
+payload → generator rows → `d` → `+ r mod 16` → waveform → a real modem's
+decoder. The scrambler model of §3.27, the generator rows from the sweep, and
+the synthesiser of the previous entry are all confirmed together, by an
+independent decoder.
+
+**What it does not prove, stated plainly.** The surrounding session was
+*replayed*, not generated: the connect handshake and control frames came from a
+recording. So this is not a working modem. Still outstanding:
+
+* the receive path (the inverse map is straightforward for a clean signal, but
+  untested);
+* soft-decision decoding, which is what real HF noise requires — everything here
+  is a clean-channel result;
+* control-frame generation and the ARQ state machine;
+* levels 5-11, unreachable without a paid licence.
+
+**A run note.** The first attempt aborted between trials with
+`ConnectionRefusedError`: the host interface is single-client and briefly refuses
+connections while a session tears down. `tools/vara_oracle.py` now retries rather
+than treating the first refusal as fatal.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
