@@ -679,6 +679,7 @@ set(CORE_SOURCES
     src/core/TciProtocol.cpp
     src/core/VaraProtocol.cpp
     src/core/VaraClient.cpp
+    src/core/VaraSettings.cpp
     src/core/TciRoutingState.cpp
     src/core/TciTrxMap.cpp
     src/core/AutomationServer.cpp
@@ -3835,6 +3836,16 @@ add_executable(vara_protocol_test
 target_include_directories(vara_protocol_test PRIVATE src)
 target_link_libraries(vara_protocol_test PRIVATE Qt6::Core)
 add_test(NAME vara_protocol_test COMMAND vara_protocol_test)
+
+add_executable(vara_settings_test
+    tests/vara_settings_test.cpp
+    src/core/VaraSettings.cpp
+    src/core/VaraProtocol.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(vara_settings_test PRIVATE src tests)
+target_link_libraries(vara_settings_test PRIVATE Qt6::Core)
+add_test(NAME vara_settings_test COMMAND vara_settings_test)
 
 add_executable(ole_compound_file_test
     tests/ole_compound_file_test.cpp
