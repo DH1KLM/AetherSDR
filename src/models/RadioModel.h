@@ -160,7 +160,32 @@ public:
     QStringList knownAntennaTokens() const;
     QString serial()       const;
     QString chassisSerial() const { return m_chassisSerial; }
-    QString callsign()     const { return m_callsign; }
+    // The operator's callsign, from the radio when it has one and from the
+    // client-side station setting when it does not.
+    //
+    // Only a FlexRadio stores a callsign: it arrives in the discovery RadioInfo
+    // and in the `info` reply, and `radio callsign <x>` writes it back. Every
+    // other family has nowhere to put one, so on an HL2 this returned empty
+    // forever — Radio Setup's field accepted an edit, sent Flex text nobody was
+    // listening for, and read back blank on reopen. Everything downstream then
+    // behaved as if the station had no identity: PSK Reporter had no callsign to
+    // query, so the map stayed empty and the status bar said "No callsign —
+    // connect to a radio first" against a perfectly connected radio, and the
+    // WSPR beacon could not prefill.
+    //
+    // A callsign is the OPERATOR's, not the radio's — unlike the nickname, which
+    // is per-radio and keyed by serial (Hl2Discovery::nicknameSettingsKey). One
+    // station-wide key is therefore correct: the same callsign is right on every
+    // radio the operator owns.
+    //
+    // The radio's own value still wins when present, so a Flex behaves exactly
+    // as before and a station callsign typed while running headless cannot
+    // silently override what the radio reports.
+    QString callsign() const;
+    // Persist the operator's callsign client-side and publish it. Safe to call
+    // on any family; on a Flex the caller is additionally responsible for
+    // sending `radio callsign` so the radio's own copy stays in step.
+    void setStationCallsign(const QString& callsign);
     QString nickname()     const { return m_nickname; }
     QString region()       const { return m_region; }
     int     rttyMarkDefault() const { return m_rttyMarkDefault; }
@@ -364,8 +389,31 @@ public:
     bool prepareWsprTransmit();
     void releaseWsprTransmit();
     void restoreWsprTransmitDax();
+    // "The WSPR beacon's transmit-audio route is ready." On a Flex that is
+    // literally a `dax_tx` stream; on a host-modulating backend (HL2) there is
+    // no stream to own — the modulator is ours and the pump feeds it through
+    // txFinalMonitorPcmReady → submitTxAudio, which needs nothing created.
+    //
+    // The dialog polls this every 50 ms while transmitting and aborts the frame
+    // if it goes false, so the host-modulated flag must stay latched from
+    // prepareWsprTransmit() to releaseWsprTransmit() rather than being derived
+    // from anything that can flicker.
     bool hasWsprTxStream() const
     {
+        // The host-modulated claim is re-checked against the CURRENTLY connected
+        // radio, not just the latch. A latch alone was an unintended-transmission
+        // bug: connectToRadio() on a family switch runs
+        // dropAllSessionModelsForFamilySwitch() -> teardownBackend() ->
+        // setupBackend() and touches none of the WSPR state, so an armed HL2
+        // beacon carried "route ready" onto a Flex and would have keyed it for a
+        // full 111.6 s frame with no dax_tx stream behind it — transmitting
+        // nothing, on a radio the operator never armed. (PR #4537 review.)
+        //
+        // teardownBackend() now clears the latch as well; this is the backstop
+        // that makes a missed clear harmless rather than dangerous, which is the
+        // right split for anything guarding a transmitter.
+        if (m_wsprTxHostModulated && backendCapabilities().hostModulates)
+            return true;
         return m_daxTxStreamId != 0 && m_daxTxActive;
     }
     QJsonObject troubleshootingSnapshot() const;
@@ -675,6 +723,33 @@ signals:
     // 24 kHz stereo float32 — the format AudioEngine::feedAudioData expects.
     // Flex never emits this; its audio arrives on the PanadapterStream path.
     void backendAudioFrameReady(const QByteArray& pcm);
+
+    // ── The normalized demodulated-RX-audio bus ────────────────────────────
+    //
+    // The audio the OPERATOR HEARS, whoever produced it: 24 kHz interleaved
+    // stereo float32, byte-identical to what both producers already emit.
+    //
+    // Exactly one producer is connected at a time — PanadapterStream::
+    // audioDataReady for a Flex, IRadioBackend::audioFrameReady for a backend
+    // that answers ownsRxAudio() — and that choice is made in ONE place
+    // (wireRxDemodAudioBus). Consumers subscribe once and never rebind, because
+    // this signal belongs to RadioModel, which OUTLIVES the backend swap that
+    // destroys and rebuilds a PanadapterStream.
+    //
+    // That is the actual bug this fixes, and it is a shape rather than an
+    // instance. Three features — the CW decoder, the RTTY decoder and the QSO
+    // recorder's RX tap — were bound directly to the Flex stream, so on any
+    // radio without one they bound to nothing: no error, no log line, the
+    // toggle worked and nothing ever decoded. See HERMES.md §18.
+    //
+    // Deliberately NOT the speaker path. AudioEngine::feedAudioData keeps its
+    // existing per-family wiring untouched, so nothing audible changes on any
+    // radio; this carries the taps that listen alongside it.
+    //
+    // Named for the tap it carries. A future filter-flat, pre-AGC feed for
+    // modems is a SEPARATE signal (rxWidebandAudioReady), not a mode flag on
+    // this one — see HERMES.md §18.5.
+    void rxDemodAudioReady(const QByteArray& pcm24kStereoFloat);
     // The backend was replaced because the operator picked a radio of another
     // family. Consumers holding backend-owned objects (PanadapterStream) must
     // re-establish anything that binds to them directly.
@@ -1024,6 +1099,9 @@ private:
     // run again on a family change — not just at construction.
     void setupBackend(const QString& family);
     void teardownBackend();
+    // Bind the one producer for rxDemodAudioReady. Idempotent; call after
+    // m_backend and m_panStream are both settled for the new family.
+    void wireRxDemodAudioBus();
 
     // aetherd RFC step 2 (§5.5): the radio-facing seam. Held via std::unique_ptr
     // (owned via unique_ptr below). As of 2.2b it OWNS the RadioConnection +
@@ -1049,6 +1127,11 @@ private:
     std::atomic<quint32> m_seqCounter{1};
     QMap<quint32, ResponseCallback> m_pendingCallbacks;
     PanadapterStream* m_panStream{nullptr};    // non-owning — owned by m_backend
+    // The single live producer feeding rxDemodAudioReady. Held so re-entry can
+    // drop the previous one: connecting both producers is the double-feed that
+    // made the engine consume at double rate in #4490, and here it would make
+    // every decoder see each block twice.
+    QMetaObject::Connection m_rxDemodBusConn;
     // aetherd Gap B (Step 2c): geometry + row counter for backends that deliver
     // spectra through IRadioBackend (HL2). Kept on RadioModel because such a
     // backend has no PanadapterModel yet, and the neutral waterfall rows still
@@ -1370,6 +1453,10 @@ private:
     bool        m_wsprTxReleaseWhenReady{false};
     bool        m_wsprTxPreviousDax{false};   // `transmit dax` before the beacon armed
     bool        m_wsprTxRestoreDax{false};    // beacon changed it and owes a restore
+    // The beacon armed against a host-modulating backend, so it borrowed no DAX
+    // stream and no `transmit dax`. Latched by prepareWsprTransmit() and the
+    // only thing releaseWsprTransmit() has to undo on that path.
+    bool        m_wsprTxHostModulated{false};
     quint32     m_daxTxClientHandle{0};  // Tracked for diagnostics only — not consulted in routing.
     bool        m_daxTxCreatePending{false};
     QSet<quint32> m_deadDaxRxSeen;

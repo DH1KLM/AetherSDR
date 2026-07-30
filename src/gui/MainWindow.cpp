@@ -1076,6 +1076,11 @@ MainWindow::MainWindow(QWidget* parent)
     m_qsoRecorder = new QsoRecorder(this);
     // During playback, block live RX audio from entering the buffer
     connect(m_qsoRecorder, &QsoRecorder::muteRxRequested, this, [this](bool mute) {
+        // Covers BOTH producers. The disconnect below is the Flex path and is
+        // left exactly as it was; the flag is what mutes a seam backend, whose
+        // audio reaches the engine through RadioModel::backendAudioFrameReady
+        // and so has no stream connection to drop. (PR #4537 review.)
+        m_rxMutedForPlayback = mute;
         if (mute) {
             disconnect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
                        m_audio, &AudioEngine::feedAudioData);
@@ -1085,7 +1090,7 @@ MainWindow::MainWindow(QWidget* parent)
             // never had this connection — re-adding it here would resurrect the
             // double-feed that wirePanStreamRxAudioSinks() deliberately skips, and
             // Qt permits duplicates, so every unmute would stack another copy.
-            if (!backendOwnsRxAudio()) {
+            if (!backendFeedsEngineDirectly()) {
                 connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
                         m_audio, &AudioEngine::feedAudioData,
                         Qt::UniqueConnection);
@@ -1175,6 +1180,7 @@ MainWindow::MainWindow(QWidget* parent)
     // the sink volume to 0 would mute our playback too.
     connect(m_finalMonitor, &ClientPuduMonitor::muteRxRequested,
             this, [this](bool mute) {
+        m_rxMutedForPlayback = mute;   // seam backends — see the recorder handler
         if (mute) {
             disconnect(m_radioModel.panStream(),
                        &PanadapterStream::audioDataReady,
@@ -1182,7 +1188,7 @@ MainWindow::MainWindow(QWidget* parent)
         } else {
             // Same rule as the QSO-recorder unmute above: never resurrect the
             // stream→sink feed for a backend that supplies its own seam audio.
-            if (!backendOwnsRxAudio()) {
+            if (!backendFeedsEngineDirectly()) {
                 connect(m_radioModel.panStream(),
                         &PanadapterStream::audioDataReady,
                         m_audio, &AudioEngine::feedAudioData,
@@ -1359,11 +1365,15 @@ MainWindow::MainWindow(QWidget* parent)
     // ── Panadapter stream → audio engine ──────────────────────────────────
     // All VITA-49 traffic arrives on the single client udpport socket owned by
     // PanadapterStream, which strips IF-Data headers and emits audioDataReady().
-    // Every RX-audio sink for that signal — the QAudioSink feed, the QSO-recorder
-    // RX tap, and the CW/RTTY decoder feeds — is wired in one helper so a Flex-
-    // backend swap can rebind an identical set (the stream is destroyed/rebuilt
-    // on a family change; audioDataReady carries Flex RX audio itself).
+    // The QAudioSink feed is wired in one helper so a Flex-backend swap can
+    // rebind it (the stream is destroyed/rebuilt on a family change;
+    // audioDataReady carries Flex RX audio itself, so a missed rebind is
+    // silence rather than a degraded feature).
     wirePanStreamRxAudioSinks();
+    // The taps that listen alongside the speaker — QSO recorder RX, CW and RTTY
+    // — ride RadioModel's normalized bus instead, so they are wired ONCE here
+    // and are never part of the rebind. RadioModel outlives the swap.
+    wireRxDemodAudioSinks();
     // Separately, wire the backend-OWNED seam signals (audio + spectrum), which do
     // not flow through PanadapterStream: the demo/sim backend delivers RX audio and
     // its panadapter FFT directly over IRadioBackend (no VITA-49), in the same
@@ -1398,8 +1408,9 @@ MainWindow::MainWindow(QWidget* parent)
     wireKiwiSdr();
 
     // ── QSO recorder: tap RX audio + TX monitor, trigger on MOX (#1297) ────
-    // RX (float32) comes from the panadapter stream (wired in
-    // wirePanStreamRxAudioSinks() above); TX (int16 post-limiter monitor) from
+    // RX (float32) comes from RadioModel's normalized RX-audio bus (wired in
+    // wireRxDemodAudioSinks() above), so it works on every family rather than
+    // only on one with a VITA-49 stream; TX (int16 post-limiter monitor) from
     // AudioEngine::txFinalMonitorPcmReady — the source that carries SSB/phone
     // TX. Without the TX tap, Client-Side recordings were full-length silence
     // during transmit (#3556). The recorder MOX-gates the two so the file is a
@@ -1429,7 +1440,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     // ── CW decoder: feed audio ──────────────────────────────────────────
     // Audio feed is global (same audio for all pans) and lives in
-    // wirePanStreamRxAudioSinks() above (RX feed gated on
+    // wireRxDemodAudioSinks() above (RX feed gated on
     // CwDecodeSettings::rxEnabled(), #2417). Text/stats output is routed to the
     // pan owning the active slice via routeCwDecoderOutput(), which re-wires on
     // active slice change (#864).
@@ -1456,7 +1467,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel.transmitModel(), &TransmitModel::phoneStateChanged,
             this, [this]() { refreshCwDecodeState(); });
 
-    // RTTY decoder audio feed is wired in wirePanStreamRxAudioSinks() above,
+    // RTTY decoder audio feed is wired in wireRxDemodAudioSinks() above,
     // gated on the decoder being running.
 
     // ── AF gain from applet panel → radio per-slice audio_level ─────────
@@ -5785,7 +5796,7 @@ void MainWindow::wireBackendSeam(IRadioBackend* backend)
     // HL2: HL2 demodulates in-process and audioFrameReady is its ONLY audio
     // route (Hl2Backend.cpp, emit audioFrameReady). It therefore arrived here
     // AND via the RadioModel::backendAudioFrameReady relay in
-    // MainWindow_Session.cpp, whose gate — backendOwnsRxAudio() — excludes only
+    // MainWindow_Session.cpp, whose gate — backendFeedsEngineDirectly() — excludes only
     // the sim. Every HL2 frame was delivered twice and the engine consumed at
     // double rate: measured 48043 Hz at the raw tap against a nominal 24000
     // (ratio 2.002), audible as popping and crackling on every mode.

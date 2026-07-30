@@ -197,7 +197,13 @@ void MainWindow::wireDiscovery()
     // arriving at the same slot, so nothing looks duplicate to Qt.
     connect(&m_radioModel, &RadioModel::backendAudioFrameReady,
             m_audio, [this](const QByteArray& pcm) {
-        if (backendOwnsRxAudio()) return;   // demo feeds the engine directly
+        if (backendFeedsEngineDirectly()) return;   // demo feeds the engine directly
+        // Playback mute. The Flex path mutes by disconnecting the stream's
+        // audioDataReady from feedAudioData; against a null PanadapterStream
+        // that disconnect is a silent no-op, so a seam backend would keep
+        // feeding live receive UNDER the playback. Reachable in practice only
+        // now that the recorder captures RX on such a radio at all. (#4537.)
+        if (m_rxMutedForPlayback) return;
         m_audio->feedAudioData(pcm);
     });
 
@@ -1801,7 +1807,26 @@ void MainWindow::wireCatPorts()
 // RX audio itself rides audioDataReady, so a missed one is silence, not a
 // degraded feature. Keeping the list here (not open-coded in two places) is why
 // a new sink added to buildUI cannot silently go un-rebound after a swap.
-bool MainWindow::backendOwnsRxAudio()
+// Deliberately NOT IRadioBackend::ownsRxAudio(), despite the near-identical
+// English. The two ask different questions and disagree about the HL2:
+//
+//   IRadioBackend::ownsRxAudio()      "audio arrives over the seam"
+//                                       HL2 TRUE, sim true, Flex false
+//   MainWindow::backendFeedsEngineDirectly()
+//                                     "the backend already feeds AudioEngine
+//                                      itself, so no relay"
+//                                       HL2 FALSE, sim true, Flex false
+//
+// An HL2 owns its RX audio AND needs the relay: wireBackendSeam() connects
+// audioFrameReady -> feedAudioData for the sim ONLY, so HL2 audio reaches the
+// engine through RadioModel::backendAudioFrameReady instead.
+//
+// So the tempting cleanup — delegating this to backend()->ownsRxAudio() —
+// makes the relay's `if (…) return;` swallow every HL2 frame and SILENCES the
+// speaker on the radio this all exists to support. Renamed away from the
+// collision precisely so nobody makes that substitution on the strength of the
+// names matching. (PR #4537 review.)
+bool MainWindow::backendFeedsEngineDirectly()
 {
     // The demo (RFC #4288 Route A) is the one backend that BOTH vends a
     // PanadapterStream and emits its own seam audio: SimBackend::onAudioTick →
@@ -1827,28 +1852,51 @@ void MainWindow::wirePanStreamRxAudioSinks()
     // wobble plus distortion, and recognisably "the waterfall you can hear".
     // The backend's own audio wins; the stream's other RX taps below stay wired.
     // Primary RX audio → QAudioSink (skipped when the backend owns its audio).
-    if (!backendOwnsRxAudio()) {
+    if (!backendFeedsEngineDirectly()) {
         connect(ps, &PanadapterStream::audioDataReady,
                 m_audio, &AudioEngine::feedAudioData,
                 Qt::UniqueConnection);
     }
 
-    // QSO recorder RX tap (float32). TX monitor + MOX gating are wired to
-    // AudioEngine/TransmitModel, which survive the swap, so they stay in buildUI.
+    // The QSO recorder's RX tap and the CW/RTTY decoder feeds used to be wired
+    // HERE, to this stream. They now ride RadioModel::rxDemodAudioReady — see
+    // wireRxDemodAudioSinks(), called once from buildUI. Two reasons:
+    //
+    //   1. A radio without a PanadapterStream (HL2) never reached this function
+    //      at all — the early return above — so all three were silently dead.
+    //   2. Even for a Flex they had to be re-bound on every family swap, which
+    //      is the fragility the comment above this function warns about. Bound
+    //      to RadioModel they simply outlive the swap.
+    //
+    // The primary RX audio → QAudioSink connection above stays exactly where it
+    // was, deliberately: nothing audible changes on any family.
+}
+
+// The RX-audio taps that listen ALONGSIDE the speaker: the QSO recorder and the
+// CW/RTTY decoders. Wired once, to RadioModel's normalized bus, and never
+// rebound — RadioModel outlives the backend swaps that destroy a
+// PanadapterStream, and it publishes whichever producer is real for the
+// connected family.
+//
+// The gates stay live (read per block) rather than driving connect/disconnect,
+// so toggling CW decode or starting RTTY never has to touch wiring — the
+// property this had before and worth keeping.
+void MainWindow::wireRxDemodAudioSinks()
+{
     if (m_qsoRecorder) {
-        connect(ps, &PanadapterStream::audioDataReady,
+        connect(&m_radioModel, &RadioModel::rxDemodAudioReady,
                 m_qsoRecorder, &QsoRecorder::feedRxAudio);
     }
 
-    // CW decoder RX feed — gated live on the toggle so it need not rewire (#2417).
-    connect(ps, &PanadapterStream::audioDataReady,
+    // CW decoder RX feed — gated live on the toggle (#2417).
+    connect(&m_radioModel, &RadioModel::rxDemodAudioReady,
             &m_cwDecoder, [this](const QByteArray& pcm) {
                 if (CwDecodeSettings::rxEnabled())
                     m_cwDecoder.feedAudio(pcm);
             });
 
     // RTTY decoder RX feed — gated on the decoder being running.
-    connect(ps, &PanadapterStream::audioDataReady,
+    connect(&m_radioModel, &RadioModel::rxDemodAudioReady,
             &m_rttyDecoder, [this](const QByteArray& pcm) {
                 if (m_rttyDecoder.isRunning())
                     m_rttyDecoder.feedAudio(pcm);

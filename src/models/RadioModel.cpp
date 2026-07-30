@@ -501,6 +501,11 @@ void RadioModel::setupBackend(const QString& family)
     connect(m_backend.get(), &IRadioBackend::audioFrameReady,
             this, &RadioModel::backendAudioFrameReady);
 
+    // Pick the one producer for the normalized RX-audio bus. Done here, once
+    // per backend, so every consumer of rxDemodAudioReady is family-blind and
+    // survives a swap without rewiring. See the signal's header comment.
+    wireRxDemodAudioBus();
+
     // aetherd RFC 2.3: the first converted touchpoint. The backend decodes the
     // universal pan center/bandwidth from Flex status and emits this normalized
     // signal; RadioModel drives the addressed PanadapterModel. (Template for the
@@ -981,6 +986,10 @@ void RadioModel::teardownBackend()
     // slot running during teardown fails closed instead of dereferencing a
     // backend mid-destruction.
     m_flexBackend = nullptr;
+    // Any backend replacement invalidates a WSPR transmit-route claim. Cleared
+    // here rather than only in onDisconnected(), because a family switch never
+    // reaches that path — see hasWsprTxStream().
+    m_wsprTxHostModulated = false;
     m_backend.reset();
     m_connection = nullptr;
     m_panStream = nullptr;
@@ -1667,6 +1676,59 @@ int RadioModel::activeTxSliceNum() const
             return s->sliceId();
     }
     return -1;
+}
+
+void RadioModel::wireRxDemodAudioBus()
+{
+    // Exactly one producer, ever. Drop the previous binding first: on a family
+    // swap the old PanadapterStream is usually destroyed (which would drop its
+    // connection anyway), but a swap BETWEEN two seam backends re-enters here
+    // with the same `this` on both ends and nothing would be dropped for us.
+    QObject::disconnect(m_rxDemodBusConn);
+    m_rxDemodBusConn = {};
+
+    if (m_backend && m_backend->ownsRxAudio()) {
+        // Seam-native audio (HL2 in-process demod, the sim's real demo audio).
+        // Chained off backendAudioFrameReady rather than the backend's own
+        // signal so both relays cross the thread boundary identically.
+        m_rxDemodBusConn = connect(this, &RadioModel::backendAudioFrameReady,
+                                   this, &RadioModel::rxDemodAudioReady);
+        return;
+    }
+    if (m_panStream) {
+        // Flex: the VITA-49 slice audio, unchanged and still feeding the engine
+        // by its own existing connection. This is an ADDITIONAL subscriber to
+        // the same signal, so the audible path is untouched.
+        m_rxDemodBusConn = connect(m_panStream, &PanadapterStream::audioDataReady,
+                                   this, &RadioModel::rxDemodAudioReady);
+    }
+}
+
+// See the header for why this falls back and why the key is station-wide.
+QString RadioModel::callsign() const
+{
+    const QString fromRadio = m_callsign.trimmed();
+    if (!fromRadio.isEmpty())
+        return fromRadio;
+    return AppSettings::instance()
+        .value(QStringLiteral("StationCallsign"), QString())
+        .toString()
+        .trimmed();
+}
+
+void RadioModel::setStationCallsign(const QString& callsign)
+{
+    const QString wanted = callsign.trimmed().toUpper();
+    const QString before = this->callsign();
+    AppSettings::instance().setValue(QStringLiteral("StationCallsign"), wanted);
+    // Commit now rather than relying on the shutdown save: the whole point of
+    // this setting is that it survives, and an operator who types a callsign
+    // and then force-quits has done nothing wrong. Mirrors the nickname write
+    // in RadioSetupDialog.
+    AppSettings::instance().save();
+    const QString after = this->callsign();
+    if (after != before)
+        emit callsignChanged(after);
 }
 
 QString RadioModel::antennaAliasRadioKey() const
@@ -4809,7 +4871,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                             if (key == "callsign") {
                                 if (val != m_callsign) {
                                     m_callsign = val;
-                                    emit callsignChanged(m_callsign);
+                                    emit callsignChanged(callsign());   // effective value, not the raw radio field
                                 }
                             }
                             else if (key == "name")        m_nickname = val;
@@ -5124,6 +5186,7 @@ void RadioModel::onDisconnected()
     // and the next connect re-reads it from status.
     m_wsprTxRestoreDax = false;
     m_wsprTxPreviousDax = false;
+    m_wsprTxHostModulated = false;
     m_deadDaxRxSeen.clear();
     m_externalDaxTxSeen.clear();
     m_externalDaxRxSeen.clear();
@@ -7898,7 +7961,7 @@ void RadioModel::applyRadioChanges(const RadioDelta& d)
     if (d.callsign) {
         if (*d.callsign != m_callsign) {
             m_callsign = *d.callsign;
-            emit callsignChanged(m_callsign);
+            emit callsignChanged(callsign());   // effective value, not the raw radio field
         }
         changed = true;
     }
@@ -8671,13 +8734,31 @@ bool RadioModel::prepareWsprTransmit()
     if (!backendCapabilities().canTransmit) {
         return false;
     }
-    // The beacon rides a Flex `dax_tx` stream, and no other family provides
-    // one — HL2 host-modulates and has no DAX at all. Check before borrowing
-    // any station state: ensureDaxTxStream() below issues `stream create` and
-    // returns true optimistically on the pending reply, so on a non-Flex
-    // backend whose command sink drops that command the prepare would "succeed"
-    // with a stream that never arrives, leaving `transmit dax` latched until
-    // the beacon times out and releases it several minutes later.
+    // A host-modulating backend (HL2) runs the modulator on THIS host, so the
+    // beacon needs no transport at all: AudioEngine's WSPR pump already reaches
+    // it through feedDaxTxAudioInternal()'s m_hostModulation branch →
+    // txFinalMonitorPcmReady → submitTxAudio, the same tap the microphone and
+    // TCI use. There is nothing to create and nothing to borrow, so this arm
+    // takes none of the station state the Flex arm below does.
+    //
+    // Nor does it need `transmit dax`: that setting exists to tell a FLEX to
+    // take its modulator input from the DAX stream instead of the mic jacks,
+    // and a radio with no on-radio modulator has no such choice to make. The
+    // mic still has to be kept off the wire — two producers into one modulator
+    // would put shack ambience on the WSPR frame — but AudioEngine::
+    // startWsprPump() already does that with setDaxTxMode(true), which gates
+    // onTxAudioReady() locally on every family.
+    if (backendCapabilities().hostModulates) {
+        m_wsprTxHostModulated = true;
+        return true;
+    }
+    // Every other non-Flex family: the beacon rides a Flex `dax_tx` stream and
+    // nothing else provides one. Check before borrowing any station state —
+    // ensureDaxTxStream() below issues `stream create` and returns true
+    // optimistically on the pending reply, so on a backend whose command sink
+    // drops that command the prepare would "succeed" with a stream that never
+    // arrives, leaving `transmit dax` latched until the beacon times out and
+    // releases it several minutes later.
     if (m_flexBackend == nullptr) {
         return false;
     }
@@ -8708,6 +8789,15 @@ bool RadioModel::prepareWsprTransmit()
 
 void RadioModel::releaseWsprTransmit()
 {
+    // Host-modulated: nothing was borrowed, so nothing is handed back. Dropping
+    // the latch is the whole release — and it must happen before the DAX arm so
+    // a stale m_daxTxStreamId from an earlier Flex session in the same process
+    // cannot make this path issue `stream set … tx=0` at a radio that has no
+    // such stream.
+    if (m_wsprTxHostModulated) {
+        m_wsprTxHostModulated = false;
+        return;
+    }
     if (m_wsprTxOwnershipRequested && m_wsprTxYieldAfterUse) {
         if (m_daxTxStreamId != 0) {
             sendCmd(QStringLiteral("stream set %1 tx=0")
