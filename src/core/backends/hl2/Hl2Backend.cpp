@@ -917,8 +917,25 @@ void Hl2Backend::setKeying(bool key)
     // clearing that indiscriminately broke exactly that case.
     if (key && !m_tuning && m_toneFromTune)
         setTxTestTone(0.0, 0.0);
-    if (!key)
-        m_tuning = false;   // an unkey ends tune too, however it was started
+    if (!key) {
+        // An unkey ends tune too, however it was started — so the drive register
+        // has to come back HERE, not in setTune()'s release branch.
+        //
+        // setTune(false, …) is only reached when the operator releases the TUNE
+        // toggle. Every other way a tune ends — the automation TX watchdog and
+        // the key verb via RadioModel::setTransmit() (RadioModel.cpp:2696), the
+        // MOX/PTT coordinator (RadioModel.cpp:674), and the disconnect reset
+        // below — calls setKeying(false) directly and never goes through
+        // setTune() at all. Restoring there left those paths unkeyed with the
+        // drive still at TUNE power, and because m_tuning is cleared on this
+        // same line, setTxPower() no longer held off: the radio stayed at tune
+        // power until the operator happened to move the slider. A subsequent
+        // voice transmission would have gone out at 10%.
+        const bool wasTuning = m_tuning;
+        m_tuning = false;
+        if (wasTuning)
+            setTxPower(m_rfPowerPercent);
+    }
     if (m_metis)
         QMetaObject::invokeMethod(m_metis, "setMox", Qt::QueuedConnection,
             Q_ARG(bool, key));
@@ -998,7 +1015,7 @@ void Hl2Backend::setTxTestTone(double offsetHz, double amplitude)
         Q_ARG(double, offsetHz), Q_ARG(double, amplitude));
 }
 
-void Hl2Backend::setTune(bool on)
+void Hl2Backend::setTune(bool on, int tunePowerPercent)
 {
     // A tune carrier is an unmodulated steady signal at the transmit frequency.
     // The HL2 has no tune generator of its own, so it is the built-in test tone
@@ -1009,18 +1026,40 @@ void Hl2Backend::setTune(bool on)
     // the first frames on the air already carry it rather than silence, and drop
     // the key BEFORE the carrier on the way out so nothing is left radiating if
     // the tone clear is delayed behind other queued control verbs.
-    m_tuning = on;
+    //
+    // Drive is set from TUNE power, not RF power. The carrier amplitude is a
+    // fixed full-scale constant, so without this the drive register still held
+    // whatever setTxPower() last pushed — the RF Power slider — and an operator
+    // running RF 100 / Tune 10 got a FULL-POWER carrier from a control whose
+    // whole purpose is to reduce it. Flex is unaffected: it receives tune power
+    // as a text command and applies it radio-side.
+    // The RF power restore is NOT here: it lives in setKeying(false), which is
+    // the one point every unkey path converges on. See the comment there.
+    //
+    // m_tuning is therefore set only on the way UP, and left for setKeying() to
+    // clear on the way down. Assigning it unconditionally here would clear it
+    // before the setKeying(false) below could see it, and the restore that reads
+    // it would never fire on the one path that always goes through this
+    // function — the operator releasing the TUNE toggle.
     if (on) {
+        m_tuning = true;
+        // Straight to the drive register rather than through setTxPower(), which
+        // would overwrite the saved RF power we have to restore on release.
+        if (tunePowerPercent >= 0)
+            applyDrive(tunePowerPercent);
         setTxTestTone(0.0, kTuneCarrierAmplitude);
         m_toneFromTune = true;   // set AFTER: setTxTestTone clears the flag
         setKeying(true);
     } else {
-        setKeying(false);
+        setKeying(false);   // clears m_tuning and restores the operator's RF power
         setTxTestTone(0.0, 0.0);
     }
 }
 
-void Hl2Backend::setTxPower(int percent)
+// Clamp, map to the drive register, and honour the transmit gate. Shared by
+// setTxPower() and setTune() so the mapping — whose coarseness is documented in
+// setTxPower() — exists once and cannot drift between the two.
+void Hl2Backend::applyDrive(int percent)
 {
     // Drive is gated exactly like keying. setTxDriveLevel writes the PA-enable
     // bit (0x09[19]) every frame, so an ungated call — e.g. the push-current-
@@ -1031,12 +1070,25 @@ void Hl2Backend::setTxPower(int percent)
         setTxDriveLevel(0);
         return;
     }
+    const int clamped = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    setTxDriveLevel(clamped * kTxDriveMax / 100);
+}
+
+void Hl2Backend::setTxPower(int percent)
+{
     // The operator's 0..100 maps onto the HL2's 0..255 drive field. The gateware
     // only decodes the top nibble, so the effective resolution is coarser than
     // this suggests — the mapping is linear in the register, NOT calibrated to
     // watts, and nothing here should imply otherwise.
-    const int clamped = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
-    setTxDriveLevel(clamped * kTxDriveMax / 100);
+    //
+    // Remember the operator's drive so setTune() can drop to tune power and the
+    // unkey can put this back. Recorded BEFORE the transmit gate and even while
+    // tuning: a power change made mid-tune, or while TX is blocked, is still
+    // what the operator wants once the carrier drops or the gate opens.
+    m_rfPowerPercent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    if (m_tuning)
+        return;   // tune power owns the drive register until the carrier drops
+    applyDrive(m_rfPowerPercent);
 }
 
 void Hl2Backend::setTxDriveLevel(int level)

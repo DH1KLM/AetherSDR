@@ -62,7 +62,10 @@ public:
     void setKeying(bool key) override;
     void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz) override;
     void setTxPower(int percent) override;
-    void setTune(bool on) override;
+    // No default argument here on purpose: defaults on virtuals bind statically,
+    // so repeating the base's is how the two quietly diverge later. The sole
+    // call site passes it explicitly.
+    void setTune(bool on, int tunePowerPercent) override;
     void setTxFrequency(double hz);
     void setTxDriveLevel(int level);
     // Baseband TX test tone, offsetHz from the carrier, amplitude 0..1.
@@ -85,6 +88,9 @@ private:
     void pushInitialState();
     void defineMeters();
     void publishTelemetry(const Hl2Telemetry& t);
+    // Clamp 0..100, map onto the drive register, honour the transmit gate.
+    // Shared by setTxPower() and setTune() so the mapping exists exactly once.
+    void applyDrive(int percent);
     static double temperatureCelsius(int raw);
     // Uncalibrated directional-coupler counts -> watts. See the table in the
     // .cpp for what this curve is and, more importantly, what it is not.
@@ -162,6 +168,11 @@ private:
     bool m_keyed = false;
     bool m_tuning = false;
     bool m_toneFromTune = false;
+    // Last drive the operator asked for through setTxPower(), so TUNE can drop to
+    // tune power and put it back on release. Seeded to the same value
+    // TransmitModel defaults rfPower to, so a TUNE before any power change
+    // restores something sane rather than 0.
+    int m_rfPowerPercent = 100;
     // Tune-carrier amplitude, full scale into the modulator. Actual radiated
     // power is governed by the TX drive register, which is where an operator
     // sets it; scaling here as well would make the power control non-linear for
