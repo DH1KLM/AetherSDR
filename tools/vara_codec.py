@@ -73,6 +73,41 @@ def offset_sets(captures, identities):
     return out
 
 
+def constrain_with_multibit(sets, base, rows_raw, observations):
+    """Narrow the offset sets using captures with MANY payload bits set.
+
+    A pair identity only constrains positions that its two bits actually move,
+    so offsets stay undetermined wherever those particular bits are inert — and
+    a capture whose bits fall in that blind spot then mispredicts. Measured:
+    two-bit payloads predicted 407/407 while 9-to-12-bit payloads managed only
+    400-403/407, and every discrepancy was at such a position.
+
+    A multi-bit capture constrains EVERY position at once, because the encoded
+    symbol there depends on the whole set. `observations` is a list of
+    (set_bits, symbols) for captures not used elsewhere.
+    """
+    out = []
+    for p in range(FRAME_SYMBOLS):
+        ok = set()
+        for r in sets[p]:
+            d0 = (int(base[p]) - r) % 16
+            good = True
+            for setbits, sym in observations:
+                d = d0
+                for i in setbits:
+                    if i not in rows_raw:
+                        good = False
+                        break
+                    d ^= ((int(rows_raw[i][p]) - r) % 16) ^ d0
+                if not good or (d + r) % 16 != int(sym[p]):
+                    good = False
+                    break
+            if good:
+                ok.add(r)
+        out.append(ok if ok else sets[p])
+    return out
+
+
 def choose_offsets(sets):
     """One concrete offset per position. Any member works (see module docstring),
     so take the smallest for reproducibility."""
