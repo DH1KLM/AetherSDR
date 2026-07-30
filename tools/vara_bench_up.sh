@@ -24,11 +24,17 @@ export DISPLAY="${BENCH_DISPLAY:-:99}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
 export WINEDEBUG=-all
+export MANGOHUD=0
 
-A_PREFIX="$HOME/.local/share/wineprefixes/vara-hf"
-A_WINE=/opt/wine-cachyos/bin/wine
-B_PREFIX="$HOME/.local/share/bottles/bottles/VARA-HF"
-B_WINE="$HOME/.local/share/bottles/runners/soda-9.0-1/bin/wine"
+# BOTH instances run from the SAME Bottles prefix, in separate program folders
+# (drive_c/VARA and drive_c/VARA2) — the multi-instance pattern from §3.2 of the
+# clean-room note. This matters: an earlier version of this script launched
+# instance A from a standalone wine-cachyos prefix, a configuration that never
+# worked end to end. Only the soda runner has carried a full ARQ session here.
+PREFIX="$HOME/.local/share/bottles/bottles/VARA-HF"
+WINE="$HOME/.local/share/bottles/runners/soda-9.0-1/bin/wine"
+A_DIR=VARA
+B_DIR=VARA2
 
 log() { echo "[bench] $*"; }
 
@@ -56,22 +62,21 @@ done
 # must be configured for the matching KISS port (8110).
 for cfg_port in "VARA:8100" "VARA2:8110"; do
     d="${cfg_port%%:*}"; kp="${cfg_port##*:}"
-    ini="$A_PREFIX/drive_c/$d/VARA.ini"
-    [ -f "$ini" ] || ini="$B_PREFIX/drive_c/$d/VARA.ini"
+    ini="$PREFIX/drive_c/$d/VARA.ini"
     [ -f "$ini" ] && sed -i "s/^KISS Port=.*/KISS Port=$kp/" "$ini" &&         log "$d KISS port set to $kp"
 done
 
 log "starting instance A (8300) -> sink varaA, listening on varaB.monitor"
-cd "$A_PREFIX/drive_c/VARA" || exit 1
-WINEPREFIX="$A_PREFIX" PULSE_SINK=varaA PULSE_SOURCE=varaB.monitor \
-    setsid nohup "$A_WINE" VARA.exe >/dev/null 2>&1 &
+cd "$PREFIX/drive_c/$A_DIR" || exit 1
+WINEPREFIX="$PREFIX" PULSE_SINK=varaA PULSE_SOURCE=varaB.monitor \
+    setsid nohup "$WINE" VARA.exe >/dev/null 2>&1 &
 
 sleep 8
 
 log "starting instance B (8310) -> sink varaB, listening on varaA.monitor"
-cd "$B_PREFIX/drive_c/VARA" || exit 1
-WINEPREFIX="$B_PREFIX" PULSE_SINK=varaB PULSE_SOURCE=varaA.monitor \
-    setsid nohup "$B_WINE" VARA.exe >/dev/null 2>&1 &
+cd "$PREFIX/drive_c/$B_DIR" || exit 1
+WINEPREFIX="$PREFIX" PULSE_SINK=varaB PULSE_SOURCE=varaA.monitor \
+    setsid nohup "$WINE" VARA.exe >/dev/null 2>&1 &
 
 sleep 14
 
