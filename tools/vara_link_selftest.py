@@ -2,9 +2,9 @@
 """Prove the Phase 2 capability: read an ARQ payload as plaintext.
 
 Instance B connects to instance A and sends a known payload. A's data socket
-should deliver exactly those bytes. This is the mechanism by which VarAC's
-application protocol becomes readable — put VarAC on one modem, this on the
-other, and whatever VarAC frames inside the link appears here in the clear.
+should deliver exactly those bytes. That proves the transport end to end: any
+application layer riding inside a VARA ARQ link is carried byte-transparently,
+so a payload written at one end arrives unaltered at the other.
 
 Unlike the earlier harness, this one reports reader-thread failures instead of
 letting them die silently, which is what previously hid a successful transfer.

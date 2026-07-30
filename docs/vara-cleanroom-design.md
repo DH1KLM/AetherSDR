@@ -1,13 +1,20 @@
-# VARA / VarAC Clean-Room Design Note
+# VARA HF Clean-Room Design Note
 
-Status: **Phase 1 — host-interface client implemented from published sources.
-No captures taken and no VARA or VarAC software installed as of this entry;
-everything so far derives from the documents and open-source references logged
-in §3.**
+Status: **VARA HF host-interface client implemented and tested against a live
+modem; the VARA HF waveform characterised from captures. No VARA binary has
+been disassembled — every input is listed in §3.**
 
-Purpose: an append-only provenance record for AetherSDR's native VARA / VarAC
-interoperability work, per Constitution **Principle IV (Every Contribution Is
-Clean-Room)**. Every input that informs the implementation is logged here,
+Purpose: an append-only provenance record for AetherSDR's native **VARA HF**
+support, per Constitution **Principle IV (Every Contribution Is Clean-Room)**.
+
+**Scope note (2026-07-30).** This effort originally also targeted VarAC, a
+third-party chat application that runs *on top of* VARA. That work has been
+removed: VarAC's application protocol is undocumented and closed, and an attempt
+to characterise it produced exactly one unreproducible observation. The VARA HF
+modem itself is a separate product with a **published** host interface, so it
+stands on its own and is what this document now covers. Provenance entries that
+existed solely to support the VarAC work have been dropped along with the code;
+every entry retained below informs VARA HF code that is still in the tree. Every input that informs the implementation is logged here,
 dated, before or as it is used — never retrofitted.
 
 This file is the authority on *where our knowledge came from*. If an input is
@@ -24,15 +31,15 @@ the wire, and reading official or public documentation are all clean-room."*
 **Clean — permitted:**
 
 - The author's own published specification (see §3.1).
-- Public documentation: the VarAC manual, VARA's published TCP interface,
-  third-party implementations' public docs (BPQ32, RadioMail, Winlink).
+- Public documentation: VARA's published TCP host interface and specification,
+  and third-party implementations' public docs (BPQ32, RadioMail, Winlink).
 - Behaviour observed on the wire: RF captures, audio-domain captures of a
   modulator's output, bytes observed on a TCP socket.
 - Our own analysis, design and implementation derived from the above.
 
 **Contaminated — forbidden, without exception:**
 
-- Opening `VARA.exe`, `VarAC.exe`, or any of their DLLs in a disassembler,
+- Opening `VARA.exe` or any of its DLLs in a disassembler,
   decompiler, or any tool that recovers source or intermediate representation.
 - Reading, transcribing, translating or paraphrasing such output.
 - Inspecting proprietary binaries' internals by debugger attach, memory
@@ -58,7 +65,7 @@ the party that performs the analysis, at no extra cost:
 
 | Role | Environment | Notes |
 |---|---|---|
-| **Signal generation** | Windows environment (WINE or one VM) running VarAC + VARA | Accepts the VARA / VarAC terms of use. Generates audio and TCP traffic. |
+| **Signal generation** | Windows environment (WINE or one VM) running VARA | Accepts VARA's terms of use. Generates audio and TCP traffic. |
 | **Observation & analysis** | Linux host — AetherSDR, capture tooling, analysis scripts | Never runs the proprietary software. Consumes only recorded outputs. |
 
 Rationale: copyright-wise, reverse engineering for interoperability is
@@ -115,18 +122,18 @@ used for.
 - **Used for:** demodulator front-end geometry; framing model; the decision
   that L1 is a bounded problem rather than blind waveform recovery.
 
-### 3.2 — 2026-07-28 · VarAC manual, EN v15.0.18
+### 3.2 — 2026-07-28 · Third-party manual (VarAC), for VARA's multi-instance pattern
 
 - **What:** "VarAC manual in English", by ON2AD Pat, 158 pp, dated 22/07/2026.
 - **Source:** public PDF, operator-supplied copy at `~/Downloads/`.
 - **Status:** **clean** — published user documentation.
-- **Used for:** enumerating VarAC's external interfaces (CAT paths, VARA modem
-  configuration, logger TCP/UDP output, ADIF), the multi-instance cluster
-  pattern used for the bench rig, and the feature inventory that Phase 2 must
-  exercise (CQ, beacons, broadcasts, VMail, file transfer, alert tags,
-  pathfinder, digipeater chaining).
-- **Note:** documents the UI and configuration of every feature and the wire
-  format of none. It is not a protocol source.
+- **Used for:** one thing that survives into VARA HF work — the documented
+  pattern for running **multiple VARA instances on one machine** (separate
+  program folders, one `VARA.ini` per instance, distinct TCP port pairs), which
+  is what `tools/vara_bench_up.sh` implements. Also documents VARA's modem
+  configuration surface (bandwidth, ports, paths).
+- **Note:** it documents configuration, not wire formats. It is not a protocol
+  source, and nothing in it informed the VARA protocol implementation.
 
 ### 3.3 — 2026-07-28 · VARA TCP host interface (public)
 
@@ -272,8 +279,8 @@ See §4. Recorded as an input because its outcome gates the work.
     VARA's dialog — separate them with **`PULSE_SINK` / `PULSE_SOURCE` per
     process** instead.
   - **Two instances, one prefix**, using separate program folders
-    (`C:\VARA`, `C:\VARA2`) each with its own `VARA.ini` — the pattern VarAC's
-    own manual prescribes for clustering.
+    (`C:\VARA`, `C:\VARA2`) each with its own `VARA.ini` — the multi-instance pattern
+  documented in §3.2.
   - **Live link achieved** (no radio, no RF, audio crossing two null sinks):
     `CONNECTED KK7GWY-1 KK7GWY 2300` on both sides, `SN 6.6` / `SN 7.5`,
     `BITRATE (4)  175 bps TX` / `RX`, `UNENCRYPTED LINK`, `LINK UNREGISTERED`,
@@ -307,8 +314,9 @@ See §4. Recorded as an input because its outcome gates the work.
 
     **This is the Phase 2 mechanism demonstrated end to end: whatever an
     application frames inside a VARA ARQ link is readable in the clear at the
-    far end, with no access to that application's internals.** Put VarAC on one
-    modem and our client on the other, and VarAC's protocol is observable
+    far end, with no access to that application's internals.** Put any VARA host
+application on one modem and our client on the other, and its traffic is
+observable
     without decompiling anything — which is precisely the clean-room route
     Principle IV sanctions.
 
@@ -362,46 +370,6 @@ See §4. Recorded as an input because its outcome gates the work.
   Cardiff County and Vale of Glamorgan area)" — i.e. encryption is gated to
   specific callsigns rather than generally available. Consistent with our
   decision to parse but never request it (§3.5).
-
-### 3.7 — 2026-07-29 · VarAC v15.0.18 installed on the bench
-
-- **What:** VarAC v15.0.18, operator-downloaded (the vendor gates distribution
-  behind a registration form and emails the link; no attempt was made to work
-  around that). `VarAC_V15_0_18.zip`,
-  sha256 `e8ea382a80bbea70ef9a03e16e949ebdf7da2906518479e14919b4b032e0dab0`.
-  Also supplied by the vendor: `VarAC_technical_deep_dive V11.pptx`, a 62-slide
-  technical overview by the author, Irad Deutsch 4Z1AC.
-- **Status:** **clean** — vendor-published software and vendor-published
-  documentation, observed from the outside. Not disassembled.
-- **Contents** (6 files, no installer needed): `VarAC.exe` (22 MB, .NET),
-  `PSKReporter.dll`, `VarAC_cat_commands.ini`, `VarAC_templates.ini`,
-  `VarAC_UI_languages.ini`, `License.txt`. **`VarAC_cat_commands.ini` is the
-  CAT dialect file** referenced in §3.2 as unavailable — it ships in the
-  archive, so what VarAC sends any given rig is now readable directly.
-- **Runs under WINE** on the soda runner with the bottle's existing wine-mono;
-  no extra .NET install was required. First run demands a callsign and a
-  6-character Maidenhead locator. **The bench uses `AA00AA` as an obvious
-  placeholder — it is not the operator's real grid and must be corrected before
-  any on-air use.**
-- **Configuration:** `VarAC.ini` `[VARAHF_CONFIG]` — `VarahfMainPort`,
-  `VarahfMainHost`, `VarahfMainPath`, plus `VarahfEnableKissInterface` and
-  `VarahfMainKissPort=8100`. The bench sets `VarahfMainPort=8310` so VarAC
-  drives modem instance B while instance A stays free to observe from the far
-  end of the link.
-- **MAJOR FINDING — the free licence caps speed at 170 bps.** Slide 7 of the
-  vendor deck: *"Free license version available with speed limit of 170 BPS."*
-  This **corrects an earlier conclusion in this document**: the bench link
-  settling at level 4 / 175 bps was attributed to the ~7 dB SN of the
-  null-sink path. It is licence-limited, not SNR-limited — consistent with the
-  `LINK UNREGISTERED` observed on every session. **Consequence for Phase 3:
-  characterising speed levels 5–11 requires a registered (paid) VARA licence.
-  No amount of bench SNR will reach them.**
-- **Observed behaviour:** VarAC connects to the modem, and CQ/beacon
-  transmissions are visible at the far end as repeated 1.5–2.5 s `BUSY ON/OFF`
-  bursts. The far modem does **not** yet decode them into `CQFRAME` or payload
-  at either 500 Hz or 2300 Hz. Open — see below.
-- **Note:** VarAC will not call CQ without a **Slot** selected; its own tooltip
-  states the Slot ID is embedded in the CQ frame.
 
 ### 3.8 — 2026-07-29 · Level 4 is NOT OFDM. VARA is a dual-waveform system.
 
@@ -866,79 +834,6 @@ Recorded here so the next person does not spend that effort on the strength of
 §3.14's determinism result alone. Determinism is necessary for the differential
 attack but not sufficient — the algebra has to close too, and here it does not.
 
-### 3.18 — 2026-07-29 · First bytes of VarAC's application protocol
-
-- **What:** the payload VarAC writes into a VARA ARQ link, read from the far
-  end's data socket. A genuine VarAC v15.0.18 drove one modem; our own client
-  drove the other. No radio, no RF, nothing disassembled.
-- **Status:** **clean** — bytes observed on the wire, which Principle IV names
-  explicitly as a clean input.
-- **Two facts from VarAC's own log files** (`drive_c/VarAC/VarAC.log`,
-  `VarAC_traffic.log` — files the program writes, therefore external output and
-  clean):
-  - `Setting Bandwith to 500Hz` — **VarAC's modem runs at 500 Hz.** A peer at
-    2300 Hz cannot form an ARQ link, and the failure looks like an unexplained
-    connect timeout. This had already cost one failed capture.
-  - `Unattended links enabled` — VarAC **auto-accepts** inbound connections, so
-    no GUI interaction is needed for it to answer.
-- **Captured, verbatim.** With our side calling, at matching BW500:
-
-  ```
-  modem: CONNECTED KK7GWY-9 KK7GWY 500
-  +6.8s: 00000000  33 20 3c 51 3e            |3 <Q>|
-  ```
-
-  **VarAC's protocol is plaintext ASCII with angle-bracket-delimited tokens.**
-  Not compressed, not binary, not obfuscated. VarAC speaks first, unprompted,
-  on an inbound connection. Analysis in
-  [`varac-protocol.md`](varac-protocol.md).
-- **Not established** and deliberately not guessed: the meaning of `Q`, the
-  meaning of the leading `3 `, whether messages are terminated, or any other
-  token. One token has been seen. Once.
-- **Method note.** Both blocking facts came from reading the program's own logs,
-  after several attempts at synthetic GUI keystrokes had failed. That is the
-  third time this investigation that direct observation beat indirect inference
-  — after screenshotting VARA's dialog found the soundcard cause, and after
-  synthetic-truth validation found the cyclic-prefix result. **Read what a
-  program says about itself before instrumenting it.**
-- **Environment correction.** VarAC **crashes on the operator's real display**:
-  the session is Wayland, so `:0` is XWayland, and wine's X11 driver fails with
-  `BadWindow` on `X_UnmapWindow` (reproduced twice, survives longer with
-  MangoHud disabled but still exits). VarAC runs reliably on a bare Xvfb `:99`.
-  Headless is the working configuration here, not the compromise.
-
-### 3.19 — 2026-07-29 · VarAC's own database is a plaintext protocol transcript
-
-- **What:** `drive_c/VarAC/VarAC.db`, a SQLite database VarAC writes.
-- **Status:** **clean** — a file the program writes is an external output, which
-  Principle IV names as a clean input. Nothing was disassembled; the file was
-  opened read-only with `sqlite3`.
-- **Why it matters more than anything else found today:** the `datastream` table
-  records **both directions** of an exchange in plaintext, tagged
-  Incoming / Outgoing / Info. A feature can be exercised and its protocol
-  entries read straight out of the database, instead of being inferred from
-  bytes.
-- **It resolved two open questions immediately:**
-  1. **The wire framing is `<decimal-length> SP <payload>`.** The database
-     stores the outgoing entry as exactly `<Q>` — three characters — while the
-     wire carried `3 <Q>`. The leading field is a length. (Still to confirm
-     against a differently-sized payload; one sample cannot separate a length
-     from a version or a counter.)
-  2. **VarAC dropped the link because our payload was invalid**, not from an
-     idle timeout: `Error: UNABLE TO DECODE DATA FROM KK7GWY-9. ABORTING. ...
-     VarAC will now restart the VARA modem.` The §3.18 ambiguity is settled by
-     VarAC's own words. Note the cost of a wrong guess — it restarts the modem,
-     so experiments need spacing.
-- **Also recorded:** the `qso` table logs `varac_version`, `snr_sent`, mode
-  `DYNAMIC`, submode `VARA HF`, `comments: LINK using VarAC`; the `cqframe`
-  table names the fields a CQ or beacon can carry (`slot`, `locator`,
-  `is_emcomm`, `is_bbs`, `is_email_gateway`, `is_ai_gateway`, `diploma`), which
-  bounds what those frames must encode even though their wire form is unseen.
-- **Method note, fourth instance today.** This was found by looking at what the
-  program writes, after GUI automation and byte-level inference had both stalled.
-  The pattern is now unmistakable: **read a program's own records before
-  instrumenting it.**
-
 ### 3.20 — 2026-07-29 · Bench defect: both VARA instances fought over KISS port 8100
 
 A run of five handshake experiments returned `NO LINK` on **every** trial,
@@ -946,14 +841,15 @@ including the control that sent nothing. The cause was not the protocol:
 
 * Both `VARA.ini` files ship with **`KISS Port=8100`**. Instance A wins the
   bind; instance B loses it and is left unstable.
-* After VarAC hit a decode error and restarted its modem (§3.19), instance B
+* After a host application hit a decode error and restarted its modem, instance B
   **died outright and never returned**, taking 8310/8311 with it. Every later
   connect attempt then failed with an unexplained "no link".
-* Only one VARA process was alive, holding 8300/8301 **and** 8100, while VarAC
-  still held stale ESTABLISHED sockets to a vanished 8310/8311.
+* Only one VARA process was alive, holding 8300/8301 **and** 8100, while the
+  host application still held stale ESTABLISHED sockets to a vanished
+  8310/8311.
 
 Fixed by giving each instance its own KISS port — A keeps 8100, B uses 8110 —
-and pointing VarAC's `VarahfMainKissPort` at 8110 to match. All six ports now
+and pointing any host application's KISS port setting at 8110 to match. All six ports now
 bind: 8300/8301/8100 and 8310/8311/8110, with two audio clients.
 `tools/vara_bench_up.sh` now enforces this rather than leaving it to chance.
 

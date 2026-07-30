@@ -4,10 +4,10 @@
 Three jobs, all on the bench:
 
   * `listen`  — sit on the link and print every command-channel message and
-                every payload byte, timestamped. This is how the VarAC
-                application protocol gets read in plaintext: point a VarAC
-                instance at one modem, point this at a second modem, let them
-                talk, and watch what VarAC actually puts inside the ARQ link.
+                every payload byte, timestamped. Whatever application drives
+                the far-end modem, its payload arrives here in the clear:
+                VARA delivers the ARQ payload de-framed and error-corrected,
+                so this is a transparent view of the layer above.
   * `send`    — hand the modem an exact payload. Known-plaintext injection for
                 the waveform work: send all-zeros, then a single set bit, and
                 diff the recorded audio.
@@ -19,7 +19,7 @@ TRANSMIT WARNING. `connect`, `cq` and any `send` will key the transmitter that
 the modem is driving. Nothing here transmits on its own — every transmission
 follows an explicit argument you passed. Keep the bench on a dummy load.
 
-Protocol reference: docs/varac-cleanroom-design.md §3.5.
+VARA host-interface reference: docs/vara-cleanroom-design.md §3.5.
 Wire vocabulary mirrors src/core/VaraProtocol.{h,cpp}.
 """
 

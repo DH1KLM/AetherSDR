@@ -11,7 +11,7 @@ namespace AetherSDR::Vara {
 // with no I/O. VaraClient owns the sockets; everything here is testable
 // without one.
 //
-// PROVENANCE: this vocabulary is documented in docs/varac-cleanroom-design.md
+// PROVENANCE: this vocabulary is documented in docs/vara-cleanroom-design.md
 // §3.5. It comes from EA5HVK's published specification (§3.6 "VARA uses a TCP
 // link to connect with others applications") plus independent open-source
 // implementations of the same public interface. Nothing here is derived from
@@ -113,7 +113,7 @@ enum class MessageType {
     Bitrate,         // speedLevel (1-11) and bitsPerSecond
     Encryption,      // encryption
     CqFrame,         // source, bandwidthHz
-    // Observed on VARA HF v4.9.0 (see docs/varac-cleanroom-design.md §3.6) but
+    // Observed on VARA HF v4.9.0 (see docs/vara-cleanroom-design.md §3.6) but
     // absent from every published description of the interface: the modem
     // repeats this roughly every six seconds while it has no usable audio
     // device. It means "no soundcard selected OR none found" — the modem does

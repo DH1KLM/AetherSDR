@@ -7,7 +7,7 @@ occupied, where the pilots sit, what the constellations look like per level,
 and eventually what the coded bits are.
 
 GEOMETRY — all of it derived from EA5HVK's published VARA HF Modem
-Specification Rev 2.0.0 (docs/varac-cleanroom-design.md §3.1), not from
+Specification Rev 2.0.0 (docs/vara-cleanroom-design.md §3.1), not from
 inspecting any binary:
 
     sample rate            48000 Hz          (spec 3.3)

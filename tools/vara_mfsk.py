@@ -2,7 +2,7 @@
 """VARA low-level (M-FSK) demodulator — turns a capture into a symbol stream.
 
 VARA's low speed levels are NOT the OFDM waveform its published specification
-describes. Measured on the bench (docs/varac-cleanroom-design.md §3.8), level 4
+describes. Measured on the bench (docs/vara-cleanroom-design.md §3.8), level 4
 is constant envelope — peak/RMS 1.42 = 3.05 dB crest factor, power kurtosis
 1.00 — which OFDM cannot be, and its instantaneous frequency resolves into a
 regular grid of discrete tones. That is M-FSK. VARA appears to be dual

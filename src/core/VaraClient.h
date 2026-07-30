@@ -21,7 +21,7 @@ namespace AetherSDR {
 // IRadioBackend and does not belong under src/core/backends/.
 //
 // See VaraProtocol.h for the wire vocabulary and
-// docs/varac-cleanroom-design.md for where that vocabulary came from.
+// docs/vara-cleanroom-design.md for where that vocabulary came from.
 //
 // THREADING. Main thread only, like the other Qt socket clients in core.
 // Nothing here touches the audio path.
