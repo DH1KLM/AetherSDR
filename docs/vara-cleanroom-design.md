@@ -1192,10 +1192,63 @@ accumulation across symbols is excluded independently: every symbol starts at
 -90.00002° (§3.12), so phase is reset per symbol rather than accumulated. No
 mechanism is claimed.
 
-**Open.** Whether "plane 2 has degree exactly 2" generalises beyond the
-`{e0, e1, e2}` triple. A second independent triple `{e0, e1, e3}` is capturing.
-A single triple giving `D³ = 0` against a control of ~200 is strong but is one
-triple.
+**Confirmed on a second independent triple.** `{e0, e1, e3}` reproduces it: plane
+`s>>2` gives `D²` = 38 at base 0 and 38 at base `e3` with `D³` = 0, and plane
+`s>>3` gives 48, 44 and `D³` = 6. Controls 108-217. (Note `D²(e0,e1)` at base 0 is
+the *same four captures* in both triples, so that particular 38 is shared by
+construction, not an independent confirmation — the independent parts are the
+base-`e3` second derivative and the third derivative, which use new captures.)
+
+### 3.26 — 2026-07-29 · Degree is fixed exactly by binary place value
+
+§3.25 measured the degrees. There is an exact algebraic law behind them.
+
+A "plane" here is any assignment of one bit to each of the 16 tones, i.e. a
+vector in GF(2)^16. Whether a plane's *k*-th derivative vanishes is a GF(2)
+linear condition on that vector, so the set of planes of degree ≤ *k* is a null
+space and can be computed exactly rather than sampled.
+
+| condition | null space | closed form | exact match |
+|---|---|---|---|
+| 2nd derivative vanishes (degree ≤ 1) | dim 3, 8 vectors | even-weight functions of `s mod 4` | **yes** |
+| 3rd derivative vanishes (degree ≤ 2) | dim 7, 128 vectors | even-weight functions of `s mod 8` | **yes** |
+
+These are **set equalities, not approximations**, and both reproduce on two
+independent triples (`{e0,e1,e2}` and `{e0,e1,e3}`). So:
+
+* a plane determined by `s mod 4` — bits 0 and 1 — has degree 1;
+* a plane determined by `s mod 8` — adding bit 2 — has degree 2;
+* a plane sensitive to `s >> 3` has degree at least 3.
+
+**Degree is fixed exactly by which binary place of the tone index the plane can
+see.** The graded 1, 1, 2, 3 of §3.25 is a consequence, not a coincidence.
+
+**No relabelling of the tones can improve this.** A bijective 4-bit mapping must
+distinguish all 16 tones, which requires at least one plane sensitive to `s >> 3`,
+and every such plane lies outside the degree ≤ 2 null space. Verified by
+exhaustive search over both spaces (8 and 128 vectors): no bijection exists in
+either. The residual cubic component is intrinsic to the waveform, not an
+artefact of how the tones are indexed.
+
+**A hypothesis that fits the degrees — carry bits. UNCONFIRMED.** In binary
+addition the carry out of bit 0 is `a₀b₀`, degree 2, and the carry out of bit 1 is
+degree 3, while a sum taken *without* carry propagation stays degree 1. A
+representation where the low two tone bits hold a carry-free sum of two linear
+quantities and the high two hold that addition's carries would produce degrees
+1, 1, 2, 3 exactly. This is consistent with every measurement here and with
+nothing else tried, but it is a hypothesis fitted to a degree pattern, and a
+degree pattern is weak evidence for a mechanism. §3.25's note stands: no mechanism
+is claimed. The test is whether plane `s>>2` is a product of just two linear forms
+— a rank-2 quadratic form rather than a general one — which is measurable from the
+sweep once enough rows exist.
+
+**Where this leaves recovery.** Planes 0 and 1 are linear and directly recoverable.
+Plane 2 is exactly quadratic, so it is a linear part plus a bilinear form, both
+measurable. That is **1221 of 1628 bits per frame, 75 %**. Plane 3 is degree ≥ 3;
+its cubic part is sparse in these measurements (residues of weight 10 and 6), but
+"sparse in two triples" is not a bound, and the number of possible degree-3
+coefficients over a 256-bit payload is far too large to enumerate, so recovering
+plane 3 will need structure rather than brute force.
 
 ## 4. Patent clearance
 
