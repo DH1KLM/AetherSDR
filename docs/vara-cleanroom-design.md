@@ -1250,6 +1250,92 @@ its cubic part is sparse in these measurements (residues of weight 10 and 6), bu
 coefficients over a 256-bit payload is far too large to enumerate, so recovering
 plane 3 will need structure rather than brute force.
 
+### 3.27 — 2026-07-29 · The high bits are carries: an additive mod-16 scrambler
+
+§3.26 recorded a hypothesis fitted to the degree pattern and warned that a degree
+pattern is weak evidence for a mechanism. It now has direct evidence, and it
+predicts things that were then measured and found true.
+
+**The model.** The transmitted tone index is
+
+    s = (d + r) mod 16
+
+where `d` is a 4-bit symbol *linear* in the payload and `r` is a per-position
+offset that does not depend on the payload — an **additive mod-16 scrambler**,
+not the XOR scrambler already excluded in §3.23.
+
+**Why it explains the degrees.** Work the full adder with `r` constant per
+position:
+
+| output | expression | degree |
+|---|---|---|
+| `sum0` | `d0 ⊕ r0` | 1 |
+| `carry0` | `d0 ∧ r0` | 1 — because `r0` is a constant |
+| `sum1` | `d1 ⊕ r1 ⊕ carry0` | **1** |
+| `carry1` | `maj(d1, r1, carry0)`, contains `d1·carry0` | 2 |
+| `sum2` | `d2 ⊕ r2 ⊕ carry1` | **2** |
+| `sum3` | `d3 ⊕ r3 ⊕ carry2` | **3** |
+
+That is 1, 1, 2, 3 — every measured degree in §3.25, including the non-obvious
+one. A plain two-operand add of two *variable* numbers gives 1, 2, 3, 4; it is
+`r` being constant that keeps plane 1 linear, and that is what the measurement
+says.
+
+**Prediction, then measurement: the nonlinearity is gated by the low bits.** If
+the high bits are carries out of the low-bit addition, then at a symbol where the
+low nibble does not move, no carry can change and the high bits cannot violate
+the affine identity. Binning all eight available identities by how many distinct
+`lo` values their four frames take:
+
+| distinct `lo` values | positions | violating | rate |
+|---|---|---|---|
+| 1 | 869 | **0** | 0.000 |
+| 2 | 1865 | 171 | 0.092 |
+| 4 | 522 | 289 | 0.554 |
+
+**Zero violations in 869 opportunities**, and non-vacuously — at 180 of those the
+four high values were not all equal, so the identity could have failed and did
+not. (`lo` counts of 3 never occur, necessarily: `lo` is linear, so the four
+values form a coset `{a, a⊕u, a⊕v, a⊕u⊕v}` and the count must be 1, 2 or 4.)
+
+**`r` is real and shared.** Searching all 16 candidate offsets per position
+against eight independent affine identities:
+
+| test | result |
+|---|---|
+| positions admitting a valid offset | **407 / 407** |
+| *control — position-shuffled captures* | *only 31 / 407* |
+| fitted on 6 identities, valid on 2 **held out** | **407 / 407** |
+| contradicted by held-out identities | **0 / 407** |
+| every solution set closed under `r → r+8` | **True** |
+
+The closure under `r → r+8` was **predicted before it was measured**: subtracting
+8 mod 16 flips only bit 3, and four terms cancel it, so `r` can never be
+determined better than modulo 8. That ambiguity is harmless — it is absorbed into
+bit 3 of `d(0)` and leaves the generator rows untouched.
+
+**Cross-length falsifier passed.** If `r` is a fixed per-position sequence it must
+be the same for every payload length. The 32-byte captures took no part in
+deriving it, and their offset sets intersect the 64-byte sets at **407 / 407**
+positions; against position-shuffled 32-byte data, only 36 / 407.
+
+**Not yet pinned.** Solution sets are still of size 4 to 16 (191 positions accept
+all 16, which are the payload-independent positions where any offset trivially
+works). Seven further pair captures are running to add seven more identities. The
+target is sets of size 2 — `{r, r+8}` — which is the information-theoretic floor.
+
+**Why this matters for the goal.** If `r` is pinned, then `d = (s − r) mod 16` is
+linear in **all four** bit planes, not two. The sweep's generator matrix then
+describes the whole symbol, giving both directions: encode a payload to `d`, add
+`r`, synthesise; and demodulate to `s`, subtract `r`, invert the linear map. That
+is a complete level-4 codec rather than the 75 % of §3.26.
+
+**The test that would settle it** is prediction, not identity-checking: with `r`
+and the single-bit rows, predict a pair capture's 407 symbols exactly and compare
+against the real capture. Beyond that, the decoder oracle (§3.9) allows the
+end-to-end proof — synthesise a frame for a payload never captured and see
+whether a listening VARA decodes it.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
