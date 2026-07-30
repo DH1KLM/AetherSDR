@@ -15,6 +15,7 @@
 #include "models/SliceLinkPolicy.h"
 #include "core/AppSettings.h"
 #include "core/AetherDspModePolicy.h"
+#include "core/KiwiSdrTxMutePolicy.h"  // optimistic-unkey Kiwi mute latch
 #include "core/RadioMessageTypes.h"   // MessageSeverity for onRadioMessage slot
 #include "core/RadioDiscovery.h"
 #include "core/AudioEngine.h"
@@ -446,6 +447,7 @@ private:
     void restoreKiwiSdrSliceMute();
     bool kiwiSdrTransmitMuteRequired() const;
     void syncKiwiSdrTransmitMute();
+    void refreshKiwiSdrVirtualAudioControls();
     void setKiwiSdrVirtualAntennaForSlice(int sliceId, const QString& profileId);
     // Worker for the above. selectSlice=false suppresses the active-slice steal
     // for automatic re-arms (band-recall finish, #4158 recreation re-bind).
@@ -457,7 +459,8 @@ private:
     bool finishPreparedKiwiSdrBandRecallForSlice(SliceModel* slice);
     void finishPreparedKiwiSdrBandRecallForPan(const QString& panId);
     void updateKiwiSdrVirtualTrackingForSlice(SliceModel* slice);
-    void updateKiwiSdrVirtualAudioControlsForSlice(SliceModel* slice);
+    void updateKiwiSdrVirtualAudioControlsForSlice(SliceModel* slice,
+                                                   bool includeEnable = true);
     void updateKiwiSdrVirtualReceiverControlsForSlice(SliceModel* slice);
     SliceModel* flexRxPanSourceSlice() const;
     void syncFlexRxPanToAudioEngine();
@@ -1080,6 +1083,8 @@ private:
     bool             m_kiwiSdrAudioMuteApplied{false};
     bool             m_kiwiSdrAudioMuteChanging{false};
     bool             m_kiwiSdrAudioTransmitMuted{false};
+    AetherSDR::KiwiSdrTxMuteLatch m_kiwiSdrTxMuteLatch;
+    AetherSDR::KiwiSdrTxMaskWatchdog m_kiwiSdrTxMaskWatchdog;
     QMetaObject::Connection m_kiwiSdrAudioMuteConnection;
     QHash<int, bool> m_kiwiSdrVirtualPreviousMute;
     struct KiwiSdrBandRecallPreparation {
