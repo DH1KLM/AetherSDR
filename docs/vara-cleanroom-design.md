@@ -926,12 +926,11 @@ session frame. (An earlier version of this claim compared only all-zero payloads
 of differing lengths and was worthless — near-identical inputs give
 near-identical outputs.)
 
-**An all-zero payload produces NO payload frame.** 64 zero bytes yielded only
-frame 1 plus a CW ID, while both single-bit payloads yielded a second 407-symbol
-frame. So `Encode(0)` is not directly obtainable and the attack must use
-**pairwise differences** (`c_i XOR c_j = row_i XOR row_j`) rather than an
-all-zero baseline. This recovers the row space; the affine offset stays a
-separate unknown.
+**~~An all-zero payload produces NO payload frame.~~ RETRACTED — see §3.23.**
+This was wrong. Enumerating *every* burst rather than only exact-407 ones shows
+the all-zero capture has two 407-symbol DATA frames like every other payload.
+`Encode(0)` **is** directly obtainable, so the pairwise-difference workaround
+described here was never necessary.
 
 **First result — `c(bit 0) XOR c(bit 1)` on the payload frame:**
 
@@ -967,6 +966,113 @@ frames, the header/payload boundary is at symbol 12, and the code behaves
 linearly with sparse rows. **What remains is the campaign** — many single-bit
 differentials to accumulate rows, which is mechanical and automatable rather
 than exploratory.
+
+### 3.23 — 2026-07-29 · Half of every symbol is exactly GF(2)-linear
+
+Three findings, in the order they forced each other.
+
+**Correction first: `Encode(0)` is available.** §3.22 claimed an all-zero payload
+emits no payload frame. Enumerating every burst by length, instead of filtering
+for exactly 407 symbols, shows the truth:
+
+    zeros64   164c 407D 64c 128c 128c 128c 407D 68c 68c 128c 128c 450?
+    bit0      164c 407D 64c 128c 128c 128c 407D 68c 68c 114? 63? 128c 128c 128c 321CW
+
+Two 407-symbol DATA frames in both, at burst indices 1 and 6. Burst 1 is the
+payload-independent session frame; burst 6 carries payload. The earlier claim
+came from a filter that silently dropped frames, and the lesson is the same one
+as the CW-ID misclassification: **a filter that drops data is not a negative
+result.** So generator rows come out directly, `row_i = Encode(e_i) XOR
+Encode(0)`, with no pairwise workaround.
+
+Rows for the first three payload bits, against `Encode(0)`:
+
+| row | symbols differing | Hamming weight | first | last |
+|---|---|---|---|---|
+| 0 | 260 / 407 | 547 / 1628 (33.6 %) | 13 | 406 |
+| 1 | 270 / 407 | 587 / 1628 (36.1 %) | 12 | 405 |
+| 2 | 259 / 407 | 577 / 1628 (35.4 %) | 13 | 405 |
+
+`row0 XOR row1` reproduces the independently measured `c(bit0) XOR c(bit1)`
+difference **exactly**, weight 582 both ways, which confirms frame alignment and
+demodulation are right.
+
+**No shifted-impulse structure.** Cross-correlating consecutive rows at every bit
+lag peaks at lag 0 (0.64-0.67 agreement) with no sharp off-zero peak, so
+`row_(i+1)` is *not* a delayed copy of `row_i`. A bare RSC encoder would show
+that peak; an interleaver destroys it. Consistent with a real turbo code, and it
+means Berlekamp-Massey cannot be applied to the transmitted symbol order
+directly.
+
+**The payload frame is reproducible across sessions.** Same payload, two separate
+ARQ sessions: **0 / 407 symbols differ**, in both the session frame and the
+payload frame. §3.14 proved determinism on one frame; this extends it to the
+payload frame specifically. That matters because it **rules out session state**
+(sequence numbers, ARQ metadata) as an explanation for anything below.
+
+**Linearity fails — but by only 5 %.** The affine identity
+`c(e_i) XOR c(e_j) XOR c(e_i + e_j) XOR c(0) = 0` should hold for any linear
+encoder. Measured on two independent triples:
+
+| triple | mismatching bits | failing symbols |
+|---|---|---|
+| A (bits 0, 1) | 86 / 1628 (5.3 %) | 67 / 407 |
+| B (bits 2, 3) | 73 / 1628 (4.5 %) | 58 / 407 |
+
+Random would be ~50 %. Natural binary is also clearly the best mapping (86
+mismatches, versus Gray 134 and inverse-Gray 192).
+
+**The mapping was solved, not guessed.** The identity is *linear in the unknown
+tone-to-bit mapping*, so the mapping is the null space of a GF(2) system: each
+symbol position contributes `v[w] + v[x] + v[y] + v[z] = 0` over 16 unknowns.
+From 290 non-trivial constraints the null space has **dimension 3**, and every
+basis vector depends only on `s mod 4`:
+
+    [1,1,0,0, 1,1,0,0, 1,1,0,0, 1,1,0,0]
+    [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0]
+    [1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1]
+
+A bijective 4-bit mapping needs 4 independent bit planes and only 3 exist, so
+**no tone-to-bit mapping can rescue full linearity.** The 5 % is not a mapping
+artefact. (The space is exactly the even-weight functions of `s mod 4`; a free
+constant per bit plane is expected, since a constant cancels in a four-term sum.)
+
+**What the null space was actually saying.** Nothing in it depends on `s >> 2`.
+Splitting the tone index confirms that directly:
+
+| component | triple A | triple B |
+|---|---|---|
+| `lo = s & 3` (low 2 bits) | **0 / 407 violations** | **0 / 407 violations** |
+| `hi = s >> 2` (high 2 bits) | 67 / 407 | 58 / 407 |
+
+**Two of the four bits of every symbol are exactly GF(2)-linear in the payload** —
+zero violations across two independent triples, an exact result rather than a
+statistical one. That is **814 linear bits per frame**, and on those bits the
+generator-matrix attack works exactly as designed.
+
+It is not a wrong-algebra problem either; every alternative is worse:
+
+| algebra | triple A | triple B |
+|---|---|---|
+| XOR, `lo` only | **0** | **0** |
+| XOR, whole symbol | 67 | 58 |
+| integer mod 16, whole symbol | 146 | 140 |
+| integer mod 4, `lo` / `hi` | 82 / 108 | 88 / 92 |
+| first differences, XOR / mod 16 | 243 / 241 | 228 / 227 |
+
+**Open: why `hi` is nonlinear.** Not yet known. A plain additive scrambler is
+excluded by construction — a constant cancels in a four-term sum — and session
+state is excluded by the reproducibility result above. Demodulation error is
+implausible because the tone decisions are not marginal (best-to-runner-up
+magnitude ratio ~186 000, since a 512-sample symbol sits exactly on a DFT bin),
+but that is an argument from confidence and not yet a direct check; whether
+violations correlate with the lowest-confidence symbols is still to be tested.
+
+**Bench constraint discovered.** The VARA host interface is **single-client**: a
+second TCP connection to the command port is refused while a capture holds it.
+This surfaced as a spurious `ConnectionRefusedError` in one batch and as ports
+appearing closed while a capture was in fact running normally. Captures must be
+serialised, and the port must not be probed during one.
 
 ## 4. Patent clearance
 

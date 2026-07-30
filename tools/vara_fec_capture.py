@@ -139,6 +139,21 @@ class Modem:
 
 # ── demodulation (mirrors tools/vara_determinism.py) ────────────────────────
 def load_wav(path):
+    """Read a capture. Falls back to raw s16le past a 44-byte header when the
+    RIFF header is unfinalised — parecord writes its length fields on exit, so a
+    capture whose recorder was killed has valid audio behind an invalid header
+    and is otherwise perfectly usable."""
+    import wave
+    try:
+        return _load_wav_strict(path)
+    except wave.Error:
+        raw = open(path, "rb").read()
+        body = raw[44:] if raw[:4] == b"RIFF" else raw
+        body = body[:len(body) - (len(body) % 2)]
+        return np.frombuffer(body, dtype="<i2").astype(np.int32)
+
+
+def _load_wav_strict(path):
     import wave
     with wave.open(path, "rb") as h:
         ch, w, rate = h.getnchannels(), h.getsampwidth(), h.getframerate()
