@@ -818,7 +818,14 @@ bits would be a suspiciously tidy field size. A wider destination sweep settles
 it, and the answer determines the symbol-to-bit mapping that generator recovery
 depends on.
 
-### 3.17 — 2026-07-29 · Alphabet is exactly 35 per position. This breaks the GF(2) plan.
+### 3.17 — 2026-07-29 · Alphabet is exactly 35 per position — in CONTROL frames only
+
+> **CORRECTION (see §3.21).** This entry's original heading read "This breaks
+> the GF(2) plan", and that conclusion was **over-generalised and is
+> withdrawn**. The 35-value alphabet is a property of **control frames**. DATA
+> frames use **16 tones = exactly 4 bits per symbol**, and the GF(2)
+> differential attack applies to them unchanged. Phase 3 was stopped partly on
+> this mistake.
 
 **Settled by a 21-destination sweep** (651 content symbols):
 
@@ -955,6 +962,52 @@ null results, which reads as a strong finding about the protocol and was in fact
 a broken bench. The control trial is what exposed it: sending *nothing* should
 not have failed to link, so the failure could not be about our reply. **A
 control that fails tells you to doubt the apparatus, not the hypothesis.**
+
+### 3.21 — 2026-07-30 · CORRECTION: the GF(2) attack was never blocked for DATA frames
+
+**What I got wrong.** §3.17 concluded that a 35-value-per-position alphabet
+"breaks the GF(2) plan" and Phase 3 was stopped partly on that basis. The
+finding was real but its scope was not: **35 values per parity class is a
+property of CONTROL frames**, measured on connect frames during a
+destination-callsign sweep.
+
+**DATA frames are a clean power of two.** §3.11 records them as **16-ary**
+orthogonal CPFSK — DFT bins 9…24, `4 bits × 93.75 baud = 375 bps` raw, implying
+rate 1/2 against the 175 bps net. Sixteen tones is **exactly 4 bits per
+symbol**. There is no base conversion, no non-power-of-two alphabet, and
+therefore no obstacle to XOR-differencing codewords over GF(2).
+
+| Frame type | Alphabet | Bits/symbol | GF(2) differential attack |
+|---|---|---|---|
+| **DATA** (payload) | 16 tones | **exactly 4** | **applies, unchanged** |
+| CONTROL (connect) | 35 per parity class | 5.13 | genuinely obstructed |
+
+**Why the mistake happened.** The attack was pivoted onto control frames
+because they carry **known plaintext** — a destination callsign that can be
+varied one character at a time and validated in isolation via the `PENDING`
+oracle (§3.10). That was a good tactical reason. The error was treating an
+obstacle found on that detour as a verdict on the main route.
+
+**Every prerequisite for the DATA-frame attack is already in place:**
+
+* symbols recoverable exactly (§3.11/§3.13, bit-exact resynthesis);
+* the encoder proven **deterministic sample-exact** across sessions (§3.14);
+* payload fully operator-controlled through VARA's data socket, so
+  `Encode(0)` and `Encode(e_i)` are both directly producible;
+* 4 bits per symbol, so XOR differences compose and each difference is a row
+  of the generator matrix.
+
+**Standing conclusion:** the DATA-frame coding layer is **unattempted, not
+blocked**. What remains is the ~900-experiment measurement campaign described
+earlier — mechanical and automatable, not a research dead end. The genuine open
+questions are the effort involved, and the separate matter of levels 5-11
+requiring a paid licence.
+
+**Method note.** A correct finding with an incorrectly scoped conclusion is
+harder to catch than a wrong measurement, because the number itself survives
+scrutiny. The check that would have caught it: **before generalising a result,
+name the population it was measured on.** This one was measured on control
+frames and generalised to all frames.
 
 ## 4. Patent clearance
 
