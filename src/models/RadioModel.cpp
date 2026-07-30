@@ -2414,6 +2414,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
     m_name    = info.name;
     m_model   = info.model;
     m_version = info.version;
+    m_versionLabel = info.versionLabel;
     // Seed nickname/callsign from the discovery packet so the status-bar station
     // label is correct the instant onConnectionStateChanged(true) reads it. These
     // were previously only set later from the async "info" reply, so on connect
@@ -5429,6 +5430,11 @@ void RadioModel::onDisconnected()
     m_maxSlices = 4;
     m_model.clear();
     m_version.clear();
+    // Cleared beside m_version rather than relying on the next connect to
+    // reassign it: this block's contract is that everything here is re-derived
+    // from the new radio's status, and a path that reaches a Flex without
+    // going through connectToRadio() would otherwise inherit an HL2's word.
+    m_versionLabel.clear();
     // Remember which radio the surviving pan/slice models belong to so the
     // next connect can refuse to reclaim them against a different radio.
     // Keep the previous value if this disconnect never learned a serial

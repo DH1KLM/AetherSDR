@@ -323,15 +323,101 @@ void reserveStatusBarStackWidth(QWidget* stack, const QStringList& samples, int 
     stack->setMinimumWidth(qMax(minimumWidth, statusBarCompactTextWidth(samples, 16)));
 }
 
+// The station label's resting type size. Single-token values keep it.
+constexpr int kStationFontPx = 21;
+
+// Property carrying the size the label is currently styled at, so the
+// stylesheet is only re-applied when it actually changes.
+constexpr char kStationFontPxProperty[] = "aetherStationFontPx";
+
+QString statusBarStationLabelStyle(int fontPx)
+{
+    return QStringLiteral(
+        "QLabel { color: {{color.text.primary}}; font-size: %1px; "
+        "background: {{color.background.0}}; "
+        "border: 1px solid rgba(255,255,255,128); padding: 2px 12px; }")
+        .arg(fontPx);
+}
+
+// Floor for the shrink below. Smaller than this stops reading as the station
+// identity and starts reading as one more compact telemetry label (those are
+// 12px), so a name that will not fit even here is elided instead.
+constexpr int kStationMinFontPx = 15;
+
+// Text width a multi-word nickname may occupy before it is shrunk. This is a
+// layout budget, not a measurement of any particular string: the station box
+// is centred between the radio-info stack and the GPS/reference stack, and at
+// full size a two-word nickname pushes into the latter. Against our HL2 this
+// resolves to kStationMinFontPx for "Hermes-Lite 2".
+constexpr int kStationWideTextBudgetPx = 105;
+
+// The largest size in [kStationMinFontPx, kStationFontPx] at which the text
+// still fits the budget on ONE line. Returns the floor when nothing fits;
+// stationFittedText() then elides at that size.
+int stationFittedFontPx(const QString& text)
+{
+    for (int px = kStationFontPx; px >= kStationMinFontPx; --px) {
+        QFont candidate = QApplication::font();
+        candidate.setPixelSize(px);
+        if (QFontMetrics(candidate).horizontalAdvance(text)
+                <= kStationWideTextBudgetPx) {
+            return px;
+        }
+    }
+    return kStationMinFontPx;
+}
+
+// One line, elided only if it still overruns the budget at the floor size.
+QString stationFittedText(const QString& text, int fontPx)
+{
+    QFont font = QApplication::font();
+    font.setPixelSize(fontPx);
+    const QFontMetrics metrics(font);
+    if (metrics.horizontalAdvance(text) <= kStationWideTextBudgetPx) {
+        return text;
+    }
+    return metrics.elidedText(text, Qt::ElideRight, kStationWideTextBudgetPx);
+}
+
+// A callsign or a radio nickname. Single-token values (N0CALL, ANT1-AV640,
+// 70CM-RXA-XVTR) render at kStationFontPx, byte-identical to before. A value
+// containing whitespace is shrunk to fit on ONE line instead of widening the
+// status bar, down to kStationMinFontPx, eliding below that.
+//
+// WHITESPACE IS THE TRIGGER, NOT WIDTH, and that is not a detail: what
+// distinguishes the two is that the HL2 has no operator-set nickname, so
+// Hl2Discovery::effectiveNickname() substitutes the model string — two words
+// — while every real callsign and Flex nickname is a single token.
+//
+// A width threshold cannot be used in its place: measured at kStationFontPx on
+// real radios, "ANT1-AV640" occupies 157px against "Hermes-Lite 2" at 170px.
+// The two are 13px apart, so any budget low enough to shrink the HL2 name
+// would shrink the Flex one almost as far.
 bool setStatusBarStationText(QLabel* label, const QString& text)
 {
     if (!label) {
         return false;
     }
 
+    const QString trimmed = text.trimmed();
+    // std::any_of over QChar::isSpace rather than a QRegularExpression: this is
+    // reached from the MeterModel::hwTelemetryChanged handler, so a per-call
+    // pattern compile would land on every PA-temperature delta.
+    const bool multiWord = std::any_of(trimmed.cbegin(), trimmed.cend(),
+                                       [](QChar c) { return c.isSpace(); });
+    const int fontPx = multiWord ? stationFittedFontPx(trimmed) : kStationFontPx;
+    const QString rendered =
+        multiWord ? stationFittedText(trimmed, fontPx) : text;
+
     bool changed = false;
-    if (label->text() != text) {
-        label->setText(text);
+    if (label->property(kStationFontPxProperty).toInt() != fontPx) {
+        label->setProperty(kStationFontPxProperty, fontPx);
+        AetherSDR::ThemeManager::instance().applyStyleSheet(
+            label, statusBarStationLabelStyle(fontPx));
+        changed = true;
+    }
+    if (label->text() != rendered) {
+        label->setText(rendered);
         changed = true;
     }
     label->ensurePolished();
@@ -341,6 +427,17 @@ bool setStatusBarStationText(QLabel* label, const QString& text)
         changed = true;
     }
     return changed;
+}
+
+// "Gateware 75" on a radio that supplies a label, "4.2.20.41343" on one that
+// does not. The caller never asks which family it is talking to — the word
+// arrives from the backend, so a future Icom/Yaesu gets this for free.
+QString statusBarVersionText(const QString& label, const QString& version)
+{
+    if (version.isEmpty() || label.isEmpty()) {
+        return version;
+    }
+    return QStringLiteral("%1 %2").arg(label, version);
 }
 
 QString vfoFrequencyText(double mhz)
@@ -1570,7 +1667,8 @@ MainWindow::MainWindow(QWidget* parent)
         if (m_radioInfoLabel && !m_radioModel.model().isEmpty())
             m_radioInfoLabel->setText(m_radioModel.model());
         if (m_radioVersionLabel && !m_radioModel.version().isEmpty())
-            m_radioVersionLabel->setText(m_radioModel.version());
+            m_radioVersionLabel->setText(statusBarVersionText(
+                m_radioModel.versionLabel(), m_radioModel.version()));
         // The station/nickname label is set once in onConnectionStateChanged, but
         // the nickname can land afterwards via a radio-status delta — for a real
         // radio the async "info" reply corrects it, and for the demo SimBackend
@@ -4629,8 +4727,9 @@ void MainWindow::buildUI()
     hbox->addStretch(1);
 
     m_stationNickLabel = new QLabel("N0CALL");
-    AetherSDR::ThemeManager::instance().applyStyleSheet(m_stationNickLabel, "QLabel { color: {{color.text.primary}}; font-size: 21px; background: {{color.background.0}}; "
-        "border: 1px solid rgba(255,255,255,128); padding: 2px 12px; }");
+    AetherSDR::ThemeManager::instance().applyStyleSheet(
+        m_stationNickLabel, statusBarStationLabelStyle(kStationFontPx));
+    m_stationNickLabel->setProperty(kStationFontPxProperty, kStationFontPx);
     m_stationNickLabel->setAlignment(Qt::AlignCenter);
     m_stationNickLabel->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
     setStatusBarStationText(m_stationNickLabel, m_stationNickLabel->text());
@@ -5194,7 +5293,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_suppressStartupPanLayoutRearrange = false;
         m_layoutRestoreUntilMs = kPanLayoutRestoreWaitingForFirstPan;
         m_radioInfoLabel->setText(m_radioModel.model());
-        m_radioVersionLabel->setText(m_radioModel.version());
+        m_radioVersionLabel->setText(statusBarVersionText(
+            m_radioModel.versionLabel(), m_radioModel.version()));
         setStatusBarStationText(m_stationLabel, m_radioModel.nickname());
         updateStatusBarMinimumWidth();
         m_connStatusLabel->setText("Connected");

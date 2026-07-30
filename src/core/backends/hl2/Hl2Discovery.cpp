@@ -167,6 +167,8 @@ void Hl2Discovery::onReadyRead()
         // (keyed by MAC/serial in AppSettings) if one is set, else the model name.
         info.nickname = effectiveNickname(info.serial, info.model);
         info.version  = QString::number(reply->gatewareVersion);
+        // A bare revision number is not self-describing in a status bar.
+        info.versionLabel = QStringLiteral("Gateware");
         // A radio already streaming to another client answers with 0x03. Show it
         // as present-but-taken rather than hiding it.
         info.inUse    = reply->streaming;

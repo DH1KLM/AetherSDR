@@ -135,6 +135,10 @@ public:
     QString name()    const { return m_name; }
     QString model()   const { return m_model; }
     QString version() const { return m_version; }
+    // Backend-supplied word for what `version` IS ("Gateware" on an HL2),
+    // empty when the bare value speaks for itself. Display only — version()
+    // stays the unadorned token that rigctl and the bridge serve.
+    QString versionLabel() const { return m_versionLabel; }
     bool isConnected() const;
     bool fullDuplexEnabled() const { return m_fullDuplex; }
     void setFullDuplex(bool on) { m_fullDuplex = on; emit infoChanged(); }
@@ -1354,6 +1358,7 @@ private:
     QStringList m_declaredBands;    // optional "bands=" declaration (see declaredBands())
     int         m_maxSlices{4};
     QString     m_version;          // software version from discovery (e.g. "4.1.5")
+    QString     m_versionLabel;     // display-only word for it (Gateware on an HL2)
     QString     m_protocolVersion;  // protocol version from V line (e.g. "1.4.0.0")
     float       m_paTemp{0.0f};
     float       m_txPower{0.0f};
