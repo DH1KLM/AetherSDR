@@ -17,14 +17,43 @@
 #   4. 64-byte sweep      — generator rows 256-511
 set -u
 D="${VARA_DATA:-/home/jeremy/aethersdr-vara-data}"
+
+# A LOCK, because two campaigns are worse than none. The VARA host interface is
+# single-client, so concurrent runs fight over it and every capture fails with
+# connection-refused. This happened: fixup scripts each relaunched the campaign
+# at the end, leaving several racing, and the resulting captures were 13-31 MB of
+# overlapping sessions instead of the normal 5 MB.
+LOCK="$D/.campaign.lock"
+mkdir -p "$D"
+exec 9>"$LOCK"
+if ! flock -n 9; then
+  echo "another campaign holds $LOCK — refusing to start a second"; exit 1
+fi
+
+# Orphaned recorders. vara_fec_capture stops parecord in a finally block, which
+# does not run if the python process is killed, so an interrupted run leaves the
+# recorder writing to the same monitor forever. Forty-seven of them accumulated
+# once. Clear any before starting; never use a pkill pattern that could match
+# this script's own command line.
+pgrep -x parecord | while read -r pid; do
+  echo "  clearing orphaned recorder $pid"; kill "$pid" 2>/dev/null
+done
+sleep 2
 W="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$D" "$D/fec_sweep"
 cd "$W"
 cap(){ # cap <wavname> <args...>
   local n="$1"; shift
-  if [ -s "$D/$n" ] && [ "$(stat -c%s "$D/$n")" -gt 1000000 ]; then
-    echo "  $n: already present, skipping"; return 0
+  # Skip only if the file is present AND actually yields a payload frame. Size
+  # alone is not enough: an interrupted run leaves oversized files containing
+  # several overlapping sessions, which are useless but large.
+  if [ -s "$D/$n" ] && python3 -c "
+import sys; sys.path.insert(0,'tools')
+import vara_codec as vc
+sys.exit(0 if vc.symbols_of('$D/$n') is not None else 1)" 2>/dev/null; then
+    echo "  $n: already present and usable, skipping"; return 0
   fi
+  rm -f "$D/$n"
   echo "=== $n : $* ==="
   timeout 400 python3 tools/vara_fec_capture.py "$@" --wav "$D/$n" 2>&1 | tail -1
   sleep 5
