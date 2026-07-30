@@ -80,6 +80,76 @@ tearing down when it does not arrive — but a timeout unrelated to our payload
 would look identical. **Not yet distinguished.** The controlled test is to
 connect and send *nothing*, and compare how long the link survives.
 
+## 4a. The framing is `<decimal-length> <payload>`
+
+VarAC's own database records the outgoing entry as exactly:
+
+```
+<Q>
+```
+
+with no prefix (`datastream` table, `datastream_entry_type_id = 2` = Outgoing,
+`chat_id = 1`). The bytes on the wire were `3 <Q>`. `<Q>` is **three
+characters**.
+
+So the leading numeric field is a **decimal length of the payload that
+follows**, separated by a single space:
+
+```
+<len> SP <payload>
+```
+
+That resolves the "unknown leading field" from §3 above. It still needs
+confirming against a payload of a different length — one observation is
+consistent with a length, a version, and a counter all at once, and only a
+second differently-sized message separates them.
+
+## 4b. VarAC rejects malformed payloads and tears down the link
+
+Its own database records, immediately after we sent `HELLO FROM AETHERSDR\r`:
+
+```
+Error: UNABLE TO DECODE DATA FROM KK7GWY-9. ABORTING. See VarAC.log for more
+info. In most cases a VARA packet from another QSO on the same frequency
+slipped into this QSO and corrupted the link. VarAC will now restart the VARA
+modem. Standby....
+```
+
+This settles the ambiguity flagged in §4: the link dropped because **our
+payload was invalid**, not because of an idle timeout. VarAC parses strictly and
+treats an unparseable payload as channel corruption.
+
+Note the practical consequence: a wrong guess does not merely fail, it makes
+VarAC restart its modem. Experiments need spacing.
+
+## 4c. VarAC's database is a plaintext protocol transcript
+
+`drive_c/VarAC/VarAC.db` (SQLite) is written by VarAC and is therefore an
+external output — a clean input under Principle IV. The `datastream` table
+records both directions with `datastream_entry_type`:
+
+| id | meaning |
+|---|---|
+| 1 | Incoming |
+| 2 | Outgoing |
+| 3 | Info (local status, not on the wire) |
+
+Observed session, in order: `INCOMING CONNECTION REQUEST. Still don't know who
+that is.` -> `CONNECTED TO KK7GWY-9 (BANDWIDTH: 500 FREQUENCY: 14.105.000)` ->
+outgoing `<Q>` -> decode error -> `QSO SUMMARY ... Duration: 00:00:28` ->
+`DISCONNECTED FROM KK7GWY-9`.
+
+The `qso` table additionally records `varac_version` (V15.0.18), `snr_sent`,
+mode `DYNAMIC` / submode `VARA HF`, and `comments: LINK using VarAC`. The
+`cqframe` table stores beacons and CQs with `frequency`, `bandwidth`, `slot`,
+`locator`, `is_emcomm`, `is_bbs`, `is_email_gateway`, `is_ai_gateway`,
+`diploma` — which names the fields a CQ/beacon frame can carry, even though
+their wire encoding is still unobserved.
+
+**This is the single most efficient source available**: it gives both sides of
+any exchange in plaintext, so a feature can be exercised in the GUI and its
+protocol entries read straight out of the database.
+
 ## 5. Open questions, in the order worth answering
 
 1. Does the link survive if we send nothing? (separates "wrong reply" from

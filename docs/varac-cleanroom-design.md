@@ -900,6 +900,38 @@ attack but not sufficient — the algebra has to close too, and here it does not
   MangoHud disabled but still exits). VarAC runs reliably on a bare Xvfb `:99`.
   Headless is the working configuration here, not the compromise.
 
+### 3.19 — 2026-07-29 · VarAC's own database is a plaintext protocol transcript
+
+- **What:** `drive_c/VarAC/VarAC.db`, a SQLite database VarAC writes.
+- **Status:** **clean** — a file the program writes is an external output, which
+  Principle IV names as a clean input. Nothing was disassembled; the file was
+  opened read-only with `sqlite3`.
+- **Why it matters more than anything else found today:** the `datastream` table
+  records **both directions** of an exchange in plaintext, tagged
+  Incoming / Outgoing / Info. A feature can be exercised and its protocol
+  entries read straight out of the database, instead of being inferred from
+  bytes.
+- **It resolved two open questions immediately:**
+  1. **The wire framing is `<decimal-length> SP <payload>`.** The database
+     stores the outgoing entry as exactly `<Q>` — three characters — while the
+     wire carried `3 <Q>`. The leading field is a length. (Still to confirm
+     against a differently-sized payload; one sample cannot separate a length
+     from a version or a counter.)
+  2. **VarAC dropped the link because our payload was invalid**, not from an
+     idle timeout: `Error: UNABLE TO DECODE DATA FROM KK7GWY-9. ABORTING. ...
+     VarAC will now restart the VARA modem.` The §3.18 ambiguity is settled by
+     VarAC's own words. Note the cost of a wrong guess — it restarts the modem,
+     so experiments need spacing.
+- **Also recorded:** the `qso` table logs `varac_version`, `snr_sent`, mode
+  `DYNAMIC`, submode `VARA HF`, `comments: LINK using VarAC`; the `cqframe`
+  table names the fields a CQ or beacon can carry (`slot`, `locator`,
+  `is_emcomm`, `is_bbs`, `is_email_gateway`, `is_ai_gateway`, `diploma`), which
+  bounds what those frames must encode even though their wire form is unseen.
+- **Method note, fourth instance today.** This was found by looking at what the
+  program writes, after GUI automation and byte-level inference had both stalled.
+  The pattern is now unmistakable: **read a program's own records before
+  instrumenting it.**
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
