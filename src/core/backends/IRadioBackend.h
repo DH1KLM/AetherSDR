@@ -199,11 +199,22 @@ public:
     // Default OFF. Turning it on outside a measurement will be unpleasant.
     virtual void setTxAudioMonitor(bool on) { Q_UNUSED(on); }
 
-    // Tune carrier on/off.
+    // Tune carrier on/off, at the operator's TUNE power (percent, 0..100).
     //
     // Flex takes "transmit tune N" as a text command, so FlexBackend has nothing
     // to do here. A backend that generates its own carrier implements it.
-    virtual void setTune(bool on) { Q_UNUSED(on); }
+    //
+    // tunePowerPercent is passed because a host-modulated backend has no other
+    // route to it: it raises its own carrier and sets its own drive, so without
+    // the value here it can only transmit at whatever setTxPower() last pushed —
+    // the RF Power slider. That made TUNE key at FULL power for anyone running
+    // RF 100 / Tune 10, which is the opposite of what the control is for.
+    // Defaulted so existing implementations stay source-compatible.
+    virtual void setTune(bool on, int tunePowerPercent = -1)
+    {
+        Q_UNUSED(on);
+        Q_UNUSED(tunePowerPercent);
+    }
 
     // Transmit power as a percentage, 0..100.
     //

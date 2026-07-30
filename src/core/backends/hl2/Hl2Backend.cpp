@@ -270,10 +270,35 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
         // RadioModel::onConnected() stages every existing model as "previous
         // session" leftovers, so anything emitted earlier is wiped before the UI
         // ever sees it (slice panel stuck empty / 0.000000).
-        emitSliceState();
+        // ORDER MATTERS, in two directions, and they pull against each other.
+        //
+        // pushInitialState() derives the passband from the mode and updates the
+        // members that emitSliceState() then publishes. Publish before deriving
+        // — as this originally did — and the slice is told the stale members, so
+        // a fresh USB connect showed DIGU's 150..3000 while the backend itself
+        // had corrected to 100..2900. The radio was right and the UI was wrong,
+        // which is the harder direction to notice.
+        //
+        // But pushInitialState() ALSO reports this pan's zoom limits, and
+        // RadioModel drops that report when no PanadapterModel resolves: its
+        // panBandwidthLimitsChanged handler does `if (!pan) return;` with no
+        // materialisation, and onConnected() — synchronous inside emit
+        // connected() above — just ran stageSessionModelsForReconnect(), which
+        // clears m_panadapters AND m_activePanId. Only emitPanState()'s
+        // panCenterBandwidthChanged materialises our pan.
+        //
+        // So emitPanState() has to come FIRST: the pan must exist before
+        // anything describes it. Otherwise the limits are dropped for the whole
+        // session, nothing re-emits them, and SpectrumWidget keeps the FlexLib
+        // fallback of 5.4 MHz — fourteen times the widest window this receiver
+        // has, which is the black-bar over-zoom #4470 fixed.
+        //
+        // emitPanState() reads only m_ncoHz and m_sampleRateHz, neither of which
+        // pushInitialState() touches, so hoisting it changes nothing else.
         emitPanState();
-        defineMeters();
         pushInitialState();
+        emitSliceState();
+        defineMeters();
     });
     connect(m_metis, &MetisClient::linkDown, this, [this] {
         if (m_connected) {
@@ -419,6 +444,10 @@ void Hl2Backend::connectRadio(const RadioConnectRequest& request)
         emit connectionError(QStringLiteral("HL2: invalid host '%1'").arg(request.host));
         return;
     }
+
+    // A new connect re-derives the passband from the mode; a mid-session linkUp
+    // (EP6 silence then resume) does not. See m_passbandDerivedThisConnect.
+    m_passbandDerivedThisConnect = false;
 
     // The span the operator last chose, snapped to a rate we can actually run
     // and to the current low-bandwidth ceiling. Applied BEFORE the explicit
@@ -917,8 +946,25 @@ void Hl2Backend::setKeying(bool key)
     // clearing that indiscriminately broke exactly that case.
     if (key && !m_tuning && m_toneFromTune)
         setTxTestTone(0.0, 0.0);
-    if (!key)
-        m_tuning = false;   // an unkey ends tune too, however it was started
+    if (!key) {
+        // An unkey ends tune too, however it was started — so the drive register
+        // has to come back HERE, not in setTune()'s release branch.
+        //
+        // setTune(false, …) is only reached when the operator releases the TUNE
+        // toggle. Every other way a tune ends — the automation TX watchdog and
+        // the key verb via RadioModel::setTransmit() (RadioModel.cpp:2696), the
+        // MOX/PTT coordinator (RadioModel.cpp:674), and the disconnect reset
+        // below — calls setKeying(false) directly and never goes through
+        // setTune() at all. Restoring there left those paths unkeyed with the
+        // drive still at TUNE power, and because m_tuning is cleared on this
+        // same line, setTxPower() no longer held off: the radio stayed at tune
+        // power until the operator happened to move the slider. A subsequent
+        // voice transmission would have gone out at 10%.
+        const bool wasTuning = m_tuning;
+        m_tuning = false;
+        if (wasTuning)
+            setTxPower(m_rfPowerPercent);
+    }
     if (m_metis)
         QMetaObject::invokeMethod(m_metis, "setMox", Qt::QueuedConnection,
             Q_ARG(bool, key));
@@ -1008,7 +1054,7 @@ void Hl2Backend::setTxAudioMonitor(bool on)
             Q_ARG(bool, m_keyed && !on));
 }
 
-void Hl2Backend::setTune(bool on)
+void Hl2Backend::setTune(bool on, int tunePowerPercent)
 {
     // A tune carrier is an unmodulated steady signal at the transmit frequency.
     // The HL2 has no tune generator of its own, so it is the built-in test tone
@@ -1019,18 +1065,40 @@ void Hl2Backend::setTune(bool on)
     // the first frames on the air already carry it rather than silence, and drop
     // the key BEFORE the carrier on the way out so nothing is left radiating if
     // the tone clear is delayed behind other queued control verbs.
-    m_tuning = on;
+    //
+    // Drive is set from TUNE power, not RF power. The carrier amplitude is a
+    // fixed full-scale constant, so without this the drive register still held
+    // whatever setTxPower() last pushed — the RF Power slider — and an operator
+    // running RF 100 / Tune 10 got a FULL-POWER carrier from a control whose
+    // whole purpose is to reduce it. Flex is unaffected: it receives tune power
+    // as a text command and applies it radio-side.
+    // The RF power restore is NOT here: it lives in setKeying(false), which is
+    // the one point every unkey path converges on. See the comment there.
+    //
+    // m_tuning is therefore set only on the way UP, and left for setKeying() to
+    // clear on the way down. Assigning it unconditionally here would clear it
+    // before the setKeying(false) below could see it, and the restore that reads
+    // it would never fire on the one path that always goes through this
+    // function — the operator releasing the TUNE toggle.
     if (on) {
+        m_tuning = true;
+        // Straight to the drive register rather than through setTxPower(), which
+        // would overwrite the saved RF power we have to restore on release.
+        if (tunePowerPercent >= 0)
+            applyDrive(tunePowerPercent);
         setTxTestTone(0.0, kTuneCarrierAmplitude);
         m_toneFromTune = true;   // set AFTER: setTxTestTone clears the flag
         setKeying(true);
     } else {
-        setKeying(false);
+        setKeying(false);   // clears m_tuning and restores the operator's RF power
         setTxTestTone(0.0, 0.0);
     }
 }
 
-void Hl2Backend::setTxPower(int percent)
+// Clamp, map to the drive register, and honour the transmit gate. Shared by
+// setTxPower() and setTune() so the mapping — whose coarseness is documented in
+// setTxPower() — exists once and cannot drift between the two.
+void Hl2Backend::applyDrive(int percent)
 {
     // Drive is gated exactly like keying. setTxDriveLevel writes the PA-enable
     // bit (0x09[19]) every frame, so an ungated call — e.g. the push-current-
@@ -1041,12 +1109,25 @@ void Hl2Backend::setTxPower(int percent)
         setTxDriveLevel(0);
         return;
     }
+    const int clamped = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    setTxDriveLevel(clamped * kTxDriveMax / 100);
+}
+
+void Hl2Backend::setTxPower(int percent)
+{
     // The operator's 0..100 maps onto the HL2's 0..255 drive field. The gateware
     // only decodes the top nibble, so the effective resolution is coarser than
     // this suggests — the mapping is linear in the register, NOT calibrated to
     // watts, and nothing here should imply otherwise.
-    const int clamped = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
-    setTxDriveLevel(clamped * kTxDriveMax / 100);
+    //
+    // Remember the operator's drive so setTune() can drop to tune power and the
+    // unkey can put this back. Recorded BEFORE the transmit gate and even while
+    // tuning: a power change made mid-tune, or while TX is blocked, is still
+    // what the operator wants once the carrier drops or the gate opens.
+    m_rfPowerPercent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    if (m_tuning)
+        return;   // tune power owns the drive register until the carrier drops
+    applyDrive(m_rfPowerPercent);
 }
 
 void Hl2Backend::setTxDriveLevel(int level)
@@ -1194,6 +1275,38 @@ void Hl2Backend::pushInitialState()
     // operator's actual RF power — emit connected() above is synchronous, so
     // resetting here silently undid it and the radio transmitted at drive 0
     // with the PA disabled. Caught by measurement: forward power went to 0.
+
+    // Derive the passband from the MODE, not from the members.
+    //
+    // The member defaults (150..3000) correspond to no mode at all — they happen
+    // to equal the unmapped-mode fallback — so a fresh connect in the default USB
+    // left the radio with DIGU's passband while the mode indicator read USB. Same
+    // category as the mode-change stickiness in HERMES.md 15.7: mode and passband
+    // must agree, and CONNECT is a place they can disagree just as easily as a
+    // mode change.
+    //
+    // Found by radiocert's mode-map stage: 150..3000 for USB at connect,
+    // 100..2900 for the same mode once any other mode had intervened.
+    //
+    // OUTSIDE the m_dsp guard: these are the backend's OWN members, published by
+    // emitSliceState() and read by sliceDetail(), so with a null m_dsp the UI
+    // would still be told 150..3000 for USB — the very bug this fixes.
+    //
+    // ONCE PER CONNECT, not once per linkUp. pushInitialState() runs on every
+    // linkUp, and MetisClient re-emits that after a silence timeout without any
+    // new connectRadio(): onWatchdogTick() clears m_linkUp on EP6 silence while
+    // m_running stays true, then resuming EP6 fires linkUp again. Deriving
+    // unconditionally there would reset an operator's own filter edit — say
+    // 300..2400 on USB — after a few seconds of packet loss, which contradicts
+    // the override-preservation rule setSliceMode() documents ("adopted on
+    // CHANGE only, so an operator's own filter edit survives"). A reconnect is a
+    // new session and should re-derive; a transient glitch is not.
+    if (!m_passbandDerivedThisConnect) {
+        const auto [pbLowHz, pbHighHz] = defaultPassbandForMode(m_mode);
+        m_filterLowHz = pbLowHz;
+        m_filterHighHz = pbHighHz;
+        m_passbandDerivedThisConnect = true;
+    }
 
     if (m_dsp) {
         QMetaObject::invokeMethod(m_dsp, "setMode", Qt::QueuedConnection,

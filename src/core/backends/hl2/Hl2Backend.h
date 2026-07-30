@@ -62,7 +62,10 @@ public:
     void setKeying(bool key) override;
     void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz) override;
     void setTxPower(int percent) override;
-    void setTune(bool on) override;
+    // No default argument here on purpose: defaults on virtuals bind statically,
+    // so repeating the base's is how the two quietly diverge later. The sole
+    // call site passes it explicitly.
+    void setTune(bool on, int tunePowerPercent) override;
     void setTxAudioMonitor(bool on) override;
     void setTxFrequency(double hz);
     void setTxDriveLevel(int level);
@@ -86,6 +89,9 @@ private:
     void pushInitialState();
     void defineMeters();
     void publishTelemetry(const Hl2Telemetry& t);
+    // Clamp 0..100, map onto the drive register, honour the transmit gate.
+    // Shared by setTxPower() and setTune() so the mapping exists exactly once.
+    void applyDrive(int percent);
     static double temperatureCelsius(int raw);
     // Uncalibrated directional-coupler counts -> watts. See the table in the
     // .cpp for what this curve is and, more importantly, what it is not.
@@ -133,8 +139,20 @@ private:
     QTimer* m_bandwidthThrottle = nullptr;
     double m_pendingBandwidthHz = 0.0;   // 0 = nothing coalesced
     QString m_mode = QStringLiteral("USB");
+    // Overwritten from defaultPassbandForMode(m_mode) on the first linkUp of
+    // each connect. Do not treat these initial values as a mode's passband —
+    // they match no mode (they equal the unmapped-mode fallback), and when
+    // pushInitialState() sent them verbatim a fresh USB connect got DIGU's
+    // filter with the mode indicator reading USB.
     int m_filterLowHz = 150;
     int m_filterHighHz = 3000;
+    // Has this connect already derived the passband from the mode?
+    //
+    // pushInitialState() runs on every linkUp, and MetisClient re-emits linkUp
+    // after an EP6 silence timeout with no new connectRadio(). Without this the
+    // derivation would reset an operator's own filter edit on a transient glitch.
+    // Cleared in connectRadio(), so a genuine reconnect re-derives.
+    bool m_passbandDerivedThisConnect = false;
     int m_lnaGainDb = 20;
     // Last J16 open-collector filter byte commanded. 0xFF is "nothing sent yet"
     // rather than a real selection — kOcNone (0x00) is a legitimate value
@@ -164,6 +182,11 @@ private:
     bool m_tuning = false;
     bool m_txMonitor = false;
     bool m_toneFromTune = false;
+    // Last drive the operator asked for through setTxPower(), so TUNE can drop to
+    // tune power and put it back on release. Seeded to the same value
+    // TransmitModel defaults rfPower to, so a TUNE before any power change
+    // restores something sane rather than 0.
+    int m_rfPowerPercent = 100;
     // Tune-carrier amplitude, full scale into the modulator. Actual radiated
     // power is governed by the TX drive register, which is where an operator
     // sets it; scaling here as well would make the power control non-linear for
