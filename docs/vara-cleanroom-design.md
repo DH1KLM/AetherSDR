@@ -1336,6 +1336,69 @@ against the real capture. Beyond that, the decoder oracle (§3.9) allows the
 end-to-end proof — synthesise a frame for a payload never captured and see
 whether a listening VARA decodes it.
 
+### 3.28 — 2026-07-29 · The scrambler model predicts held-out captures exactly
+
+§3.27's model was validated by identity-checking, which is weak: it asks whether
+a relation holds, not whether the model can *produce* unseen data. It now
+predicts held-out captures symbol by symbol.
+
+**Method.** Fit the offset set `r[p]` on all identities but one, then predict the
+held-out pair capture's 407 symbols from `r` and the two single-bit captures:
+
+    d(0)      = (s(0) - r) mod 16
+    row_i     = ((s(e_i) - r) mod 16) XOR d(0)
+    d(e_i+e_j)= d(0) XOR row_i XOR row_j
+    predicted   s(e_i+e_j) = (d(e_i+e_j) + r) mod 16
+
+**The first version of this test was near-vacuous and is recorded as such.** It
+counted a hit if *any* offset in the candidate set predicted correctly. Where the
+set holds all 16 offsets that succeeds by construction, and 184 of 407 positions
+are that unconstrained. It reported 14/14 identities "EXACT", which was true and
+almost meaningless. The rigorous form asks whether **every** candidate predicts
+correctly, and whether offsets outside the set fail — and restricts to positions
+whose symbol actually varies, since a payload-independent position predicts
+correctly under any offset at all.
+
+| restricted to the 349 payload-varying positions | rate |
+|---|---|
+| offsets **inside** the fitted set | **49784 / 49812 = 99.94 %** |
+| at maximally-constrained positions (set size 4) | **5540 / 5540 = 100.00 %** |
+| offsets **outside** the fitted set | 15684 / 28364 = 55.30 % |
+| separation | **0.4465** |
+
+The 28 failures fall at only five symbol positions — 70, 164, 227, 393, 405 — and
+every one is at a candidate-set size of 8 or 16. **None at size 4.** They are
+residual offset ambiguity where the identities under-constrain `r`, not model
+failure; one (393) is a known cubic-residue symbol from §3.25.
+
+**Cross-length held-out prediction — the strongest check available.** `r` fitted
+*entirely* on 64-byte captures, then used to predict the 32-byte **pair** capture
+from the 32-byte singles. That capture was never used to fit anything, and the
+payload length differs:
+
+| | rate |
+|---|---|
+| offsets from the 64-byte fit | **3216 / 3216 = 100.00 %** |
+| offsets outside that fit | 988 / 2016 = 49.01 % |
+| separation | **0.5099** |
+
+**The model reproduces unseen data exactly.** `s = (d + r) mod 16` with `d`
+linear and `r` a fixed per-position sequence is confirmed.
+
+**On the residual ambiguity.** Multiple `(r, D)` pairs describe the data equally
+well, because the choice of `r[p]` within its valid set trades off against `d`.
+This is not an obstacle: *any* consistent choice yields a working codec, since
+every member of the set satisfies every identity. Pinning `r` uniquely is
+therefore a tidiness matter, not a blocker.
+
+**Remaining to a level-4 codec.** The sweep supplies the 256 generator rows for
+`d`. Then encoding is payload → `d` → `+ r` → the §3.12 synthesiser, and decoding
+is demodulate → `− r` → invert. The end-to-end proof is the decoder oracle
+(§3.9): synthesise a frame for a payload never captured and see whether a
+listening VARA decodes it. That test has not been run and nothing here should be
+read as claiming a working modem — soft-decision decoding for real HF noise,
+control-frame generation and the ARQ state machine all remain.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
