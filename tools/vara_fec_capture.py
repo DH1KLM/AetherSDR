@@ -256,6 +256,14 @@ def main():
     p.add_argument("--zeros", type=int, help="payload of N zero bytes")
     p.add_argument("--onebit", metavar="N,BIT",
                    help="N zero bytes with a single bit set (bit 0 = MSB of byte 0)")
+    p.add_argument("--bits", metavar="N,B1,B2,...",
+                   help="N zero bytes with several bits set. The linearity test: "
+                        "if the code is GF(2)-linear then "
+                        "c(bit i) XOR c(bit j) XOR c(bits i+j) = Encode(0), which "
+                        "both proves linearity and DERIVES the all-zero baseline "
+                        "that cannot be captured (an all-zero payload emits no "
+                        "payload frame). It also tests the tone->bit mapping: the "
+                        "identity fails under the wrong mapping.")
     p.add_argument("--probe-sizes", action="store_true",
                    help="map payload size to DATA-frame count")
     p.add_argument("--out", help="write the demodulated result here as JSON")
@@ -284,6 +292,19 @@ def main():
     if a.zeros is not None:
         payload = b"\x00" * a.zeros
         tag = f"zeros{a.zeros}"
+    elif a.bits:
+        parts = [int(v) for v in a.bits.split(",")]
+        ln, bits = parts[0], parts[1:]
+        if not bits:
+            raise SystemExit("--bits needs at least one bit index after the length")
+        bad = [b for b in bits if b >= ln * 8]
+        if bad:
+            raise SystemExit(f"bit(s) {bad} outside a {ln}-byte payload")
+        buf = bytearray(ln)
+        for b in bits:
+            buf[b // 8] |= 1 << (7 - (b % 8))
+        payload = bytes(buf)
+        tag = f"bits{'+'.join(str(b) for b in bits)}of{ln}"
     elif a.onebit:
         ln, _, bit = a.onebit.partition(",")
         ln, bit = int(ln), int(bit)
@@ -293,7 +314,7 @@ def main():
         buf[bit // 8] = 1 << (7 - (bit % 8))
         payload, tag = bytes(buf), f"bit{bit}of{ln}"
     else:
-        p.error("need --zeros, --onebit or --probe-sizes")
+        p.error("need --zeros, --onebit, --bits or --probe-sizes")
 
     wav = a.wav or os.path.join(scratch, f"fec_{tag}.wav")
     info, err = run_once(payload, wav)
