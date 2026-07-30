@@ -135,6 +135,65 @@ class Codec:
         """Symbols -> the coded symbol d, with the scrambler removed."""
         return (np.asarray(symbols, dtype=int) - self.r) % 16
 
+    # ---- receive path -------------------------------------------------
+    def _solver(self):
+        """Cache a GF(2) row-reduction of the generator matrix.
+
+        Decoding is solving G x = delta for the payload bits x. There are 256
+        unknowns against 1628 equations, so the system is heavily overdetermined:
+        a received frame that is not a codeword leaves a nonzero residual instead
+        of silently yielding a wrong payload. That redundancy is the error
+        detection, and it comes free.
+        """
+        if getattr(self, "_solve_cache", None) is not None:
+            return self._solve_cache
+        idx = sorted(self.rows)
+        G = np.array([nibbles(self.rows[i]) for i in idx], dtype=np.uint8)
+        A = G.T.copy() % 2                      # 1628 x 256
+        m, k = A.shape
+        aug = np.concatenate([A, np.eye(m, dtype=np.uint8)], axis=1)
+        piv = []
+        r = 0
+        for c in range(k):
+            sel = None
+            for i in range(r, m):
+                if aug[i, c]:
+                    sel = i
+                    break
+            if sel is None:
+                continue
+            aug[[r, sel]] = aug[[sel, r]]
+            for i in range(m):
+                if i != r and aug[i, c]:
+                    aug[i] ^= aug[r]
+            piv.append(c)
+            r += 1
+        self._solve_cache = (idx, G, aug, piv, r)
+        return self._solve_cache
+
+    def decode(self, symbols):
+        """Symbols -> (set payload bits, residual weight).
+
+        A residual of 0 means the frame is exactly a codeword of this generator
+        matrix. Nonzero residual means it is not, and the payload returned is the
+        least-squares-free best effort — callers should treat it as a failure.
+        """
+        idx, G, aug, piv, rank = self._solver()
+        d = self.decode_d(symbols)
+        delta = nibbles(d ^ self.d0).astype(np.uint8)
+        rhs = (aug[:, G.shape[0]:] @ delta) % 2
+        x = np.zeros(len(idx), dtype=np.uint8)
+        for i, c in enumerate(piv):
+            x[c] = rhs[i]
+        residual = int(((G.T @ x) % 2 ^ delta).sum())
+        return [idx[i] for i in np.flatnonzero(x)], residual
+
+
+def nibbles(sym):
+    """407 tone values -> 1628 bits, most significant bit of each symbol first."""
+    s = np.asarray(sym, dtype=int)
+    return ((s[:, None] >> np.arange(3, -1, -1)) & 1).ravel().astype(np.uint8)
+
 
 def load_sweep(outdir, length):
     base_path = os.path.join(outdir, f"zeros_of{length}.json")
