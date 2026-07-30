@@ -1139,6 +1139,64 @@ fall as rows accumulate.
 The 256-capture sweep is running. Captures are serialised (single-client host
 interface) at roughly three minutes each, so about 13 hours.
 
+### 3.25 — 2026-07-29 · The bit planes have graded algebraic degree 1, 1, 2, 3
+
+§3.24 left one thing open: why the two high bits are not linear. They are not
+nonlinear in an arbitrary way. **The four bit planes of the tone index have
+algebraic degree 1, 1, 2 and at least 3, graded by bit significance.**
+
+Over GF(2) a function of algebraic degree *d* has a vanishing (*d*+1)-th
+derivative, so degree is directly measurable. The third derivative over
+`{e0, e1, e2}` is the XOR of `c(S)` over all eight subsets `S`, which needed two
+captures that did not exist (`c(e0+e2)`, `c(e1+e2)`); the 256-capture sweep was
+paused for them and resumed afterwards, which is what its resumability is for.
+
+| plane | `D²` at base 0 | `D²` at base `e2` | `D³` | degree |
+|---|---|---|---|---|
+| `s & 1` | 0 | 0 | 0 | **1 — linear** |
+| `s >> 1 & 1` | 0 | 0 | 0 | **1 — linear** |
+| `s >> 2 & 1` | 38 | 38 | **0** | **2 — exactly quadratic** |
+| `s >> 3 & 1` | 48 | 42 | 10 | **at least 3, and sparse** |
+| *control — 7 of the 8 terms* | | | *182-210* | |
+| *control — a duplicated term* | | | *112-168* | |
+
+For plane 2 the second derivative is not merely the same *weight* at both base
+points, it is the same *vector* — that is what `D³ = 0` says, and base-point
+independence of the second derivative is the definition of degree 2.
+
+**Two independent lines of evidence that this is real, not a fluke:**
+
+*All ten third-derivative residue bits lie in the single plane `s >> 3`.* None in
+`s >> 2`. If the residue were scattered noise across the two high planes, the
+chance of landing all ten in one is 2⁻¹⁰. The residue symbols are 63, 69, 156,
+162, 228, 276, 310, 311, 326, 393 — none inside the 12-symbol fixed header, and
+confidence there is 109 787 or better, so they are not marginal decisions.
+
+*The two second-derivative supports coincide almost exactly.* Base 0 has support
+86, base `e2` has 80, intersection 78, **Jaccard 0.886**. Three random control
+pairs of matched sizes give Jaccard 0.031 to 0.044. A genuinely cubic map would
+give near-independent supports, so a symmetric difference of 10 instead of the
+~149 expected under independence is the measurement that pins the degree.
+
+**What this buys.** A quadratic map is a linear part plus a bilinear form, and
+both are measurable — the linear part from single-bit captures, the bilinear form
+from pair captures. So three of the four bits of every symbol become computable
+from the payload: two linear planes plus one exactly-quadratic plane, **1221 of
+1628 bits per frame (75 %)**, up from the 814 (50 %) established in §3.23.
+
+**Mechanism: not identified, and worth saying so plainly.** Graded degree is the
+signature of carry propagation in integer arithmetic — each successive bit of a
+sum gains a degree from the carry. But a plain two-operand add would give degrees
+1, 2, 3, 4, and the measurement is 1, 1, 2, 3, so it is not that. Phase
+accumulation across symbols is excluded independently: every symbol starts at
+-90.00002° (§3.12), so phase is reset per symbol rather than accumulated. No
+mechanism is claimed.
+
+**Open.** Whether "plane 2 has degree exactly 2" generalises beyond the
+`{e0, e1, e2}` triple. A second independent triple `{e0, e1, e3}` is capturing.
+A single triple giving `D³ = 0` against a control of ~200 is strong but is one
+triple.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
