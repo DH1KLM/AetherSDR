@@ -1688,6 +1688,61 @@ constituent codes would still buy a great deal. But the practical position has
 moved: the codec now corrects a moderately damaged frame rather than merely
 noticing that it is damaged.
 
+### 3.35 — 2026-07-30 · The ARQ exchange, both directions
+
+Every capture until now recorded `varaA.monitor`, which is instance A's
+*transmitted* audio. That is **one half of the conversation**. Instance B's
+replies go out on `varaB` and appear in A's recording only as silence between
+bursts. The "session grammar" of §3.31 was therefore the initiator's script, not
+the protocol. `tools/vara_dual_capture.py` records both sinks at once.
+
+**A's grammar, from 62 one-sided sessions.** Only 14 distinct control waveforms
+occur, and 23 sessions share one sequence exactly:
+
+    connect(41) DATA407 ctrl16 ctrl32 ctrl32 ctrl32 DATA407
+                ctrl17 ctrl17 ctrl32 ctrl32 ctrl32 CW
+
+Two of the 32-symbol frames recur verbatim on both sides of the payload frame.
+Most apparent deviations are ragged recording boundaries; the genuine ones are
+retries and **other DATA frame sizes** — 468, 464, 408, 334 and 222 all occur, so
+407 is one size among several, not the frame size.
+
+**What the other direction shows.** In a dual capture (32-byte payload, three bits
+set):
+
+| direction | frame sizes seen |
+|---|---|
+| A (initiator) | 64, 68, 128, 164, 320, 407 (in 512-sample units) |
+| B (answering) | 44, 82, 92 |
+
+* **B's acknowledgement is an 11-control-symbol frame** (44 units). No frame of
+  that size occurs anywhere in A's traffic, which is why one-sided captures
+  never revealed it.
+* **Only three distinct ACK contents** appear across eight transmissions,
+  consistent with a small vocabulary such as ACK, NAK and a sequence variant —
+  though nothing here demonstrates which is which, and no such role is claimed.
+* **B's frames begin with symbol 35, DFT bin 64.** That is a *third* frame-type
+  marker class: A uses 45 (bin 74) for its 32- and 41-symbol frames and 33
+  (bin 62) for its 16- and 17-symbol frames. All three ACKs share the prefix
+  `[35, 27, 40, 39]`, and two of them share five leading symbols.
+* B answers the connect frame with a **23-symbol** frame beginning with 33.
+
+Ordering, with the roughly 2-second recorder-start skew removed (B's recorder is
+started first by design), is: connect, then B's 23-symbol reply; the session DATA
+frame; three 32-symbol frames from A interleaved with B's 11-symbol ACKs; the
+payload DATA frame, acknowledged by an 11-symbol frame; then two 17-symbol
+frames, more ACKs, and A's teardown and CW identifier.
+
+**Caveat on timing.** The two recorders start a couple of seconds apart and the
+exact skew is not measured, so relative *ordering* is reliable while precise
+inter-frame gaps are not. Nothing above depends on the gaps.
+
+**What this unblocks.** A native modem must answer as B as well as speak as A.
+The ACK frame size, its marker class and the size of its vocabulary are now known.
+What is still missing is the mapping from state to frame — which of the three ACKs
+means what, and what A does on receiving each — and that needs sessions with
+deliberately induced retries, not more clean ones.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
