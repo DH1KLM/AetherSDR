@@ -1743,6 +1743,57 @@ What is still missing is the mapping from state to frame — which of the three 
 means what, and what A does on receiving each — and that needs sessions with
 deliberately induced retries, not more clean ones.
 
+### 3.36 — 2026-07-30 · The negative acknowledgement, isolated
+
+Clean sessions cannot show which reply is a negative acknowledgement, because
+every clean session succeeds. `tools/vara_nak_probe.py` replays a recorded
+session into the listening instance twice — once unmodified, once with the
+payload DATA frame replaced by noise of matching amplitude — and compares what
+comes back. Noise rather than silence, so the frame looks like one that arrived
+and failed to decode rather than one that never came.
+
+**The control is what makes the inference possible.** Unmodified replay delivered
+the payload (32 bytes); the damaged replay delivered **0**. So the receiver
+reached the same state and then failed, and any reply unique to the damaged run
+is a response to that failure.
+
+**Exactly one reply is unique to the damaged run:**
+
+    32 control symbols: [45, 47, 26, 7, 32, 31, 4, 41, 58, 29, 18, 63,
+                          2, 59, 48, 51, 32, 9, 22, 61, 30, 21, 24, 41,
+                          14, 57, 50, 65, 6, 17, 18, 57]
+
+That is the answering station's **negative acknowledgement**. It begins with
+symbol 45 — DFT bin 74 — which is the same frame-type marker the initiator uses
+for its own 32-symbol frames, so the answering station emits both the 11-symbol
+class and the 32-symbol class.
+
+**The answering station's full vocabulary, as now observed:**
+
+| frame | symbols | role |
+|---|---|---|
+| `[33, 38, 26, 37, …]` | 23 | reply to the connect frame |
+| three distinct frames sharing the prefix `[35, 27, 40, 39]` | 11 | acknowledgements during the exchange |
+| `[45, 47, 26, 7, …]` | 32 | **negative acknowledgement** |
+| alternating 35 / 3 | 80 | CW identifier |
+
+The 80-symbol frame is confirmed as a CW identifier: its dominant components are
+1500 Hz and 750 Hz, which is the 750 Hz sub-tone plus 1500 Hz on-off keying
+recorded for the initiator in §3.13. Symbols 35 and 3 are bins 64 and 32, and bin
+32 of a 2048-point transform is exactly 750 Hz.
+
+**What this does NOT determine.** All three 11-symbol replies occur in *both*
+runs — three distinct frames in the clean run and the same three in the damaged
+one — so this experiment separates the negative acknowledgement from the rest but
+says nothing about what distinguishes the three positive ones from each other. A
+sequence number is the obvious guess and is not evidence.
+
+Nor does it show the initiator's *reaction*: the replayed session is a recording
+and cannot retransmit, so the exchange simply stops after the negative
+acknowledgement. Establishing the retry behaviour needs a live initiator with a
+frame corrupted in flight, which the bench can now do since both directions are
+recordable.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
