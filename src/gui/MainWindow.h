@@ -406,6 +406,11 @@ private:
                                                 TuneIntent intent, const char* source,
                                                 double leftFlagEdgeOffsetMhz = 0.0,
                                                 double rightFlagEdgeOffsetMhz = 0.0);
+    // Write step for revealFrequencyIfNeeded's recenters: flex-display pans
+    // write through radio+model, kiwi-display pans recenter the widget alone
+    // (their radio geometry is frozen) — see PanRecenterPolicy.h.
+    void applyTuneCenteringWrite(PanadapterModel* pan, SpectrumWidget* sw,
+                                 double newCenterMhz);
     void logTunePolicyDecision(const char* source, TuneIntent intent,
                                double oldFreqMhz, double newFreqMhz,
                                const TuneCenteringResult& result) const;
@@ -576,6 +581,17 @@ private:
                                         const QString& profileId);
     void syncKiwiSdrDiversityEscControls();
     void syncKiwiSdrPanadapterUiState(const QString& panId);
+    // One-shot radio-geometry adoption of the widget's view when a pan stops
+    // displaying a kiwi source (the radio pan stayed frozen while recenters
+    // were widget-local — see PanRecenterPolicy.h).
+    void reconcileFlexPanGeometryAfterKiwiDisplay(const QString& panId,
+                                                  SpectrumWidget* spectrum);
+    // Re-run a leave-kiwi reconcile that deferred because a gesture was live at
+    // the toggle. Called when a gesture settles, so the pan doesn't stay on the
+    // frozen kiwi-assignment span until an unrelated gesture happens to correct
+    // it.
+    void retryDeferredKiwiLeaveReconcile(const QString& panId);
+    void retryAllDeferredKiwiLeaveReconcile();
     void syncKiwiSdrPanadapterUiStates();
     enum KiwiSdrUiSyncFlag {
         KiwiSdrUiSyncAppletReceivers = 0x01,
@@ -1507,6 +1523,10 @@ private:
     bool m_sliceDragInProgress{false};
     int m_sliceDragTargetSliceId{-1};
     double m_sliceDragTargetMhz{0.0};
+    // Pans whose leave-kiwi geometry reconcile deferred behind a live gesture
+    // and must be retried when the gesture settles (see
+    // reconcileFlexPanGeometryAfterKiwiDisplay / retryDeferredKiwiLeaveReconcile).
+    QSet<QString> m_kiwiLeaveReconcilePending;
     qint64 m_sliceDragEchoHoldUntilMs{0};
     int centerLockSliceForPan(const QString& panId) const;
     bool centerLockActiveForSlice(const SliceModel* slice) const;

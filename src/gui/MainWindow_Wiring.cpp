@@ -25,6 +25,7 @@
 #include "AppletPanel.h"
 #include "DbmRangeTransition.h"
 #include "MainWindowHelpers.h"
+#include "PanRecenterPolicy.h"
 #include "PanadapterApplet.h"
 #include "PanadapterMessageOverlay.h"
 #include "PanadapterStack.h"
@@ -681,12 +682,24 @@ void MainWindow::resyncPanGeometryToView(const QString& panId)
 {
     if (m_shuttingDown || !m_panStack)
         return;
+    // Not while the pan displays a KiwiSDR: there the WIDGET is the authority
+    // and the model is frozen at kiwi-assignment geometry by design
+    // (PanRecenterPolicy) — re-pushing it would snap the operator's
+    // widget-local zoom back to the assignment span, the #4424 bug through a
+    // new door. Same reasoning as retryDeferredKiwiLeaveReconcile: the leave-
+    // kiwi reconcile is what re-marries model and view afterwards.
+    if (kiwiSdrPanDisplaysKiwi(panId))
+        return;
     auto* pan = m_radioModel.panadapter(panId);
     auto* sw = m_panStack->spectrum(panId);
     if (!pan || !sw)
         return;
-    const double centerMhz = pan->centerMhz();
-    const double bandwidthMhz = pan->bandwidthMhz();
+    // Effective (pending-else-model) geometry: a deferred write in flight —
+    // e.g. the leave-kiwi reconcile parked behind a profile-load hold (#4142)
+    // — supersedes the model value; re-pushing the superseded span here would
+    // undo it. With nothing pending these read the model unchanged.
+    const double centerMhz = m_radioModel.effectivePanCenterMhz(panId);
+    const double bandwidthMhz = m_radioModel.effectivePanBandwidthMhz(panId);
     if (centerMhz <= 0.0 || bandwidthMhz <= 0.0)
         return;
     if (qFuzzyCompare(sw->centerMhz(), centerMhz)
@@ -3101,18 +3114,20 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 kiwiGestureLastViewUpdate->invalidate();
             });
     connect(sw, &SpectrumWidget::panDragSettled,
-            this, [updateKiwiWaterfallView,
+            this, [this, updateKiwiWaterfallView,
                    kiwiGestureLastViewUpdate](double centerMhz,
                                               double bandwidthMhz) {
                 updateKiwiWaterfallView(centerMhz, bandwidthMhz);
                 kiwiGestureLastViewUpdate->invalidate();
+                retryAllDeferredKiwiLeaveReconcile();
             });
     connect(sw, &SpectrumWidget::frequencyRangeSettled,
-            this, [updateKiwiWaterfallView,
+            this, [this, updateKiwiWaterfallView,
                    kiwiGestureLastViewUpdate](double centerMhz,
                                               double bandwidthMhz) {
                 updateKiwiWaterfallView(centerMhz, bandwidthMhz);
                 kiwiGestureLastViewUpdate->invalidate();
+                retryAllDeferredKiwiLeaveReconcile();
             });
     connect(sw, &SpectrumWidget::kiwiSdrDisplaySourceRequested,
             this, [this, applet](bool kiwi) {
@@ -4151,20 +4166,31 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             return;
         }
         if (auto* pan = m_radioModel.panadapter(target->panId())) {
-            // Effective (pending-else-model) geometry, so a deferred write in
-            // flight dedupes instead of re-issuing per drag tick (#4142).
-            centerMhz = std::max(
-                centerMhz,
-                m_radioModel.effectivePanBandwidthMhz(pan->panId()) / 2.0);
-            // In-window drag moves pass the unchanged center purely to tune
-            // without reveal — only emit the pan command when it actually moves.
-            if (!qFuzzyCompare(centerMhz,
-                               m_radioModel.effectivePanCenterMhz(pan->panId()))) {
-                // Deferred rather than dropped during a profile load (#4142).
-                // The SpectrumWidget owns its own view during an edge-pan drag,
-                // so the gesture still tracks the cursor; the radio catches up
-                // when the deferred center flushes.
-                m_radioModel.requestPanCenter(pan->panId(), centerMhz);
+            // A kiwi-display pan has no radio-side span to catch up: its radio
+            // geometry is frozen (#3825/#4081) and the widget already advanced
+            // its own view for this drag tick. Writing the center through
+            // anyway would pair it with the model's frozen bandwidth and snap
+            // the zoom back to the kiwi-assignment span — see PanRecenterPolicy.
+            const PanRecenterPolicy::Write panWrite =
+                PanRecenterPolicy::recenterWrite(
+                    kiwiSdrPanDisplaysKiwi(pan->panId()),
+                    /*widgetOwnsViewDuringGesture=*/true);
+            if (panWrite == PanRecenterPolicy::Write::RadioAndModel) {
+                // Effective (pending-else-model) geometry, so a deferred write
+                // in flight dedupes instead of re-issuing per drag tick (#4142).
+                centerMhz = std::max(
+                    centerMhz,
+                    m_radioModel.effectivePanBandwidthMhz(pan->panId()) / 2.0);
+                // In-window drag moves pass the unchanged center purely to tune
+                // without reveal — only emit the pan command when it moves.
+                if (!qFuzzyCompare(centerMhz,
+                                   m_radioModel.effectivePanCenterMhz(pan->panId()))) {
+                    // Deferred rather than dropped during a profile load
+                    // (#4142). The SpectrumWidget owns its own view during an
+                    // edge-pan drag, so the gesture still tracks the cursor;
+                    // the radio catches up when the deferred center flushes.
+                    m_radioModel.requestPanCenter(pan->panId(), centerMhz);
+                }
             }
         }
         queueActiveSliceForSpectrumTarget(target->sliceId());
@@ -4198,6 +4224,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 m_sliceDragEchoHoldUntilMs = QDateTime::currentMSecsSinceEpoch() + 350;
             }
             recenterCenterLocks();
+            // A leave-kiwi reconcile that deferred behind this drag can run now.
+            retryAllDeferredKiwiLeaveReconcile();
         }
     });
 
@@ -4740,12 +4768,7 @@ MainWindow::TuneCenteringResult MainWindow::revealFrequencyIfNeeded(
             ? kPanFollowAnimationDurationMs
             : 0;
 
-        // #4142 — defer, never drop. During a profile load the pan center write
-        // is suppressed at the wire; advancing the local center anyway is what
-        // made the waterfall go black (the view claimed a center the radio never
-        // took). requestPanCenter() applies the model update only when the
-        // command actually goes out, and replays it once the hold lifts.
-        m_radioModel.requestPanCenter(pan->panId(), result.newCenterMhz);
+        applyTuneCenteringWrite(pan, sw, result.newCenterMhz);
         return result;
     }
 
@@ -4831,12 +4854,47 @@ MainWindow::TuneCenteringResult MainWindow::revealFrequencyIfNeeded(
 
     // Apply the center so the owning spectrum repaints immediately;
     // SpectrumWidget decides whether that becomes a short retargetable animation
-    // or an immediate snap based on shift size. During a profile load this
-    // defers instead (#4142) — the model does not advance ahead of the radio, so
-    // the pan keeps showing truthful spectrum for its real span until the
-    // deferred center flushes.
-    m_radioModel.requestPanCenter(pan->panId(), result.newCenterMhz);
+    // or an immediate snap based on shift size.
+    applyTuneCenteringWrite(pan, sw, result.newCenterMhz);
     return result;
+}
+
+// Shared write step for revealFrequencyIfNeeded's recenter decisions. A
+// flex-display pan writes through the radio and model — #4142: defer, never
+// drop; during a profile load the wire write is suppressed and requestPanCenter()
+// advances the model only when the command actually goes out, replaying it once
+// the hold lifts, so the pan keeps showing truthful spectrum for its real span.
+// A kiwi-display pan's radio geometry is frozen (#3825/#4081): a center-only
+// write-through would re-broadcast the model's frozen bandwidth over the
+// widget's live zoom and snap the view back to the kiwi-assignment span, so the
+// recenter is applied to the widget alone — see PanRecenterPolicy.
+void MainWindow::applyTuneCenteringWrite(PanadapterModel* pan,
+                                         SpectrumWidget* sw,
+                                         double newCenterMhz)
+{
+    if (!pan)
+        return;
+
+    switch (PanRecenterPolicy::recenterWrite(
+                kiwiSdrPanDisplaysKiwi(pan->panId()),
+                /*widgetOwnsViewDuringGesture=*/false)) {
+    case PanRecenterPolicy::Write::RadioAndModel:
+        m_radioModel.requestPanCenter(pan->panId(), newCenterMhz);
+        break;
+    case PanRecenterPolicy::Write::WidgetLocal:
+        if (sw) {
+            const double bwMhz = PanRecenterPolicy::recenterBandwidthMhz(
+                /*kiwiDisplayActive=*/true, sw->bandwidthMhz(),
+                pan->bandwidthMhz());
+            // Low edge stays >= 0 Hz, matching every other center writer
+            // (snapCenterLockForSlice's kiwi branch, the gesture paths, and
+            // dispatchPanCenterBandwidth on the flex side).
+            sw->setFrequencyRange(std::max(newCenterMhz, bwMhz / 2.0), bwMhz);
+        }
+        break;
+    case PanRecenterPolicy::Write::None:
+        break;
+    }
 }
 
 MainWindow::TuneCenteringResult MainWindow::panFollowVfo(

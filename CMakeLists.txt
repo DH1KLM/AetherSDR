@@ -3224,6 +3224,16 @@ target_include_directories(spectrum_preview_logic_test PRIVATE src)
 target_link_libraries(spectrum_preview_logic_test PRIVATE Qt6::Core)
 add_test(NAME spectrum_preview_logic_test COMMAND spectrum_preview_logic_test)
 
+# Kiwi-display recenter write policy — pins that tune-driven recenters on a
+# kiwi-display pan stay widget-local (never pairing a new center with the
+# frozen PanadapterModel bandwidth, which snapped the zoom back to the
+# kiwi-assignment span).
+add_executable(pan_recenter_policy_test
+    tests/pan_recenter_policy_test.cpp
+)
+target_include_directories(pan_recenter_policy_test PRIVATE src)
+add_test(NAME pan_recenter_policy_test COMMAND pan_recenter_policy_test)
+
 add_executable(waterfall_history_buffer_test
     tests/waterfall_history_buffer_test.cpp
     src/gui/WaterfallHistoryBuffer.cpp
