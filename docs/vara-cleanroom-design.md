@@ -1794,6 +1794,63 @@ acknowledgement. Establishing the retry behaviour needs a live initiator with a
 frame corrupted in flight, which the bench can now do since both directions are
 recordable.
 
+### 3.37 — 2026-07-30 · A second waveform, found by breaking the channel
+
+`tools/vara_retry_probe.py` runs a live session and injects band-limited noise
+into the forward sink while it is in progress, so the answering station hears a
+corrupted transmission while the initiator remains free to react — which a
+replayed recording (§3.36) cannot do.
+
+**The first attempt failed silently, and the way it failed matters.** At
+amplitude 9000 the replies looked completely normal and the obvious reading was
+"no effect". That inference was weak: it rested on the reply *pattern* alone. The
+noise was simply too quiet — VARA's tones are orthogonal over a 512-sample
+integration, so noise spread across 1600 Hz delivers far less energy per tone bin
+than a 12509-amplitude tone. The probe now reads the answering station's DATA
+socket directly, which settles delivery instead of inferring it.
+
+**At full scale the channel genuinely degrades, and VARA recovers.** The payload
+still arrived intact (`1000400000200000…`), but the session took **72.4 s against
+52.6 s** for a clean run, and the initiator switched to a **different DATA frame**.
+
+**The alternate frame is a different modulation, not merely a different length.**
+It demodulates under the level-4 parameters with a median tone confidence of
+**55567.2** rather than the usual ~186018 — and that same value appears in
+alternate-level frames captured **with no noise injection at all**, during the
+recovery campaign. A signature reproducing exactly across unrelated captures is a
+property of the waveform, not contamination. Its parameters:
+
+| | level-4 frame (solved) | alternate frame |
+|---|---|---|
+| symbol length | 512 samples | **1024 samples** |
+| symbols per frame | 407 | **234** (468 units) or 232 (464 units) |
+| tones | 16 | **32** |
+| DFT bins | 9-24 of a 512-point transform | **17-48 of a 1024-point transform** |
+| tone spacing | 93.75 Hz | **46.875 Hz** |
+| occupied band | 843.75 - 2250.00 Hz | 796.88 - **2250.00** Hz |
+| raw bits per frame | 407 x 4 = 1628 in 4.341 s | 234 x 5 = 1170 in 4.992 s |
+
+All 32 bins are used with no gaps, and the range is identical across all five
+alternate frames examined. Both waveforms share an upper edge at exactly 2250 Hz.
+Fewer bits carried more slowly is precisely what a robust fallback mode looks
+like, which is consistent with it appearing when the channel is degraded.
+
+**A correction to §3.36.** That entry identified a 32-symbol frame from the
+answering station as "the negative acknowledgement". The live experiment shows a
+**different** 32-symbol frame, `[45, 57, 24, 11, 38, 61, …]` against
+`[45, 47, 26, 7, …]`, and this one arrives immediately *before* the initiator
+switches waveform. So the answering station has at least two distinct 32-symbol
+link-control frames, and naming one of them "the" negative acknowledgement was
+over-specific. What is established is that both follow a failed or degraded
+frame; which requests a retransmission and which requests a slower waveform is
+not determined.
+
+**What this means for a native implementation.** Supporting a single frame format
+is not enough. The modem negotiates among at least two DATA waveforms, and the
+alternate one is now characterised at the modulation level though its code is
+untouched — recovering that would need its own sweep, since none of the 512
+generator rows apply to it.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
