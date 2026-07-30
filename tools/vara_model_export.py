@@ -111,7 +111,20 @@ def build(scratch):
         raise SystemExit("no 32-byte sweep baseline")
 
     obs = multibit_observations(scratch)
+    # Screen before fitting. One capture containing overlapping sessions is
+    # enough to poison every offset, and such a capture still looks valid because
+    # its burst 6 is a real 407-symbol frame — just from the wrong session.
     if obs:
+        bad = vc.inconsistent_observations(
+            sets, base32, raw32, [(k, b, t) for k, b, t in obs])
+        if bad:
+            print("  rejecting inconsistent captures (positions with no valid "
+                  "offset):")
+            for label, n in bad:
+                print(f"    {label}: {n}/407")
+        drop = {label for label, _ in bad}
+        obs = [o for o in obs if o[0] not in drop]
+        print(f"  fitting offsets on {len(obs)} consistent captures")
         sets = vc.constrain_with_multibit(sets, base32, raw32,
                                           [(b, t) for _, b, t in obs])
     r = vc.choose_offsets(sets)
@@ -192,6 +205,20 @@ def verify(scratch, model, holdout=6):
             for k, v in model["code"]["rows"].items()}
     obs = multibit_observations(scratch)
     usable = [(k, bb, t) for k, bb, t in obs if all(b in rows for b in bb)]
+    base32c, raw32c = vc.load_sweep(os.path.join(scratch, "fec_sweep"), 32)
+    caps0 = {}
+    for k, fn in PAIR_FILES.items():
+        v = load(scratch, fn)
+        if v is not None:
+            caps0[k] = v
+    ids0 = [t for t in IDENTITIES if all(k in caps0 for k in t)]
+    sets0 = vc.offset_sets(caps0, ids0)
+    raw32c = {k: v for k, v in raw32c.items() if k < 256}
+    drop = {lab for lab, _ in vc.inconsistent_observations(
+        sets0, base32c, raw32c, [(k, b, t) for k, b, t in usable])}
+    if drop:
+        print(f"  excluding inconsistent captures from verification: {sorted(drop)}")
+    usable = [o for o in usable if o[0] not in drop]
     print(f"  multi-bit captures usable: {len(usable)} (all 32-byte payloads)")
 
     base_key = "32"

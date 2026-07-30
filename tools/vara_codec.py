@@ -73,20 +73,27 @@ def offset_sets(captures, identities):
     return out
 
 
-def constrain_with_multibit(sets, base, rows_raw, observations):
+def constrain_with_multibit(sets, base, rows_raw, observations, strict=True):
     """Narrow the offset sets using captures with MANY payload bits set.
 
-    A pair identity only constrains positions that its two bits actually move,
-    so offsets stay undetermined wherever those particular bits are inert — and
-    a capture whose bits fall in that blind spot then mispredicts. Measured:
-    two-bit payloads predicted 407/407 while 9-to-12-bit payloads managed only
-    400-403/407, and every discrepancy was at such a position.
+    A pair identity only constrains positions that its two bits actually move, so
+    offsets stay undetermined wherever those bits are inert, and a capture whose
+    bits fall in that blind spot then mispredicts.
 
-    A multi-bit capture constrains EVERY position at once, because the encoded
-    symbol there depends on the whole set. `observations` is a list of
-    (set_bits, symbols) for captures not used elsewhere.
+    THE FALLBACK USED TO HIDE BAD DATA. When no offset satisfied every
+    observation at a position, this quietly kept the unconstrained set. That
+    turned a handful of corrupted captures into a silently wrong `r`: five
+    captures containing overlapping sessions — valid-looking, because burst 6 was
+    a real 407-symbol frame belonging to the WRONG session — poisoned the fit
+    until the model could not even reproduce the captures it was fitted on
+    (0 of 32, where it had been 28 of 28).
+
+    So inconsistency is now surfaced, not absorbed. With strict=True a position
+    that admits no offset raises, naming how many positions failed; the caller is
+    expected to screen observations first with `inconsistent_observations`.
     """
     out = []
+    failures = 0
     for p in range(FRAME_SYMBOLS):
         ok = set()
         for r in sets[p]:
@@ -104,8 +111,49 @@ def constrain_with_multibit(sets, base, rows_raw, observations):
                     break
             if good:
                 ok.add(r)
-        out.append(ok if ok else sets[p])
+        if not ok:
+            failures += 1
+            ok = sets[p]
+        out.append(ok)
+    if failures and strict:
+        raise ValueError(
+            f"{failures}/{FRAME_SYMBOLS} positions admit no offset consistent "
+            f"with all {len(observations)} observations — screen them with "
+            f"inconsistent_observations() before fitting")
     return out
+
+
+def inconsistent_observations(sets, base, rows_raw, observations):
+    """Return the observations that cannot be reconciled on their own.
+
+    Tests each capture in isolation against the identity-derived offsets. A
+    capture that is internally sound admits an offset at every position; one that
+    is corrupted, truncated, or recorded at a different modem speed level does
+    not. Screening with this before fitting is what keeps one bad capture from
+    corrupting the whole offset table.
+    """
+    bad = []
+    for label, setbits, sym in observations:
+        nofit = 0
+        for p in range(FRAME_SYMBOLS):
+            hit = False
+            for r in sets[p]:
+                d0 = (int(base[p]) - r) % 16
+                d = d0
+                usable = True
+                for i in setbits:
+                    if i not in rows_raw:
+                        usable = False
+                        break
+                    d ^= ((int(rows_raw[i][p]) - r) % 16) ^ d0
+                if usable and (d + r) % 16 == int(sym[p]):
+                    hit = True
+                    break
+            if not hit:
+                nofit += 1
+        if nofit:
+            bad.append((label, nofit))
+    return bad
 
 
 def choose_offsets(sets):
