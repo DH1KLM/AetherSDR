@@ -150,7 +150,13 @@ their wire encoding is still unobserved.
 any exchange in plaintext, so a feature can be exercised in the GUI and its
 protocol entries read straight out of the database.
 
-## 4d. CONFIRMED: framing is `<len> SP <payload>`, length exact, no terminator
+## 4d. RETRACTED as "confirmed" — the one positive result did not reproduce
+
+**Read §4e before relying on anything in this section.** The heading below
+originally said CONFIRMED. It should not have. The single positive observation
+was not reproduced in the very next batch, and one success is not a finding.
+
+## 4d (as originally written): framing is `<len> SP <payload>`, length exact, no terminator
 
 Five controlled trials, each connecting to a live VarAC and sending one
 candidate reply to its opening `3 <Q>`. Success was judged **not** by whether
@@ -187,6 +193,44 @@ the link survived but by whether VarAC's own database recorded an **Incoming**
 **What `<Q>` means is still unknown.** Both sides send it on connect. VarAC's UI
 has a "QRZ?" control, so "who are you" is a plausible reading, but that is a
 guess and is not recorded here as fact.
+
+## 4e. The positive result is NOT reproducible — current honest state
+
+A follow-up batch sent four payloads including **the identical `3 <Q>` that had
+been parsed**, and VarAC recorded **no Incoming entry for any of them**:
+
+| we sent | link | parsed |
+|---|---|---|
+| `5 HELLO` | held | no |
+| `28 HELLO FROM AETHERSDR TEST` | held | no |
+| `3 HELLO` (deliberately wrong length) | held | no |
+| `3 <Q>` (the previously-successful control) | held | **no** |
+
+So `3 <Q>` parsed **once**, in one trial, and has not parsed since. Everything
+in §4d that depends on that single success is therefore **unproven**, including:
+
+* that the leading field is a length rather than a version or counter;
+* that the absence of a terminator is what made `3 <Q>\r` fail;
+* that a missing prefix is what made bare `<Q>` fail.
+
+Those readings are all still *consistent* with the data. None is established.
+
+**Candidate explanations, untested:**
+
+1. **Our payload never actually reached VarAC.** At 500 Hz with the free
+   licence capping throughput, a few bytes take a long time to traverse an ARQ
+   link. If the modem's TX buffer had not drained before we disconnected, VarAC
+   would never have seen it — and the one success would be the one run where it
+   happened to get through. The next test logs `BUFFER` to settle this.
+2. Timing or session-state dependence in VarAC's parser.
+3. `<Q>` is accepted only once per session or only at a specific handshake step.
+
+**Method note.** This is the second time in this investigation that a result
+survived one observation and died on repetition, and the second time an
+apparatus problem masqueraded as a protocol finding (after the KISS-port
+collision in the provenance doc §3.20). The rule that keeps proving itself:
+**one observation is a hypothesis, not a finding — repeat it before writing it
+down as fact.** This document should not have said CONFIRMED on a single trial.
 
 ## 5. Open questions, in the order worth answering
 
