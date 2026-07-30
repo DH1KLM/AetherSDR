@@ -657,21 +657,16 @@ void RadioModel::setupBackend(const QString& family)
     // mic-source list: a backend that modulates here has no physical input jacks
     // to choose between, so "PC" is the only truthful answer.
     connect(this, &RadioModel::connectionStateChanged, this,
-            [this](bool connected) {
-        // Capability-driven, not family()!="flex": only a backend that both
-        // host-modulates and may transmit collapses the mic source to PC. (#4449)
-        const RadioCapabilities caps = backendCapabilities();
-        m_transmitModel.setHostModulation(connected
-                                          && caps.hostModulates && caps.canTransmit);
-        // Whether an antenna tuner exists at all. Same shape and the same
-        // reason: the capability is the backend's to report, and the widgets
-        // that need it only see the model.
-        //
-        // Restored to TRUE on disconnect rather than left false — with no radio
-        // connected there is nothing to be honest ABOUT, and leaving the ATU
-        // greyed out after unplugging an HL2 would look like a fault.
-        m_transmitModel.setHasTuner(!connected || caps.hasTuner);
-    });
+            [this](bool connected) { publishCapabilities(connected); });
+
+    // A backend may revise its own capabilities mid-session (SimBackend does so
+    // on connect; a Flex refines its seeded table as touchpoints convert), and
+    // until now nothing above the seam listened — connectionStateChanged was the
+    // only hook, so a post-connect revision never reached the UI. Republishing
+    // through the same helper means every capability consumer has exactly one
+    // signal to bind to and cannot observe a stale picture.
+    connect(m_backend.get(), &IRadioBackend::capabilitiesChanged, this,
+            [this] { publishCapabilities(isConnected()); });
 
     // Keying and tune from the GUI.
     //
@@ -2675,6 +2670,67 @@ void RadioModel::rebootRadio()
 RadioCapabilities RadioModel::backendCapabilities() const
 {
     return m_backend ? m_backend->capabilities() : RadioCapabilities{};
+}
+
+bool RadioModel::hasExtendedDspFilters() const
+{
+    // Connected: the backend's declaration wins. For a Flex this is bit-for-bit
+    // the previous answer — FlexBackend::capabilities() computes
+    // hasExtendedDsp as capabilitiesFor(model).hasExtendedDsp(), against the
+    // same model string this object holds (it IS m_model, handed over by the
+    // setModelProvider lambda in setupBackend). Same table, same key, same
+    // result; what changes is only that the value now travels through the seam.
+    if (m_backend && isConnected()) {
+        return backendCapabilities().hasExtendedDsp;
+    }
+    // Disconnected or unknown: fall back to the model-name table, so a session
+    // restored from settings still shows the right filters before a backend has
+    // reported anything.
+    return capabilitiesFor(m_model).hasExtendedDsp();
+}
+
+bool RadioModel::hasRadioSideDsp() const
+{
+    if (!m_backend || !isConnected()) {
+        return true;   // nothing attached — assume present, see the header
+    }
+    return backendCapabilities().hasRadioSideDsp;
+}
+
+bool RadioModel::hasDaxStreams() const
+{
+    if (!m_backend || !isConnected()) {
+        return true;   // nothing attached — assume present, see the header
+    }
+    return backendCapabilities().hasDaxStreams;
+}
+
+// The single fan-out point for "what this radio says it can do".
+//
+// Everything capability-driven — model-side flags pushed into TransmitModel, and
+// the capabilitiesChanged relay the GUI binds to — is published from here, so
+// the connect edge and a mid-session revision by the backend take identical
+// paths. Adding a capability means adding one line here, not another
+// connect-time lambda.
+void RadioModel::publishCapabilities(bool connected)
+{
+    const RadioCapabilities caps = backendCapabilities();
+
+    // Capability-driven, not family()!="flex": only a backend that both
+    // host-modulates and may transmit collapses the mic source to PC. (#4449)
+    m_transmitModel.setHostModulation(connected
+                                      && caps.hostModulates && caps.canTransmit);
+    // Whether an antenna tuner exists at all. Same shape and the same
+    // reason: the capability is the backend's to report, and the widgets
+    // that need it only see the model.
+    //
+    // Restored to TRUE on disconnect rather than left false — with no radio
+    // connected there is nothing to be honest ABOUT, and leaving the ATU
+    // greyed out after unplugging an HL2 would look like a fault. Every
+    // capability below follows the same `!connected || caps.x` shape.
+    m_transmitModel.setHasTuner(!connected || caps.hasTuner);
+
+    emit capabilitiesChanged(connected, caps);
 }
 
 IRadioBackend::HealthSnapshot RadioModel::backendHealthSnapshot() const

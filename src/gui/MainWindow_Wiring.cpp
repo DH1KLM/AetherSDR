@@ -1529,6 +1529,7 @@ bool MainWindow::reattachSliceVisualsToPanadapter(SliceModel* s)
             const QString& sub = m_radioModel.licenseSubscription();
             targetVfo->setSmartSdrPlus(sub.contains("SmartSDR+"));
             targetVfo->setHasExtendedDsp(m_radioModel.hasExtendedDspFilters());
+            targetVfo->setHasRadioSideDsp(m_radioModel.hasRadioSideDsp());
             wireVfoWidget(targetVfo, s);
             targetVfo->setDiversityAllowed(m_radioModel.isDiversityAllowed());
             wireVfoTelemetry(targetVfo, s);
@@ -2032,6 +2033,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
         // Set extended DSP flag before wireVfoWidget so the mode-change lambda
         // in setSlice() gates NRL/NRS/RNN/NRF visibility correctly (#2177)
         vfo->setHasExtendedDsp(m_radioModel.hasExtendedDspFilters());
+        vfo->setHasRadioSideDsp(m_radioModel.hasRadioSideDsp());
 
         wireVfoWidget(vfo, s);
 
@@ -3155,6 +3157,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     menu->setRadioCapabilities(m_radioModel.capabilities());
     menu->setDeclaredBands(m_radioModel.declaredBands());
     applyTuningRangeToOverlayMenu(menu);
+    applyRadioSideDspToOverlayMenu(menu);
 
     // Antenna list → this overlay menu (per-pan, mirrors VfoWidget pattern) (#1260)
     connect(&m_radioModel, &RadioModel::antListChanged,

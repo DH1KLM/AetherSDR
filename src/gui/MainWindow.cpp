@@ -5316,6 +5316,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
                 menu->setDeclaredBands(declaredBands);
                 menu->setXvtrBands(xvtrBands);
                 applyTuningRangeToOverlayMenu(menu);
+                applyRadioSideDspToOverlayMenu(menu);
             }
         };
         QTimer::singleShot(2000, this, refreshXvtr);
@@ -6107,6 +6108,126 @@ void MainWindow::applyTuningRangeToOverlayMenu(SpectrumOverlayMenu* menu) const
     // "unconstrained" — so a Flex, and a disconnected session, both keep every
     // band button live exactly as before.
     menu->setTuningRangeMhz(caps.tuningMinHz / 1.0e6, caps.tuningMaxHz / 1.0e6);
+}
+
+void MainWindow::applyCapabilitiesToUi(bool connected, const RadioCapabilities& caps)
+{
+    // See the header for why every flag is `!connected || caps.x` and why each
+    // surface gets exactly one owning call.
+
+    // ── Profiles: the PROF applet, the Profiles menu, and both dialogs ──────
+    const bool profiles = !connected || caps.hasProfiles;
+    if (m_appletPanel) {
+        m_appletPanel->setProfilesVisible(profiles);
+    }
+    if (m_profilesMenu) {
+        // Hide the whole menu, not just its two dialog entries: the rest of it
+        // is the radio's global-profile list, which on a radio without profiles
+        // is permanently empty. A "Profiles" menu containing nothing but two
+        // dialogs that can only report emptiness is worse than no menu.
+        m_profilesMenu->menuAction()->setVisible(profiles);
+    }
+    // Close a dialog already open when the capability goes away — leaving the
+    // Profile Manager on screen listing a store the connected radio does not
+    // have is the same lie the menu entry would be.
+    if (!profiles) {
+        if (m_profileManagerDialog) {
+            m_profileManagerDialog->close();
+        }
+        if (m_profileImportExportDialog) {
+            m_profileImportExportDialog->close();
+        }
+    }
+
+    // ── DAX: the DAX and DAX-IQ applets, and the autostart toggle ──────────
+    //
+    // VISIBILITY ONLY. startDax()'s null-check on panStream() is a separate
+    // crash guard and stays exactly where it is — the two are not merged. This
+    // stops the operator being offered the controls; that stops a session that
+    // somehow reaches the bridge anyway from segfaulting on a null stream.
+    const bool dax = !connected || caps.hasDaxStreams;
+    if (m_appletPanel) {
+        m_appletPanel->setDaxStreamsVisible(dax);
+    }
+    if (m_autoDaxAction) {
+        m_autoDaxAction->setVisible(dax);
+    }
+
+    // ── Extended DSP: the NRS / RNN / NRF buttons in every slice VFO ────────
+    //
+    // Read through hasExtendedDspFilters() rather than off caps directly. That
+    // accessor already applies the permissive rule for this flag in the form it
+    // needs: disconnected, it answers from the model-name table, so unplugging
+    // restores the filters a saved session's radio model implies instead of
+    // blanking them. Taking caps.hasExtendedDsp here would force false on the
+    // disconnect edge, because the struct is default-constructed with no
+    // backend.
+    //
+    // The existing pushes at slice creation and on infoChanged stay — they
+    // cover a VFO built after this ran. This one covers the reverse: a backend
+    // revising the capability while the VFOs already exist.
+    const bool extendedDsp = m_radioModel.hasExtendedDspFilters();
+
+    // ── Radio-side DSP: NR / NB / ANF / NRL / ANFL / ANFT in every slice VFO ──
+    //
+    // Both accessors apply their own permissive rule for the disconnected case,
+    // which is why neither reads off `caps` here.
+    const bool radioSideDsp = m_radioModel.hasRadioSideDsp();
+
+    if (m_panStack) {
+        for (auto* applet : m_panStack->allApplets()) {
+            auto* sw = applet->spectrumWidget();
+            if (!sw) {
+                continue;
+            }
+            for (auto* vfo : sw->findChildren<VfoWidget*>()) {
+                vfo->setHasExtendedDsp(extendedDsp);
+                vfo->setHasRadioSideDsp(radioSideDsp);
+            }
+            // WNB lives in the pan's overlay menu, not the VFO.
+            applyRadioSideDspToOverlayMenu(sw->overlayMenu());
+        }
+    }
+
+    // ── APD: one owning method in TxApplet ANDs this with apdConfigurable ────
+    //
+    // NOT a replacement for apdConfigurable, which stays the authority on
+    // whether a Flex reports the predistorter as configurable. This is the
+    // second input: apdConfigurable only ever arrives from Flex status, so on a
+    // backend that never sends it the row's state would otherwise depend on
+    // session history rather than on the connected radio.
+    if (m_appletPanel && m_appletPanel->txApplet()) {
+        m_appletPanel->txApplet()->setRadioSideDspAvailable(radioSideDsp);
+    }
+
+    // ── The radio's 8-band hardware EQ ──────────────────────────────────────
+    //
+    // Same capability, same reasoning: EqualizerModel emits `eq RXsc`/`eq TXsc`,
+    // which reach nothing without a Flex command plane. The Aetherial RX/TX EQ
+    // tiles are untouched — on a radio with no hardware EQ they are the only
+    // equalizer the operator has.
+    if (m_appletPanel) {
+        m_appletPanel->setHardwareEqVisible(radioSideDsp);
+    }
+
+    // ── Flex platform features that are not DSP ─────────────────────────────
+    if (m_waveformsAction) {
+        m_waveformsAction->setVisible(!connected || caps.hasWaveforms);
+    }
+    if (m_multiFlexAction) {
+        m_multiFlexAction->setVisible(!connected || caps.hasMultiClientSessions);
+    }
+}
+
+void MainWindow::applyRadioSideDspToOverlayMenu(SpectrumOverlayMenu* menu) const
+{
+    if (!menu) {
+        return;
+    }
+    menu->setRadioSideDspAvailable(m_radioModel.hasRadioSideDsp());
+    // The per-pan DAX button and panel, which the capability gate previously
+    // missed — so an HL2 kept IQ Ch / DAX Ch selectors that reach nothing.
+    menu->setDaxStreamsAvailable(m_radioModel.hasDaxStreams());
 }
 
 SliceModel* MainWindow::activeSlice() const

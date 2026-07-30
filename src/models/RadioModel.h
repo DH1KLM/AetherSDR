@@ -260,13 +260,41 @@ public:
     // firmware DSP filters (NRL, NRS, RNN, NRF).  6000-series radios don't
     // expose these filters and the UI hides them when this returns false. (#2177)
     //
-    // Delegates to the FlexLib-sourced ModelCapabilities platform table
-    // (Principle I) instead of ad-hoc substring checks — the old prefix form
-    // silently missed the "S" server variants (MLS-9601 doesn't contain "ML-";
-    // CLS-9301 doesn't contain "CL-") and was case-sensitive.
-    bool hasExtendedDspFilters() const {
-        return capabilitiesFor(m_model).hasExtendedDsp();
-    }
+    // Reads the CONNECTED BACKEND's declared RadioCapabilities::hasExtendedDsp,
+    // falling back to the FlexLib-sourced ModelCapabilities platform table
+    // (Principle I) only when no radio is connected.
+    //
+    // The backend is the authority here and the table is the guess. FlexBackend
+    // already populated caps.hasExtendedDsp — from that same table — but nothing
+    // read it: all three GUI call sites came through this method, which went
+    // straight to capabilitiesFor(m_model) and bypassed the seam entirely. A
+    // non-Flex backend declaring the capability honestly had no way to be heard,
+    // and a Flex refining the value from live radio status (as touchpoints
+    // convert) would have been ignored.
+    //
+    // Deliberately NOT ad-hoc substring checks, which the table replaced: the
+    // old prefix form silently missed the "S" server variants (MLS-9601 doesn't
+    // contain "ML-"; CLS-9301 doesn't contain "CL-") and was case-sensitive.
+    bool hasExtendedDspFilters() const;
+
+    // Whether the RADIO runs its own noise reduction / blanking / auto-notch
+    // (RadioCapabilities::hasRadioSideDsp) — NR, NB, ANF, NRL, ANFL, ANFT, the
+    // APD predistorter and the wideband noise blanker.
+    //
+    // Permissive when no radio is connected, like every other capability-gated
+    // surface: there is nothing to be honest about with nothing attached, and
+    // controls that stayed hidden after unplugging would read as a fault. Unlike
+    // hasExtendedDspFilters() there is no model-name table to fall back to, so
+    // the fallback is simply "assume present".
+    //
+    // Says nothing about the CLIENT-side modules (NR2/NR4/MNR/BNR/DFNR/RN2),
+    // which run on this host and work on any family.
+    bool hasRadioSideDsp() const;
+    // Whether this radio has DAX audio/IQ channels. Same permissive
+    // disconnected rule as hasRadioSideDsp(): with nothing attached there is
+    // nothing to be honest about, and blanking the controls on unplug would look
+    // like a fault rather than a fact about the radio.
+    bool hasDaxStreams() const;
 
     // True for 2-SCU radios that support diversity RX, from the FlexLib-sourced
     // ModelCapabilities table (Principle I).  Replaces the hand-maintained
@@ -681,6 +709,17 @@ signals:
     void infoChanged();
     void licenseFeaturesChanged();
     void connectionStateChanged(bool connected);
+    // The connected backend's self-declared RadioCapabilities changed, or a
+    // connect/disconnect changed which backend is answering. Relays
+    // IRadioBackend::capabilitiesChanged and also fires on every
+    // connectionStateChanged edge, so a consumer that wants "the capability
+    // picture is now different, re-read it" needs exactly this one connection.
+    //
+    // `connected` is passed rather than left for the slot to query, because
+    // every capability-driven surface has to distinguish "the radio says it
+    // lacks this" from "there is no radio" — the latter restores the permissive
+    // value (see MainWindow::applyCapabilitiesToUi).
+    void capabilitiesChanged(bool connected, const RadioCapabilities& caps);
     // Emitted whenever the backend instance is (re)built — including the
     // connect-time swap between FlexBackend and SimBackend (RFC #4288). The old
     // m_backend is already destroyed and m_backend now points at the new one.
@@ -1099,6 +1138,10 @@ private:
     // run again on a family change — not just at construction.
     void setupBackend(const QString& family);
     void teardownBackend();
+    // Push the backend's RadioCapabilities into the models that own each flag,
+    // then emit capabilitiesChanged. Called on every connect/disconnect edge and
+    // whenever the backend revises its own capabilities.
+    void publishCapabilities(bool connected);
     // Bind the one producer for rxDemodAudioReady. Idempotent; call after
     // m_backend and m_panStream are both settled for the new family.
     void wireRxDemodAudioBus();

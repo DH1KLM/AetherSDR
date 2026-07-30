@@ -4146,6 +4146,15 @@ target_include_directories(hl2_family_transition_test PRIVATE src)
 target_link_libraries(hl2_family_transition_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME hl2_family_transition_test COMMAND hl2_family_transition_test)
 
+# Capability-gated UI surfaces (hasProfiles / hasDaxStreams / hasExtendedDsp):
+# every backend declares each flag explicitly, the RadioModel relay fires on
+# both connection edges, and the `!connected || caps.hasX` rule the GUI applies
+# restores the permissive value on disconnect.
+add_executable(radio_capability_gating_test tests/radio_capability_gating_test.cpp)
+target_include_directories(radio_capability_gating_test PRIVATE src)
+target_link_libraries(radio_capability_gating_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME radio_capability_gating_test COMMAND radio_capability_gating_test)
+
 # TCI signaling on a backend with neither a Flex command plane nor a DAX data
 # plane (HL2) — the seam WSJT-X rides. Links WebSockets so the TciServer half of
 # the file compiles wherever HAVE_WEBSOCKETS is set for aethercore.

@@ -1990,3 +1990,246 @@ they receive nothing to transcribe.
 **Still open, narrowed:** only the UNKEY edge — whether `m_keyed` clears before
 the last leakage-contaminated block drains out of `Hl2RxDsp`. The key-down edge
 and the body of the transmission are both covered by the gate above.
+
+---
+
+## 19. Hiding Flex-only UI without asking "is this a Flex"
+
+§17 fixed three controls that *looked* wired and were not. This is the other
+half of the same problem: controls that are wired correctly, work perfectly on
+a Flex, and should not be on screen at all on an HL2. The PROF applet listed a
+profile store that does not exist. DAX offered to route streams this radio
+never sends. Both were reachable, both were honest-looking, and both were lies.
+
+> Field-by-field reference — what every backend declares and where each value
+> is read — lives in `docs/architecture/radio-capabilities-map.md`. This
+> section is the narrative; that table is the one to keep current.
+
+### 19.1 The rule, and why the obvious fix is the wrong one
+
+The obvious fix is `if (family == "flex")`, or a `dynamic_cast<FlexBackend*>`.
+`RadioCapabilities`' own header comment forbids exactly that — it is the
+structural replacement for the model-impersonation anti-pattern (RFC §1) — and
+the reason is not stylistic. A family test encodes *today's* device list at
+every call site. Add a fourth backend and you have to find them all, and the
+ones you miss fail silently in the direction of showing a control that cannot
+work.
+
+So: gate on a **declared capability, named for the concept**. `hasDaxStreams`,
+not `hasDax` — routing receive audio to a virtual device is not inherently a
+FlexRadio idea, and a backend that grows the ability should be able to say so
+without the field reading as a vendor special case.
+
+The chain is the one `hasTuner` → ATU dimming established in §17:
+
+```
+RadioCapabilities field                      backend declares it
+  → RadioModel pushes / relays it            one fan-out point
+    → model or signal carries it             GUI never sees a backend
+      → ONE widget method owns the state     no second caller
+```
+
+### 19.2 Four traps, three of which have already bitten
+
+**Fields default to `false`, so every backend must set every field
+explicitly.** This is the one that nearly shipped a Flex regression when
+`hasTuner` was added — FlexBackend escaped only because it happened to set
+`hasTuner = true` by hand. A backend that omits a field does not inherit a
+sensible default; it silently loses the feature. The test asserts Flex reports
+`true` for each flag *for this reason*, not as a tautology.
+
+**The model-side flag defaults to `true`.** `TransmitModel::m_hasTuner{true}`
+is the pattern. A widget constructed before any backend has reported must stay
+in its pre-existing state rather than briefly hide a control that does exist.
+
+**Restore the permissive value on disconnect** — `!connected || caps.hasX`,
+every time. With no radio attached there is nothing to be honest *about*, and a
+PROF applet that stays gone after unplugging reads as a fault, not as an
+accurate report about a radio that is no longer there.
+
+**A widget with two visibility inputs needs ONE method that ANDs them.** The
+ATU has two (no tuner, and TGXL-in-Operate). Two callers each doing
+`setVisible()` means whichever fires last wins — that was a real bug, not a
+hypothetical. `MainWindow::applyCapabilitiesToUi()` exists so this stays true
+as flags accumulate: one slot, one owning call per surface, no per-flag
+connect-time lambdas.
+
+### 19.3 `capabilitiesChanged` was a signal nobody relayed
+
+`IRadioBackend::capabilitiesChanged` existed from the start and RadioModel
+never forwarded it, so `connectionStateChanged` was the only hook. That was
+survivable with one flag and stops being survivable at three.
+`RadioModel::publishCapabilities()` is now the single fan-out — model-side
+pushes, then `RadioModel::capabilitiesChanged(connected, caps)` — and both the
+connection edges and a mid-session revision by the backend take the same path.
+
+Note the connect edge legitimately publishes **twice** on the demo backend:
+`SimBackend::connectRadio()` emits `capabilitiesChanged` itself, and the
+`connected` edge follows. Every consumer is idempotent `setVisible`, so this is
+harmless — but a consumer that toggles rather than sets would break here.
+
+### 19.4 The DAX crash guard and the DAX capability are NOT the same test
+
+`MainWindow::startDax()` null-checks `panStream()` before building the bridge.
+That is a **crash guard**: auto-starting DAX against an HL2 segfaulted ~3 s
+after connect, from the auto-start timer in `onConnectionStateChanged`, because
+DAX rides `PanadapterStream`'s VITA-49 audio and RadioModel leaves that null for
+every non-Flex family.
+
+`hasDaxStreams` is **UI visibility only**. It is deliberately not merged with
+the null check, and the two must not be collapsed into one test. One stops the
+operator being offered a control that cannot work; the other stops a session
+that reaches the bridge anyway — through automation, a stale setting, a future
+code path — from dereferencing a null stream. Fold them together and the crash
+path is guarded only by whatever the UI happened to hide.
+
+### 19.5 The extended-DSP bug was plumbing, not policy
+
+`RadioCapabilities::hasExtendedDsp` existed *and* FlexBackend populated it.
+Nothing read it. All three GUI call sites went through
+`RadioModel::hasExtendedDspFilters()`, which called `capabilitiesFor(m_model)`
+— the model-**name** table — and bypassed the seam entirely. A non-Flex backend
+declaring the capability honestly had no way to be heard.
+
+The accessor now reads the backend when connected and keeps the name table as
+the disconnected/unknown fallback. **Flex behaviour is unchanged, and provably
+so rather than approximately:** FlexBackend computes `caps.hasExtendedDsp` as
+`capabilitiesFor(model).hasExtendedDsp()`, and the model string it uses is the
+same `m_model`, handed over by the `setModelProvider` lambda in
+`setupBackend()`. Same table, same key, same answer — only the route changes.
+The test asserts the two routes agree across an extended-DSP platform, the "S"
+server variants the old substring form used to miss, and plain 6000-series
+radios, plus that the table distinguishes them at all so the agreement is not
+two constant falses agreeing.
+
+### 19.6 APD needed nothing, and that is worth recording
+
+`apdConfigurable` was checked and left alone. It rides `TransmitDelta`, which
+only `FlexBackend` ever populates (from `apd configurable=1` status), it
+defaults `false`, and `TransmitModel::resetState()` clears it on disconnect —
+so a Flex → HL2 transition in one session cannot strand it visible. Adding a
+capability for it would have been duplicate machinery for a path that already
+behaved. **Verify before you add a flag**; a second source of truth for the
+same fact is how the two-callers-one-widget bug gets built.
+
+### 19.7 Radio-side DSP, and why it is not one flag
+
+The second round covered five more surfaces: NR/NB/ANF/NRL/ANFL/ANFT in the
+slice VFO, the APD row, the WNB row in the ANT panel, `File ▸ Waveforms`, and
+`Settings ▸ multiFLEX`. The obvious move is one flag called `hasFlexDsp`. Two
+reasons it is three flags instead:
+
+- **The name.** A field in this struct is what a *future* backend implements. A
+  non-Flex radio with firmware NR should not have to set something called
+  `hasFlexDsp` to say so, and §19.1 forbids the vendor name anyway.
+- **The grouping.** Waveforms is plugin management and multiFLEX is session
+  multiplicity. Neither is DSP. One flag covering all five would under-describe
+  what it does at three of its five call sites.
+
+So: `hasRadioSideDsp`, `hasWaveforms`, `hasMultiClientSessions`.
+
+**`hasRadioSideDsp` is not `hasExtendedDsp`.** The latter is narrower — the extra
+8000-series firmware filters (NRS/RNN/NRF) on a radio that already has the base
+set. A radio with `hasRadioSideDsp=false` has neither. The test asserts they are
+independent (Flex reports base-true, extended-false for an unknown model string)
+so a later change cannot quietly collapse them.
+
+Neither flag says anything about the **client-side** modules — NR2, NR4, MNR,
+BNR, DFNR, RN2, and the Aetherial RX/TX EQ. Those run on this host, work on any
+family, and stay available on the HL2. The proof is visual: on an HL2 the VFO's
+DSP tab keeps `ADSP` and `AetherVoice` and loses every radio-side toggle, and the
+`VUDU` container keeps its Aetherial EQ tiles while the `EQ` applet goes away.
+
+**The radio's 8-band hardware EQ rides this flag too.** `EqualizerModel` emits
+`eq RXsc` / `eq TXsc` — command-plane verbs, so on an HL2 the sliders moved, the
+setting persisted, and the audio never changed. §17's failure shape exactly. The
+`EQ` applet is hidden; the Aetherial EQ is what an HL2 uses instead, which is
+also why gating the two together would have been the worst possible outcome:
+the operator would lose every equalizer they have.
+
+That is the general test for this flag — **does the control's only effect is to
+emit a verb the radio's firmware executes?** If the work happens in this
+application, it is not behind `hasRadioSideDsp`.
+
+### 19.8 Two setVisible sites that disagreed, and the fix that does NOT unify them
+
+The six VFO buttons had **two independent `setVisible()` sites** — the slice
+`modeChanged` handler and `syncFromSlice()` — which is §19.2's last trap in the
+wild. The fix is one owner, `applyRadioSideDspVisibility()`.
+
+The interesting part is what it does *not* do. `updateExtendedDspVisibility()`
+(the #2177 precedent three lines away) derives mode itself, which is safe because
+its callers were unified once and agreed afterwards. These six have **no agreed
+rule**: the `modeChanged` handler's `isVoice` carries a `!isFdv` term, so
+ANF/ANFL/ANFT hide for FreeDV on that path; `syncFromSlice`'s ANF expression does
+not, so they stay. Same class of drift #2177 found on DFM, still live.
+
+Deriving mode in the new owner would have silently picked a winner. Instead each
+site caches its own answer into `m_*ModeOk` and the owner only ANDs the
+capability. Behaviour preserved exactly, including the inconsistency — resolving
+*that* is a separate change with its own decision to make.
+
+**The WNB row was a bare layout.** Hiding `m_wnbBtn` alone would have left its
+level slider and readout floating with nothing to label them, so the row is now
+wrapped in a container and hidden as a unit. It is seeded at all four
+overlay-menu build sites, because those menus are created lazily as pans appear —
+the same reason `applyTuningRangeToOverlayMenu()` is called from four places.
+
+### 19.9 APD gets a second input, not a second truth
+
+`apdConfigurable` stays the authority on whether a Flex reports the predistorter
+configurable. `hasRadioSideDsp` is ANDed with it in one `updateApdVisibility()`.
+
+This looks like it contradicts §19.6, which said APD needed nothing. It does not,
+and the difference is worth stating: §19.6's check was that APD is never wrongly
+*shown* on an HL2, and that held. What did not hold is *why* it held. `m_apdRow`
+is constructed **visible**, and `apdConfigurable` arrives only in Flex
+`TransmitDelta` status — so on a backend that never sends it, the row's state
+comes from whatever the previous session left behind, not from the connected
+radio. Correct by history is not correct.
+
+Two inputs, one method, per §19.2. Note the consequence for testing: on HL2
+hardware APD is hidden in **both** the connected and disconnected states, because
+`apdConfigurable` is false either way. There is no A/B to photograph — the unit
+test carries that one.
+
+**Be honest about what the capability buys here: today, nothing observable.**
+Under the AND, `apdConfigurable=false` already hides the row in every reachable
+state, and no backend reports `apd configurable=1` while declaring
+`hasRadioSideDsp=false` — that combination would be self-contradictory. So the
+second input is an assertion against a future backend, not a fix for a live bug.
+Recording that is the point: a capability wired in "for symmetry" that changes no
+behaviour is worth *saying so* rather than letting a reader assume it closed
+something.
+
+What WAS a live bug, found by asking that question: `m_apdRow` is a QWidget and so
+constructed **visible**, and neither input had fired at startup — nothing called
+`updateApdVisibility()` until a connect edge or an `apdStateChanged`. A cold
+launch therefore showed a live-looking APD button and Active/Cal/Avail indicators
+with no radio at all, and cold start disagreed with post-disconnect, where
+`resetState()` clears `apdConfigurable` and the row correctly goes away. One
+`updateApdVisibility()` call at the end of the row's construction fixes it.
+
+The general lesson: **the default visibility of a widget is a decision, and a
+`QWidget` gives you `true` whether you meant it or not.** Every gated surface in
+this section needs a defined state at t=0, not just a rule for what happens when
+a signal arrives.
+
+### 19.10 Testing the capability, not the family
+
+`tests/radio_capability_gating_test.cpp` asserts capabilities only — never
+`caps.family`, never a backend type. A test that asserted the family would pass
+just as happily against the anti-pattern it exists to prevent.
+
+The connected-backend half runs against SimBackend over the **synthetic demo
+connection** (RFC #4288): a demo `RadioInfo` takes `RadioConnection`'s
+no-socket path, so `isConnected()` genuinely becomes true with no hardware.
+That matters — the `!connected ||` half of the permissive rule is only
+meaningful if some case actually reaches the connected branch.
+
+One trap in writing it, worth repeating for anything driving the seam from a
+test: **do not wait on `isConnected()`.** The connection object lives on a
+worker thread and reaches `Connected` before its queued signal has crossed to
+the model's thread, so a `while (!isConnected())` pump exits *before* the
+emission under test and the assertion fails against working code. Wait on the
+signal.

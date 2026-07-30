@@ -124,8 +124,40 @@ private:
     QPushButton* m_apdBtn{nullptr};
     QWidget*     m_apdRow{nullptr};
 public:
-    void setApdVisible(bool v) { if (m_apdRow) m_apdRow->setVisible(v); }
+    // The APD row has TWO inputs and therefore ONE owner, for the same reason
+    // the ATU button does: two callers each doing setVisible() means whichever
+    // fires last wins.
+    //
+    //   apdConfigurable   the connected Flex reports `apd configurable=1`
+    //   hasRadioSideDsp   the radio runs its own DSP at all
+    //
+    // Both are needed. apdConfigurable alone was already correct in practice on
+    // an HL2 — nothing sets it — but only because the row's state carried over
+    // from a previous session: it arrives ONLY in Flex TransmitDelta status, so a
+    // backend that never sends it leaves the value to history, and m_apdRow is
+    // constructed visible. The capability makes it deterministic.
+    void setApdVisible(bool v)
+    {
+        m_apdConfigurable = v;
+        updateApdVisibility();
+    }
+    void setRadioSideDspAvailable(bool v)
+    {
+        m_radioHasSideDsp = v;
+        updateApdVisibility();
+    }
 private:
+    void updateApdVisibility()
+    {
+        if (m_apdRow) {
+            m_apdRow->setVisible(m_apdConfigurable && m_radioHasSideDsp);
+        }
+    }
+    bool m_apdConfigurable{false};
+    // Defaults TRUE so a widget built before any backend reports keeps its
+    // pre-existing state; apdConfigurable's own false default is what actually
+    // holds the row closed until a Flex says otherwise.
+    bool m_radioHasSideDsp{true};
 
     bool m_updatingFromModel{false};
 

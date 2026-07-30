@@ -352,6 +352,25 @@ private:
     // range leaves every band enabled (the Flex behaviour).
     void applyTuningRangeToOverlayMenu(SpectrumOverlayMenu* menu) const;
 
+    // The one place a declared RadioCapabilities flag turns into UI visibility.
+    //
+    // Bound to RadioModel::capabilitiesChanged, so it runs on every connect and
+    // disconnect edge and on any mid-session revision. Each surface gets exactly
+    // one owning call here rather than its own connect-time lambda: with several
+    // flags in play, scattered lambdas are how two callers end up both driving
+    // one widget's setVisible() and whichever fires last wins.
+    //
+    // Every flag reads `!connected || caps.x`. With no radio attached there is
+    // nothing to be honest about, and a control that stays hidden after
+    // unplugging reads as a fault rather than as an accurate report.
+    void applyCapabilitiesToUi(bool connected, const RadioCapabilities& caps);
+
+    // Push radio-side-DSP availability into one overlay menu's WNB row. Separate
+    // from applyCapabilitiesToUi() because overlay menus are also built lazily
+    // as pans appear, and those sites must seed a new menu with the current
+    // value — the same reason applyTuningRangeToOverlayMenu() exists.
+    void applyRadioSideDspToOverlayMenu(SpectrumOverlayMenu* menu) const;
+
     // AppSettings key for a pan's persisted RF gain, scoped by radio FAMILY.
     //
     // RF gain is the one "display" setting that is really a hardware register,
@@ -1189,6 +1208,15 @@ private:
     // Menus
     QMenu*           m_profilesMenu{nullptr};
     QAction*         m_txBandAction{nullptr};
+    // Settings ▸ "Autostart DAX with AetherSDR". Held so
+    // applyCapabilitiesToUi() can hide it on a radio with no DAX streams.
+    // Null on platforms without a DAX bridge, where the entry is never created.
+    QAction*         m_autoDaxAction{nullptr};
+    // File ▸ Waveforms... and Settings ▸ multiFLEX... — held so
+    // applyCapabilitiesToUi() can hide them on a radio with no installable
+    // waveforms / no multi-client sessions.
+    QAction*         m_waveformsAction{nullptr};
+    QAction*         m_multiFlexAction{nullptr};
 
     // Audio stream re-creation flag (after profile load)
     bool             m_needAudioStream{false};
