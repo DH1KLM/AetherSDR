@@ -905,6 +905,69 @@ scrutiny. The check that would have caught it: **before generalising a result,
 name the population it was measured on.** This one was measured on control
 frames and generalised to all frames.
 
+### 3.22 — 2026-07-30 · FEC differential: first generator-row data
+
+The differential attack on DATA-frame FEC is running and producing real
+structure. `tools/vara_fec_capture.py` links the two bench instances, sends an
+exact payload with `COMPRESSION OFF`, captures the transmitter's audio and
+demodulates to symbols.
+
+**Session shape (measured, not assumed).** No payload size produces a single
+DATA frame. A transfer is: one **164-symbol control frame** (the connect frame,
+§3.10), then **407-symbol DATA frames**, then control frames, and often a
+**CW ID** at the end. The CW ID is 320-321 symbols and was initially
+misclassified as DATA by a naive `>= 200 symbols` filter; it is now separated by
+its 750 Hz continuous sub-tone signature (§3.13).
+
+**Frame 1 is payload-independent.** With three payloads of the *same length* but
+different content (64 zeros; 64 bytes with bit 0 set; with bit 1 set), the first
+407-symbol DATA frame is **407/407 identical** in all three. It is a fixed
+session frame. (An earlier version of this claim compared only all-zero payloads
+of differing lengths and was worthless — near-identical inputs give
+near-identical outputs.)
+
+**An all-zero payload produces NO payload frame.** 64 zero bytes yielded only
+frame 1 plus a CW ID, while both single-bit payloads yielded a second 407-symbol
+frame. So `Encode(0)` is not directly obtainable and the attack must use
+**pairwise differences** (`c_i XOR c_j = row_i XOR row_j`) rather than an
+all-zero baseline. This recovers the row space; the affine offset stays a
+separate unknown.
+
+**First result — `c(bit 0) XOR c(bit 1)` on the payload frame:**
+
+| quantity | value |
+|---|---|
+| first differing symbol | **12** (header 0-11 untouched) |
+| last differing symbol | 406 |
+| symbols differing | 277 / 407 |
+| symbols unchanged | **130** / 407 (chance would be ~25) |
+| Hamming weight (4-bit natural-binary XOR) | **582 / 1628 bits = 35.7 %** |
+| per-symbol popcount histogram | `{0:130, 1:85, 2:100, 3:71, 4:21}` |
+
+Random 4-bit XOR would give `{25, 102, 153, 102, 25}`. The observed excess of
+untouched symbols is **structure, not noise**.
+
+**Cross-comparison: 46 positions are unchanged in all four independent
+comparisons** (bit0/bit1, zeros32/64, zeros32/96, frame1/frame2) against **~7.5
+expected by chance** — a 6x enrichment. Their values are *nearly* constant
+across every frame observed, with a couple of exceptions, so they are most
+likely **not pure pilots** but positions the interleaver and puncturing leave
+untouched for these particular input bits. That is exactly what sparse
+generator rows look like, and it is the behaviour the attack needs.
+
+**Unconfirmed observation, recorded but not relied on:** the 46 positions show
+visible regularity — many adjacent pairs (42/43, 76/77, 157/158, 224/225,
+239/240, 256/257, 338/339, 372/373, 403/404) and repeated gaps of 16 and 17,
+with several pairs sharing a residue mod 17. Forty-six points is far too few to
+fit a permutation, and 407 = 11 x 37 is not divisible by 17, so this is flagged
+for more data rather than treated as a finding.
+
+**What this establishes:** the differential machinery works end to end on DATA
+frames, the header/payload boundary is at symbol 12, and the code behaves
+linearly with sparse rows. **What remains is the campaign** — many single-bit
+differentials to accumulate rows, which is mechanical and automatable rather
+than exploratory.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
