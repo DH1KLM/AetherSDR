@@ -188,6 +188,9 @@ RadioCapabilities FlexBackend::capabilities() const
     // the client must NOT keep a local bank for a Flex — two stores that both
     // believe they are authoritative would fight over slot indices.
     caps.persistsMemories = true;
+    // The "+13.8A" meter carries the PA supply rail (measurement point A,
+    // before the fuse), which the status bar renders under the PA temperature.
+    caps.hasSupplyVoltageTelemetry = true;
 
     // Advertise the "flex" extension namespace: the amp/tuner operate/bypass/
     // autotune verbs are now routed through invokeExtension() (#4092/#4094), and

@@ -83,6 +83,24 @@ struct RadioCapabilities {
     bool hasAmplifier = false;     // integrated or controllable PA
     bool hasExtendedDsp = false;   // extended firmware DSP filters (NRS/RNN/NRF)
 
+    // The radio reports the PA supply-voltage rail as telemetry — the value the
+    // status bar renders directly under the PA temperature. A radio that never
+    // reports the rail declares false and that readout goes away, instead of
+    // formatting an initialiser to two decimals so it reads as a measurement.
+    //
+    // Named for the TELEMETRY, not for the PA and not for the brand. "Does it
+    // have a Flex PA" is the wrong axis: an HL2 has a PA and reports no supply
+    // rail, and an IC-7610 would be the same. What actually varies between
+    // families is whether the radio reports the voltage — which is exactly the
+    // question the label needs answered.
+    //
+    // NOT hasAmplifier, despite the adjacency. That field means "integrated or
+    // controllable PA", nothing reads it (see radio-capabilities-map.md, where
+    // it sits under the fields no consumer reads — the AMP applet runs off
+    // TunerModel::presenceChanged), and the HL2 declares it false while
+    // genuinely having a PA. It already means something other than this.
+    bool hasSupplyVoltageTelemetry = false;
+
     // The RADIO stores named configuration profiles (global / TX / mic) that a
     // client can list, load and save. The seam already carries ProfileDelta and
     // profileChanged in both directions; this is the flag that says whether the

@@ -2032,7 +2032,25 @@ MainWindow::MainWindow(QWidget* parent)
         m_lastPaTempC = paTemp;
         m_hasPaTempTelemetry = true;
         updatePaTempLabel();
-        m_supplyVoltLabel->setText(QString("%1 V").arg(supplyVolts, 0, 'f', 2));
+        // A bare dash, never a zero, for a rail the radio has not reported —
+        // the rule the Radio Health dialog already applies to its registers.
+        // No unit either: the unit belongs to the value, and there is no
+        // value, so "— V" would still be asserting a reading in volts. This
+        // signal fires when EITHER half of the hardware telemetry changes, so
+        // on a radio that reports PA temperature and no supply rail (HL2:
+        // PATEMP, no "+13.8A") every temperature tick used to repaint the
+        // 0.0f initialiser formatted to two decimals — indistinguishable from
+        // a measurement.
+        //
+        // Independent of hasSupplyVoltageTelemetry on purpose: that capability
+        // decides whether the OPERATOR IS OFFERED the readout, this decides
+        // what the readout may claim. A backend that declares the rail but has
+        // not yet received a meter definition is still not entitled to print a
+        // number. Same separation as the DAX capability and its crash guard.
+        m_supplyVoltLabel->setText(
+            m_radioModel.meterModel().hasSupplyVoltage()
+                ? QString("%1 V").arg(supplyVolts, 0, 'f', 2)
+                : QStringLiteral("—"));
 
         // Update station label (nickname arrives via status after connect)
         const QString nick = m_radioModel.nickname();
@@ -6311,6 +6329,42 @@ void MainWindow::applyCapabilitiesToUi(bool connected, const RadioCapabilities& 
     // equalizer the operator has.
     if (m_appletPanel) {
         m_appletPanel->setHardwareEqVisible(radioSideDsp);
+    }
+
+    // ── PA supply voltage: the lower row of the status bar's PA stack ───────
+    //
+    // m_supplyVoltLabel ONLY. m_paTempLabel and the paVbox around them are left
+    // alone deliberately: an HL2 reports PA temperature genuinely, so hiding the
+    // stack would delete a working readout in order to suppress a broken
+    // sibling. The one being suppressed is fed from the Flex-named "+13.8A"
+    // meter, and MeterModel emits hwTelemetryChanged whenever EITHER half
+    // changes — so on a radio that reports only PA temperature the volts half
+    // arrives as its 0.0f initialiser on every tick.
+    if (m_supplyVoltLabel) {
+        m_supplyVoltLabel->setVisible(!connected || caps.hasSupplyVoltageTelemetry);
+        if (!connected) {
+            // Drop the previous session's readings instead of leaving them on
+            // screen with no radio attached — the same "do not assert what the
+            // radio did not report" rule this gate exists for. MeterModel::clear()
+            // resets the underlying sentinels, but no further hwTelemetryChanged
+            // arrives after a disconnect to repaint either label, so the text has
+            // to be dropped here or a Flex's last rail voltage survives its own
+            // disconnect. Each row reuses its own established no-value rendering:
+            // a bare dash for the rail, "PA --" for the temperature.
+            m_supplyVoltLabel->setText(QStringLiteral("—"));
+            m_hasPaTempTelemetry = false;
+            updatePaTempLabel();
+        }
+        // Republishing the minimum width cannot currently matter here, and the
+        // call is kept only so the gate stays correct if that stops being true:
+        // paStack's minimum is PINNED by reserveTelemetryStack() with a
+        // "99.99 V" sample, so hiding one of its children leaves
+        // m_statusBarContainer->minimumSizeHint() unchanged, and
+        // updateStatusBarMinimumWidth() only ever READS that hint. So no stale
+        // minimum, gap or clipped size grip is reachable today — and the HL2
+        // reclaims no width from the hidden row either, nor would it:
+        // "PA 248.0°F" is the wider sample.
+        updateStatusBarMinimumWidth();
     }
 
     // ── Flex platform features that are not DSP ─────────────────────────────

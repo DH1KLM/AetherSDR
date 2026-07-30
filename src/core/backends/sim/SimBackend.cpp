@@ -312,6 +312,7 @@ RadioCapabilities SimBackend::capabilities() const
     caps.hasWaveforms = false;
     caps.hasMultiClientSessions = false;
     caps.hasGpsLocation = false;         // synthetic radio has no position source
+    caps.hasSupplyVoltageTelemetry = false;   // synthetic scene; no PA rail
     return caps;
 }
 

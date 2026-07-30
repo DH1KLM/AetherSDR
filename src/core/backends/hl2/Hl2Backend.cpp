@@ -1175,6 +1175,10 @@ RadioCapabilities Hl2Backend::capabilities() const
     c.hasWaveforms = false;             // no installable plugin surface
     c.hasMultiClientSessions = false;   // one client owns the radio
     c.hasGpsLocation = false;           // no GNSS receiver on the board
+    // The HL2 declares PATEMP but no "+13.8A": PA temperature is a real reading
+    // from this radio, the supply rail is not reported at all. Only the volts
+    // readout goes away — the temperature above it keeps working.
+    c.hasSupplyVoltageTelemetry = false;
     // No extension namespaces (no invokeExtension verbs yet), matching FlexBackend.
     return c;
 }
