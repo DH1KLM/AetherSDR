@@ -3,6 +3,7 @@
 #include "core/RadioCertificationMath.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
+#include "core/ClientQuindarTone.h"
 #include "core/LogManager.h"
 #include "core/ClientTxTestTone.h"
 #include "models/MeterModel.h"
@@ -93,21 +94,61 @@ void RadioCertification::setKeyObserver(std::function<void(bool)> observer)
     m_onKey = std::move(observer);
 }
 
-void RadioCertification::keyViaOperatorPath(bool on)
+bool RadioCertification::keyedNow() const
 {
     if (!m_radio)
-        return;
-    // Tell the observer BEFORE keying and AFTER unkeying, so the caller's safety
-    // window always encloses the transmission rather than trailing it.
+        return false;
+    const auto& tx = m_radio->transmitModel();
+    return tx.isTransmitting() || tx.isMox() || tx.isTuning();
+}
+
+bool RadioCertification::keyViaOperatorPath(bool on)
+{
+    if (!m_radio)
+        return false;
+    // Tell the observer BEFORE keying and AFTER the radio has ACTUALLY unkeyed,
+    // so the caller's safety window always encloses the transmission rather than
+    // trailing it.
     if (on && m_onKey)
         m_onKey(true);
+
     auto& tx = m_radio->transmitModel();
-    if (on)
+    if (on) {
         tx.requestPttOn(TransmitModel::PttSource::Mox);
-    else
-        tx.requestPttOff(TransmitModel::PttSource::Mox);
-    if (!on && m_onKey)
+
+        // CONFIRM THE KEY REACHED THE RADIO. requestPttOn returns void and
+        // silently does nothing when runPttPreflight() refuses — a band-limit
+        // block, a missing antenna, an interlock. Every stage below then
+        // measures an unkeyed radio and reports its silence as a defect in
+        // whatever it happens to be testing: "audio never reached the
+        // modulator", "the transmitter is not producing RF". The diagnostic
+        // would blame the chain for a refusal it never noticed.
+        spin(250);
+        if (!keyedNow()) {
+            ++m_keyRefusals;
+            if (m_onKey)
+                m_onKey(false);
+            return false;
+        }
+        return true;
+    }
+
+    tx.requestPttOff(TransmitModel::PttSource::Mox);
+
+    // WAIT FOR THE RADIO TO ACTUALLY UNKEY BEFORE DISARMING THE WATCHDOG.
+    //
+    // With Quindar enabled in a phone mode, requestPttOff does NOT unkey: it
+    // starts an outro tone and defers the real dispatchMoxOff() behind a
+    // single-shot QTimer for the outro duration. Firing m_onKey(false)
+    // immediately therefore disarmed the force-unkey watchdog while the radio
+    // was still transmitting — the backstop switched off during the one window
+    // it exists to cover.
+    for (int waited = 0; waited < 2500 && keyedNow(); waited += 100)
+        spin(100);
+
+    if (m_onKey)
         m_onKey(false);
+    return !keyedNow();
 }
 
 QJsonObject RadioCertification::meterSnapshot() const
@@ -170,12 +211,19 @@ void RadioCertification::stageControlEffect(const Options& o)
         if (auto* t = m_audio->clientTxTestTone()) {
             t->setFrequencyHz(1000.0f); t->setLevelDb(-20.0f); t->setEnabled(true);
         }
-        keyViaOperatorPath(true);
+        const bool keyed = keyViaOperatorPath(true);
         spin(o.settleMs);
         const QJsonObject s2 = meterSnapshot();
         keyViaOperatorPath(false);
+        // A STALE OR REFUSED READING IS NOT A MEASUREMENT. A frozen TX:MICPEAK
+        // returns the same number at both gain settings, so the delta is 0 dB
+        // and the stage fabricates "the control and the meter disagree about
+        // what the gain is" — a confident finding about a control it never
+        // observed. Same for a key the radio refused.
         if (auto* t = m_audio->clientTxTestTone()) t->setEnabled(false);
         spin(700);
+        if (!keyed || s2.value(QStringLiteral("micPeakDbfsStale")).toBool())
+            return -999.0;
         return s2.value(QStringLiteral("micPeakDbfs")).toDouble(-999.0);
     };
 
@@ -407,11 +455,18 @@ void RadioCertification::stageTuning(const Options& o)
     if (!slice)
         return;
 
+    // KEYED BY STEP INDEX, NOT BY FREQUENCY STRING. `radiocert tune 7.1` makes
+    // the list {7.1, 8.1, 7.1, 3.7} and two steps collide on the key "7.1000",
+    // so one measurement silently overwrites the other — a diagnostic quietly
+    // reporting fewer results than it took.
     QJsonObject perFreq;
+    int step = 0;
     for (const double mhz : {o.frequencyMhz, o.frequencyMhz + 1.0, 7.100, 3.700}) {
         slice->setFrequency(mhz);
         spin(900);
-        perFreq[QString::number(mhz, 'f', 4)] = QJsonObject{
+        perFreq[QStringLiteral("step%1_%2MHz").arg(step++).arg(mhz, 0, 'f', 4)]
+            = QJsonObject{
+            {QStringLiteral("requestedMhz"), mhz},
             {QStringLiteral("readbackMhz"), slice->frequency()},
             {QStringLiteral("errorHz"), (slice->frequency() - mhz) * 1.0e6},
         };
@@ -633,9 +688,17 @@ void RadioCertification::stageRxSidebands(const Options& o)
         if (fs <= 0.0)
             fs = AudioEngine::DEFAULT_SAMPLE_RATE;   // last resort, and reported
 
+        // SEARCH A BAND, NOT A BIN. The reference carrier's frequency is exact;
+        // our dial's is not. See tonePowerNear() — a coherent 1.5 s integration
+        // is a ~0.67 Hz bin, and a 1 ppm error at 10 MHz lands ~10 Hz away, so
+        // every mode reads the noise floor at once and the report says "deaf"
+        // when it means "missed".
         perMode[mode] = QJsonObject{
             {QStringLiteral("sampleRateHz"), fs},
-            {QStringLiteral("toneAtOffsetDb"), db(tonePower(mono, o.referenceOffsetHz, fs))},
+            {QStringLiteral("toneSearchSpanHz"), kReferenceSearchSpanHz},
+            {QStringLiteral("toneAtOffsetDb"),
+             db(certmath::tonePowerNear(mono, o.referenceOffsetHz, fs,
+                                        kReferenceSearchSpanHz))},
             {QStringLiteral("overallRmsDb"), db(rms(mono))},
             {QStringLiteral("frames"), static_cast<int>(mono.size())},
         };
@@ -854,10 +917,16 @@ void RadioCertification::stageRf(const Options& o)
     // transmission satisfies this check — so the stage would report a healthy
     // SWR path on a radio that sent nothing this key. That is the same
     // meter-trust problem the wording below is careful about, one level up.
+    //
+    // The PA temperature needs it for the same reason and did not have it: a
+    // stale pair yields a fabricated 0.0 rise, and the stage then asserts that
+    // dissipation did not happen on a radio it never actually read.
     const bool haveSwr = keyed.contains(QStringLiteral("swr"))
                       && !keyed.contains(QStringLiteral("swrStale"));
     const bool haveTemp = idle.contains(QStringLiteral("paTempC"))
-                       && keyed.contains(QStringLiteral("paTempC"));
+                       && keyed.contains(QStringLiteral("paTempC"))
+                       && !keyed.contains(QStringLiteral("paTempCStale"))
+                       && !idle.contains(QStringLiteral("paTempCStale"));
     const double tempIdle = idle.value(QStringLiteral("paTempC")).toDouble();
     const double tempKeyed = keyed.value(QStringLiteral("paTempC")).toDouble();
     QJsonObject m{
@@ -1038,10 +1107,26 @@ void RadioCertification::stageSideband(const Options& o)
 
     const bool saturated = db(std::max(sameAll, oppAll)) > -3.0;
 
+    // THE DISCRIMINATOR IS ABSOLUTE LEVEL IN EACH LEG, NOT THE DIFFERENCE.
+    //
+    // See the observation text below for the full reasoning. In short: both legs
+    // are matched TX/RX pairs, so a correct transmitter recovers the tone in
+    // BOTH and an inverted one recovers it in NEITHER. Comparing the two legs
+    // against each other measured noise; comparing each against the floor
+    // measures whether the transmitter and the demodulator agree.
+    const bool recoveredMatched  = db(sameTone) > kRecoveredFloorDb;
+    const bool recoveredOpposite = db(oppTone) > kRecoveredFloorDb;
+
     QJsonObject m{
         {QStringLiteral("transmitMode"), o.mode},
         {QStringLiteral("sampleRateHz"), fs},
         {QStringLiteral("sampleRateAssumed"), rateAssumed},
+        {QStringLiteral("recoveredToneFloorDb"), kRecoveredFloorDb},
+        {QStringLiteral("recoveredMatched"), recoveredMatched},
+        {QStringLiteral("recoveredOpposite"), recoveredOpposite},
+        {QStringLiteral("txRxSidebandAgree"), recoveredMatched && recoveredOpposite},
+        // Retained as evidence, but NOT a verdict input — see the observation.
+        {QStringLiteral("legsAreMatchedPairsNotOpposites"), true},
         {QStringLiteral("demodMatched"), QJsonObject{
             {QStringLiteral("mode"), o.mode},
             {QStringLiteral("sampleRateHz"), sameFs},
@@ -1096,26 +1181,49 @@ void RadioCertification::stageSideband(const Options& o)
             "is overloaded, so no verdict can be drawn. Lower "
             "kSidebandProbePowerPercent further, add attenuation, or check the "
             "sideband against a second receiver");
-    } else if (db(oppTone) > db(sameTone)) {
+    } else if (!recoveredMatched && !recoveredOpposite) {
         concern = QStringLiteral(
-            "SIDEBAND LOOKS INVERTED. The tone came back louder demodulated on "
-            "the OPPOSITE sideband than the one transmitted. On the HL2 this was "
-            "a missing conjugation of the transmit IQ: the wire has the opposite "
-            "handedness to the standard analytic convention, and the receive path "
-            "already compensates while transmit did not");
+            "TRANSMIT AND RECEIVE DISAGREE ABOUT SIDEBAND. Neither leg recovered "
+            "the tone (%1 dB and %2 dB, floor at %3 dB). Because setting the "
+            "slice mode moves BOTH chains together, a leg goes silent only when "
+            "the transmitter puts the tone on the side the demodulator is not "
+            "listening to — which is what a missing conjugation of the transmit "
+            "IQ looks like (HERMES.md 14.6)")
+            .arg(db(sameTone), 0, 'f', 1).arg(db(oppTone), 0, 'f', 1)
+            .arg(kRecoveredFloorDb, 0, 'f', 0);
+    } else if (recoveredMatched != recoveredOpposite) {
+        concern = QStringLiteral(
+            "ASYMMETRIC — one sideband recovered the tone and the other did not "
+            "(%1: %2 dB, %3: %4 dB). Both should behave alike when TX and RX move "
+            "together. Suspect a mode whose transmit passband is not the mirror "
+            "of its receive passband")
+            .arg(o.mode).arg(db(sameTone), 0, 'f', 1)
+            .arg(oppositeMode).arg(db(oppTone), 0, 'f', 1);
     }
 
     record(QStringLiteral("sideband"),
-           QStringLiteral("Demodulated sideband — the independent check"),
+           QStringLiteral("Transmit/receive sideband AGREEMENT — not absolute correctness"),
            m,
            QStringLiteral(
-               "Compares the transmitted tone demodulated on the matching "
-               "sideband against the opposite one. The matched side should be "
-               "clearly louder. This is deliberately NOT a panadapter check: the "
-               "panadapter reads the same wire order as the transmitter and "
-               "cannot disagree with it."),
+               "WHAT THIS CAN AND CANNOT SEE. Setting the slice mode drives the "
+               "transmit chain and the receive chain together (Hl2Backend::"
+               "setSliceMode: 'the transmit sideband follows the slice'), so both "
+               "legs here are matched pairs — TX-USB/RX-USB and TX-LSB/RX-LSB — "
+               "and the older matched-versus-opposite COMPARISON could not "
+               "discriminate anything: with the transmitter correct both legs "
+               "recover the tone, and with it inverted both go silent. The "
+               "difference between them was noise either way.\n\n"
+               "What IS observable is the absolute level in both legs, and it "
+               "answers a real question: do the transmitter and the demodulator "
+               "agree about which side of the carrier a sideband is on. A "
+               "transmit-only inversion silences both.\n\n"
+               "A SHARED inversion — both chains wrong in the same direction — is "
+               "invisible here BY CONSTRUCTION, which is HERMES.md 1.1 recurring "
+               "one level up: this check was built to catch convention errors and "
+               "still shares a convention with its subject. Only an unrelated "
+               "receiver settles it, and that check is listed in manualChecks."),
            concern,
-           QStringLiteral("HERMES.md 14.6"));
+           QStringLiteral("HERMES.md 14.6; 1.1 — a shared convention cannot self-check"));
 }
 
 void RadioCertification::stageCarrierSuppression(const Options& o)
@@ -1246,16 +1354,27 @@ QJsonObject RadioCertification::run(const Options& o)
         }
     }
 
+    // SILENCE QUINDAR FOR THE RUN.
+    //
+    // Two separate problems, one cause. The outro tone defers the real unkey
+    // behind a QTimer, so "unkeyed" and "requestPttOff returned" are different
+    // moments; and the intro tone is transmitted as audio, which lands straight
+    // inside stage-carrier-suppression's assertion that nothing is being sent.
+    // A diagnostic cannot measure a chain that is injecting its own audio into
+    // it (HERMES.md 1.12 — "no audio" has to mean it).
+    bool quindarWas = false;
+    ClientQuindarTone* quindar = m_audio ? m_audio->clientQuindarTone() : nullptr;
+    if (quindar) {
+        quindarWas = quindar->isEnabled();
+        quindar->setEnabled(false);
+    }
+
     // CLAMP RF POWER FOR THE WHOLE RUN, before any stage can key.
     //
     // The bridge's power ceiling is applied where a widget setpoint is written,
     // and this verb keys through its own path — so every keyed stage ran at
     // whatever RF power the operator had set, on the one verb that keys
     // repeatedly and unattended. That is the case the ceiling exists for.
-    //
-    // Restored on the way out via the same scope guard style stageSideband()
-    // already uses for its own probe power, so an early return cannot leave the
-    // operator's radio turned down.
     int powerToRestore = -1;
     if (m_radio && o.maxRfPowerPercent >= 0) {
         auto& tx = m_radio->transmitModel();
@@ -1268,9 +1387,36 @@ QJsonObject RadioCertification::run(const Options& o)
                 << o.maxRfPowerPercent << "for the run (automation ceiling)";
         }
     }
-    const auto restoreRunPower = qScopeGuard([this, powerToRestore] {
-        if (powerToRestore >= 0 && m_radio)
-            m_radio->transmitModel().setRfPower(powerToRestore);
+
+    // EVERYTHING ABOVE IS RESTORED BY THIS ONE GUARD, INCLUDING THE UNKEY.
+    //
+    // The unkey/tone/monitor half used to be straight-line code at the end of
+    // run(). There is no reachable path past it today, but the failure mode if
+    // one were ever added is uniquely bad on this verb: an early return would
+    // leave the radio KEYED, and the same missed epilogue would leave the
+    // watchdog already disowned by onTxWatchdog() — so the backstop fails in the
+    // same instant the bug is introduced. Cheap insurance on the one verb whose
+    // failure mode is a stuck transmitter.
+    const auto epilogue = qScopeGuard([&] {
+        keyViaOperatorPath(false);
+        if (m_audio) {
+            if (auto* tone = m_audio->clientTxTestTone())
+                tone->setEnabled(false);
+        }
+        if (quindar)
+            quindar->setEnabled(quindarWas);
+        if (m_radio) {
+            m_radio->setTxAudioMonitor(false);
+            if (powerToRestore >= 0)
+                m_radio->transmitModel().setRfPower(powerToRestore);
+            // ...and back on the operator's frequency and mode, not ours.
+            if (auto* slice = m_radio->slice(0)) {
+                if (operatorMhz > 0.0)
+                    slice->setFrequency(operatorMhz);
+                if (!operatorMode.isEmpty())
+                    slice->setMode(operatorMode);
+            }
+        }
     });
 
     const bool all    = o.phase == Phase::All;
@@ -1347,22 +1493,7 @@ QJsonObject RadioCertification::run(const Options& o)
         stageMeterInventory();
     }
 
-    // Make sure we leave the radio unkeyed whatever happened above.
-    keyViaOperatorPath(false);
-    if (m_audio) {
-        if (auto* tone = m_audio->clientTxTestTone())
-            tone->setEnabled(false);
-    }
-    if (m_radio) {
-        m_radio->setTxAudioMonitor(false);
-        // ...and back on the operator's frequency and mode, not ours.
-        if (auto* slice = m_radio->slice(0)) {
-            if (operatorMhz > 0.0)
-                slice->setFrequency(operatorMhz);
-            if (!operatorMode.isEmpty())
-                slice->setMode(operatorMode);
-        }
-    }
+    // Unkey, restore and re-tune all happen in `epilogue` above.
 
     // What this instrument CANNOT determine, stated as work for a human rather
     // than omitted. Everything here needs either a second receiver, an ear, or
@@ -1440,8 +1571,18 @@ QJsonObject RadioCertification::run(const Options& o)
             "concerns, then the measurements.")},
         {QStringLiteral("radio"), QJsonObject{
             {QStringLiteral("family"), m_radio ? m_radio->family() : QString()},
+            // The dial the KEYED stages ran on. Reported because an earlier
+            // version left the receive stages' reference carrier in place and
+            // this field went on claiming the requested frequency regardless.
             {QStringLiteral("frequencyMhz"), o.frequencyMhz},
-            {QStringLiteral("mode"), o.mode}}},
+            {QStringLiteral("mode"), o.mode},
+            {QStringLiteral("txPowerCeilingPercent"), o.maxPowerPercent}}},
+        // KEYS THE RADIO REFUSED. runPttPreflight can block a key (band limits,
+        // interlocks) and requestPttOn returns void, so a refusal is otherwise
+        // silent and every stage below reports its own subject as broken. A
+        // non-zero count here invalidates the transmit stages rather than
+        // merely annotating them.
+        {QStringLiteral("keyRefusals"), m_keyRefusals},
         {QStringLiteral("stages"), m_stages},
         {QStringLiteral("manualChecks"), manual},
     };

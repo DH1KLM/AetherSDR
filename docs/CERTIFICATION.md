@@ -194,6 +194,74 @@ different question than the one being asked.
 **Consequence.** `run()` saves the operator's frequency and mode at entry and
 restores both at exit; the transmit block re-establishes the dial before
 anything keys. Restoration is RAII where a throw could strand hardware state.
+The `meters` phase keys too, and needed the same treatment — a fix applied to
+one keying block is not applied to the class of keying blocks (§1.13 again).
+
+### 1.16 §1.1 recurs one level up: the check shared its subject's convention
+
+The sideband stage was the answer to §1.1 — *a convention error is invisible to
+any test that shares the convention* — and it shared one.
+
+It compared the transmitted tone demodulated on the matching sideband against
+the opposite one. But `Hl2Backend::setSliceMode` drives the transmit chain and
+the receive chain together ("the transmit sideband follows the slice"), so both
+legs were *matched pairs*: TX-USB/RX-USB and TX-LSB/RX-LSB. With the
+transmitter correct, both legs recover the tone. With it inverted, both go
+silent. **The difference between them was noise in either case**, so the
+comparison could not discriminate anything — and the stage emitted a confident
+`SIDEBAND LOOKS INVERTED` verdict from it.
+
+What *is* observable is the absolute level in each leg, which answers a real
+and narrower question: do the transmitter and the demodulator agree about which
+side of the carrier a sideband is on. A transmit-only inversion silences both
+legs. A **shared** inversion — both chains wrong in the same direction — remains
+invisible by construction, which is precisely §1.1 restated one level up.
+
+**Consequence.** The stage was rewritten to measure agreement, not correctness,
+and renamed to say so. Its `observation` states what it cannot see, and the
+external-receiver check stays in `manualChecks` as the only thing that settles
+the absolute question. Writing a check for a class of error does not exempt the
+check from that class.
+
+### 1.17 A refused action reads as a broken subject
+
+`TransmitModel::requestPttOn` returns `void` and silently does nothing when
+`runPttPreflight` refuses — a band limit, an interlock. `radiocert` never
+confirmed the radio actually keyed, so every downstream stage measured an
+unkeyed radio and blamed whatever it happened to be testing: "audio never
+reached the modulator", "the transmitter is not producing RF".
+
+The same shape as §1.8: a diagnostic reporting a defect in the nearest
+subsystem rather than the responsible one.
+
+**Consequence.** `keyViaOperatorPath` returns whether the radio reached the
+requested state, refusals are counted, and `keyRefusals` is a top-level report
+field — a non-zero count invalidates the transmit stages rather than annotating
+them.
+
+Related, and found with it: with Quindar enabled, `requestPttOff` does not
+unkey. It starts an outro tone and defers the real unkey behind a timer, so
+"the call returned" and "the radio stopped transmitting" are different moments —
+the watchdog was being disarmed while the radio still transmitted. And the
+Quindar *intro* tone is transmitted as audio, landing inside
+`stage-carrier-suppression`'s assertion that nothing is being sent (§1.12). The
+diagnostic now silences Quindar for the run and waits for the actual unkey.
+
+### 1.18 A probe needs a band when you do not control the target
+
+`tonePower()` integrates coherently over the whole buffer, so a 1.5 s capture is
+a ~0.67 Hz bin. That is right for our own test tone, whose frequency we set. It
+is wrong for an off-air reference: WWV is exact, but *our dial* is not, and a
+1 ppm oscillator error at 10 MHz moves the carrier ~10 Hz — fifteen bins away.
+
+Measured in `radio_certification_math_test`: a 10 Hz drift reads **−240 dB** on
+an exact-bin probe and **−12 dB** on a ±25 Hz band search. The exact-bin result
+is indistinguishable from a deaf receiver, and — being the same symptom — would
+have been read as the §1.9 wrong-rate bug all over again.
+
+**Consequence.** `tonePowerNear()` searches a band whenever the tone's exact
+frequency is not under our control, and the span is reported alongside the
+result.
 
 ---
 

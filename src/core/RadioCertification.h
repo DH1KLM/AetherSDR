@@ -73,6 +73,12 @@ public:
         int settleMs = 2500;            // per keyed measurement
         bool includeAudioProbe = true;  // the demodulated-sideband stage
 
+        // The automation power ceiling (AETHER_AUTOMATION_TX_MAX_POWER), or -1
+        // for none. This verb keys repeatedly across several stages, so it is
+        // the last one that should sit outside the ceiling that exists to stop
+        // automation transmitting at the operator's full power.
+        int maxPowerPercent = -1;
+
         // A known off-air carrier for the receive stages. WWV is the default
         // because it is free, always on, on an exactly known frequency, and
         // comes from a source that is not us — which makes it the one external
@@ -163,12 +169,28 @@ private:
     // TransmitModel, and three separate bugs reached the operator through that
     // gap (HERMES.md 14.5). A transmit diagnostic that keyed the way only the
     // bridge can would inherit exactly the blindness it exists to remove.
-    void keyViaOperatorPath(bool on);
+    //
+    // Returns whether the radio reached the requested state. Keying can be
+    // REFUSED by TransmitModel::runPttPreflight (band limits, interlocks) and
+    // requestPttOn returns void, so an unnoticed refusal made every stage below
+    // measure an unkeyed radio and blame its own subject for the silence.
+    bool keyViaOperatorPath(bool on);
+    bool keyedNow() const;
 
     // Drive used for the sideband probe only. Enough to measure, low enough
     // that the receiver listening to its own transmitter is not driven into
     // clipping — at full power it saturates and the measurement is worthless.
     static constexpr int kSidebandProbePowerPercent = 5;
+
+    // A demodulated tone at or below this is "not recovered". Measured on the
+    // HL2: a recovered 1 kHz probe sits near -35 dB and an unrecovered one in
+    // the -70s, so the gap is wide and the threshold is not a fine judgement.
+    static constexpr double kRecoveredFloorDb = -55.0;
+
+    // Half-width of the search around the expected off-air reference tone. Wide
+    // enough for a few ppm of dial error at HF, narrow enough not to collect a
+    // neighbouring signal.
+    static constexpr double kReferenceSearchSpanHz = 25.0;
 
     void spin(int ms);
     QJsonObject meterSnapshot() const;
@@ -180,6 +202,7 @@ private:
     QPointer<RadioModel> m_radio;
     QPointer<AudioEngine> m_audio;
     std::function<void(bool)> m_onKey;
+    int m_keyRefusals = 0;   // keys the radio refused; reported, never ignored
     QJsonArray m_stages;
 };
 

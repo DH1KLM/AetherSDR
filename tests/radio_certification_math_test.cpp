@@ -94,6 +94,35 @@ int main()
               "rms reads the same at either rate — it cannot catch a rate error");
     }
 
+    // ---- a drifted reference falls out of a coherent bin, and the band
+    //      search recovers it ----
+    //
+    // Why stage-rx-sidebands searches a band instead of a bin. WWV's frequency
+    // is exact; OUR dial's is not. A 1 ppm oscillator error at 10 MHz moves the
+    // carrier ~10 Hz, and a 1.5 s coherent integration is a ~0.67 Hz bin — so
+    // the tone reads as the noise floor in every mode at once, which looks
+    // exactly like a deaf receiver rather than a missed probe. That is
+    // indistinguishable from the §1.9 wrong-rate bug from the outside.
+    {
+        const double fs = 48000.0;
+        const auto drifted = tone(1510.0, fs, 1.5);     // expected 1500, off by 10
+        const double exact = db(tonePower(drifted, 1500.0, fs));
+        const double near  = db(tonePowerNear(drifted, 1500.0, fs, 25.0));
+        std::fprintf(stderr, "drifted 10 Hz: exact-bin %.1f dB, band-search %.1f dB\n",
+                     exact, near);
+        check(exact < -35.0, "a 10 Hz drift buries the tone in an exact-bin probe");
+        check(near > -14.0 && near < -10.0, "the band search recovers the drifted tone");
+        check(near - exact > 20.0, "band search beats exact bin on a drifted reference");
+    }
+
+    // The band search must not invent a tone where there is none.
+    {
+        const double fs = 48000.0;
+        const auto other = tone(3000.0, fs, 1.5);
+        check(db(tonePowerNear(other, 1500.0, fs, 25.0)) < -35.0,
+              "band search finds nothing when the tone is genuinely elsewhere");
+    }
+
     // ---- degenerate inputs ----
     {
         check(tonePower({}, 1000.0, 48000.0) == 0.0, "empty buffer is zero power");
