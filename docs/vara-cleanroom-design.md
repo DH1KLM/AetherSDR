@@ -1074,6 +1074,58 @@ This surfaced as a spurious `ConnectionRefusedError` in one batch and as ports
 appearing closed while a capture was in fact running normally. Captures must be
 serialised, and the port must not be probed during one.
 
+### 3.24 — 2026-07-29 · The linear half, confirmed against controls
+
+§3.23's result was measured on two triples of adjacent payload bits. It now holds
+across independent bit choices, including the two most widely separated bits in
+the payload, and — importantly — **against controls that prove the test can
+fail**.
+
+| affine identity | `lo` violations | `hi` violations |
+|---|---|---|
+| bits 0, 1 — adjacent, byte 0 | **0 / 814** | 86 |
+| bits 2, 3 — adjacent, byte 0 | **0 / 814** | 73 |
+| bits 0, 32 — different bytes | **0 / 814** | 68 |
+| bits 0, 255 — first and last bit | **0 / 814** | 63 |
+| bits 0, 1, 2 — three-way | **0 / 814** | 80 |
+| *control: deliberately wrong combination* | *329 / 814* | *265* |
+| *control: a second wrong combination* | *318 / 814* | *253* |
+
+The controls matter as much as the results. A test that always passes proves
+nothing, and these fail at about 40 % — so zero violations on the true
+identities is a real measurement. The three-way case is included because
+`Encode` is affine: `c(e0) + c(e1) + c(e2) + c(e0+e1+e2)` must also vanish, and
+it does.
+
+**Demodulation error is now excluded directly**, not merely argued from
+confidence. At the positions where `hi` violates the identity, the runner-up tone
+magnitude is 0.0000 and the tones four steps either side (the only slip that
+would corrupt `hi` while preserving `lo`) are also 0.0000. Minimum confidence at
+violating positions is 109 787, *higher* than the 49.5 seen at some clean
+positions, so violations are not marginal decisions.
+
+**Per-bit-plane, the split is exactly the two LSBs:**
+
+| bit plane | triple A | triple B |
+|---|---|---|
+| `s & 1` | 0 / 407 | 0 / 407 |
+| `s >> 1 & 1` | 0 / 407 | 0 / 407 |
+| `s >> 2 & 1` | 38 | 29 |
+| `s >> 3 & 1` | 48 | 44 |
+
+Both nonlinear planes are independently nonlinear, and `hi` is **not** a function
+of `(position, lo)` — 458 conflicts across seven captures — so the high bits
+carry information of their own rather than being derivable from the linear part.
+
+**Payload length.** A 32-byte payload produces the same burst structure as a
+64-byte one (`164c 407D 64c 128c 128c 128c 407D ...`, payload frame at burst 6),
+so the sweep needs 256 captures rather than 512. A 16-byte payload does not: its
+bursts come out misaligned and it emits a 468-symbol frame. 32 bytes is the floor.
+
+`tools/vara_fec_sweep.py` runs the campaign — resumable, one capture per payload
+bit, strict validation of each capture, and it discards WAVs after extracting
+symbols because 256 captures would otherwise be about 1.3 GB.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
