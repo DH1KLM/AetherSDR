@@ -4848,27 +4848,28 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
     sendCmd(QString("client gui %1").arg(clientId), [this](int code, const QString& body) {
         armClientConnectionNoticeSuppression();
         if (code != 0) {
-            // A fatal M-message and the R reply are separate protocol lines. Let
-            // already-queued message delivery run once so an empty R body can
-            // still surface the radio's exact reason (for example F3000001).
-            QTimer::singleShot(0, this, [this, code, body] {
-                if (m_guiClientRegistrationState.phase()
-                    != GuiClientRegistrationState::Phase::AwaitingReply) {
-                    return;
-                }
-                const GuiClientRegistrationState::Result result =
-                    m_guiClientRegistrationState.complete(code, body);
-                handleGuiClientRegistrationFailure(result);
-            });
-            return;
-        }
-
-        const GuiClientRegistrationState::Result result =
-            m_guiClientRegistrationState.complete(code, body);
-        if (!result.accepted()) {
+            // Commit the rejection before a prompt TCP close can reset the
+            // registration state and re-arm automatic reconnect (#4560).
+            // RadioConnection preserves protocol-line order, so a preceding
+            // fatal M-message has already reached the state when R is handled.
+            //
+            // What the old singleShot(0) covered and this does not: an M that
+            // arrived AFTER the R would have been queued ahead of the timer and
+            // picked up as detail. Now it is not, so that case degrades to the
+            // generic no-detail text below. That is the trade — a correct
+            // terminal transition beats a better string, and the #4481 capture
+            // shows MF3000001 arriving BEFORE the R, whose body already carried
+            // the reason anyway.
+            const GuiClientRegistrationState::Result result =
+                m_guiClientRegistrationState.complete(code, body);
             handleGuiClientRegistrationFailure(result);
             return;
         }
+
+        // code == 0: commit the Registered phase and clear any stashed detail.
+        // The result is unconditionally ContinueHandshake, so there is nothing
+        // to branch on — the return is dropped deliberately, not overlooked.
+        m_guiClientRegistrationState.complete(code, body);
 
         if (!body.trimmed().isEmpty()
             && !AppSettings::instance().guiClientIdentityIsTransient()) {
