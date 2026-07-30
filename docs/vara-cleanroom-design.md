@@ -1591,6 +1591,43 @@ ARQ state machine selects among them rather than computing them. What is still
 needed is the mapping from *session state* to *which frame to send*, and the
 content of the per-session connect body.
 
+### 3.32 — 2026-07-30 · Data loss, and the process change it forces
+
+The machine rebooted. The session scratchpad lived under `/tmp` and was cleared,
+destroying about 100 WAV captures, 281 extracted generator rows, and the exported
+model file — roughly nine hours of bench time.
+
+**What survived, and why.** The branch and every commit. A git worktree stores
+its objects in the *main* repository, so although the worktree directory itself
+was in `/tmp` and is gone, `feat/vara-hf` and its full history were intact in
+`/home/jeremy/AetherSDR/.git` and the worktree was recreated with one command.
+All tools, all documentation, and the C++ sources came back untouched.
+
+**What did not, and why that was avoidable.** `vara_model.json` — the offsets,
+generator rows, baselines and pilot positions — was written to the scratchpad and
+never committed. It is 374 KB and is the *distilled product* of the entire
+campaign: the one artefact that makes the model reproducible without repeating
+the captures. Leaving it outside version control was a mistake, not bad luck.
+Analysis scripts are cheap to rewrite; measured data is not.
+
+**Process changes, applied rather than merely noted:**
+
+* captures now go to `/home/jeremy/aethersdr-vara-data`, outside `/tmp`;
+* the worktree is at `/home/jeremy/aethersdr-vara`, persistent, following the
+  precedent already set for long-running HL2 work;
+* the extracted symbol JSONs and the exported model are **committed**, because at
+  about 1.2 MB they are small, and they are the result the bench time bought;
+* `tools/vara_campaign.sh` re-runs the whole campaign unattended and resumably,
+  in value order so an interruption loses the least: identity captures first,
+  then the 32-byte sweep, then multi-bit captures, then the 64-byte sweep.
+
+The multi-bit payload sets are regenerated from the *same* seed as the lost run,
+so those captures reproduce exactly rather than merely equivalently.
+
+**Nothing in §§3.1-3.31 is invalidated.** Every finding there was recorded with
+its numbers and controls at the time. The loss costs bench time and the ability
+to re-run analyses against the original audio; it does not cost conclusions.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
