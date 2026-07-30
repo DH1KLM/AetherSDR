@@ -1527,6 +1527,70 @@ what real HF noise requires. A hard-decision decoder can be built now from the
 generator matrix alone by inverting the linear system, and would work on clean
 signals; robust decoding waits on the structure.
 
+### 3.31 — 2026-07-30 · Control frames: a small fixed vocabulary
+
+The oracle test of §3.29 worked because the surrounding session was *replayed*. A
+native modem must generate it. Analysing the control frames in 100 captures —
+bench-free work, entirely on data already recorded — shows that is far easier
+than expected.
+
+**Control frames do not depend on the payload.** Byte-for-byte identical across
+every payload tried at a given length: bursts 0, 2, 3, 5, 7, 8, 9 and 10 match
+exactly whether the payload is all zeros, one bit, or 48 scattered bits. They
+carry no payload CRC and no payload-derived field.
+
+**A normal session is eight fixed waveforms.** Hashing every non-DATA burst
+across 100 captures gives 62 distinct control waveforms, but eight of them carry
+essentially every session, each appearing 546 to 1215 times across 72 of the
+files at consistent burst positions:
+
+| id | control symbols | occurrences | usual position |
+|---|---|---|---|
+| `14ec6cadd413` | 32 | 1215 | 5, 10 |
+| `a314c703b37e` | 32 | 1183 | 4, 9 |
+| `6c014efcea7d` | 32 | 646 | 3 |
+| `ef38e81d4780` | 16 | 616 | 2 |
+| `a403a713fc9d` | 17 | 600 | 7 |
+| `a0928ccc657c` | 17 | 595 | 8 |
+| `52ba2c9a53d4` | 41 | 547 | 0 — connect |
+| `637124632991` | 32 | 346 | 11 |
+
+Burst 4, which looked session-variable in an earlier pass, is not arbitrary: it
+takes exactly **two** values, both of which are frames that appear elsewhere in
+the same session.
+
+**The connect frame decomposes exactly.** Its 41 control symbols are
+
+    [45, 39, 41, 31, 31, 48, 21, 47, 49] ++ <a standard 32-symbol frame>
+
+The 9-symbol prefix is precisely the acquisition preamble recorded in §3.10 as
+bins 74, 68, 70, 60, 60, 77, 50, 76, 78 — these indices are relative to bin 29,
+so they agree exactly. The remaining 32 symbols are literally vocabulary entry
+`badf9ff5cdb4`, and symbol 9 is 45, the same frame-type marker every 32-symbol
+frame starts with. So **a 41-symbol frame is a 9-symbol preamble followed by an
+ordinary 32-symbol frame**, not a distinct format.
+
+**The frame-type marker is confirmed on real traffic:**
+
+| control symbols | first symbol | DFT bin |
+|---|---|---|
+| 16 | 33 | 62 |
+| 17 | 33 (or 45) | 62 (74) |
+| 32 | 45 | 74 |
+| 41 | 45 | 74 |
+
+**Per-session content exists but is confined.** Twenty one-off 41-symbol connect
+frames all share the same 9-symbol preamble and differ only in their 32-symbol
+body, so the connect frame carries something session-specific — a session
+identifier or nonce is the obvious guess, but nothing here identifies it and none
+is claimed.
+
+**What this means for a native modem.** The control layer is far less work than
+the DATA layer was. Eight stored waveforms reproduce a standard session, and the
+ARQ state machine selects among them rather than computing them. What is still
+needed is the mapping from *session state* to *which frame to send*, and the
+content of the per-session connect body.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
