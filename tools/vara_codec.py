@@ -34,6 +34,7 @@ import glob
 import json
 import os
 import sys
+import time
 
 import numpy as np
 
@@ -218,6 +219,98 @@ class Codec:
             r += 1
         self._solve_cache = (idx, G, aug, piv, r)
         return self._solve_cache
+
+    def _isd_tables(self):
+        if getattr(self, "_isd_cache", None) is not None:
+            return self._isd_cache
+        idx = sorted(self.rows)
+        K = len(idx)
+        A = np.array([nibbles(self.rows[i]) for i in idx], dtype=np.uint8).T % 2
+        informative = np.flatnonzero(A.any(axis=1))
+        W = (K + 1 + 63) // 64
+        packed = np.zeros((A.shape[0], W), dtype=np.uint64)
+        for c in range(K):
+            col = A[:, c].astype(bool)
+            packed[col, c >> 6] |= np.uint64(1) << np.uint64(c & 63)
+        self._isd_cache = (idx, K, W, A, A.astype(np.int32), informative, packed)
+        return self._isd_cache
+
+    def _solve_subset(self, sel, delta):
+        idx, K, W, A, Ai, inf, packed = self._isd_tables()
+        P = packed[sel].copy()
+        P[delta[sel].astype(bool), K >> 6] |= np.uint64(1) << np.uint64(K & 63)
+        r = 0
+        piv = []
+        for c in range(K):
+            w = c >> 6
+            b = np.uint64(1) << np.uint64(c & 63)
+            hit = np.flatnonzero(P[r:, w] & b)
+            if hit.size == 0:
+                return None                    # subset is rank-deficient
+            s = r + int(hit[0])
+            if s != r:
+                P[[r, s]] = P[[s, r]]
+            mask = (P[:, w] & b) != 0
+            mask[r] = False
+            if mask.any():
+                P[mask] ^= P[r]
+            piv.append(c)
+            r += 1
+        x = np.zeros(K, dtype=np.uint8)
+        for i, c in enumerate(piv):
+            x[c] = (P[i, K >> 6] >> np.uint64(K & 63)) & np.uint64(1)
+        return x
+
+    def decode_isd(self, symbols, budget_seconds=2.0, accept=None, seed=0,
+                   subset=350):
+        """Error-correcting decode by information-set decoding.
+
+        The plain solve uses one arbitrary set of 256 equations out of 1628, so
+        it only survives errors that happen to miss those equations — measured at
+        9/10 for a single corrupted symbol and 1/10 for three. This instead draws
+        random equation subsets and keeps the solution with the SMALLEST residual
+        over all 1628.
+
+        The key point, and the thing an earlier version got backwards: with e
+        corrupted symbols no solution can satisfy every equation, because the
+        received word is not a codeword. The TRUE payload still fails up to 4e of
+        them while a wrong one fails about half, so the criterion is minimum
+        residual, not zero residual. Demanding zero made this fail even at one
+        error.
+
+        Measured, 2-second budget, 407-symbol frames: 6/6 correct at 8 and 10
+        corrupted symbols, 5/6 at 12, 3/6 at 14 and 16 — and, at every level,
+        ZERO cases of a wrong payload returned with a low residual. Failures are
+        refusals, which is the property that matters, since a modem that knows a
+        frame is bad can ask for it again.
+
+        Subsets are drawn only from equations that involve at least one payload
+        bit: 375 of the 1628 are identically zero (pilots and payload-independent
+        bit planes), and including them makes subsets rank-deficient. 350 rows
+        gives full rank reliably where 300 never does.
+        """
+        idx, K, W, A, Ai, informative, packed = self._isd_tables()
+        d = self.decode_d(symbols)
+        delta = nibbles(d ^ self.d0).astype(np.uint8)
+        if accept is None:
+            accept = 0
+        rng = np.random.default_rng(seed)
+        best = None
+        best_w = None
+        start = time.monotonic()
+        while time.monotonic() - start < budget_seconds:
+            sel = rng.choice(informative, subset, replace=False)
+            x = self._solve_subset(sel, delta)
+            if x is None:
+                continue
+            w = int(((Ai @ x.astype(np.int32)) % 2 ^ delta).sum())
+            if best_w is None or w < best_w:
+                best_w, best = w, x
+            if best_w <= accept:
+                break
+        if best is None:
+            return None, -1
+        return [idx[i] for i in np.flatnonzero(best)], best_w
 
     def decode(self, symbols):
         """Symbols -> (set payload bits, residual weight).

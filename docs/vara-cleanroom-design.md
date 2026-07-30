@@ -1628,6 +1628,66 @@ so those captures reproduce exactly rather than merely equivalently.
 its numbers and controls at the time. The loss costs bench time and the ability
 to re-run analyses against the original audio; it does not cost conclusions.
 
+### 3.33 — 2026-07-30 · An error-correcting decoder, without the interleaver
+
+Decoding was previously a plain linear solve, which detects errors well and
+corrects them only by accident. Information-set decoding turns the same generator
+matrix into a real error-correcting decoder, with no knowledge of the interleaver
+or the constituent codes.
+
+**Why the plain solve was weak.** It uses one arbitrary set of 256 equations out
+of 1628, so it survives only errors that happen to miss those equations.
+Measured: 9/10 correct at one corrupted symbol, 7/10 at two, 1/10 at three.
+Detection, by contrast, was already perfect — every corrupted frame flagged, and
+no false alarm on a clean one, across 60 trials at each of 1, 2, 3, 5, 8, 12, 20,
+30, 50 and 80 errors.
+
+**The fix, and the mistake worth recording.** ISD draws random equation subsets,
+solves each, and keeps the solution with the smallest residual over all 1628
+equations. The first attempt demanded a residual of **zero** and failed at even
+one error — obviously, in hindsight: with e corrupted symbols the received word is
+not a codeword, so nothing satisfies every equation. The true payload still fails
+at most 4e of them while a wrong one fails about half. **The criterion is minimum
+residual, not zero residual.**
+
+A second defect had the same flavour: subsets were drawn from all 1628 equations,
+but **375 are identically zero** — the 36 payload-independent pilot symbols
+account for 144, and the rest are bit planes that are payload-independent at
+symbols that are not. Including them makes subsets rank-deficient. Sampling only
+the 1253 informative equations, 350 rows gives full rank reliably while 300 never
+does (0/8 versus 8/8).
+
+**Measured, 2-second budget, 407-symbol frames:**
+
+| corrupted symbols | plain solve | ISD | wrong-but-confident | median time |
+|---|---|---|---|---|
+| 1 | 9/10 | **10/10** | 0 | 0.01 s |
+| 3 | 1/10 | **10/10** | 0 | 0.01 s |
+| 5 | 3/10 | **10/10** | 0 | 0.05 s |
+| 8 | 2/10 | **6/6** | 0 | 0.06 s |
+| 10 | — | **6/6** | 0 | 0.33 s |
+| 12 | — | 5/6 | 0 | 0.13 s |
+| 14 | — | 3/6 | 0 | 1.25 s |
+| 16 | — | 3/6 | 0 | 1.54 s |
+
+Reliable to roughly 10-12 corrupted symbols, about 3 % of a frame, degrading
+gracefully beyond. The residual tracks the damage at about 2 bits per corrupted
+symbol.
+
+**The column that matters is the third.** A "wrong-but-confident" result — a
+wrong payload returned with a low residual — is the only dangerous failure, and
+there were **none at any error level**. Failures are refusals, which is exactly
+what an ARQ protocol needs: a receiver that knows a frame is bad asks for it
+again.
+
+**What this does not claim.** This is hard-decision decoding on symbol errors. It
+is not soft-decision turbo decoding, it uses no channel-quality information, and
+it has never seen a real HF channel — every number here comes from deliberately
+corrupted synthetic frames on a clean bench. Recovering the interleaver and the
+constituent codes would still buy a great deal. But the practical position has
+moved: the codec now corrects a moderately damaged frame rather than merely
+noticing that it is damaged.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
