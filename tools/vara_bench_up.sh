@@ -47,6 +47,20 @@ for s in varaA varaB; do
     }
 done
 
+# CRITICAL: each instance needs its OWN KISS port. Both VARA.ini files ship
+# with "KISS Port=8100", so the second instance loses the bind, and the
+# resulting instance is unstable — it was observed dying outright after VarAC
+# triggered a modem restart, taking 8310/8311 with it and making every
+# subsequent connect attempt fail with an unexplained "no link". Instance A
+# keeps 8100; instance B must use 8110. If VarAC drives instance B, its
+# VarahfMainKissPort must match (8110).
+for cfg_port in "VARA:8100" "VARA2:8110"; do
+    d="${cfg_port%%:*}"; kp="${cfg_port##*:}"
+    ini="$A_PREFIX/drive_c/$d/VARA.ini"
+    [ -f "$ini" ] || ini="$B_PREFIX/drive_c/$d/VARA.ini"
+    [ -f "$ini" ] && sed -i "s/^KISS Port=.*/KISS Port=$kp/" "$ini" &&         log "$d KISS port set to $kp"
+done
+
 log "starting instance A (8300) -> sink varaA, listening on varaB.monitor"
 cd "$A_PREFIX/drive_c/VARA" || exit 1
 WINEPREFIX="$A_PREFIX" PULSE_SINK=varaA PULSE_SOURCE=varaB.monitor \

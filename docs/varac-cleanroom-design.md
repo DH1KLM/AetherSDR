@@ -932,6 +932,30 @@ attack but not sufficient — the algebra has to close too, and here it does not
   The pattern is now unmistakable: **read a program's own records before
   instrumenting it.**
 
+### 3.20 — 2026-07-29 · Bench defect: both VARA instances fought over KISS port 8100
+
+A run of five handshake experiments returned `NO LINK` on **every** trial,
+including the control that sent nothing. The cause was not the protocol:
+
+* Both `VARA.ini` files ship with **`KISS Port=8100`**. Instance A wins the
+  bind; instance B loses it and is left unstable.
+* After VarAC hit a decode error and restarted its modem (§3.19), instance B
+  **died outright and never returned**, taking 8310/8311 with it. Every later
+  connect attempt then failed with an unexplained "no link".
+* Only one VARA process was alive, holding 8300/8301 **and** 8100, while VarAC
+  still held stale ESTABLISHED sockets to a vanished 8310/8311.
+
+Fixed by giving each instance its own KISS port — A keeps 8100, B uses 8110 —
+and pointing VarAC's `VarahfMainKissPort` at 8110 to match. All six ports now
+bind: 8300/8301/8100 and 8310/8311/8110, with two audio clients.
+`tools/vara_bench_up.sh` now enforces this rather than leaving it to chance.
+
+**Worth recording as a diagnostic lesson.** Five trials produced five identical
+null results, which reads as a strong finding about the protocol and was in fact
+a broken bench. The control trial is what exposed it: sending *nothing* should
+not have failed to link, so the failure could not be about our reply. **A
+control that fails tells you to doubt the apparatus, not the hypothesis.**
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
