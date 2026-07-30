@@ -150,6 +150,44 @@ their wire encoding is still unobserved.
 any exchange in plaintext, so a feature can be exercised in the GUI and its
 protocol entries read straight out of the database.
 
+## 4d. CONFIRMED: framing is `<len> SP <payload>`, length exact, no terminator
+
+Five controlled trials, each connecting to a live VarAC and sending one
+candidate reply to its opening `3 <Q>`. Success was judged **not** by whether
+the link survived but by whether VarAC's own database recorded an **Incoming**
+`datastream` entry — i.e. whether VarAC actually parsed it.
+
+| we sent | link | VarAC parsed it |
+|---|---|---|
+| *nothing* (control) | **dropped @ 106 s** | — |
+| `3 <Q>` | held | **YES — Incoming `<Q>`** |
+| `<Q>` | held | no |
+| `3 <Q>\r` | held | no |
+| `3 <A>` | held | no |
+
+**Conclusions:**
+
+1. **`3 <Q>` is correctly framed and VarAC parses it.** This is the first
+   message we have sent that VarAC understood — it appears in its database as an
+   Incoming entry, exactly as its own outgoing `<Q>` does.
+2. **The length is exact and there is NO terminator.** `3 <Q>\r` fails because
+   four bytes follow a declared length of three. A trailing CR is not tolerated.
+   This is the strongest single piece of evidence for the length reading over
+   the version or counter readings.
+3. **Bare `<Q>` with no length prefix is not parsed** — the prefix is mandatory.
+4. **Holding the link does not mean being understood.** Every trial that sent
+   *any* bytes held the link; only the correctly framed one was parsed. Judging
+   by link survival alone would have scored four failures as successes. The
+   database is the only reliable oracle here.
+5. **Idle timeout is ~106 s** with no data sent.
+6. `3 <A>` is well-framed but produced no Incoming entry, so `A` is presumably
+   not a token VarAC recognises. It ignores unknown tokens silently rather than
+   erroring — unlike malformed framing, which makes it abort the link (§4b).
+
+**What `<Q>` means is still unknown.** Both sides send it on connect. VarAC's UI
+has a "QRZ?" control, so "who are you" is a plausible reading, but that is a
+guess and is not recorded here as fact.
+
 ## 5. Open questions, in the order worth answering
 
 1. Does the link survive if we send nothing? (separates "wrong reply" from
