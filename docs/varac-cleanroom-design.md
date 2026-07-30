@@ -859,6 +859,47 @@ Recorded here so the next person does not spend that effort on the strength of
 §3.14's determinism result alone. Determinism is necessary for the differential
 attack but not sufficient — the algebra has to close too, and here it does not.
 
+### 3.18 — 2026-07-29 · First bytes of VarAC's application protocol
+
+- **What:** the payload VarAC writes into a VARA ARQ link, read from the far
+  end's data socket. A genuine VarAC v15.0.18 drove one modem; our own client
+  drove the other. No radio, no RF, nothing disassembled.
+- **Status:** **clean** — bytes observed on the wire, which Principle IV names
+  explicitly as a clean input.
+- **Two facts from VarAC's own log files** (`drive_c/VarAC/VarAC.log`,
+  `VarAC_traffic.log` — files the program writes, therefore external output and
+  clean):
+  - `Setting Bandwith to 500Hz` — **VarAC's modem runs at 500 Hz.** A peer at
+    2300 Hz cannot form an ARQ link, and the failure looks like an unexplained
+    connect timeout. This had already cost one failed capture.
+  - `Unattended links enabled` — VarAC **auto-accepts** inbound connections, so
+    no GUI interaction is needed for it to answer.
+- **Captured, verbatim.** With our side calling, at matching BW500:
+
+  ```
+  modem: CONNECTED KK7GWY-9 KK7GWY 500
+  +6.8s: 00000000  33 20 3c 51 3e            |3 <Q>|
+  ```
+
+  **VarAC's protocol is plaintext ASCII with angle-bracket-delimited tokens.**
+  Not compressed, not binary, not obfuscated. VarAC speaks first, unprompted,
+  on an inbound connection. Analysis in
+  [`varac-protocol.md`](varac-protocol.md).
+- **Not established** and deliberately not guessed: the meaning of `Q`, the
+  meaning of the leading `3 `, whether messages are terminated, or any other
+  token. One token has been seen. Once.
+- **Method note.** Both blocking facts came from reading the program's own logs,
+  after several attempts at synthetic GUI keystrokes had failed. That is the
+  third time this investigation that direct observation beat indirect inference
+  — after screenshotting VARA's dialog found the soundcard cause, and after
+  synthetic-truth validation found the cyclic-prefix result. **Read what a
+  program says about itself before instrumenting it.**
+- **Environment correction.** VarAC **crashes on the operator's real display**:
+  the session is Wayland, so `:0` is XWayland, and wine's X11 driver fails with
+  `BadWindow` on `X_UnmapWindow` (reproduced twice, survives longer with
+  MangoHud disabled but still exits). VarAC runs reliably on a bare Xvfb `:99`.
+  Headless is the working configuration here, not the compromise.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
