@@ -1450,6 +1450,83 @@ recording. So this is not a working modem. Still outstanding:
 connections while a session tears down. `tools/vara_oracle.py` now retries rather
 than treating the first refusal as fatal.
 
+### 3.30 — 2026-07-29 · Code structure: characterised, not yet recovered
+
+A generator matrix is a lookup table for one block size; the *structure* is the
+algorithm and generalises. This is the state of the attack on it, run on 71 of
+the 256 generator rows. `tools/vara_structure.py`.
+
+**A methodological correction that shaped everything below.** The first pass
+worked on the 1628-bit rows and looked for weight-1 columns as evidence of a
+systematic code. It found 68 — but **85 % of them sat at positions where `r` is
+unconstrained**, because `r` was fitted from identities involving only payload
+bits {0,1,2,3,32,255}, and a position those six bits never move is undetermined.
+There the choice of `r` is arbitrary and the row's *bit* values are meaningless.
+
+The fix is to work at **symbol** level, which is `r`-independent: whether payload
+bit `i` changes the symbol at position `p` does not depend on `r` at all, since
+`s_i == s_0` gives a zero row for every offset. *Which bit plane* it lands in
+depends on `r`; *whether it moves the symbol* does not. Everything below is
+symbol-level.
+
+**The code is densely diffused.** Each payload bit changes **260.8 of 407
+symbols on average (64 %)**. That is not a sparse code — but it is what a
+*recursive* systematic encoder does: one input drives the feedback register into
+a periodic state, so its parity runs to the end of the block. It also explains
+why the systematic search failed — with 64 % density a systematic position is
+almost always co-touched by another bit's parity, so it is not isolable.
+
+**The transmitted order is not the encoder's order.** Three independent
+measurements:
+
+| test | result |
+|---|---|
+| correlation of a bit's onset with its index | **+0.029** (not monotonic) |
+| onset position | 12-13 for every bit — every input affects the first payload symbol |
+| correlation between transmit-adjacent symbols | **-0.0006** |
+| periodicity of a bit's support after onset | peak autocorrelation 0.130, shuffled control 0.112 |
+
+A convolutional code read in time order would give a strong positive onset
+correlation and a clear periodic signature. Neither is present, so **a
+permutation sits between the encoder output and the transmitted order** and must
+be undone before any convolutional structure can appear.
+
+**But the permutation is not featureless.** Two strong, controlled findings:
+
+*Symbols cluster by identical support.* Grouping the 361 active symbols by their
+exact 71-bit support vector gives 297 distinct patterns and **18 groups with more
+than one member**, the largest of size 8. Shuffling each bit's support
+independently gives **407 singletons and no groups at all**. Grouped symbols are
+not literal copies — their tone values differ — so they share which inputs drive
+them, not what they carry.
+
+*Support weight is strongly multi-modal.* Observed standard deviation **21.6**
+against a shuffled control's **3.9**, with distinct classes:
+
+| support weight | symbols | reading |
+|---|---|---|
+| 0 | 46 | payload-independent — header, pilots or padding |
+| 1 | 10 | driven by a single payload bit |
+| 40-41 | 48 | a distinct density class (~57 %) |
+| 50-67 | the bulk | ~70-95 % |
+
+Two well-separated density classes is the shape of **two parity streams punctured
+differently**, which is what a turbo code has.
+
+**What is NOT recovered, plainly.** The interleaver, the constituent encoder
+polynomials, the puncturing pattern, and the code rate. The gross structure is
+characterised and the negative results are firm, but no generative model of the
+code exists yet. 71 of 256 rows is thin; the analysis should be re-run on the
+full matrix before drawing further conclusions, and the temptation to fit a
+permutation to partial data is exactly the error already made once in §3.22 with
+46 points.
+
+**Practical consequence.** Structure is not needed for encoding — that already
+works end to end (§3.29). It is needed for **soft-decision decoding**, which is
+what real HF noise requires. A hard-decision decoder can be built now from the
+generator matrix alone by inverting the linear system, and would work on clean
+signals; robust decoding waits on the structure.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
