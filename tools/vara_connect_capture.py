@@ -25,7 +25,9 @@ statistic, which has already happened once here.
 """
 
 import argparse
+import atexit
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -36,6 +38,31 @@ import vara_callsign_analyse as A       # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+# The recorder currently running, so it can be stopped if this process is killed.
+#
+# Pausing a campaign with a plain kill terminates Python without running the
+# `finally` that stops parecord, orphaning it. One such orphan ran 31 minutes and
+# wrote 181 MB into a slot that should hold 13 seconds — and because the file
+# existed and still contained a preamble, a resumed run would have SKIPPED that
+# callsign and kept the suspect capture. A silently wrong frame is worse than a
+# missing one, so the recorder is torn down on the way out.
+_live_recorder = None
+
+
+def _stop_live_recorder(*_):
+    global _live_recorder
+    rec, _live_recorder = _live_recorder, None
+    if rec is not None:
+        try:
+            rec.stop()
+        except Exception:
+            pass
+
+
+atexit.register(_stop_live_recorder)
+for _sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(_sig, lambda s, f: (_stop_live_recorder(), sys.exit(128 + s)))
+
 SRC = "KK7GWY-9"
 PORT = 8300
 SINK = "varaA.monitor"
@@ -44,6 +71,10 @@ SINK = "varaA.monitor"
 # exists to reject truncated captures: 48 kHz mono s16 needs 10.4 s to reach it,
 # and a connect frame plus its first retry is well inside that.
 LISTEN = 13.0
+
+# A capture is `LISTEN` seconds of 48 kHz mono s16, so about 1.3 MB. Anything
+# several times that did not come from this tool's own recording window.
+MAX_WAV_BYTES = 8_000_000
 
 
 def open_modem(port, restart=True, tries=3):
@@ -93,8 +124,10 @@ def wait_idle(m, timeout=12.0):
 def capture_one(m, wav, dst, src=SRC, sink=SINK, listen=LISTEN):
     """Record the connect frame VARA transmits for `dst`. True if a frame is in
     the file — verified by extracting it, not by assuming."""
+    global _live_recorder
     wait_idle(m)
     rec = cap.Recorder(wav, sink)
+    _live_recorder = rec
     time.sleep(1.2)                     # let parecord actually open the stream
     mark = len(m.log)
     try:
@@ -103,7 +136,7 @@ def capture_one(m, wav, dst, src=SRC, sink=SINK, listen=LISTEN):
         m.send("ABORT")
         wait_idle(m)
     finally:
-        rec.stop()
+        _stop_live_recorder()
     # A rejected CONNECT looks exactly like a quiet channel in the audio, so
     # report what the modem said rather than leaving it to be inferred.
     said = m.log[mark:]
@@ -153,6 +186,16 @@ def main():
 
         for i, c in enumerate(calls, 1):
             wav = os.path.join(a.out, f"cs_{c}.wav")
+            if os.path.exists(wav) and os.path.getsize(wav) > MAX_WAV_BYTES:
+                # Far longer than this run records, so it is not this callsign's
+                # capture in any trustworthy sense — an orphaned recorder that
+                # outlived its campaign will have swept up every transmission
+                # since. It still contains a preamble, so the extractor accepts
+                # it and the skip below would keep it forever.
+                print(f"[{i}/{len(calls)}] {c}: existing capture is "
+                      f"{os.path.getsize(wav)/1e6:.0f} MB, far too long to trust "
+                      f"— discarding and recapturing", flush=True)
+                os.replace(wav, wav + ".suspect")
             if os.path.exists(wav) and A.connect_body(wav) is not None:
                 skip += 1
                 continue
