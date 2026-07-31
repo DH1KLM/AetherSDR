@@ -89,6 +89,7 @@
 
 class QAbstractSlider;
 class QMediaDevices;
+class QPushButton;
 class QShowEvent;
 class QSystemTrayIcon;
 
@@ -352,6 +353,25 @@ private:
     // range leaves every band enabled (the Flex behaviour).
     void applyTuningRangeToOverlayMenu(SpectrumOverlayMenu* menu) const;
 
+    // The one place a declared RadioCapabilities flag turns into UI visibility.
+    //
+    // Bound to RadioModel::capabilitiesChanged, so it runs on every connect and
+    // disconnect edge and on any mid-session revision. Each surface gets exactly
+    // one owning call here rather than its own connect-time lambda: with several
+    // flags in play, scattered lambdas are how two callers end up both driving
+    // one widget's setVisible() and whichever fires last wins.
+    //
+    // Every flag reads `!connected || caps.x`. With no radio attached there is
+    // nothing to be honest about, and a control that stays hidden after
+    // unplugging reads as a fault rather than as an accurate report.
+    void applyCapabilitiesToUi(bool connected, const RadioCapabilities& caps);
+
+    // Push radio-side-DSP availability into one overlay menu's WNB row. Separate
+    // from applyCapabilitiesToUi() because overlay menus are also built lazily
+    // as pans appear, and those sites must seed a new menu with the current
+    // value — the same reason applyTuningRangeToOverlayMenu() exists.
+    void applyRadioSideDspToOverlayMenu(SpectrumOverlayMenu* menu) const;
+
     // AppSettings key for a pan's persisted RF gain, scoped by radio FAMILY.
     //
     // RF gain is the one "display" setting that is really a hardware register,
@@ -386,6 +406,11 @@ private:
                                                 TuneIntent intent, const char* source,
                                                 double leftFlagEdgeOffsetMhz = 0.0,
                                                 double rightFlagEdgeOffsetMhz = 0.0);
+    // Write step for revealFrequencyIfNeeded's recenters: flex-display pans
+    // write through radio+model, kiwi-display pans recenter the widget alone
+    // (their radio geometry is frozen) — see PanRecenterPolicy.h.
+    void applyTuneCenteringWrite(PanadapterModel* pan, SpectrumWidget* sw,
+                                 double newCenterMhz);
     void logTunePolicyDecision(const char* source, TuneIntent intent,
                                double oldFreqMhz, double newFreqMhz,
                                const TuneCenteringResult& result) const;
@@ -556,6 +581,17 @@ private:
                                         const QString& profileId);
     void syncKiwiSdrDiversityEscControls();
     void syncKiwiSdrPanadapterUiState(const QString& panId);
+    // One-shot radio-geometry adoption of the widget's view when a pan stops
+    // displaying a kiwi source (the radio pan stayed frozen while recenters
+    // were widget-local — see PanRecenterPolicy.h).
+    void reconcileFlexPanGeometryAfterKiwiDisplay(const QString& panId,
+                                                  SpectrumWidget* spectrum);
+    // Re-run a leave-kiwi reconcile that deferred because a gesture was live at
+    // the toggle. Called when a gesture settles, so the pan doesn't stay on the
+    // frozen kiwi-assignment span until an unrelated gesture happens to correct
+    // it.
+    void retryDeferredKiwiLeaveReconcile(const QString& panId);
+    void retryAllDeferredKiwiLeaveReconcile();
     void syncKiwiSdrPanadapterUiStates();
     enum KiwiSdrUiSyncFlag {
         KiwiSdrUiSyncAppletReceivers = 0x01,
@@ -1189,6 +1225,15 @@ private:
     // Menus
     QMenu*           m_profilesMenu{nullptr};
     QAction*         m_txBandAction{nullptr};
+    // Settings ▸ "Autostart DAX with AetherSDR". Held so
+    // applyCapabilitiesToUi() can hide it on a radio with no DAX streams.
+    // Null on platforms without a DAX bridge, where the entry is never created.
+    QAction*         m_autoDaxAction{nullptr};
+    // File ▸ Waveforms... and Settings ▸ multiFLEX... — held so
+    // applyCapabilitiesToUi() can hide them on a radio with no installable
+    // waveforms / no multi-client sessions.
+    QAction*         m_waveformsAction{nullptr};
+    QAction*         m_multiFlexAction{nullptr};
 
     // Audio stream re-creation flag (after profile load)
     bool             m_needAudioStream{false};
@@ -1230,6 +1275,13 @@ private:
     QLabel* m_networkLabel{nullptr};
     QTimer m_networkTooltipRefreshTimer;
     QTimer m_perfHeartbeatTimer;
+    // GPS/station-location status-bar button and the separator that follows it.
+    // Both are held so applyCapabilitiesToUi() can hide them together on a radio
+    // with no position source — hiding the button alone would leave its " · "
+    // divider stranded between the neighbours (same reason m_tgxlSeparator is
+    // held below).
+    QPushButton* m_gpsStatusButton{nullptr};
+    QLabel*  m_gpsSeparator{nullptr};
     QLabel*  m_tgxlSeparator{nullptr};
     QWidget* m_tgxlContainer{nullptr};
     QLabel*  m_tgxlIndicator{nullptr};   // top row: "TUN"
@@ -1425,6 +1477,7 @@ private:
     AetherClockEngine* m_clockEngine{nullptr};
     AetherClockModel* m_clockModel{nullptr};
     QMetaObject::Connection m_clockDaxConn;  // daxAudioReady feed — live only while the engine runs
+    QMetaObject::Connection m_clockSliceAudioConn;  // seam per-slice audio feed — same lifetime
     void setupAetherClock();
 
 #ifdef HAVE_RADE
@@ -1471,6 +1524,10 @@ private:
     bool m_sliceDragInProgress{false};
     int m_sliceDragTargetSliceId{-1};
     double m_sliceDragTargetMhz{0.0};
+    // Pans whose leave-kiwi geometry reconcile deferred behind a live gesture
+    // and must be retried when the gesture settles (see
+    // reconcileFlexPanGeometryAfterKiwiDisplay / retryDeferredKiwiLeaveReconcile).
+    QSet<QString> m_kiwiLeaveReconcilePending;
     qint64 m_sliceDragEchoHoldUntilMs{0};
     int centerLockSliceForPan(const QString& panId) const;
     bool centerLockActiveForSlice(const SliceModel* slice) const;

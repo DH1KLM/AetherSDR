@@ -43,6 +43,5 @@ third_party/sherpa-onnx-*.tar.bz2
 # IS tracked — those are shared project skills — so ignore just this file.
 .claude/launch.json
 
-# macOS Finder metadata. Never useful in a repo and easy to sweep in with
-# `git add -A` from a Mac.
+# macOS Finder metadata
 .DS_Store
