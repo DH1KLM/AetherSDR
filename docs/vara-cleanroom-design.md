@@ -2310,6 +2310,73 @@ with a fixed per-position offset `r`, and an analogous `(b + r) mod 35` would
 destroy the integer reading while leaving the underlying code perfectly linear.
 Recovering `r` is the open problem.
 
+### 3.46 — 2026-07-31 · The digest is identified: CRC-16/0x1021 per 3-byte group
+
+§3.43 stated that no CRC of any polynomial or width survives, because CRC
+collisions are shift-invariant and the measured ones are not. That reasoning was
+sound but the hypothesis was too narrow: it tested a CRC over the **whole
+callsign**. A CRC computed **per three-character group** resets at every group
+boundary, so its collisions are *not* shift-invariant across boundaries — which
+is precisely the behaviour that was measured and mistaken for a refutation.
+
+**The clue was in the data all along.** The measured kernel vector `(17, 2, 16)`
+is, as a three-byte value `0x110210`, exactly `x⁴ · (x¹⁶+x¹²+x⁵+1)` — a multiple
+of the CCITT generator, hence a three-byte CRC-16/0x1021 collision. That is a
+1-in-65536 coincidence if the two are unrelated.
+
+**Why 1300 captures could not see it.** A three-byte CRC has a kernel of
+dimension 8, so 255 non-zero vectors. Only **three** are realisable with valid
+callsign characters, and of those only `(17, 2, 16)` is reachable using letters
+alone. Every one of the 1300 group captures was letters-only, so the corpus was
+structurally incapable of distinguishing "one kernel vector" from "a CRC".
+Bringing digits in exposes the other two.
+
+**The discriminator, and which feed convention won.** Every pair below is a
+three-byte CRC-16/0x1021 collision, so a per-group CRC requires all of them to be
+identical:
+
+| pair | delta | characters fed as | frames differ |
+|---|---|---|---|
+| `AAAAA` / `AAPCQ` | (17, 2, 16) | either (control) | **0/32** |
+| `AA0A0` / `AAVMP` | (102, 12, 96) | **raw ASCII** | **0/32** |
+| `AA0A1` / `AAGOA` | (119, 14, 112) | **raw ASCII** | **0/32** |
+| `AABA0` / `AACQQ` | (1, 16, 33) | low six bits | 29/32 |
+| `AAAA0` / `AAQSA` | (16, 18, 49) | low six bits | 30/32 |
+| `AA0A0` / `AAREP` | (34, 4, 32) | low six bits | 31/32 |
+| `AA0AB` / `AASUC` | (35, 20, 1) | low six bits | 30/32 |
+
+Both raw-ASCII vectors collide, both involving digits — input the corpus had
+never contained. All four low-six-bit vectors differ. The characters are fed to
+the CRC as **raw ASCII bytes**, not as packed six-bit codes.
+
+**Validated against everything captured.** Predicting frame equality from the
+ordered tuple of `CRC-16/0x1021` over each right-aligned three-byte group, across
+all 1440 frames on disk — **1,036,080 pairs, 48 collisions, zero false positives
+and zero false negatives**. Both directions are scored deliberately: a rule that
+only predicts collisions is satisfied by a modem that collides often.
+
+So the callsign half is no longer characterised but **identified**, and computable
+for any callsign. Each group carries 16 bits, not the 17 inferred from the
+letters-only kernel. The initial value is not determined by this evidence — for
+groups of fixed length any init shifts all values alike and equality prediction is
+unchanged — so `0xFFFF` above is a convention, not a measurement. How the
+per-group values combine is also open, beyond being non-commutative (§3.44).
+
+**Being able to compute the digest re-opened the DATA-frame attack, and it
+failed.** The DATA frame is `symbol = (baseline + Σ rows for SET payload bits)
+mod 16` — Z/16-linear in the bit *indicators*, with no base conversion anywhere.
+The analogue here, `(baseline + Σ rows for set digest bits) mod 35`, could not be
+tested before: a single callsign-bit flip changes many digest bits at once, so the
+delta is a sum of several signed rows and the earlier single-bit differential test
+had no power against it. With the digest computable it fits directly — 17 unknowns
+per symbol position against 1000 training samples, solved over GF(5) and GF(7) and
+recombined by CRT.
+
+**Zero of 31 positions admit a consistent solution.** The solver was controlled on
+synthetic data obeying the model: it solves both fields and predicts 300/300
+held-out symbols. So this is a real negative, not a broken solver. The connect
+frame is not the DATA frame's construction with the alphabet changed.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
