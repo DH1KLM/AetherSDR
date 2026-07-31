@@ -6133,10 +6133,10 @@ bool MainWindow::activateMemorySpot(int memoryIndex, const QString& preferredPan
                 emit bandStackRestoreStarting(slicePanId);
                 clearSwrSweepForBandChange(-1, slicePanId, memoryBand);
                 m_bandSettings.setCurrentBand(memoryBand);
-                noteBandRecallForPan(slicePanId);
                 // #4142: during the profile-load hold a bare sendCommand()
                 // band= write is silently destroyed and the recall lands on
-                // the wrong band stack. requestPanBand defers it instead.
+                // the wrong band stack. requestPanBand defers it instead; the
+                // dispatch signal starts the reconstruction guard at replay.
                 m_radioModel.requestPanBand(slicePanId, stackKeyResult.key);
                 QTimer::singleShot(300, this, [this, slicePanId]() {
                     reassertUnmutedSliceAudioForPan(slicePanId);
@@ -6600,11 +6600,11 @@ MainWindow::BandStackPreselectResult MainWindow::preselectBandStackForTune(
     emit bandStackRestoreStarting(slice->panId());
     clearSwrSweepForBandChange(-1, slice->panId(), targetBand);
     m_bandSettings.setCurrentBand(targetBand);
-    noteBandRecallForPan(slice->panId());
     // #4142: the cross-band typed tune is the reported bug's worst variant —
     // the `slice tune` half survives the hold while a bare sendCommand()
     // band= write is silently destroyed, so the slice lands outside the pan.
-    // requestPanBand defers the band-stack swap and replays it band-first.
+    // requestPanBand defers the band-stack swap and replays it band-first; the
+    // dispatch signal starts the reconstruction guard at replay.
     m_radioModel.requestPanBand(slice->panId(), stackKeyResult.key);
     QTimer::singleShot(300, this, [this, panId = slice->panId()]() {
         reassertUnmutedSliceAudioForPan(panId);
@@ -6838,8 +6838,16 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
     // (m_updatingFromModel is set in the activeChanged handler). During profile
     // recall, RadioModel's profile-load hold suppresses this radio write so we
     // do not dirty the radio's restoring GUIClient session.
-    if (sliceId != prevId && !m_updatingFromModel)
+    if (sliceId != prevId && !m_updatingFromModel) {
+        // setActive() emits activeChanged(true) synchronously before the wire
+        // write (#3854 optimistic edge), re-entering the activeChanged handler
+        // for a selection we are already performing. Mark the slice so that
+        // handler can drop exactly this echo and nothing else.
+        const int previousEdgeSliceId = m_optimisticActiveEdgeSliceId;
+        m_optimisticActiveEdgeSliceId = sliceId;
         s->setActive(true);
+        m_optimisticActiveEdgeSliceId = previousEdgeSliceId;
+    }
 
     // Update RX EQ filter-cutoff guides whenever the active slice swaps —
     // the new slice may have a different mode / filter shape.

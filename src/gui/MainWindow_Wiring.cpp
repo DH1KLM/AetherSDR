@@ -20,6 +20,7 @@
 #include "MainWindow.h"
 
 #include "AetherDspWidget.h"
+#include "BandRecallSliceSelectionPolicy.h"
 #include "DisplayStatusGate.h"       // #4261 adaptive-throttle echo gate
 #include "Ax25HfPacketDecodeDialog.h"
 #include "AppletPanel.h"
@@ -203,6 +204,10 @@ void MainWindow::noteBandRecallForPan(const QString& panId)
     // command. Restoration is deferred until the full grace window elapses so
     // slice status arrival order can never choose the receiver.
     m_kiwiRebind.noteBandRecall(panId);
+    // Open the radio-driven-selection window on the same edge. It is armed
+    // here and rolled back by panBandDispatchFailed, so unlike the markers
+    // around it, it never opens for a band write that never reached the wire.
+    m_bandRecallSelection.arm(panId, QDateTime::currentMSecsSinceEpoch());
     // Stamp this recall so the grace timer below only clears the Kiwi marker if
     // it is still the latest recall for this pan. Without it, an overlapping
     // recall (band button + memory spot / tune, now all routed here) would have
@@ -290,6 +295,41 @@ void MainWindow::noteBandRecallForPan(const QString& panId)
                      "the locked slice could not be identified safely.")
                 : tr("The band change did not restore the locked slice."));
     });
+}
+
+void MainWindow::selectSliceFromRadioState(
+    SliceModel* slice,
+    RadioSliceSelectionSource source)
+{
+    if (!slice) {
+        return;
+    }
+
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const bool bandRecallInFlight =
+        m_bandRecallSelection.isActive(slice->panId(), nowMs);
+    const RadioSliceSelectionDecision decision =
+        radioSliceSelectionDecision(bandRecallInFlight, source);
+
+    if (bandRecallInFlight) {
+        // A transient activation IS the radio still rebuilding this pan: hold
+        // the window open past it (bounded), so a rebuild slower than the base
+        // grace period can't land its last old-band activation just outside.
+        m_bandRecallSelection.refresh(slice->panId(), nowMs);
+        qCDebug(lcProtocol).noquote()
+            << "MainWindow: band recall suppressing slice reveal"
+            << "pan=" << slice->panId()
+            << "slice=" << slice->sliceId()
+            << "source="
+            << (source == RadioSliceSelectionSource::ActiveStatus
+                    ? "active-status" : "topology-fallback");
+    }
+
+    const bool wasUpdatingFromModel = m_updatingFromModel;
+    m_updatingFromModel =
+        wasUpdatingFromModel || decision.suppressActiveCommand;
+    setActiveSliceInternal(slice->sliceId(), decision.revealOffscreen);
+    m_updatingFromModel = wasUpdatingFromModel;
 }
 
 void MainWindow::showCenterLockReleaseNotification(const QString& panId,
@@ -1593,9 +1633,16 @@ void MainWindow::onSliceAdded(SliceModel* s)
     qDebug() << "MainWindow: slice added" << s->sliceId();
     const bool firstSlice = (m_activeSliceId < 0);
 
+    // A slice arriving on a pan with a live band-recall window is the radio
+    // still rebuilding that pan. Extend the window (bounded) before anything
+    // below consults it, so a rebuild slower than the base grace period stays
+    // covered end to end instead of only for its first 1500 ms.
+    m_bandRecallSelection.refresh(s->panId(), QDateTime::currentMSecsSinceEpoch());
+
     // First slice — wire everything up
     if (firstSlice) {
-        setActiveSlice(s->sliceId());
+        selectSliceFromRadioState(
+            s, RadioSliceSelectionSource::TopologyFallback);
 
         // Detect initial band from radio's frequency
         if (m_bandSettings.currentBand().isEmpty())
@@ -1948,14 +1995,21 @@ void MainWindow::onSliceAdded(SliceModel* s)
         }
     });
 
-    // When the radio notifies us that this slice became active, switch to it
+    // When the radio notifies us that this slice became active, switch to it.
+    // During a band-stack rebuild this is synchronization-only: FLEX can
+    // transiently activate the surviving old-band slice, and revealing it
+    // would send a stale pan-center command that undoes the selected band.
     connect(s, &SliceModel::activeChanged, this, [this, s](bool active) {
         if (!active) return;
-        // Accept radio's active echo — update client state but use
-        // m_updatingFromModel to prevent sending active=1 back (feedback loop).
-        m_updatingFromModel = true;
-        setActiveSlice(s->sliceId());
-        m_updatingFromModel = false;
+        // Drop only our own optimistic edge, which setActiveSliceInternal
+        // brands as it emits. Comparing against m_activeSliceId instead would
+        // also drop a radio-originated re-activation of the already-selected
+        // slice — another client toggling active away and back, or a profile
+        // load replaying status — and that must still resync the UI and
+        // reveal the slice, as it did before this guard existed.
+        if (s->sliceId() == m_optimisticActiveEdgeSliceId) return;
+        selectSliceFromRadioState(
+            s, RadioSliceSelectionSource::ActiveStatus);
     });
 
     // Update filter limits when the active slice's mode changes
@@ -2195,6 +2249,13 @@ void MainWindow::onSliceRemoved(int id)
     // enters the grace path, so a stale prune can't later clear a live
     // assignment.
     const bool liveRemoval = !m_radioModel.slice(id);
+    // Same reconstruction evidence as onSliceAdded, but a live removal cannot
+    // name its pan — the slice has already left the model (see the comment on
+    // the overlay cleanup below). Refresh every live window; see
+    // BandRecallSelectionGuard::refreshAll for why that is the safe read.
+    if (liveRemoval) {
+        m_bandRecallSelection.refreshAll(QDateTime::currentMSecsSinceEpoch());
+    }
     const QString kiwiRebindProfile = (liveRemoval && m_kiwiSdrManager)
         ? m_kiwiSdrManager->assignedProfileForSlice(id) : QString();
     const auto rebindAction =
@@ -2304,9 +2365,11 @@ void MainWindow::onSliceRemoved(int id)
         if (auto* sw = spectrum()) sw->overlayMenu()->setSlice(nullptr);
 
         const auto& slices = m_radioModel.slices();
-        if (!slices.isEmpty())
-            setActiveSlice(slices.first()->sliceId());
-        else {
+        if (!slices.isEmpty()) {
+            selectSliceFromRadioState(
+                slices.first(),
+                RadioSliceSelectionSource::TopologyFallback);
+        } else {
             m_activeSliceId = -1;
             if (m_ax25HfPacketDecodeDialog)
                 m_ax25HfPacketDecodeDialog->setAttachedSlice(nullptr);
@@ -4637,20 +4700,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             emit bandStackRestoreStarting(applet->panId());
             clearSwrSweepForBandChange(-1, applet->panId(), bandName);
             m_bandSettings.setCurrentBand(bandName);
-            // A band recall makes the radio drop+re-create this pan's slice;
-            // mark the pan (positive band-recall intent) so onSliceAdded re-binds
-            // a KiwiSDR replacement onto the recreated slice instead of reverting
-            // to Flex (#4158). One-shot: consumed by the re-bind, or expired here
-            // so a recall on a non-Kiwi slice can't leave the marker stale.
-            noteBandRecallForPan(applet->panId());
             // #4142: during the profile-load hold a bare sendCommand() band=
-            // write is silently destroyed. requestPanBand defers it instead.
-            // Outside a hold it dispatches inline, so the #4158/Center Lock
-            // grace window inside noteBandRecallForPan is unchanged on the
-            // normal user-initiated band-recall path. The KiwiSDR audio-mute
-            // handoff (#4209) is driven separately by panBandAboutToDispatch, so
-            // it brackets the actual wire dispatch even when the band write is
-            // deferred by a profile-load hold.
+            // write is silently destroyed. requestPanBand defers it instead;
+            // panBandAboutToDispatch starts every slice/Center Lock/Kiwi recall
+            // guard immediately before the command actually reaches the wire.
             m_radioModel.requestPanBand(applet->panId(), stackKey);
             QTimer::singleShot(300, this, [this, panId = applet->panId()]() {
                 reassertUnmutedSliceAudioForPan(panId);
