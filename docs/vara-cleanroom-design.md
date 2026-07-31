@@ -2039,6 +2039,62 @@ dimensions and only 26 samples exist, so the rank cannot saturate below the
 sample count. **More than 32 distinct callsigns are needed before the mod-5 and
 mod-7 ranks mean anything**, which is a capture campaign, not an analysis.
 
+### 3.42 — 2026-07-30 · Decisive: the connect frame is not linear in the callsign
+
+With 48 distinct destination callsigns captured, the representation-agnostic test
+is now conclusive, and it is a negative.
+
+**The test.** If the frame were any linear map applied to any encoding of the
+callsign, the frames would lie in an affine subspace whose dimension is bounded by
+what that encoding carries — regardless of what the encoding is. That is the
+property §3.40 and the base-36 attempt could not test, because each assumed a
+representation and could only refute that one. Differences are taken mod 70,
+which cancels any per-position additive offset (the trick that had been hiding
+the DATA frame's linearity), and 35 = 5 x 7 so the mod-5 and mod-7 components are
+where information can live.
+
+| samples | GF(5) rank | GF(7) rank | control GF(5) | control GF(7) |
+|---|---|---|---|---|
+| 8 | 8 | 8 | 8 | 8 |
+| 24 | 24 | 24 | 24 | 24 |
+| 32 | 31 | 31 | 31 | 31 |
+| 47 | **31** | **31** | **31** | **31** |
+
+The control preserves everything except the claimed structure: same shape, same
+per-position parity, same value ranges, random contents. Rank tracks the sample
+count until it hits the 31 varying symbol positions, then saturates at exactly the
+ceiling — **identically to the control**. Every new callsign adds a new dimension.
+
+**A false positive, caught.** The first run of this reported "linear structure,
+31-dimensional subspace" because symbol 0 — the frame-type marker, always 45 — is
+constant, which costs one rank and reads as a linear relation. Extracting the
+null space showed the relation involved exactly one symbol with coefficient 1, in
+other words the constant itself. The tool now drops non-varying positions before
+computing rank, and the apparent structure disappears. **A rank deficit of one is
+not a finding when one column is constant.**
+
+**Conclusion.** The connect frame is not a linear function of the destination
+callsign under any encoding, in either component of the 35-value alphabet, with a
+per-position additive offset removed. Combined with §3.39's diffusion — one
+character changing 30 of 32 symbols — the field is compressed or hashed, not
+coded. Mercury does exactly this: `arithmetic_encode` over a 37-symbol alphabet,
+plus `CRC16(DST)`. Arithmetic coding would produce precisely this signature, and
+it cannot be recovered by differential linear algebra.
+
+**What that settles, and what it leaves.** Generating a connect frame is out of
+reach by the methods that worked for the payload, so a native implementation
+cannot originate or answer a call. Native AetherHF is a receive-and-monitor
+implementation, which is built, tested and working.
+
+The remaining approach is not analytical but constructive: **guess the compressor
+and verify**. If VARA compresses the callsign and then linearly codes the result,
+the frame is linear in the COMPRESSED bits — so a candidate compressor can be
+tested by checking whether a linear map explains all 48 captured frames, and
+validated by predicting a held-out callsign. Mercury's arithmetic coder is the
+obvious first candidate, and its source is available under GPL-3.0. That is a
+finite experiment, not an open-ended search, and the 48 captures already exist to
+run it against.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
