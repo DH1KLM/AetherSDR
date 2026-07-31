@@ -26,12 +26,15 @@ statistic, which has already happened once here.
 
 import argparse
 import os
+import subprocess
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import vara_fec_capture as cap          # noqa: E402
 import vara_callsign_analyse as A       # noqa: E402
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 SRC = "KK7GWY-9"
 PORT = 8300
@@ -41,6 +44,28 @@ SINK = "varaA.monitor"
 # exists to reject truncated captures: 48 kHz mono s16 needs 10.4 s to reach it,
 # and a connect frame plus its first retry is well inside that.
 LISTEN = 13.0
+
+
+def open_modem(port, restart=True, tries=3):
+    """Connect to the modem, restarting instance A if it has fallen over.
+
+    Instance A died once mid-scan — the process stayed alive but 8300/8301
+    disappeared — and a campaign of a thousand captures will meet that again.
+    Losing eight hours of unattended bench time to a dead socket is not
+    acceptable, so reopen rather than abort.
+    """
+    for attempt in range(tries):
+        try:
+            return cap.Modem(port, "A")
+        except OSError as exc:
+            if not restart or attempt == tries - 1:
+                raise
+            print(f"    modem on {port} is gone ({exc}); restarting instance A",
+                  flush=True)
+            subprocess.run(["bash", os.path.join(HERE, "vara_bench_restart_a.sh")],
+                           timeout=180)
+            time.sleep(5)
+    raise RuntimeError("unreachable")
 
 
 def wait_idle(m, timeout=12.0):
@@ -116,12 +141,15 @@ def main():
     # One host connection for the whole run. Reconnecting per capture bought
     # nothing — VARA's state lives in the modem, not the socket — and cost a
     # second each.
-    m = cap.Modem(a.port, "A")
+    def configure(mm):
+        mm.send("VERSION"); time.sleep(0.3)
+        mm.send(f"MYCALL {a.src}"); time.sleep(0.3)
+        mm.send("BW2300"); time.sleep(0.3)
+        mm.send("COMPRESSION OFF"); time.sleep(0.3)
+
+    m = open_modem(a.port)
     try:
-        m.send("VERSION"); time.sleep(0.3)
-        m.send(f"MYCALL {a.src}"); time.sleep(0.3)
-        m.send("BW2300"); time.sleep(0.3)
-        m.send("COMPRESSION OFF"); time.sleep(0.3)
+        configure(m)
 
         for i, c in enumerate(calls, 1):
             wav = os.path.join(a.out, f"cs_{c}.wav")
@@ -132,9 +160,18 @@ def main():
             for attempt in (1, 2):
                 print(f"[{i}/{len(calls)}] {c}"
                       f"{' (retry)' if attempt == 2 else ''}", flush=True)
-                if capture_one(m, wav, c, a.src, a.sink, a.listen):
-                    got = True
-                    break
+                try:
+                    if capture_one(m, wav, c, a.src, a.sink, a.listen):
+                        got = True
+                        break
+                except OSError as exc:
+                    print(f"    host link lost ({exc}); recovering", flush=True)
+                    try:
+                        m.close()
+                    except OSError:
+                        pass
+                    m = open_modem(a.port)
+                    configure(m)
                 try:
                     os.remove(wav)
                 except OSError:

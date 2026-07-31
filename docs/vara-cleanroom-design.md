@@ -2185,6 +2185,75 @@ The old and new methods agree exactly: six callsigns captured both ways, 0/32
 symbols differing in every case. That is the control that licenses mixing frames
 from the two sets.
 
+### 3.44 — 2026-07-30 · The callsign is digested in 3-character groups, from the right
+
+§3.43 left the invariance described as "anchored to the last three characters",
+which was the most that two offsets could support. Sliding the same delta across
+every offset at three different callsign lengths gives a sharper and stranger
+rule.
+
+| callsign length | delta at characters | distance from the right end | frames differ |
+|---|---|---|---|
+| 5 | 2,3,4 | 2,1,0 | **0/32** |
+| 5 | 0,1,2 | 4,3,2 | 31/32 |
+| 6 | 3,4,5 | 2,1,0 | **0/32** |
+| 6 | 2,3,4 | 3,2,1 | 29/32 |
+| 6 | 0,1,2 | 5,4,3 | **0/32** |
+
+A delta at the *start* of a six-character callsign collides, while the same delta
+one character in from the end does not. Nothing about "suffix" explains that. One
+rule does: **the callsign is consumed in three-character groups aligned to the
+right-hand end, and the delta survives only when it lies inside a single group.**
+Distances 2,1,0 and 5,4,3 are groups; 3,2,1 and 4,3,2 straddle a boundary.
+
+**Held out, then predicted.** The rule was built from lengths 5 and 6. It was then
+used to predict five configurations at lengths 4, 6 and 7 — three collisions and
+two non-collisions — before those were captured:
+
+| pair | length | distance from right | predicted | observed |
+|---|---|---|---|---|
+| `AACQ` / `APAA` | 4 | 2,1,0 | collide | **0/32** |
+| `AAAAACQ` / `AAAAPAA` | 7 | 2,1,0 | collide | **0/32** |
+| `AACQAAA` / `APAAAAA` | 7 | 5,4,3 | collide | **0/32** |
+| `AACQAA` / `APAAAA` | 6 | 4,3,2 | differ | 30/32 |
+| `AAACQAA` / `AAPAAAA` | 7 | 4,3,2 | differ | 29/32 |
+
+**5 of 5**, including both negatives, at two lengths never used to build the rule.
+Predicting a *non*-collision matters as much as predicting one: a rule that only
+ever predicts collisions could be satisfied by a modem that collides often.
+
+**The group operation is bitwise, not arithmetic.** The relation `ACQ` ≡ `PAA` is
+simultaneously an XOR delta and an additive one in base-36 character codes,
+because the characters happen to make both readings coincide — so neither of the
+seven earlier base points could tell them apart. Applying the *additive* delta
+(+15, −2, −16) at a base where the two readings diverge (`AAAE6` → `AAPCQ`) gives
+**30/32 differing**. The additive reading is dead; the group map is GF(2)-linear
+on the character codes, with kernel vector `0x11, 0x02, 0x10`.
+
+**What is now known about the digest.** It is lossy — validly-formatted callsigns
+collide. It is GF(2)-linear. It consumes the callsign in three-character groups
+aligned from the right. Its kernel contains at least one vector per group. That is
+a real structure where §3.42 had only a negative, and it was arrived at by
+measurement with held-out prediction at every step rather than by fitting.
+
+**What it does not do is unblock origination.** Recovering `callsign -> digest`
+completely would still leave `digest -> frame`, and that map remains opaque: the
+31 varying symbols are full-entropy over a genuinely 35-value alphabet (chi-square
+34.2 on 34 degrees of freedom, textbook uniform), and they show no linear
+structure over GF(5), over GF(7), or over GF(2) once the frame is read back as a
+base-35 integer. That last test is new and is the one §3.42 could not have run:
+if VARA coded in bits and converted to base-35 digits only to transmit, the
+conversion would destroy linearity in the symbol domain while preserving it in the
+bit domain. It does not. Rank 90 of 90 distinct frames, exactly matching the
+control.
+
+**A trap worth recording, because it is the same one twice.** The first run of
+that base-35 test reported rank 86 of 93 — a deficit of 7, which looked like
+structure. There are exactly 7 colliding pairs in the corpus, and a zero
+difference vector costs a rank in precisely the way a constant column does. On
+distinct frames the deficit vanishes. §3.42 was fooled by a constant column;
+this was the same error wearing a different hat.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
