@@ -681,6 +681,7 @@ set(CORE_SOURCES
     src/core/VaraClient.cpp
     src/core/VaraWaveform.cpp
     src/core/VaraCodec.cpp
+    src/core/VaraReceiver.cpp
     src/core/AetherHfSettings.cpp
     src/core/TciRoutingState.cpp
     src/core/TciTrxMap.cpp
@@ -3880,6 +3881,19 @@ target_include_directories(vara_codec_test PRIVATE src)
 target_link_libraries(vara_codec_test PRIVATE Qt6::Core)
 add_test(NAME vara_codec_test COMMAND vara_codec_test)
 set_tests_properties(vara_codec_test PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(vara_receiver_test
+    tests/vara_receiver_test.cpp
+    src/core/VaraReceiver.cpp
+    src/core/VaraCodec.cpp
+    src/core/VaraWaveform.cpp
+)
+target_include_directories(vara_receiver_test PRIVATE src)
+target_link_libraries(vara_receiver_test PRIVATE Qt6::Core Qt6::Test)
+set_target_properties(vara_receiver_test PROPERTIES AUTOMOC ON)
+add_test(NAME vara_receiver_test COMMAND vara_receiver_test)
+set_tests_properties(vara_receiver_test PROPERTIES
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 
