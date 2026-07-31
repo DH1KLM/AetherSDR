@@ -11,6 +11,7 @@
 #include "MainWindow.h"
 
 #include "MainWindowHelpers.h"
+#include "WindowGeometryRestore.h"
 
 #include "CwDecodeSettings.h"
 #include "DisplaySettings.h"
@@ -2240,6 +2241,11 @@ MainWindow::MainWindow(QWidget* parent)
     if (!geomB64.isEmpty()) {
         m_startupGeometryForFirstShow = QByteArray::fromBase64(geomB64.toLatin1());
         if (!m_startupGeometryForFirstShow.isEmpty()) {
+            // No #4328 re-anchor here on purpose: the window is not mapped yet,
+            // so the custom frame's real margins are not in effect.  showEvent()
+            // always schedules reapplyStartupGeometryAfterShow() while this blob
+            // is non-empty, and that pass supersedes this placement before the
+            // user ever sees it.
             restoreGeometry(m_startupGeometryForFirstShow);
         }
     }
@@ -3079,7 +3085,14 @@ void MainWindow::reapplyStartupGeometryAfterShow()
     // Pop-out applet containers are restored and shown during construction.
     // Re-apply the main-window geometry after this window is mapped so Qt
     // honors the saved monitor instead of the last pop-out's screen. (#3319)
-    restoreGeometry(m_startupGeometryForFirstShow);
+    //
+    // Then undo Qt's phantom-caption clamp now the window is mapped and the custom
+    // frame's real (zero) top margin applies.  A false return means Qt itself
+    // refused the blob — most often its large-screen-variation bail — and in
+    // that case the saved rect is exactly what we must not force. (#4328)
+    if (restoreGeometry(m_startupGeometryForFirstShow)) {
+        reanchorCustomFrameGeometry(m_startupGeometryForFirstShow);
+    }
 
     // Test the frame's center against each screen's full geometry rather than
     // the top-left against availableGeometry().  A top-left landing in a
@@ -3104,6 +3117,63 @@ void MainWindow::reapplyStartupGeometryAfterShow()
         move(available.center().x() - width() / 2,
              available.center().y() - height() / 2);
     }
+}
+
+void MainWindow::reanchorCustomFrameGeometry(const QByteArray& geometryBlob)
+{
+#ifdef Q_OS_WIN
+    // Call this after every restoreGeometry() on this window, never instead of
+    // one.  Qt's restore runs the saved rect through checkRestoredGeometry(),
+    // which reserves PM_TitleBarHeight above the top edge and shaves
+    // 2 + PM_TitleBarHeight off a window that would otherwise fill the work
+    // area — both correct for a native caption, both pure loss once
+    // WM_NCCALCSIZE has taken ours away.  The result is a title-bar-sized gap
+    // above the window (#4328), and a matching one below it for anyone who
+    // sized the window to their screen.  Re-run the clamp here without the
+    // caption term.  See src/gui/WindowGeometryRestore.h for the arithmetic.
+    if (!mainWindowCustomFrameEnabled()) {
+        return;  // native caption present — Qt's reservation is honest.
+    }
+
+    SavedWindowGeometry saved;
+    if (!parseSavedWindowGeometry(geometryBlob, &saved)) {
+        return;
+    }
+
+    // Read the saved state, not the live one.  Qt applies the maximized and
+    // fullscreen rects without the clamp, so there is nothing to undo — and
+    // reading windowState() instead would make this depend on whether the
+    // platform has finished applying it yet.
+    //
+    // Known limitation: a session that exits maximized still restores DOWN
+    // into the clamped normalGeometry Qt stored, so the gap reappears on the
+    // first un-maximize and closeEvent() then saves it.  Fixing that means
+    // re-applying the saved normal rect on the WindowStateChange out of
+    // maximized, which is a bigger change to a state machine that also carries
+    // the minimal-mode guards — deliberately out of scope here.
+    if (saved.maximized || saved.fullScreen) {
+        return;
+    }
+
+    // Prefer the screen the user actually left the window on; if that monitor
+    // is gone, fall back to wherever Qt just put us.  Either way the rect is
+    // clamped into that screen's work area, so the custom title bar — the only
+    // mouse drag handle a frameless window has — can never land under a
+    // taskbar that moved or appeared between sessions.
+    const QScreen* target = QGuiApplication::screenAt(saved.normalRect.center());
+    if (!target) {
+        target = screen();
+    }
+    if (!target) {
+        return;
+    }
+
+    // setGeometry() rather than move(): the custom frame's margins are zero, so
+    // frame rect == client rect, and the size has to go back too.
+    setGeometry(clampFrameToWorkArea(saved.normalRect, target->availableGeometry()));
+#else
+    Q_UNUSED(geometryBlob);
+#endif
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event)
@@ -8061,8 +8131,12 @@ void MainWindow::toggleMinimalMode(bool on)
 
         QByteArray geom = QByteArray::fromBase64(
             s.value("MinimalModeGeometry", "").toByteArray());
-        if (!geom.isEmpty())
-            restoreGeometry(geom);
+        // Re-anchor as well as restore: this window is already mapped, so Qt
+        // reapplies its caption-reserving clamp on every entry and the #4328
+        // gap would come straight back on one Ctrl+M round trip — then stick,
+        // because closeEvent() saves whatever origin is current.
+        if (!geom.isEmpty() && restoreGeometry(geom))
+            reanchorCustomFrameGeometry(geom);
 
         // Defer clearing the guard so any AppKit-deferred WindowStateChange
         // queued by the showNormal() / setFixedWidth() calls above is drained
@@ -8118,12 +8192,17 @@ void MainWindow::toggleMinimalMode(bool on)
         // Restore full geometry
         QByteArray geom = QByteArray::fromBase64(
             s.value("FullModeGeometry", "").toByteArray());
-        if (!geom.isEmpty())
-            restoreGeometry(geom);
+        const bool restored = !geom.isEmpty() && restoreGeometry(geom);
 
         // Belt-and-suspenders: if FullModeGeometry encoded a state, ensure
         // we land windowed.
         showNormal();
+
+        // After showNormal(), not before: leaving maximized drops us onto Qt's
+        // clamped normal geometry, which is the rect that carries the #4328
+        // phantom-caption offset.  Re-anchoring first would just be undone.
+        if (restored)
+            reanchorCustomFrameGeometry(geom);
     }
 
     s.setValue("MinimalModeEnabled", on ? "True" : "False");
