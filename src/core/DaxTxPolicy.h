@@ -10,7 +10,7 @@ enum class DaxTxRequestReason {
     TciTxAudio,
     RadeModemTx,
     AetherModemAx25Tx,
-    VaraModemTx,
+    AetherHfModemTx,
     WsprBeacon,
     ExternalDaxRouteOnly,
     GenericAudioRecreate
@@ -49,7 +49,7 @@ inline QString daxTxRequestReasonName(DaxTxRequestReason reason)
     case DaxTxRequestReason::TciTxAudio:          return QStringLiteral("tci_tx_audio");
     case DaxTxRequestReason::RadeModemTx:         return QStringLiteral("rade_modem_tx");
     case DaxTxRequestReason::AetherModemAx25Tx:   return QStringLiteral("aethermodem_ax25_tx");
-    case DaxTxRequestReason::VaraModemTx:         return QStringLiteral("vara_modem_tx");
+    case DaxTxRequestReason::AetherHfModemTx:      return QStringLiteral("aetherhf_modem_tx");
     case DaxTxRequestReason::WsprBeacon:           return QStringLiteral("wspr_beacon");
     case DaxTxRequestReason::ExternalDaxRouteOnly:return QStringLiteral("external_dax_route_only");
     case DaxTxRequestReason::GenericAudioRecreate:return QStringLiteral("generic_audio_recreate");
@@ -159,8 +159,8 @@ inline DaxTxPolicyDecision evaluateDaxTxPolicy(const DaxTxPolicyContext& context
         // own dax_tx stream even on platforms where external DAX owns devices.
         return {true, QStringLiteral("aethermodem_sends_vita49_directly")};
 
-    case DaxTxRequestReason::VaraModemTx:
-        // AetherModem's VARA page synthesises the HF modem waveform itself —
+    case DaxTxRequestReason::AetherHfModemTx:
+        // AetherModem's AetherHF page synthesises the HF waveform itself —
         // 16-ary orthogonal CPFSK, 512-sample symbols — and sends VITA-49
         // packets through AudioEngine::sendModemTxAudio(), exactly as AX.25,
         // RADE and WSPR do. It claims no OS audio device, so SmartSDR DAX2
@@ -172,7 +172,7 @@ inline DaxTxPolicyDecision evaluateDaxTxPolicy(const DaxTxPolicyContext& context
         // makes it a HostedDaxBridge on Linux and macOS, and on Windows means
         // AetherSDR should create no stream at all because DAX2 owns the device
         // and the modem selects it directly.
-        return {true, QStringLiteral("vara_sends_vita49_directly")};
+        return {true, QStringLiteral("aetherhf_sends_vita49_directly")};
 
     case DaxTxRequestReason::WsprBeacon:
         // The built-in beacon generates its waveform and VITA-49 payload

@@ -679,7 +679,7 @@ set(CORE_SOURCES
     src/core/TciProtocol.cpp
     src/core/VaraProtocol.cpp
     src/core/VaraClient.cpp
-    src/core/VaraSettings.cpp
+    src/core/AetherHfSettings.cpp
     src/core/TciRoutingState.cpp
     src/core/TciTrxMap.cpp
     src/core/AutomationServer.cpp
@@ -865,7 +865,7 @@ set(GUI_SOURCES
     src/gui/Ax25HfPacketDecodeDialog.cpp
     src/gui/DStarAccessibility.cpp
     src/gui/DStarModemPage.cpp
-    src/gui/VaraModemPage.cpp
+    src/gui/AetherHfPage.cpp
     src/gui/AprsMessagesDialog.cpp
     src/gui/AprsSymbolIcons.cpp
     src/gui/FlexControlDialog.cpp
@@ -3838,15 +3838,15 @@ target_include_directories(vara_protocol_test PRIVATE src)
 target_link_libraries(vara_protocol_test PRIVATE Qt6::Core)
 add_test(NAME vara_protocol_test COMMAND vara_protocol_test)
 
-add_executable(vara_settings_test
-    tests/vara_settings_test.cpp
-    src/core/VaraSettings.cpp
+add_executable(aetherhf_settings_test
+    tests/aetherhf_settings_test.cpp
+    src/core/AetherHfSettings.cpp
     src/core/VaraProtocol.cpp
     src/core/AppSettings.cpp
 )
-target_include_directories(vara_settings_test PRIVATE src tests)
-target_link_libraries(vara_settings_test PRIVATE Qt6::Core)
-add_test(NAME vara_settings_test COMMAND vara_settings_test)
+target_include_directories(aetherhf_settings_test PRIVATE src tests)
+target_link_libraries(aetherhf_settings_test PRIVATE Qt6::Core)
+add_test(NAME aetherhf_settings_test COMMAND aetherhf_settings_test)
 
 add_executable(vara_client_inhibit_test
     tests/vara_client_inhibit_test.cpp
