@@ -42,6 +42,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   custom frame does not have. The window now reopens exactly where you left
   it, keeps its full size if you had it filling the screen, and stays put
   through Minimal Mode round trips.
+- **Copy Assist no longer freezes the app on first use on macOS (#4535)** —
+  turning on ASR could hang the entire interface, on one Intel MacBook Pro for
+  over 75 minutes, with a force-quit as the only way out. The speech-recognition
+  engine was asking macOS to compile its GPU shaders the first time it looked
+  for a graphics card, and on some Intel Macs Apple's shader compiler never
+  finishes. Those shaders are now compiled when AetherSDR is built, so nothing
+  is compiled on your machine and the panel opens immediately. Apple Silicon
+  Macs also stop paying a several-second delay the first time ASR touches the
+  GPU on each cold start.
 
 ## [v26.7.4.1] — 2026-07-27
 
