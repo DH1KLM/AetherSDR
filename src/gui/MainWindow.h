@@ -1477,6 +1477,7 @@ private:
     AetherClockEngine* m_clockEngine{nullptr};
     AetherClockModel* m_clockModel{nullptr};
     QMetaObject::Connection m_clockDaxConn;  // daxAudioReady feed — live only while the engine runs
+    QMetaObject::Connection m_clockSliceAudioConn;  // seam per-slice audio feed — same lifetime
     void setupAetherClock();
 
 #ifdef HAVE_RADE
