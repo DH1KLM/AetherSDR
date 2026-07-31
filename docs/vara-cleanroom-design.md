@@ -2095,6 +2095,96 @@ obvious first candidate, and its source is available under GPL-3.0. That is a
 finite experiment, not an open-ended search, and the 48 captures already exist to
 run it against.
 
+### 3.43 — 2026-07-30 · The connect frame is not injective: real callsigns collide
+
+§3.42's negative was about the wrong object. It established that the frame is not
+a linear function *of* the callsign, and concluded the field was hashed or
+compressed beyond reach. It did not ask the question that decides whether any of
+that matters: **how much about the callsign does the frame carry at all?**
+
+**The idea, and where it came from.** Mercury — an independent GPL-3.0 modem that
+deliberately implements a VARA-compatible host interface — puts `CRC16-CCITT` of
+the destination callsign in its connect frame and nothing else about it. If VARA
+did the same, the frame would carry only 16 bits, only 65536 distinct connect
+frames would exist in the world, and originating a call would be a matter of
+tabulation rather than cryptanalysis. The test is one comparison: two callsigns
+that collide under the hash must produce identical frames.
+
+**They do.** Frames captured for `AAACQ` and `AAPAA` are identical in all 32
+symbols. So are `AAACR` and `AAPAB`. `AADAD` and `AAHAA` — chosen to collide
+under CRC16-**IBM** instead — differ in 29 of 32.
+
+**The control was broken, and saying so matters.** `AAACR`/`AAPAB` was intended as
+a non-colliding control. It is not one: it was built by incrementing the last
+character of *both* members of the CCITT pair, which applies the identical XOR
+delta to both, and a CRC is affine over GF(2), so the collision is preserved
+exactly. The pair is a second base point for the same delta, not an independent
+observation. The real control came from elsewhere — the 48 frames of §3.42, in
+which no two distinct callsigns share a frame and unrelated callsigns differ by
+about 30 of 32.
+
+**But it is not a CRC.** Two further pairs, `0IKMC`/`J0QS0` and `TUQWQ`/`K3MJ2`,
+also collide under CRC16 poly 0x1021 with different XOR deltas. Both differ in
+**31 of 32** symbols. Decisively, the original delta shifted two characters
+earlier — `ACQZZ` vs `PAAZZ`, still all-letter, still a genuine 0x1021 collision —
+differs in 31 of 32. **A CRC's collisions are shift-invariant**: if a delta is a
+multiple of the generator, so is that delta shifted. No CRC over the callsign
+characters, of any polynomial or width, survives this. Exhaustive search over
+every polynomial of degree 1–16 confirms it: none divides the surviving delta
+while sparing the refuted one, because the surviving delta *is* the CCITT
+generator shifted, so every divisor of it also divides the others.
+
+**What the collision actually is.** The surviving delta — characters 2, 3, 4
+changed by XOR `0x11, 0x02, 0x10`, i.e. `A C Q` → `P A A` — was tested at seven
+base points:
+
+| pair | differ |
+|---|---|
+| `AAACQ` / `AAPAA` | 0/32 |
+| `AAACR` / `AAPAB` | 0/32 |
+| `QZACQ` / `QZPAA` | 0/32 |
+| `M7ACQ` / `M7PAA` | 0/32 |
+| `K7ACQ` / `K7PAA` | **0/32** |
+| `KK7ACQ` / `KK7PAA` | **0/32** |
+| `AAAACQ` / `AAAPAA` | 0/32 |
+| `ACQZZ` / `PAAZZ` (shifted left) | 31/32 |
+
+Base-independence across six unrelated prefixes makes the invariance **linear**.
+Survival in a six-character callsign at positions 3–5, and death at positions 0–2
+of a five-character one, makes it **anchored to the last three characters** rather
+than to the start of the string — which is why it is not shift-invariant and
+therefore not a CRC. The two bold rows matter most: `K7ACQ`/`K7PAA` and
+`KK7ACQ`/`KK7PAA` are validly-formatted amateur callsigns, so this is not VARA
+degenerating on malformed input it would never see on the air.
+
+**The finding.** *VARA's connect frame does not uniquely identify the destination
+callsign.* Distinct, valid, on-air-plausible callsigns produce byte-identical
+connect frames. The map is lossy, it is linear in the character codes, and its
+weighting is right-anchored — three constraints where §3.42 had only a negative.
+This does not contradict §3.42: the frame being a diffusive, non-linear function
+*of an intermediate value* is consistent with both the rank saturation observed
+there and the kernel observed here.
+
+**A faster bench, and two bugs it exposed.** `tools/vara_connect_capture.py`
+replaces the session-based probe. Nothing about a session was ever needed: the
+connect frame is transmitted the instant `CONNECT` is issued, before anything
+answers, so there is no reason to wait for a link, send a payload, or have a
+responder listening. Capture time fell from about 150 s to 23 s. Two bugs surfaced
+in building it, both of which would have produced confident wrong answers:
+
+* A 9-second recording is 864 kB, below the extractor's 1 MB floor — so *every*
+  capture was silently rejected regardless of content. The floor exists to reject
+  truncated files and was doing its job; the listen window now clears it.
+* Back-to-back `CONNECT`s draw `WRONG` from the modem when the previous `ABORT`
+  is still settling, and that state survives reconnecting the host socket. This
+  reads exactly like callsign rejection — `AAAAAA` drew a `WRONG` despite already
+  being in the ground truth. The harness now waits for the modem to report itself
+  idle.
+
+The old and new methods agree exactly: six callsigns captured both ways, 0/32
+symbols differing in every case. That is the control that licenses mixing frames
+from the two sets.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
