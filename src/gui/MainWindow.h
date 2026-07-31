@@ -122,6 +122,7 @@ class BandPlanManager;
 class NetworkDiagnosticsHistory;
 class WhatsNewDialog;
 class ProfileManagerDialog;
+class SettingsBrowserDialog;
 class ProfileImportExportDialog;
 class RadioSetupDialog;
 class NetworkDiagnosticsDialog;
@@ -1222,6 +1223,7 @@ private:
 #endif
     QPointer<WaveformsDialog> m_waveformsDialog;
     QPointer<ProfileManagerDialog> m_profileManagerDialog;
+    QPointer<SettingsBrowserDialog> m_settingsBrowserDialog;
     QPointer<ProfileImportExportDialog> m_profileImportExportDialog;
 #ifdef HAVE_MIDI
     QPointer<MidiMappingDialog> m_midiDialog;

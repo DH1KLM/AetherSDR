@@ -850,6 +850,7 @@ set(GUI_SOURCES
     src/gui/PersistentDialog.cpp
     src/gui/FramelessMessageBox.cpp
     src/gui/ProfileManagerDialog.cpp
+    src/gui/SettingsBrowserDialog.cpp
     src/gui/ProfileImportExportDialog.cpp
     src/gui/TxBandDialog.cpp
     src/gui/PanadapterApplet.cpp
@@ -2866,6 +2867,23 @@ set_tests_properties(panadapter_message_overlay_test PROPERTIES
 # AppSettings persistence safety. Each scenario is a separate process because
 # AppSettings is a process-wide singleton and load state must not leak between
 # cases.
+add_executable(settings_browser_dialog_test
+    tests/settings_browser_dialog_test.cpp
+    src/gui/SettingsBrowserDialog.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+    src/gui/FramelessMessageBox.cpp
+)
+target_include_directories(settings_browser_dialog_test PRIVATE src tests)
+target_link_libraries(settings_browser_dialog_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Test
+)
+set_target_properties(settings_browser_dialog_test PROPERTIES AUTOMOC ON)
+add_test(NAME settings_browser_dialog COMMAND settings_browser_dialog_test)
+set_tests_properties(settings_browser_dialog PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(app_settings_safety_test
     tests/app_settings_safety_test.cpp
     ${AETHER_SETTINGS_SOURCES}
@@ -2893,7 +2911,8 @@ foreach(APP_SETTINGS_SCENARIO
         newer-schema-readonly
         dirty-row-save
         display-slice-depth-default
-        nickname-key-roundtrip)
+        nickname-key-roundtrip
+        browser-api)
     add_test(
         NAME app_settings_safety_${APP_SETTINGS_SCENARIO}
         COMMAND app_settings_safety_test ${APP_SETTINGS_SCENARIO})
