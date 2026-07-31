@@ -1070,6 +1070,146 @@ int main(int argc, char** argv)
         qInstallMessageHandler(s_verPrev);
     }
 
+    // ---- reset-to-factory follows the ACTIVE theme's base (#3184) ----
+    //
+    // The factory snapshot was hardcoded to default-dark.json, so pressing
+    // "Reset to default" while editing Default Light restored the DARK value.
+    // That is wrong for most of the root tokens the two bundled themes
+    // share — including color.background.0, which flipped a near-white
+    // background to near-black.
+    {
+        EXPECT_TRUE(tm.setActiveTheme("Default Dark"));
+        const QColor darkBg     = tm.factoryColor("color.background.0");
+        const QColor darkAccent = tm.factoryColor("color.accent");
+        EXPECT_EQ(darkBg.name().toLower(),     QString("#0f0f1a"));
+        EXPECT_EQ(darkAccent.name().toLower(), QString("#00b4d8"));
+
+        // Switching base must RE-snapshot, not serve the previous one.
+        EXPECT_TRUE(tm.setActiveTheme("Default Light"));
+        const QColor lightBg     = tm.factoryColor("color.background.0");
+        const QColor lightAccent = tm.factoryColor("color.accent");
+        EXPECT_EQ(lightBg.name().toLower(),     QString("#f5f5f8"));
+        EXPECT_EQ(lightAccent.name().toLower(), QString("#0088b0"));
+
+        // And back again — proves the snapshot isn't a one-shot latch.
+        EXPECT_TRUE(tm.setActiveTheme("Default Dark"));
+        EXPECT_EQ(tm.factoryColor("color.background.0").name().toLower(),
+                  QString("#0f0f1a"));
+    }
+
+    // ---- a USER theme resets to the base it descends from, and keeps
+    //      doing so after the operator edits the discriminating token ----
+    //
+    // This is the branch that carries the risk: the two built-ins are exact
+    // name matches, a fork is not. The base is decided once at load — from
+    // recorded parentage where we have it, from background luminance where we
+    // don't — because the thing that reads it is the Reset button, and the
+    // operator presses Reset exactly when a value is already wrong. Deriving
+    // it live meant a fork of Light whose background had been dragged dark
+    // reclassified as dark, and then Reset handed back DARK values for that
+    // token and every other one for the rest of the session.
+    {
+        EXPECT_TRUE(tm.setActiveTheme("Default Light"));
+        EXPECT_TRUE(tm.saveCurrentThemeAs("My Light Fork"));
+        EXPECT_EQ(tm.activeTheme(), QString("My Light Fork"));
+
+        // A pristine fork of Light resets to LIGHT.
+        EXPECT_EQ(tm.factoryColor("color.background.0").name().toLower(),
+                  QString("#f5f5f8"));
+        EXPECT_EQ(tm.factoryColor("color.accent").name().toLower(),
+                  QString("#0088b0"));
+
+        // Now break the very token the fallback discriminator reads. The
+        // baseline must NOT move: this is the state someone is in when they
+        // reach for Reset.
+        tm.setColor(QStringLiteral("color.background.0"), QColor("#101018"));
+        EXPECT_EQ(tm.factoryColor("color.background.0").name().toLower(),
+                  QString("#f5f5f8"));   // was #0f0f1a before this fix
+        EXPECT_EQ(tm.factoryColor("color.accent").name().toLower(),
+                  QString("#0088b0"));   // was #00b4d8 before this fix
+
+        // Parentage is recorded on disk, so it survives a reload rather than
+        // being re-guessed from the (now dark) background.
+        EXPECT_TRUE(tm.saveActiveTheme());
+        EXPECT_TRUE(tm.setActiveTheme("Default Dark"));
+        EXPECT_TRUE(tm.setActiveTheme("My Light Fork"));
+        EXPECT_EQ(tm.factoryColor("color.background.0").name().toLower(),
+                  QString("#f5f5f8"));
+
+        // A theme with no recorded parentage — the shape of every user theme
+        // written before the field existed — still classifies by luminance,
+        // which is right for a pristine file.
+        QTemporaryDir legacyFork;
+        EXPECT_TRUE(legacyFork.isValid());
+        const QString lfPath = legacyFork.filePath(QStringLiteral("lf.json"));
+        QFile lf(lfPath);
+        EXPECT_TRUE(lf.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        lf.write(R"({
+          "schemaVersion": 2, "name": "Legacy Light Fork",
+          "scopes": { "root": { "tokens": {
+            "color": { "background": { "0": "#f0f0f4" } }
+          } } } })");
+        lf.close();
+        QString lfErr;
+        const QString lfName = tm.importThemeFromFile(lfPath, &lfErr);
+        EXPECT_EQ(lfName, QString("Legacy Light Fork"));
+        EXPECT_EQ(tm.factoryColor("color.accent").name().toLower(),
+                  QString("#0088b0"));   // light base, inferred
+    }
+
+    // ---- a theme name that becomes a filename can't carry path structure ----
+    //
+    // importThemeFromFile() already refused separators; the two entry points
+    // where the OPERATOR types the name did not, so the name went straight into
+    // a path and could write outside the themes directory.
+    {
+        EXPECT_TRUE(tm.setActiveTheme("Default Dark"));
+        const QString before = tm.activeTheme();
+
+        EXPECT_TRUE(!tm.saveCurrentThemeAs(QStringLiteral("../escape")));
+        EXPECT_TRUE(!tm.saveCurrentThemeAs(QStringLiteral("sub/dir")));
+        EXPECT_TRUE(!tm.saveCurrentThemeAs(QStringLiteral("back\\slash")));
+        // A refused save must not have switched the active theme.
+        EXPECT_EQ(tm.activeTheme(), before);
+        // Not in the theme list either.
+        EXPECT_TRUE(!tm.availableThemes().contains(QStringLiteral("../escape")));
+
+        // A legitimate name still works — the guard rejects separators, not
+        // ordinary punctuation.
+        EXPECT_TRUE(tm.saveCurrentThemeAs(QStringLiteral("Nigel's Theme (v2)")));
+        EXPECT_TRUE(tm.availableThemes().contains(QStringLiteral("Nigel's Theme (v2)")));
+
+        // Rename is the other filename-building entry point.
+        EXPECT_TRUE(!tm.renameTheme(QStringLiteral("Nigel's Theme (v2)"),
+                                    QStringLiteral("../escaped")));
+        EXPECT_TRUE(tm.availableThemes().contains(QStringLiteral("Nigel's Theme (v2)")));
+
+        // The rest of the "typed name becomes a filename" class, rejected on
+        // every platform because a theme file is portable — the name is typed
+        // on one OS and the file gets opened on another.
+        QString why;
+        EXPECT_TRUE(!ThemeManager::isValidThemeName(QStringLiteral("C:tricky"), &why));
+        EXPECT_TRUE(!why.isEmpty());          // every refusal explains itself
+        EXPECT_TRUE(!ThemeManager::isValidThemeName(QStringLiteral("CON")));
+        EXPECT_TRUE(!ThemeManager::isValidThemeName(QStringLiteral("com1")));
+        EXPECT_TRUE(!ThemeManager::isValidThemeName(QStringLiteral("NUL.backup")));
+        EXPECT_TRUE(!ThemeManager::isValidThemeName(QStringLiteral("trailing.")));
+        EXPECT_TRUE(!ThemeManager::isValidThemeName(QStringLiteral("new\nline")));
+        EXPECT_TRUE(!ThemeManager::isValidThemeName(QStringLiteral("   ")));
+        // ...and the ordinary names that must keep working.
+        EXPECT_TRUE(ThemeManager::isValidThemeName(QStringLiteral("Nigel's Theme (v2)")));
+        EXPECT_TRUE(ThemeManager::isValidThemeName(QStringLiteral("Contest — 40m")));
+        EXPECT_TRUE(ThemeManager::isValidThemeName(QStringLiteral("v1.2 draft")));
+        EXPECT_TRUE(ThemeManager::isValidThemeName(QStringLiteral("CONTEST")));  // not CON
+
+        // A name is trimmed ONCE and the trimmed form is what reaches disk and
+        // the theme list — no key with a trailing space that Win32 would strip
+        // off the filename.
+        EXPECT_TRUE(tm.saveCurrentThemeAs(QStringLiteral("  Padded Name  ")));
+        EXPECT_TRUE(tm.availableThemes().contains(QStringLiteral("Padded Name")));
+        EXPECT_EQ(tm.activeTheme(), QString("Padded Name"));
+    }
+
     // Restore Default Dark for any future test additions below.
     tm.setActiveTheme("Default Dark");
 
