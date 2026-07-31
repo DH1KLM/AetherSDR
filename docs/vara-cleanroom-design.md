@@ -1892,6 +1892,41 @@ with the same shape as the payload work: vary one thing, diff the result. A
 differential sweep over destination callsigns — length ladder, single-character
 substitutions at each position, and an alphabet ladder — is running.
 
+### 3.39 — 2026-07-30 · The callsign field is coded, not positional
+
+§3.38 showed the connect frame is a deterministic function of the destination
+callsign. The differential sweep now says how it is carried, and the answer
+decides the method.
+
+| comparison | body symbols differing (of 32) |
+|---|---|
+| **control — two runs, identical callsign** | **0** |
+| one character changed, averaged over five positions | **30.0** |
+| length ladder, `A` up to `AAAAAA` | 28 to 31 |
+| alphabet ladder at position 0 (`C`, `P`, `Z`, `0`) | 30 to 31 |
+| SSID suffix added (`-9`) | 31 |
+
+The control matters: two runs with the same callsign give a byte-identical frame,
+so 30 of 32 is diffusion rather than variation.
+
+**That rules out reading the field off.** A positional encoding would move a
+handful of symbols when one character changes; this moves nearly all of them, so
+the callsign is coded — as the payload turned out to be. The attack has to be
+algebraic.
+
+**What is not yet known** is whether the map is linear in the callsign bits. That
+test needs the *combination* of two single-character changes as well as the
+changes themselves, and the sweep did not include one. Captures are running,
+using two POSITIONS rather than two alphabet steps: a XOR delta has to land on a
+legal callsign character, and `'A' xor 3 = 'B'` wherever it appears, whereas most
+deltas within A-Z do not stay in range.
+
+**Note on effort.** If this map is linear, the same generator-matrix method
+applies and the field can be recovered with a sweep. If it is not, the connect
+frame stays unusable for a native implementation and the honest position is that
+AetherHF can *receive* VARA but cannot originate a call. Receiving is already
+built and tested; originating is what this blocks.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
