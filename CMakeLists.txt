@@ -680,6 +680,7 @@ set(CORE_SOURCES
     src/core/VaraProtocol.cpp
     src/core/VaraClient.cpp
     src/core/VaraWaveform.cpp
+    src/core/VaraCodec.cpp
     src/core/AetherHfSettings.cpp
     src/core/TciRoutingState.cpp
     src/core/TciTrxMap.cpp
@@ -3869,6 +3870,17 @@ add_executable(vara_waveform_test
 target_include_directories(vara_waveform_test PRIVATE src)
 target_link_libraries(vara_waveform_test PRIVATE Qt6::Core)
 add_test(NAME vara_waveform_test COMMAND vara_waveform_test)
+
+add_executable(vara_codec_test
+    tests/vara_codec_test.cpp
+    src/core/VaraCodec.cpp
+    src/core/VaraWaveform.cpp
+)
+target_include_directories(vara_codec_test PRIVATE src)
+target_link_libraries(vara_codec_test PRIVATE Qt6::Core)
+add_test(NAME vara_codec_test COMMAND vara_codec_test)
+set_tests_properties(vara_codec_test PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 
 add_executable(ole_compound_file_test
