@@ -52,6 +52,40 @@ jobs:
       - name: Build
         run: cmake --build build -j$(nproc)
 
+      # The build above already produces every test binary (it builds `all`),
+      # and until now nothing on the PR path ran any of them: this job and
+      # check-macos built the suite and ran nothing, while check-windows runs
+      # four portability cases by design. A test that is compiled but never run
+      # only proves it still compiles.
+      #
+      # The suite was not entirely unwatched — sanitizers.yml runs it weekly in
+      # this same container — but a weekly job that files one sticky issue per
+      # sanitizer is a poor regression gate: cross_needle_meter_test had been
+      # failing there since it was written (#4274), reported inside #4330 where
+      # it read as sanitizer noise rather than as a broken test, and nothing on
+      # any PR ever went red for it. Blocking the merge is what makes it stick.
+      #
+      # Runtime is the whole added cost and it is small: ~90 s wall clock for
+      # the full suite at -j$(nproc), against a build measured in tens of
+      # minutes.
+      #
+      # QT_QPA_PLATFORM=offscreen because the container has no display. The
+      # widget tests are written against it — they grab framebuffers rather
+      # than showing windows — so it is the platform they target, not a
+      # workaround.
+      #
+      # -j4 is pinned rather than $(nproc). A few tests are timing-sensitive and
+      # start failing under heavy oversubscription rather than for any real
+      # reason: wdsp_channel_test and radio_capability_gating_test both fail at
+      # -j32 on a 32-core box and pass in isolation and at -j4. ubuntu-latest is
+      # 4 vCPU today, so $(nproc) would resolve to 4 anyway — pinning it means a
+      # bigger runner later turns into a faster build, not a flaky suite.
+      - name: Test
+        timeout-minutes: 20
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build -j4 --output-on-failure
+
       # #4146 turned liquid-dsp off by default, so the main build above no
       # longer proves the vendored snapshot still compiles. Build only the
       # liquid-static target (separate build dir, opt-in flag) so a bitrotted
@@ -263,8 +297,9 @@ jobs:
         # linking the app plus the handful of portability tests run below, NOT the
         # default `all` target. Building every *_test.exe relinked the same
         # libraries into hundreds of tiny executables for no added Windows coverage
-        # (cross-platform test linkage is already exercised by the Linux/macOS CI
-        # that build AND run the full suite), and that link tail was stalling for
+        # (cross-platform test linkage is exercised by the Linux `build` job, which
+        # builds the suite and — as of #4568 — runs it; check-macos builds it but
+        # still runs nothing), and that link tail was stalling for
         # hours on the runner. timeout-minutes fails fast (with logs) if it ever
         # hangs again, instead of running to the 6-hour job limit.
         timeout-minutes: 45
