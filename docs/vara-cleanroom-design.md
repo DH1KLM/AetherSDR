@@ -1851,6 +1851,47 @@ alternate one is now characterised at the modulation level though its code is
 untouched — recovering that would need its own sweep, since none of the 512
 generator rows apply to it.
 
+### 3.38 — 2026-07-30 · The connect frame carries the destination callsign
+
+Control frames were catalogued in §3.31 as a small vocabulary of fixed
+waveforms, which raised the question of whether a native modem could simply
+replay them. It cannot, and the reason is more useful than the restriction:
+the connect frame is a **function of the destination callsign**.
+
+`tools/vara_callsign_probe.py` runs sessions differing only in the callsigns and
+compares the 41-symbol connect frames. Everything else is held constant — same
+payload, bandwidth, bench and modem instances.
+
+| trial | destination | symbols differing from the baseline |
+|---|---|---|
+| control — identical callsigns | `KK7GWY-8` | **0 / 41** |
+| source changed to `KK7GWY-1` | `KK7GWY-8` | **0 / 41** |
+| destination changed | `KK7GWY-2` | **31 / 41** |
+| both changed | `VK2XYZ` | 30 / 41 |
+
+**The control is what makes this readable.** Two runs with identical callsigns
+produce a byte-identical connect frame, so the frame is fully deterministic and
+there is no per-session nonce. That also **corrects §3.31**, which recorded
+"twenty one-off connect frames" as evidence of session-specific content: those
+came from captures at differing conditions, not from randomness, and the
+inference was wrong.
+
+**Only the destination is encoded.** Changing the source callsign changes
+nothing at all; changing the destination changes about three quarters of the
+frame. That fits what a connect frame is for — it is an addressing frame,
+announcing who is being called, so the receiving station can decide whether the
+call is for it. It also fits the preamble / type-marker / addressee split
+recorded in §3.10. Where the source callsign travels is not established here.
+
+**The 9-symbol acquisition preamble never varies**, in any trial.
+
+**What this changes.** A native modem cannot replay a captured connect frame —
+it would announce the wrong station. It must generate one, which means recovering
+the map from callsign to the 32-symbol body. That is now a well-posed problem
+with the same shape as the payload work: vary one thing, diff the result. A
+differential sweep over destination callsigns — length ladder, single-character
+substitutions at each position, and an alphabet ladder — is running.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
