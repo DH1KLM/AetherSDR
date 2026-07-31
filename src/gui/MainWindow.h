@@ -22,6 +22,7 @@
 #include "core/ReceivePresentationSync.h"
 #include "gui/BandRecallSelectionGuard.h"  // band-recall slice-selection window
 #include "gui/CenterLockRebindTracker.h"
+#include "gui/DaxRestorePolicy.h"       // #4558 last-session DAX restore window
 #include "gui/KiwiRebindTracker.h"      // #4158 band-recall Kiwi re-bind policy
 #include "core/CatPort.h"
 #ifdef HAVE_WEBSOCKETS
@@ -1444,6 +1445,13 @@ private:
     // User layout choices should suppress startup rearrange, but still allow
     // the pending timer to restore saved floating pan windows.
     bool m_suppressStartupPanLayoutRearrange{false};
+    // #4558: the last-session DAX restore (#1221) may only apply during the
+    // slice enumeration that follows a connect — a slice recreated mid-session
+    // has current state that last-session keys must never override. The window
+    // and the quit-time key prune are pure logic in DaxRestorePolicy.h (which
+    // carries the full reasoning and is covered by dax_restore_policy_test);
+    // this member is just the live instance.
+    DaxRestorePolicy m_daxRestore;
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     QTimer* m_bsExpiryTimer{nullptr};    // band-stack bookmark auto-expiry, started on connect only (#1471)
     QTimer* m_bsAutoSaveTimer{nullptr};  // band-stack dwell auto-save (single-shot per dwell window)
