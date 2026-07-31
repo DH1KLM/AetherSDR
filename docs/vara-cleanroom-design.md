@@ -1927,6 +1927,60 @@ frame stays unusable for a native implementation and the honest position is that
 AetherHF can *receive* VARA but cannot originate a call. Receiving is already
 built and tested; originating is what this blocks.
 
+### 3.40 — 2026-07-30 · The callsign map is not linear: originating stays out of reach
+
+The method that cracked the payload does not transfer to the connect frame. This
+is a negative result and it bounds what a native implementation can do.
+
+**The affine identity fails.** With `x` and `y` single-character changes at
+different positions and `x+y` both changed, a linear map would give
+`c(base) + c(x) + c(y) + c(x+y) = 0`. Measured over three independent identities,
+under every algebra the 70-ary alphabet suggests:
+
+| identity | XOR | mod 70 | mod 35 |
+|---|---|---|---|
+| characters 0, 1 | 30 | 30 | 30 |
+| characters 0, 4 | 31 | 30 | 30 |
+| characters 1, 4 | 31 | 30 | 30 |
+| *control — mismatched grouping* | *30* | *28* | *28* |
+
+Violations of 32. The correct groupings are indistinguishable from a deliberately
+wrong one, so this is not a near miss.
+
+**Nor does a per-position offset rescue it.** The payload was not linear in its
+raw form either — it became linear only after removing an additive mod-16
+scrambler — so the same search was run here, for an `r[p]` at each position that
+makes the identity hold:
+
+| algebra | positions with any valid offset |
+|---|---|
+| mod 70 | 1 / 32 |
+| mod 35 | 1 / 32 |
+| mod 16 | 2 / 32 |
+| *shuffled control* | *0 / 32* |
+
+The one or two that "solve" are positions where every frame carries the same
+value, so any offset satisfies them trivially — visible in the solution-set sizes
+being the entire alphabet. There is no offset model here.
+
+**What this bounds.** The connect frame carries the destination callsign
+(§3.38), the field is diffused (§3.39), and the map is not linear in any
+algebra tried. So it cannot be generated, and a native implementation **cannot
+originate a call**. The same applies to the answering station's 23-symbol reply,
+which would also have to be generated, so it cannot answer one either.
+
+**Native AetherHF is therefore a receive-and-monitor implementation**, which is
+what has been built and tested: it detects, demodulates, decodes and
+error-corrects VARA DATA frames off the air with no VARA.exe anywhere. That is
+genuinely useful — it reads the installed base's traffic — but it is not a peer.
+
+**What this does NOT rule out**, stated so the boundary is honest. Only three
+identities were available, from eight captures. The encoding could be linear in
+some representation not tried; it could involve a CRC or hash of the callsign,
+which is nonlinear by construction and would explain the diffusion exactly; or
+the 32 symbols could be a compressed representation rather than a coded one. Any
+of those would need a different attack, not more of this one.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.

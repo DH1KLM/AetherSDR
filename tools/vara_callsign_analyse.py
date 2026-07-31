@@ -43,20 +43,49 @@ def ctrl_symbols(seg):
             for i in range(len(seg) // CTRL)]
 
 
+# The acquisition preamble that opens every connect frame (§3.31). Searching for
+# it is far more robust than requiring a burst to split into exactly 41 control
+# symbols: ragged burst boundaries rejected three otherwise-good captures that
+# way, and a capture is expensive to retake.
+PREAMBLE_SYMBOLS = [45, 39, 41, 31, 31, 48, 21, 47, 49]
+
+
 def connect_body(path):
-    """The 32-symbol body of the connect frame, preamble stripped."""
+    """The 32-symbol body of the connect frame, found by locating the preamble.
+
+    Returns None only if no preamble is present at all, rather than if the burst
+    happened to be split awkwardly.
+    """
     try:
         if os.path.getsize(path) < 1_000_000:
             return None
         x = cap.load_wav(path)
     except Exception:
         return None
-    for a, b in cap.split_bursts(x):
-        n = b - a
-        if n % CTRL or n // CTRL != PREAMBLE + BODY:
+    f = x.astype(np.float64) / 32768.0
+    need = (PREAMBLE + BODY) * CTRL
+
+    def preamble_at(off):
+        if off < 0 or off + PREAMBLE * CTRL > len(f):
+            return False
+        for i, want in enumerate(PREAMBLE_SYMBOLS):
+            w = f[off + i * CTRL: off + (i + 1) * CTRL]
+            if int(np.argmax(np.abs(np.fft.rfft(w))[BINS])) != want:
+                return False
+        return True
+
+    # Burst starts are good candidates; scan around each rather than requiring
+    # the burst to be the right length.
+    candidates = []
+    for a, _ in cap.split_bursts(x):
+        candidates.extend(range(max(0, a - CTRL), a + CTRL, 32))
+    for off in candidates:
+        if not preamble_at(off):
             continue
-        s = ctrl_symbols(x[a:b].astype(float) / 32768.0)
-        return s[PREAMBLE:]
+        for fine in range(max(0, off - 32), off + 32):
+            if preamble_at(fine) and fine + need <= len(f):
+                seg = f[fine:fine + need]
+                return ctrl_symbols(seg)[PREAMBLE:]
     return None
 
 
