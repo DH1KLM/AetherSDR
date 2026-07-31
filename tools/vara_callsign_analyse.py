@@ -79,12 +79,32 @@ def connect_body(path):
     candidates = []
     for a, _ in cap.split_bursts(x):
         candidates.extend(range(max(0, a - CTRL), a + CTRL, 32))
+    def tone_purity(seg):
+        """Median winner-to-runner-up ratio across the frame's symbols.
+
+        A clean control frame is a sequence of pure tones and scores enormously;
+        a misaligned or ragged region does not. This check exists because a
+        capture whose bursts came out malformed still contained a preamble, and
+        the extractor happily returned 41 symbols of misaligned data around it —
+        which then showed up as the single frame in 27 whose symbol parities
+        broke the pattern every other frame followed. A silently wrong frame is
+        worse than a missing one.
+        """
+        vals = []
+        for i in range(len(seg) // CTRL):
+            sp = np.abs(np.fft.rfft(seg[i * CTRL:(i + 1) * CTRL]))[BINS]
+            o = np.argsort(sp)[::-1]
+            vals.append(sp[o[0]] / max(sp[o[1]], 1e-12))
+        return float(np.median(vals)) if vals else 0.0
+
     for off in candidates:
         if not preamble_at(off):
             continue
         for fine in range(max(0, off - 32), off + 32):
             if preamble_at(fine) and fine + need <= len(f):
                 seg = f[fine:fine + need]
+                if tone_purity(seg) < 1000.0:
+                    continue
                 return ctrl_symbols(seg)[PREAMBLE:]
     return None
 

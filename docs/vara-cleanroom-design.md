@@ -1981,6 +1981,64 @@ which is nonlinear by construction and would explain the diffusion exactly; or
 the 32 symbols could be a compressed representation rather than a coded one. Any
 of those would need a different attack, not more of this one.
 
+**§3.41 supersedes part of this.** The identity tested here was over ASCII bits,
+and the quadruples used did not satisfy it in any packed representation — so the
+negative was weaker than it reads.
+
+### 3.41 — 2026-07-30 · Checking the work: a bad capture, and a real constraint
+
+Re-examining §3.40 found an error in it and a structural fact underneath.
+
+**The §3.40 negative was weaker than it looked.** Mercury (Rhizomatica, GPL)
+compresses callsigns with an *arithmetic coder* over a 37-symbol alphabet, and its
+connect frame carries `CRC16(DST)` plus `arithmetic_encode(SRC)`. That prompted a
+check of whether the earlier identity even applied. It did not: with a uniform
+model, arithmetic coding is close to base-N packing, and in that domain
+
+    v(AAAAAA)=0, v(BAAAAA)=37^5, v(ABAAAA)=37^4, v(BBAAAA)=37^5+37^4
+
+XOR to **12770, not zero** — the last term is an arithmetic sum, which equals the
+XOR only if there are no binary carries, and there are. **The four-term identity
+was never satisfied by those callsigns, so §3.40 did not test what it claimed
+to.** Mercury's use of a CRC is separately informative: a CRC is GF(2)-linear, so
+had VARA done the same the identity *would* have held, and it did not.
+
+A proper test set was then built — callsigns whose base-36 values have pairwise
+disjoint bits, so XOR equals sum and the four genuinely XOR to zero. Result: 29
+of 32 violations against a control of 30. Still negative, but now legitimately
+so *for base-36 positional packing*. It says nothing about arithmetic coding,
+whose output is a renormalised fractional expansion rather than the integer.
+
+**A capture was silently corrupting the analysis.** A representation-agnostic
+rank test gave GF(2) rank 1 over 26 samples where random data gives 26 — yet a
+direct check found only 8 of 32 positions with fixed parity. Both were correct
+and the contradiction was the clue: 25 of 26 difference rows were all-zero and
+exactly one frame differed, at 24 positions. That frame came from a capture of
+5.44 MB against ~4.3 MB for every other, containing 13 ragged bursts and **no
+clean 41-symbol frame at all**. The preamble search found a preamble and returned
+41 symbols of misaligned data around it. The extractor now requires the frame to
+demodulate as clean tones — median winner-to-runner-up above 1000 — and the
+capture is rejected rather than silently believed.
+
+**The constraint that survives.** Across all 26 good frames there is exactly ONE
+parity pattern:
+
+    1 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1
+
+Symbol 0 is the frame-type marker (45, odd), symbol 1 is odd, and from symbol 2
+onward parity alternates strictly with position. **Every symbol's parity is fixed
+by its position**, so only **35 of the 70 tones are reachable at each one** —
+independently confirming the 35-value alphabet noted in §3.21, which had been
+recorded as an aside.
+
+**Where that points.** 35 = 5 x 7, so any linear structure lives in the mod-5 and
+mod-7 components, not in a bit representation. Differences taken mod 70 cancel a
+per-position additive offset — the trick that cracked the DATA frame — so that
+test is available. It is not yet decisive: a 32-symbol frame can span 32
+dimensions and only 26 samples exist, so the rank cannot saturate below the
+sample count. **More than 32 distinct callsigns are needed before the mod-5 and
+mod-7 ranks mean anything**, which is a capture campaign, not an analysis.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
