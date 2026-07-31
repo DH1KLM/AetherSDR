@@ -679,6 +679,7 @@ set(CORE_SOURCES
     src/core/TciProtocol.cpp
     src/core/VaraProtocol.cpp
     src/core/VaraClient.cpp
+    src/core/VaraWaveform.cpp
     src/core/AetherHfSettings.cpp
     src/core/TciRoutingState.cpp
     src/core/TciTrxMap.cpp
@@ -3860,6 +3861,14 @@ target_include_directories(vara_client_inhibit_test PRIVATE src)
 target_link_libraries(vara_client_inhibit_test PRIVATE Qt6::Core Qt6::Network Qt6::Test)
 set_target_properties(vara_client_inhibit_test PROPERTIES AUTOMOC ON)
 add_test(NAME vara_client_inhibit_test COMMAND vara_client_inhibit_test)
+
+add_executable(vara_waveform_test
+    tests/vara_waveform_test.cpp
+    src/core/VaraWaveform.cpp
+)
+target_include_directories(vara_waveform_test PRIVATE src)
+target_link_libraries(vara_waveform_test PRIVATE Qt6::Core)
+add_test(NAME vara_waveform_test COMMAND vara_waveform_test)
 
 
 add_executable(ole_compound_file_test
