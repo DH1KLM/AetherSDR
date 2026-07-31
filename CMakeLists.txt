@@ -865,6 +865,7 @@ set(GUI_SOURCES
     src/gui/Ax25HfPacketDecodeDialog.cpp
     src/gui/DStarAccessibility.cpp
     src/gui/DStarModemPage.cpp
+    src/gui/VaraModemPage.cpp
     src/gui/AprsMessagesDialog.cpp
     src/gui/AprsSymbolIcons.cpp
     src/gui/FlexControlDialog.cpp
@@ -3846,6 +3847,20 @@ add_executable(vara_settings_test
 target_include_directories(vara_settings_test PRIVATE src tests)
 target_link_libraries(vara_settings_test PRIVATE Qt6::Core)
 add_test(NAME vara_settings_test COMMAND vara_settings_test)
+
+add_executable(vara_client_inhibit_test
+    tests/vara_client_inhibit_test.cpp
+    src/core/VaraClient.cpp
+    src/core/VaraProtocol.cpp
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(vara_client_inhibit_test PRIVATE src)
+target_link_libraries(vara_client_inhibit_test PRIVATE Qt6::Core Qt6::Network Qt6::Test)
+set_target_properties(vara_client_inhibit_test PROPERTIES AUTOMOC ON)
+add_test(NAME vara_client_inhibit_test COMMAND vara_client_inhibit_test)
+
 
 add_executable(ole_compound_file_test
     tests/ole_compound_file_test.cpp

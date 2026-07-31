@@ -288,14 +288,34 @@ QString VaraClient::cleanTxBuffer()
     return send(Vara::cmdCleanTxBuffer(), QStringLiteral("CLEANTXBUFFER"));
 }
 
+void VaraClient::setTransmitInhibited(bool inhibited)
+{
+    if (m_txInhibited == inhibited)
+        return;
+    m_txInhibited = inhibited;
+    qCInfo(lcVara) << (inhibited ? "transmit inhibited" : "transmit permitted");
+}
+
 QString VaraClient::connectTo(const QString& source, const QString& destination)
 {
+    if (m_txInhibited) {
+        // Refused rather than silently dropped: a caller that wired this up by
+        // mistake should be able to see why nothing happened.
+        qCWarning(lcVara) << "CONNECT refused - transmit is inhibited";
+        emit transmitInhibited(QStringLiteral("CONNECT"));
+        return QString();
+    }
     qCInfo(lcVara) << "CONNECT" << source << "->" << destination;
     return send(Vara::cmdConnect(source, destination), QStringLiteral("CONNECT"));
 }
 
 QString VaraClient::sendCq(const QString& callsign, Vara::Bandwidth bandwidth)
 {
+    if (m_txInhibited) {
+        qCWarning(lcVara) << "CQFRAME refused - transmit is inhibited";
+        emit transmitInhibited(QStringLiteral("CQFRAME"));
+        return QString();
+    }
     if (bandwidth == Vara::Bandwidth::Unknown) {
         qCWarning(lcVara) << "refusing to send CQ with an unknown bandwidth";
         return QString();
@@ -316,6 +336,12 @@ QString VaraClient::abort()
 
 qint64 VaraClient::write(const QByteArray& payload)
 {
+    if (m_txInhibited) {
+        qCWarning(lcVara) << "refusing to write" << payload.size()
+                          << "bytes - transmit is inhibited";
+        emit transmitInhibited(QStringLiteral("DATA"));
+        return -1;
+    }
     if (m_data->state() != QAbstractSocket::ConnectedState) {
         qCWarning(lcVara) << "dropping" << payload.size() << "bytes - data socket not connected";
         return -1;

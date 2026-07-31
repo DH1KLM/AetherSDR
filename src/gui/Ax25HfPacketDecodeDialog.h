@@ -35,6 +35,7 @@ class AprsMessenger;
 class AprsStationList;
 class AudioEngine;
 class DStarModemPage;
+class VaraModemPage;
 class HeardList;
 class KissTncServer;
 #ifdef HAVE_MQTT
@@ -247,9 +248,11 @@ private:
     QAbstractButton* m_ax25Tab{nullptr};
     QAbstractButton* m_kissTab{nullptr};
     QAbstractButton* m_dstarTab{nullptr};
+    QAbstractButton* m_varaTab{nullptr};
     QWidget* m_aprsPage{nullptr};
     QWidget* m_terminalPage{nullptr};
     DStarModemPage* m_dstarPage{nullptr};
+    VaraModemPage* m_varaPage{nullptr};
 #ifdef HAVE_MQTT
     QPointer<MqttClient> m_mqtt;
 #endif

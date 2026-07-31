@@ -66,7 +66,20 @@ public:
     QString listenCq();
     QString cleanTxBuffer();
 
-    // These three key the transmitter.
+    // ── Transmit inhibit ────────────────────────────────────────────────
+    // When set, the commands that START a transmission — connectTo, sendCq and
+    // write — become no-ops and emit transmitInhibited() instead of reaching
+    // the modem. This exists so a caller that must not transmit cannot do so by
+    // accident: a receive-only UI sets it once at construction rather than
+    // relying on nobody ever wiring up a button.
+    //
+    // disconnectLink() and abort() are deliberately NOT inhibited. They END a
+    // transmission rather than begin one, and an inhibit that prevented
+    // stopping would be a worse safety property than the one it enforces.
+    void setTransmitInhibited(bool inhibited);
+    bool isTransmitInhibited() const { return m_txInhibited; }
+
+    // These three key the transmitter. connectTo and sendCq honour the inhibit.
     QString connectTo(const QString& source, const QString& destination);
     QString sendCq(const QString& callsign, Vara::Bandwidth bandwidth);
     QString disconnectLink();
@@ -116,6 +129,10 @@ signals:
     // treat each one as a new event.
     void missingSoundcard();
 
+    // A transmitting command was refused because the inhibit is set. Carries
+    // the command that was blocked, so a caller can surface it.
+    void transmitInhibited(const QString& command);
+
     // Payload off the data channel.
     void dataReceived(const QByteArray& payload);
 
@@ -148,6 +165,7 @@ private:
     QQueue<QString> m_pending;
 
     QString m_remoteCall;
+    bool m_txInhibited{false};
     QString m_modemVersion;
     bool m_announcedConnected = false;
 };
