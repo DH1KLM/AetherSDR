@@ -1025,6 +1025,13 @@ public:
     // Backend family currently in use ("flex", "hl2", "kiwi", ...).
     QString family() const { return m_family; }
 
+    // Flush any pending operating-state capture immediately (RFC #4603 PR 3).
+    // PUBLIC because MainWindow::closeEvent() must call it explicitly: quit
+    // tears down without pumping the event loop, so the queued
+    // disconnect→flush path never runs there (PR #4619 review — same class
+    // as the explicit TGXL/D-STAR teardown in closeEvent).
+    void flushPendingOperatingState();
+
     // The (family, radio) handle into the radio-scoped feature-document store
     // (RFC #4603). Identity is the family's canonical serial (Flex serial /
     // HL2 MAC); an unconnected model yields a family-wide scope.
@@ -1220,6 +1227,7 @@ private:
     // in the ctor, so a non-Flex backend simply skips it.
     static std::unique_ptr<IRadioBackend> makeBackend(const QString& family);
     void handRestoredStateToBackend(const QString& serial);  // RFC #4603
+    void persistOperatingState(bool force = false);          // RFC #4603 PR 3
 
     // aetherd Gap B: build/destroy the backend for a radio family. The backend
     // follows the radio the operator picks in the connection manager, so these
@@ -1704,6 +1712,13 @@ private:
     // while the radio is still booting and would otherwise spam the UI.
     bool      m_rebootInProgress{false};
     QTimer    m_reconnectTimer;
+    // RFC #4603 PR 3: debounces operatingStateChanged into one store write.
+    // The companion max-wait timer guarantees a sustained burst (continuous
+    // tuning) still stores at least every interval; the disconnect path
+    // flushes whatever is pending (PR #4619 review — the state most likely
+    // to be lost was the operator's last edit before disconnecting).
+    QTimer    m_operatingStateSaveTimer;
+    QTimer    m_operatingStateMaxWaitTimer;
 
     // ── Network quality monitor ──
     void startNetworkMonitor();
