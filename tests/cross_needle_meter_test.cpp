@@ -889,17 +889,42 @@ void testResourceAndConstruction() {
     report("SWR contour ink survives applet-size downsampling",
            geometry.swrStyle.guideWidth >= 3.0);
 
-    QFont wideSwrLabelFont = swrLabelFont;
-    wideSwrLabelFont.setStretch(175);
-    const QFontMetricsF wideSwrLabelMetrics(wideSwrLabelFont);
-    QVector<QRectF> wideLabelRects;
+    // A different rendered font must invalidate the placement cache, and the
+    // only black-box evidence of that is the layout moving. So the perturbation
+    // has to be one the declutter cannot absorb.
+    //
+    // A stretch cannot: it widens the boxes but leaves their height alone, and
+    // what binds this layout is VERTICAL — the numbers stack along their own
+    // contours with far more horizontal room than vertical. Measured across
+    // Noto Sans, DejaVu Sans, Liberation Sans, FreeSans and Cantarell,
+    // setStretch(175) repositions 0 of 12 labels on every one of them: every
+    // box still clears at its original anchor, so the assertion below silently
+    // tested nothing at best and failed for the wrong reason at worst.
+    //
+    // A size change moves both dimensions and does force a relayout. 1.75x is
+    // chosen from the middle of the working range: at 1.25x two of those five
+    // families still move nothing, and by 2.5x the declutter starts failing to
+    // place labels at all (NaN centres), which would make this case pass for a
+    // reason that has nothing to do with the cache. 1.5x-2x repositions 3-5
+    // labels on all five with no placement failures.
+    QFont largerSwrLabelFont = swrLabelFont;
+    largerSwrLabelFont.setPixelSize(qRound(
+        1.75 * static_cast<double>(geometry.typography.swrNumberPixels)));
+    const QFontMetricsF largerSwrLabelMetrics(largerSwrLabelFont);
+    QVector<QRectF> largerLabelRects;
     bool fontChangeRepositionedLabels = false;
-    bool wideLabelBoxesSeparated = true;
-    bool wideLabelBoxesClearMask = true;
+    bool largerLabelsPlaced = true;
+    bool largerLabelBoxesSeparated = true;
+    bool largerLabelBoxesClearMask = true;
     for (int index = 0; index < geometry.swrGuides.size(); ++index) {
         const CrossNeedleMeterGeometry::SwrGuide &guide = geometry.swrGuides[index];
         const QPointF center =
-            geometry.swrGuideLabelCenter(guide, wideSwrLabelFont);
+            geometry.swrGuideLabelCenter(guide, largerSwrLabelFont);
+        // A guide the declutter could not place at all comes back NaN. Track it
+        // separately: without this, a total placement failure would look like a
+        // repositioning and quietly satisfy the cache assertion.
+        largerLabelsPlaced = largerLabelsPlaced && !std::isnan(center.x()) &&
+                             !std::isnan(center.y());
         fontChangeRepositionedLabels =
             fontChangeRepositionedLabels ||
             std::hypot(center.x() - labelCenters[index].x(),
@@ -908,26 +933,30 @@ void testResourceAndConstruction() {
                                     ? QString::fromUtf8("\xe2\x88\x9e")
                                     : guide.displayLabel;
         QRectF box =
-            wideSwrLabelMetrics.boundingRect(display).adjusted(-3.0, -2.0, 3.0, 2.0);
+            largerSwrLabelMetrics.boundingRect(display).adjusted(-3.0, -2.0, 3.0, 2.0);
         box.moveCenter(center);
-        wideLabelBoxesClearMask =
-            wideLabelBoxesClearMask &&
+        largerLabelBoxesClearMask =
+            largerLabelBoxesClearMask &&
             box.bottom() + 3.0 < maskBoundaryYAtX(geometry, box.left()) &&
             box.bottom() + 3.0 < maskBoundaryYAtX(geometry, box.center().x()) &&
             box.bottom() + 3.0 < maskBoundaryYAtX(geometry, box.right());
-        wideLabelRects.append(box);
+        largerLabelRects.append(box);
     }
-    for (int first = 0; first < wideLabelRects.size(); ++first) {
-        for (int second = first + 1; second < wideLabelRects.size(); ++second) {
-            wideLabelBoxesSeparated =
-                wideLabelBoxesSeparated &&
-                !wideLabelRects[first].intersects(wideLabelRects[second]);
+    for (int first = 0; first < largerLabelRects.size(); ++first) {
+        for (int second = first + 1; second < largerLabelRects.size(); ++second) {
+            largerLabelBoxesSeparated =
+                largerLabelBoxesSeparated &&
+                !largerLabelRects[first].intersects(largerLabelRects[second]);
         }
     }
+    // Precondition for the case below: if the larger font failed to place a
+    // label, "the centres moved" no longer says anything about the cache.
+    report("a larger rendered font still places every SWR number",
+           largerLabelsPlaced);
     report("SWR label placement cache is keyed by the rendered font",
-           fontChangeRepositionedLabels);
-    report("wider rendered-font SWR labels remain collision-free",
-           wideLabelBoxesSeparated && wideLabelBoxesClearMask);
+           fontChangeRepositionedLabels && largerLabelsPlaced);
+    report("larger rendered-font SWR labels remain collision-free",
+           largerLabelBoxesSeparated && largerLabelBoxesClearMask);
 
     bool maskSymmetric = true;
     for (int i = 0; i < geometry.mask.boundary.size(); ++i) {
