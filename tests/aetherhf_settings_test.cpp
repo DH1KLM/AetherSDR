@@ -55,8 +55,11 @@ void testDefaults()
     expect(AetherHfSettings::enforceFilterWidth(),
            "filter-width enforcement defaults ON (a mismatch silently kills the link)");
     expect(AetherHfSettings::callsign().isEmpty(), "callsign is empty until set");
-    expect(!AetherHfSettings::mercuryAvailable(),
-           "Mercury reports unavailable while it is not integrated");
+    // Out of the box Mercury does not launch the binary itself, so a host is
+    // all it needs and the default host is loopback. Availability is about
+    // whether the engine CAN be started, not whether anything is listening.
+    expect(AetherHfSettings::mercuryAvailable(),
+           "Mercury is available by default: it only needs a host to reach");
 }
 
 void testEngineSelection()
@@ -69,8 +72,13 @@ void testEngineSelection()
            "engine names map both ways");
     expect(hfEngineFromString(QStringLiteral("nonsense")) == HfEngine::Vara,
            "an unknown engine name falls back to VARA rather than a bad state");
-    expect(AetherHfSettings::activeBandwidthHz() == 0,
-           "Mercury reports no bandwidth, so the filter check has nothing to warn about");
+    // Mercury negotiates the same three bandwidth tokens VARA does, so the
+    // filter comparison has a real number to work with for either engine.
+    expect(AetherHfSettings::activeBandwidthHz()
+               == AetherHfSettings::mercuryBandwidthHz(),
+           "the active bandwidth follows the selected engine, Mercury included");
+    expect(AetherHfSettings::activeBandwidthHz() != 0,
+           "Mercury reports a real bandwidth now that it is driven");
     AetherHfSettings::setEngine(HfEngine::Vara);
     expect(AetherHfSettings::activeBandwidthHz() == 2300,
            "with VARA selected the active bandwidth is VARA's");

@@ -1,6 +1,9 @@
 #include "AetherHfPage.h"
 
 #include "core/AetherHfSettings.h"
+#include "core/MercuryProcess.h"
+
+#include <QTimer>
 #include "core/VaraClient.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
@@ -26,6 +29,13 @@
 #include <algorithm>
 
 namespace AetherSDR {
+
+namespace {
+// How long to let Mercury bind its control port before connecting to it. The
+// process exists well before the listener does, and connecting too early fails
+// in a way that reads as a wrong host rather than as "not up yet".
+constexpr int kMercuryPortGrace = 1500;
+} // namespace
 
 namespace {
 
@@ -152,12 +162,42 @@ AetherHfPage::AetherHfPage(RadioModel* radio, QWidget* parent)
     : QWidget(parent)
     , m_radio(radio)
     , m_vara(new VaraClient(this))
+    , m_mercury(new MercuryProcess(this))
 {
     // Structural, not merely conventional: with the inhibit set, the client
     // refuses CONNECT, CQFRAME and payload writes outright. Wiring a transmit
     // control to this page by mistake would produce a refusal and a log line
     // rather than a signal on the air.
     m_vara->setTransmitInhibited(true);
+
+    // Mercury runs as its own process; the session over TCP is the same client.
+    connect(m_mercury, &MercuryProcess::output, this, [this](const QString& l) {
+        appendEvent(QStringLiteral("mercury: %1").arg(l));
+    });
+    connect(m_mercury, &MercuryProcess::failed, this, [this](const QString& why) {
+        setError(why);
+        refreshConnectionState();
+    });
+    connect(m_mercury, &MercuryProcess::started, this, [this] {
+        // The control port is not bound the instant the process exists, so
+        // connecting immediately would fail in a way that reads as a bad host.
+        appendEvent(tr("Mercury started; waiting for its control port."));
+        QTimer::singleShot(kMercuryPortGrace, this, [this] {
+            if (m_mercury->isRunning() && !m_vara->isModemConnected())
+                connectToSelectedEngine();
+        });
+        refreshConnectionState();
+    });
+    connect(m_mercury, &MercuryProcess::finished, this,
+            [this](int code, bool expected) {
+                appendEvent(expected
+                                ? tr("Mercury stopped.")
+                                : tr("Mercury exited unexpectedly (code %1).")
+                                      .arg(code));
+                if (!expected && m_vara->isModemConnected())
+                    m_vara->disconnectFromModem();
+                refreshConnectionState();
+            });
 
     setObjectName(QStringLiteral("AetherHfPage"));
     setAccessibleName(tr("AetherHF"));
@@ -385,6 +425,93 @@ QWidget* AetherHfPage::buildConfigurationPanel()
     m_mercuryNotice->setObjectName(QStringLiteral("AetherHfWarning"));
     m_mercuryNotice->setWordWrap(true);
     mcol->addWidget(m_mercuryNotice);
+
+    auto* mgrid = new QGridLayout;
+    mgrid->setHorizontalSpacing(10);
+    mgrid->setVerticalSpacing(8);
+    int mrow = 0;
+
+    mgrid->addWidget(fieldLabel(tr("Host"), m_mercuryGroup), mrow, 0);
+    m_mercuryHostEdit = new QLineEdit(m_mercuryGroup);
+    mgrid->addWidget(m_mercuryHostEdit, mrow++, 1);
+
+    mgrid->addWidget(fieldLabel(tr("Control port"), m_mercuryGroup), mrow, 0);
+    m_mercuryPortSpin = new QSpinBox(m_mercuryGroup);
+    m_mercuryPortSpin->setRange(AetherHfSettings::kMinPort,
+                                AetherHfSettings::kMaxPort);
+    // Mercury's own default is 8300, the same as VARA's. Defaulting both to it
+    // would collide the moment an operator runs the two together, which is
+    // exactly what comparing them requires.
+    m_mercuryPortSpin->setToolTip(
+        tr("Mercury's ARQ base port (-p). The data port is this plus one."));
+    mgrid->addWidget(m_mercuryPortSpin, mrow++, 1);
+
+    mgrid->addWidget(fieldLabel(tr("Data port"), m_mercuryGroup), mrow, 0);
+    m_mercuryDataPortLabel = new QLabel(m_mercuryGroup);
+    mgrid->addWidget(m_mercuryDataPortLabel, mrow++, 1);
+
+    mgrid->addWidget(fieldLabel(tr("Bandwidth"), m_mercuryGroup), mrow, 0);
+    m_mercuryBandwidthCombo = new QComboBox(m_mercuryGroup);
+    m_mercuryBandwidthCombo->addItem(tr("500 Hz"), 500);
+    m_mercuryBandwidthCombo->addItem(tr("2300 Hz"), 2300);
+    m_mercuryBandwidthCombo->addItem(tr("2750 Hz"), 2750);
+    mgrid->addWidget(m_mercuryBandwidthCombo, mrow++, 1);
+    mcol->addLayout(mgrid);
+
+    m_mercuryPublicCheck =
+        new QCheckBox(tr("Accept calls addressed to any callsign"), m_mercuryGroup);
+    m_mercuryPublicCheck->setToolTip(
+        tr("Mercury's PUBLIC mode. VARA has no equivalent."));
+    mcol->addWidget(m_mercuryPublicCheck);
+
+    m_mercuryLaunchCheck =
+        new QCheckBox(tr("Start Mercury when connecting"), m_mercuryGroup);
+    m_mercuryLaunchCheck->setToolTip(
+        tr("Leave this off if you run Mercury yourself, or run it on another "
+           "machine."));
+    mcol->addWidget(m_mercuryLaunchCheck);
+
+    auto* lgrid = new QGridLayout;
+    lgrid->setHorizontalSpacing(10);
+    lgrid->setVerticalSpacing(8);
+    int lrow = 0;
+    lgrid->addWidget(fieldLabel(tr("Binary"), m_mercuryGroup), lrow, 0);
+    m_mercuryBinaryEdit = new QLineEdit(m_mercuryGroup);
+    m_mercuryBinaryEdit->setPlaceholderText(tr("path to the mercury binary"));
+    lgrid->addWidget(m_mercuryBinaryEdit, lrow++, 1);
+
+    lgrid->addWidget(fieldLabel(tr("Sound system"), m_mercuryGroup), lrow, 0);
+    m_mercurySoundSystemEdit = new QLineEdit(m_mercuryGroup);
+    m_mercurySoundSystemEdit->setToolTip(
+        tr("alsa, pulse, oss, coreaudio, dsound, wasapi, jack…"));
+    lgrid->addWidget(m_mercurySoundSystemEdit, lrow++, 1);
+
+    lgrid->addWidget(fieldLabel(tr("Capture device"), m_mercuryGroup), lrow, 0);
+    m_mercuryCaptureEdit = new QLineEdit(m_mercuryGroup);
+    // Mercury opens the sound devices itself rather than being handed audio,
+    // so this is how it gets pointed at the same cable the rig is on.
+    m_mercuryCaptureEdit->setPlaceholderText(tr("e.g. plughw:1,0"));
+    lgrid->addWidget(m_mercuryCaptureEdit, lrow++, 1);
+
+    lgrid->addWidget(fieldLabel(tr("Playback device"), m_mercuryGroup), lrow, 0);
+    m_mercuryPlaybackEdit = new QLineEdit(m_mercuryGroup);
+    m_mercuryPlaybackEdit->setPlaceholderText(tr("e.g. plughw:1,0"));
+    lgrid->addWidget(m_mercuryPlaybackEdit, lrow++, 1);
+    mcol->addLayout(lgrid);
+
+    for (QLineEdit* e : {m_mercuryHostEdit, m_mercuryBinaryEdit,
+                         m_mercurySoundSystemEdit, m_mercuryCaptureEdit,
+                         m_mercuryPlaybackEdit})
+        connect(e, &QLineEdit::editingFinished,
+                this, &AetherHfPage::saveConfigurationFromWidgets);
+    connect(m_mercuryPortSpin, &QSpinBox::editingFinished,
+            this, &AetherHfPage::saveConfigurationFromWidgets);
+    connect(m_mercuryBandwidthCombo, &QComboBox::currentIndexChanged,
+            this, [this](int) { saveConfigurationFromWidgets(); });
+    for (QCheckBox* c : {m_mercuryPublicCheck, m_mercuryLaunchCheck})
+        connect(c, &QCheckBox::toggled,
+                this, [this](bool) { saveConfigurationFromWidgets(); });
+
     col->addWidget(m_mercuryGroup);
 
     m_enforceFilterCheck =
@@ -497,11 +624,10 @@ void AetherHfPage::refreshEngine()
     m_varaGroup->setVisible(vara);
     m_mercuryGroup->setVisible(!vara);
     if (!vara) {
+        m_mercuryNotice->setVisible(!AetherHfSettings::mercuryAvailable());
         m_mercuryNotice->setText(
-            AetherHfSettings::mercuryAvailable()
-                ? tr("MercuryV2 selected.")
-                : tr("MercuryV2 is not integrated in this build yet, so this "
-                     "engine cannot be started. The selection is remembered."));
+            tr("Set the path to the Mercury binary, or turn off "
+               "\u201cStart Mercury when connecting\u201d and run it yourself."));
     }
 }
 
@@ -512,9 +638,12 @@ void AetherHfPage::engineSelectionChanged()
     const auto e = static_cast<HfEngine>(m_engineCombo->currentData().toInt());
     // Changing engine while a session is open would leave the old one running
     // with nothing showing its state, so close it first.
-    if (m_vara->isModemConnected() && e != HfEngine::Vara) {
-        appendEvent(tr("Closing the VARA session before switching engine."));
+    if (m_vara->isModemConnected()) {
+        appendEvent(tr("Closing the %1 session before switching engine.")
+                        .arg(hfEngineDisplayName(AetherHfSettings::engine())));
         m_vara->disconnectFromModem();
+        if (m_mercury->isRunning())
+            m_mercury->stop();
     }
     AetherHfSettings::setEngine(e);
     appendEvent(tr("Engine set to %1.").arg(hfEngineDisplayName(e)));
@@ -541,6 +670,20 @@ void AetherHfPage::refreshConfiguration()
     m_compressionCombo->setCurrentIndex(
         static_cast<int>(AetherHfSettings::varaCompression()));
     m_enforceFilterCheck->setChecked(AetherHfSettings::enforceFilterWidth());
+
+    m_mercuryHostEdit->setText(AetherHfSettings::mercuryHost());
+    m_mercuryPortSpin->setValue(AetherHfSettings::mercuryCommandPort());
+    m_mercuryDataPortLabel->setText(
+        QString::number(AetherHfSettings::mercuryDataPort()));
+    const int mhz = AetherHfSettings::mercuryBandwidthHz();
+    const int mbw = m_mercuryBandwidthCombo->findData(mhz);
+    m_mercuryBandwidthCombo->setCurrentIndex(mbw >= 0 ? mbw : 1);
+    m_mercuryPublicCheck->setChecked(AetherHfSettings::mercuryPublic());
+    m_mercuryLaunchCheck->setChecked(AetherHfSettings::mercuryLaunch());
+    m_mercuryBinaryEdit->setText(AetherHfSettings::mercuryBinaryPath());
+    m_mercurySoundSystemEdit->setText(AetherHfSettings::mercurySoundSystem());
+    m_mercuryCaptureEdit->setText(AetherHfSettings::mercuryCaptureDevice());
+    m_mercuryPlaybackEdit->setText(AetherHfSettings::mercuryPlaybackDevice());
     m_updating = false;
 }
 
@@ -560,6 +703,20 @@ void AetherHfPage::saveConfigurationFromWidgets()
         static_cast<Vara::Compression>(m_compressionCombo->currentIndex()));
     AetherHfSettings::setEnforceFilterWidth(m_enforceFilterCheck->isChecked());
 
+    AetherHfSettings::setMercuryHost(m_mercuryHostEdit->text());
+    AetherHfSettings::setMercuryCommandPort(m_mercuryPortSpin->value());
+    switch (m_mercuryBandwidthCombo->currentData().toInt()) {
+    case 500:  AetherHfSettings::setMercuryBandwidth(Vara::Bandwidth::Bw500);  break;
+    case 2750: AetherHfSettings::setMercuryBandwidth(Vara::Bandwidth::Bw2750); break;
+    default:   AetherHfSettings::setMercuryBandwidth(Vara::Bandwidth::Bw2300); break;
+    }
+    AetherHfSettings::setMercuryPublic(m_mercuryPublicCheck->isChecked());
+    AetherHfSettings::setMercuryLaunch(m_mercuryLaunchCheck->isChecked());
+    AetherHfSettings::setMercuryBinaryPath(m_mercuryBinaryEdit->text());
+    AetherHfSettings::setMercurySoundSystem(m_mercurySoundSystemEdit->text());
+    AetherHfSettings::setMercuryCaptureDevice(m_mercuryCaptureEdit->text());
+    AetherHfSettings::setMercuryPlaybackDevice(m_mercuryPlaybackEdit->text());
+
     // The settings layer normalises (callsign case, blank host, port range), so
     // read back rather than leaving the widgets showing what was typed.
     refreshConfiguration();
@@ -570,8 +727,10 @@ void AetherHfPage::refreshConnectionState()
 {
     const HfEngine e = AetherHfSettings::engine();
     const bool vara = e == HfEngine::Vara;
-    const bool up = vara && m_vara->isModemConnected();
-    const bool linked = vara && m_vara->isLinked();
+    // Both engines connect through the same client now, so the state no longer
+    // depends on which one is selected — only on whether the session is up.
+    const bool up = m_vara->isModemConnected();
+    const bool linked = m_vara->isLinked();
     const bool startable = vara || AetherHfSettings::mercuryAvailable();
 
     m_stateDot->setStyleSheet(
@@ -590,8 +749,8 @@ void AetherHfPage::refreshConnectionState()
     m_linkState->setText(linked ? m_vara->remoteCall() : tr("idle"));
     m_footerState->setText(
         up ? tr("%1 at %2:%3")
-                 .arg(hfEngineDisplayName(e), AetherHfSettings::varaHost())
-                 .arg(AetherHfSettings::varaCommandPort())
+                 .arg(hfEngineDisplayName(e), AetherHfSettings::activeHost())
+                 .arg(AetherHfSettings::activeCommandPort())
            : tr("%1 selected").arg(hfEngineDisplayName(e)));
 
     // The engine's own settings are pushed on connect, so editing them while a
@@ -635,16 +794,21 @@ void AetherHfPage::toggleEngineConnection()
 {
     setError(QString());
     const HfEngine e = AetherHfSettings::engine();
-    if (e != HfEngine::Vara) {
-        if (!AetherHfSettings::mercuryAvailable()) {
-            setError(tr("%1 is not integrated in this build yet.")
-                         .arg(hfEngineDisplayName(e)));
-            return;
-        }
-        return;   // a Mercury session will start here once it is integrated
-    }
+
+    // Disconnecting is the same for both engines: drop the host connection,
+    // and for Mercury also stop the binary if this is what started it.
     if (m_vara->isModemConnected()) {
         m_vara->disconnectFromModem();
+        if (m_mercury && m_mercury->isRunning()) {
+            appendEvent(tr("Stopping Mercury."));
+            m_mercury->stop();
+        }
+        return;
+    }
+
+    if (!AetherHfSettings::mercuryAvailable() && e == HfEngine::Mercury) {
+        setError(tr("Mercury needs either a binary to start or a host to "
+                    "reach before it can be connected."));
         return;
     }
     if (AetherHfSettings::callsign().isEmpty()) {
@@ -652,13 +816,44 @@ void AetherHfPage::toggleEngineConnection()
                     "registered before it will accept a session."));
         return;
     }
+
+    // Start the binary first when asked to. Mercury needs a moment to bind its
+    // control port, so the host connection is attempted once it reports itself
+    // up rather than immediately — connecting into a port that is not listening
+    // yet looks exactly like a misconfigured host.
+    if (e == HfEngine::Mercury && AetherHfSettings::mercuryLaunch()
+        && m_mercury && !m_mercury->isRunning()) {
+        MercuryProcess::Options o;
+        o.basePort = AetherHfSettings::mercuryCommandPort();
+        o.soundSystem = AetherHfSettings::mercurySoundSystem();
+        o.captureDevice = AetherHfSettings::mercuryCaptureDevice();
+        o.playbackDevice = AetherHfSettings::mercuryPlaybackDevice();
+        o.modeIndex = AetherHfSettings::mercuryModeIndex();
+        o.configPath = AetherHfSettings::mercuryConfigPath();
+        appendEvent(tr("Starting Mercury: %1")
+                        .arg(AetherHfSettings::mercuryBinaryPath()));
+        if (!m_mercury->start(AetherHfSettings::mercuryBinaryPath(), o))
+            return;                    // start() has already reported why
+        return;                        // continued from MercuryProcess::started
+    }
+
+    connectToSelectedEngine();
+}
+
+void AetherHfPage::connectToSelectedEngine()
+{
+    const HfEngine e = AetherHfSettings::engine();
     appendEvent(tr("Opening %1:%2…")
-                    .arg(AetherHfSettings::varaHost())
-                    .arg(AetherHfSettings::varaCommandPort()));
+                    .arg(AetherHfSettings::activeHost())
+                    .arg(AetherHfSettings::activeCommandPort()));
+    // The same client for both engines: Mercury implements the VARA host
+    // protocol deliberately, on the same base/base+1 port layout, so a second
+    // client would be a second thing to keep in step for no gain.
+    Q_UNUSED(e);
     m_vara->connectToModem(
-        AetherHfSettings::varaHost(),
-        static_cast<quint16>(AetherHfSettings::varaCommandPort()),
-        static_cast<quint16>(AetherHfSettings::varaDataPort()));
+        AetherHfSettings::activeHost(),
+        static_cast<quint16>(AetherHfSettings::activeCommandPort()),
+        static_cast<quint16>(AetherHfSettings::activeDataPort()));
 }
 
 void AetherHfPage::appendEvent(const QString& text)

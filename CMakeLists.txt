@@ -683,6 +683,7 @@ set(CORE_SOURCES
     src/core/VaraCodec.cpp
     src/core/VaraReceiver.cpp
     src/core/AetherHfSettings.cpp
+    src/core/MercuryProcess.cpp
     src/core/TciRoutingState.cpp
     src/core/TciTrxMap.cpp
     src/core/AutomationServer.cpp
@@ -3853,6 +3854,18 @@ target_include_directories(aetherhf_settings_test PRIVATE src tests)
 target_link_libraries(aetherhf_settings_test PRIVATE Qt6::Core)
 add_test(NAME aetherhf_settings_test COMMAND aetherhf_settings_test)
 
+add_executable(mercury_engine_test
+    tests/mercury_engine_test.cpp
+    src/core/AetherHfSettings.cpp
+    src/core/MercuryProcess.cpp
+    src/core/VaraProtocol.cpp
+    ${AETHER_SETTINGS_SOURCES}
+)
+set_target_properties(mercury_engine_test PROPERTIES AUTOMOC ON)
+target_include_directories(mercury_engine_test PRIVATE src tests)
+target_link_libraries(mercury_engine_test PRIVATE Qt6::Core)
+add_test(NAME mercury_engine_test COMMAND mercury_engine_test)
+
 add_executable(vara_client_inhibit_test
     tests/vara_client_inhibit_test.cpp
     src/core/VaraClient.cpp
@@ -5536,6 +5549,7 @@ endif()
 # Conditional targets are guarded with if(TARGET ...).
 set(AETHER_SETTINGS_CONSUMERS
     aetherhf_settings_test
+    mercury_engine_test
     vara_client_inhibit_test
     slice_label_test
     ulanzi_mapping_migration_test

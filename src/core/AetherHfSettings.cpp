@@ -26,7 +26,17 @@ constexpr const char* kVaraCompression = "compression";
 constexpr const char* kVaraLaunchModem = "launchModem";
 constexpr const char* kVaraModemPath   = "modemPath";
 
-constexpr const char* kMercuryConfigPath = "configPath";
+constexpr const char* kMercuryHost        = "host";
+constexpr const char* kMercuryCommandPort = "commandPort";
+constexpr const char* kMercuryBandwidthHz = "bandwidthHz";
+constexpr const char* kMercuryLaunch      = "launch";
+constexpr const char* kMercuryBinaryPath  = "binaryPath";
+constexpr const char* kMercurySoundSystem = "soundSystem";
+constexpr const char* kMercuryCapture     = "captureDevice";
+constexpr const char* kMercuryPlayback    = "playbackDevice";
+constexpr const char* kMercuryModeIndex   = "modeIndex";
+constexpr const char* kMercuryPublic      = "public";
+constexpr const char* kMercuryConfigPath  = "configPath";
 
 const QString kDefaultHost = QStringLiteral("127.0.0.1");
 
@@ -273,12 +283,171 @@ void AetherHfSettings::setVaraModemPath(const QString& path)
 
 // ── Mercury engine ──────────────────────────────────────────────────────
 
+QString AetherHfSettings::defaultMercurySoundSystem()
+{
+    // Mirrors Mercury's own default for the platform, so leaving this alone
+    // gives the same behaviour as running the binary by hand.
+#if defined(Q_OS_WIN)
+    return QStringLiteral("dsound");
+#elif defined(Q_OS_MACOS)
+    return QStringLiteral("coreaudio");
+#else
+    return QStringLiteral("alsa");
+#endif
+}
+
 bool AetherHfSettings::mercuryAvailable()
 {
-    // MercuryV2 is not integrated. This returns false rather than being absent
-    // so the page has one place to ask, and so the day it is integrated the
-    // answer changes here rather than in the UI.
-    return false;
+    // Two ways to be usable, and the engine only needs one of them: either this
+    // starts the binary and has been told where it is, or somebody else runs it
+    // — on this machine or another — and all this needs is a host to reach.
+    if (mercuryLaunch())
+        return !mercuryBinaryPath().trimmed().isEmpty();
+    return !mercuryHost().trimmed().isEmpty();
+}
+
+QString AetherHfSettings::mercuryHost()
+{
+    const QString h = section(readObj(), kSectionMercury)
+                          .value(QLatin1String(kMercuryHost)).toString().trimmed();
+    return h.isEmpty() ? kDefaultHost : h;
+}
+
+void AetherHfSettings::setMercuryHost(const QString& host)
+{
+    QJsonObject m = section(readObj(), kSectionMercury);
+    const QString h = host.trimmed();
+    m[QLatin1String(kMercuryHost)] = h.isEmpty() ? kDefaultHost : h;
+    writeSection(kSectionMercury, m);
+}
+
+int AetherHfSettings::mercuryCommandPort()
+{
+    const int p = section(readObj(), kSectionMercury)
+                      .value(QLatin1String(kMercuryCommandPort)).toString().toInt();
+    return (p >= kMinPort && p <= kMaxPort) ? p : kDefaultMercuryCommandPort;
+}
+
+void AetherHfSettings::setMercuryCommandPort(int port)
+{
+    QJsonObject m = section(readObj(), kSectionMercury);
+    const int p = (port >= kMinPort && port <= kMaxPort)
+                      ? port : kDefaultMercuryCommandPort;
+    m[QLatin1String(kMercuryCommandPort)] = QString::number(p);
+    writeSection(kSectionMercury, m);
+}
+
+Vara::Bandwidth AetherHfSettings::mercuryBandwidth()
+{
+    // Mercury accepts the same three tokens VARA does — BW500, BW2300, BW2750 —
+    // and rejects anything else, so an unrecognised stored value falls back
+    // rather than being sent and drawing a WRONG.
+    const QString s = section(readObj(), kSectionMercury)
+                          .value(QLatin1String(kMercuryBandwidthHz)).toString();
+    bool ok = false;
+    const int hz = s.toInt(&ok);
+    if (!ok) return Vara::Bandwidth::Bw2300;
+    switch (hz) {
+    case 500:  return Vara::Bandwidth::Bw500;
+    case 2300: return Vara::Bandwidth::Bw2300;
+    case 2750: return Vara::Bandwidth::Bw2750;
+    default:   return Vara::Bandwidth::Bw2300;
+    }
+}
+
+int AetherHfSettings::mercuryBandwidthHz()
+{
+    return static_cast<int>(mercuryBandwidth());
+}
+
+void AetherHfSettings::setMercuryBandwidth(Vara::Bandwidth bw)
+{
+    QJsonObject m = section(readObj(), kSectionMercury);
+    m[QLatin1String(kMercuryBandwidthHz)] = QString::number(static_cast<int>(bw));
+    writeSection(kSectionMercury, m);
+}
+
+bool AetherHfSettings::mercuryLaunch()
+{
+    return boolField(section(readObj(), kSectionMercury), kMercuryLaunch, false);
+}
+
+void AetherHfSettings::setMercuryLaunch(bool on)
+{
+    QJsonObject m = section(readObj(), kSectionMercury);
+    m[QLatin1String(kMercuryLaunch)] = boolText(on);
+    writeSection(kSectionMercury, m);
+}
+
+QString AetherHfSettings::mercuryBinaryPath()
+{
+    return section(readObj(), kSectionMercury)
+        .value(QLatin1String(kMercuryBinaryPath)).toString();
+}
+
+void AetherHfSettings::setMercuryBinaryPath(const QString& path)
+{
+    QJsonObject m = section(readObj(), kSectionMercury);
+    m[QLatin1String(kMercuryBinaryPath)] = path.trimmed();
+    writeSection(kSectionMercury, m);
+}
+
+QString AetherHfSettings::mercurySoundSystem()
+{
+    const QString s = section(readObj(), kSectionMercury)
+                          .value(QLatin1String(kMercurySoundSystem)).toString().trimmed();
+    return s.isEmpty() ? defaultMercurySoundSystem() : s;
+}
+
+void AetherHfSettings::setMercurySoundSystem(const QString& system)
+{
+    QJsonObject m = section(readObj(), kSectionMercury);
+    m[QLatin1String(kMercurySoundSystem)] = system.trimmed();
+    writeSection(kSectionMercury, m);
+}
+
+QString AetherHfSettings::mercuryCaptureDevice()
+{
+    return section(readObj(), kSectionMercury)
+        .value(QLatin1String(kMercuryCapture)).toString();
+}
+
+void AetherHfSettings::setMercuryCaptureDevice(const QString& device)
+{
+    QJsonObject m = section(readObj(), kSectionMercury);
+    m[QLatin1String(kMercuryCapture)] = device.trimmed();
+    writeSection(kSectionMercury, m);
+}
+
+QString AetherHfSettings::mercuryPlaybackDevice()
+{
+    return section(readObj(), kSectionMercury)
+        .value(QLatin1String(kMercuryPlayback)).toString();
+}
+
+void AetherHfSettings::setMercuryPlaybackDevice(const QString& device)
+{
+    QJsonObject m = section(readObj(), kSectionMercury);
+    m[QLatin1String(kMercuryPlayback)] = device.trimmed();
+    writeSection(kSectionMercury, m);
+}
+
+int AetherHfSettings::mercuryModeIndex()
+{
+    const QJsonObject m = section(readObj(), kSectionMercury);
+    const QString raw = m.value(QLatin1String(kMercuryModeIndex)).toString();
+    if (raw.isEmpty())
+        return 1;                       // Mercury's own default, DATAC3
+    bool ok = false;
+    const int v = raw.toInt(&ok);
+    return (ok && v >= 0) ? v : 1;
+}
+
+void AetherHfSettings::setMercuryModeIndex(int index)
+{
+    QJsonObject m = section(readObj(), kSectionMercury);
+    m[QLatin1String(kMercuryModeIndex)] = QString::number(index < 0 ? 1 : index);
+    writeSection(kSectionMercury, m);
 }
 
 QString AetherHfSettings::mercuryConfigPath()
@@ -290,19 +459,62 @@ QString AetherHfSettings::mercuryConfigPath()
 void AetherHfSettings::setMercuryConfigPath(const QString& path)
 {
     QJsonObject m = section(readObj(), kSectionMercury);
-    m[QLatin1String(kMercuryConfigPath)] = path;
+    m[QLatin1String(kMercuryConfigPath)] = path.trimmed();
     writeSection(kSectionMercury, m);
+}
+
+bool AetherHfSettings::mercuryPublic()
+{
+    return boolField(section(readObj(), kSectionMercury), kMercuryPublic, false);
+}
+
+void AetherHfSettings::setMercuryPublic(bool on)
+{
+    QJsonObject m = section(readObj(), kSectionMercury);
+    m[QLatin1String(kMercuryPublic)] = boolText(on);
+    writeSection(kSectionMercury, m);
+}
+
+// ── The selected engine ─────────────────────────────────────────────────
+
+QString AetherHfSettings::activeHost()
+{
+    switch (engine()) {
+    case HfEngine::Mercury: return mercuryHost();
+    case HfEngine::Vara:    break;
+    }
+    return varaHost();
+}
+
+int AetherHfSettings::activeCommandPort()
+{
+    switch (engine()) {
+    case HfEngine::Mercury: return mercuryCommandPort();
+    case HfEngine::Vara:    break;
+    }
+    return varaCommandPort();
+}
+
+int AetherHfSettings::activeDataPort()
+{
+    return activeCommandPort() + 1;
+}
+
+Vara::Bandwidth AetherHfSettings::activeBandwidth()
+{
+    switch (engine()) {
+    case HfEngine::Mercury: return mercuryBandwidth();
+    case HfEngine::Vara:    break;
+    }
+    return varaBandwidth();
 }
 
 int AetherHfSettings::activeBandwidthHz()
 {
     switch (engine()) {
     case HfEngine::Vara:    return varaBandwidthHz();
-    case HfEngine::Mercury: break;
+    case HfEngine::Mercury: return mercuryBandwidthHz();
     }
-    // Mercury cannot report a bandwidth yet. Zero means "unknown", which the
-    // filter comparison treats as nothing to warn about — better than warning
-    // against a number that was invented.
     return 0;
 }
 

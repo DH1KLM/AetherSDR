@@ -48,6 +48,11 @@ QString hfEngineDisplayName(HfEngine engine);
 class AetherHfSettings {
 public:
     static constexpr int kDefaultVaraCommandPort = 8300;
+    // Mercury's own default base port is also 8300, but defaulting both engines
+    // to it would mean the two collide the moment someone runs them together on
+    // one machine — which is exactly what comparing them requires. 8400 keeps
+    // that case working out of the box; Mercury takes the base port with -p.
+    static constexpr int kDefaultMercuryCommandPort = 8400;
     // Below 1024 needs root on Linux and macOS; the connection would fail in a
     // way that looks like the modem simply not being there.
     static constexpr int kMinPort = 1024;
@@ -93,12 +98,69 @@ public:
     static void setVaraModemPath(const QString& path);
 
     // ── Mercury engine ──────────────────────────────────────────────────
-    // MercuryV2 is not integrated yet. Only the settings surface exists, so the
-    // selector has somewhere to store a choice; the page reports the engine as
-    // unavailable rather than pretending otherwise.
-    static bool mercuryAvailable();              // false until it is integrated
+    // MercuryV2 (Rhizomatica, GPL-3.0) is a separate process that speaks the
+    // same VARA-compatible TCP host protocol on the same port layout — control
+    // on the base port, data on base+1. So the same client drives it, and what
+    // is Mercury-specific is where the binary lives, how it is launched, and the
+    // few commands VARA has no equivalent for.
+    static QString mercuryHost();                // default "127.0.0.1"
+    static void setMercuryHost(const QString& host);
+
+    static int mercuryCommandPort();             // default kDefaultMercuryCommandPort
+    static void setMercuryCommandPort(int port);
+    // Mercury's convention, matching VARA: data port = base port + 1.
+    static int mercuryDataPort() { return mercuryCommandPort() + 1; }
+
+    static Vara::Bandwidth mercuryBandwidth();   // default Bw2300
+    static void setMercuryBandwidth(Vara::Bandwidth bw);
+    static int mercuryBandwidthHz();
+
+    // Launching is optional: an operator may already run Mercury themselves, or
+    // run it on another machine entirely.
+    static bool mercuryLaunch();                 // default false
+    static void setMercuryLaunch(bool on);
+    static QString mercuryBinaryPath();
+    static void setMercuryBinaryPath(const QString& path);
+
+    // Passed on Mercury's command line when this launches it. Mercury opens the
+    // sound devices itself rather than being handed audio, so these are how it
+    // gets pointed at the same virtual cables the rig is on.
+    static QString mercurySoundSystem();         // default per platform
+    static void setMercurySoundSystem(const QString& system);
+    static QString mercuryCaptureDevice();
+    static void setMercuryCaptureDevice(const QString& device);
+    static QString mercuryPlaybackDevice();
+    static void setMercuryPlaybackDevice(const QString& device);
+    static int mercuryModeIndex();               // default 1 (DATAC3)
+    static void setMercuryModeIndex(int index);
+
+    // Mercury's own config file (-C). Optional: it covers settings this page
+    // does not surface, so an operator with a tuned configuration keeps it.
     static QString mercuryConfigPath();
     static void setMercuryConfigPath(const QString& path);
+
+    // Mercury-only. VARA has no equivalent: accept calls addressed to any
+    // callsign rather than only our own.
+    static bool mercuryPublic();                 // default false
+    static void setMercuryPublic(bool on);
+
+    // True once the engine can actually be started: either this launches the
+    // binary and knows where it is, or the operator runs it and this only has
+    // to reach a host.
+    static bool mercuryAvailable();
+
+    // What Mercury itself defaults to for the platform: alsa on Linux, dsound
+    // on Windows, coreaudio on macOS.
+    static QString defaultMercurySoundSystem();
+
+    // ── The selected engine, without the caller branching ───────────────
+    // The page drives whichever engine is chosen, and every one of these is a
+    // property the connection needs. Branching on the engine at each call site
+    // is how the two get to disagree.
+    static QString activeHost();
+    static int activeCommandPort();
+    static int activeDataPort();
+    static Vara::Bandwidth activeBandwidth();
 
     // The bandwidth the selected engine will use, for the filter comparison.
     // Returns 0 when the engine cannot report one.

@@ -17,6 +17,7 @@ namespace AetherSDR {
 
 class RadioModel;
 class VaraClient;
+class MercuryProcess;
 
 // AetherHF — the HF data page inside AetherModem.
 //
@@ -62,12 +63,15 @@ private:
     void saveConfigurationFromWidgets();
     void engineSelectionChanged();
     void toggleEngineConnection();
+    void connectToSelectedEngine();
     void appendEvent(const QString& text);
     void appendPayload(const QByteArray& payload);
     void setError(const QString& message);
 
     RadioModel* m_radio{nullptr};
     VaraClient* m_vara{nullptr};
+    // Mercury speaks the same protocol on the same port layout, so the same
+    // client drives it; only the process lifecycle is separate.
     bool m_updating{false};
 
     QComboBox* m_engineCombo{nullptr};
@@ -90,6 +94,17 @@ private:
 
     QGroupBox* m_mercuryGroup{nullptr};
     QLabel* m_mercuryNotice{nullptr};
+    QLineEdit* m_mercuryHostEdit{nullptr};
+    QSpinBox* m_mercuryPortSpin{nullptr};
+    QLabel* m_mercuryDataPortLabel{nullptr};
+    QComboBox* m_mercuryBandwidthCombo{nullptr};
+    QCheckBox* m_mercuryLaunchCheck{nullptr};
+    QLineEdit* m_mercuryBinaryEdit{nullptr};
+    QLineEdit* m_mercurySoundSystemEdit{nullptr};
+    QLineEdit* m_mercuryCaptureEdit{nullptr};
+    QLineEdit* m_mercuryPlaybackEdit{nullptr};
+    QCheckBox* m_mercuryPublicCheck{nullptr};
+    MercuryProcess* m_mercury{nullptr};
 
     QLabel* m_linkState{nullptr};
     QLabel* m_snLabel{nullptr};

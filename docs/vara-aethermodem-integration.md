@@ -144,3 +144,65 @@ session start, since those two must agree or nothing links.
 
 Steps 1–3 are Topology A groundwork and depend on nothing outstanding. Step 5 is
 where Principle VI review matters most.
+
+## Mercury (MercuryV2) engine
+
+MercuryV2 — Rhizomatica, GPL-3.0, `github.com/Rhizomatica/mercury`, branch
+`mercuryv2` — is the genuinely cross-platform half of AetherHF. VARA is a
+Windows binary; Mercury is C, builds on Linux, macOS, Windows and Android, and
+is what lets AetherSDR do ARQ HF without emulation.
+
+### Why it is a process, not a library
+
+Mercury is a standalone binary: its own Makefile, its own audio backends for
+every platform (`alsa`, `pulse`, `oss`, `coreaudio`, `aaudio`, `dsound`,
+`wasapi`, `jack`, plus `shm`/`null`/`fifo` for testing), and its own radio
+control via Hamlib. It exposes a **VARA-compatible TCP host interface**
+precisely so applications drive it from outside; its own GUI, `mercury-qt`,
+does exactly that.
+
+Vendoring 1300 files and a second audio stack into this build would buy nothing
+and would put the Windows and macOS builds at risk for a dependency the
+operator can install as a package. So AetherSDR supervises the process and
+speaks to it over TCP.
+
+### Why there is no MercuryClient
+
+Mercury implements VARA's host protocol deliberately — same CR-terminated ASCII
+commands, same base/base+1 port layout, same `CONNECTED`/`DISCONNECTED`/`BUFFER`
+/`SN`/`BITRATE` responses. `VaraClient` already speaks all of it, and
+`VaraProtocol` already parses every message Mercury emits. A second client would
+be a second thing to keep in step for no gain, so the same one drives both and
+`AetherHfSettings::active*()` supplies whichever engine's host and ports are
+selected.
+
+The differences are small and mostly additive: Mercury has `PUBLIC`, `RETRIES`
+and `CALLINT`, which VARA has no equivalent for; it treats `COMPRESSION`, `P2P`
+and `IGNOREKISSDCD` as no-ops accepted for compatibility; and it has no notion
+of registration or encryption, so the VARA-only parts of the page stay hidden
+when Mercury is selected.
+
+### Ports
+
+Mercury's own default base port is **8300 — the same as VARA's**. AetherSDR
+defaults Mercury to **8400** instead, because sharing the default would make the
+two engines collide the moment an operator runs them together, which is exactly
+what comparing them requires. Mercury takes the base port with `-p`.
+
+### Audio
+
+Mercury opens the sound devices itself rather than being handed audio, so the
+capture and playback device settings are how it gets pointed at the same virtual
+cables the rig is on. On a FLEX that means the DAX devices; on a rig with a USB
+codec it is that codec. Leaving the sound system blank uses Mercury's own
+per-platform default.
+
+### Launching
+
+Optional, and off by default. An operator may already run Mercury themselves, or
+run it on another machine entirely — in which case AetherSDR needs only a host
+and port. When launching is enabled, `MercuryProcess` starts the binary, merges
+its output into the page's event log, and stops it on disconnect. The connection
+waits a short grace period after the process starts, because the control port is
+not bound the instant the process exists and connecting too early fails in a way
+that reads as a wrong host.
