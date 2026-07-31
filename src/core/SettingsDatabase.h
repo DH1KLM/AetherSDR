@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QList>
 #include <QMap>
 
 struct sqlite3;
@@ -80,6 +81,26 @@ public:
     // Returns true and fills `value` iff the row exists.
     bool readApp(const QString& key, QString& value);
     qint64 appCount();
+
+    // radio_settings — one versioned feature document per (family, radio, feature)
+    // (RFC #4603 proposal A; radio_id "" = family-wide default row) -----------
+    bool upsertRadioFeature(const QString& family, const QString& radioId,
+                            const QString& feature, int schemaVersion,
+                            const QString& value);
+    bool readRadioFeature(const QString& family, const QString& radioId,
+                          const QString& feature, int& schemaVersion,
+                          QString& value);
+    bool removeRadioFeature(const QString& family, const QString& radioId,
+                            const QString& feature);
+    // Full enumeration for diagnostics (--config features / support bundle).
+    struct RadioFeatureRow {
+        QString family;
+        QString radioId;
+        QString feature;
+        int schemaVersion = 0;
+        QString value;
+    };
+    bool listRadioFeatures(QList<RadioFeatureRow>& out);
 
     // Transactions -----------------------------------------------------------
     bool beginExclusive();   // BEGIN EXCLUSIVE — blocks concurrent writers

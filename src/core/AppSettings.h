@@ -1,7 +1,9 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QMap>
 #include <QMutex>
+#include <QPair>
 #include <QReadWriteLock>
 #include <QSet>
 #include <QString>
@@ -55,6 +57,29 @@ public:
     QVariant stationValue(const QString& key, const QVariant& defaultValue = {}) const;
     void setStationValue(const QString& key, const QVariant& val);
 
+    // ── Radio-scoped feature documents (RFC #4603 proposals A/B) ─────────────
+    // One versioned JSON document per (family, radio, feature) — Constitution
+    // Principle V: one feature-owned object, one owner, one migration point.
+    // Reads and writes go straight to the database under the I/O mutex (no
+    // cache): documents are read at connect time and written debounced, and
+    // a whole-document write IS the atomic feature update (rfoust review).
+    // Read fallback: exact radio → family-wide (radioId "") → empty object.
+    // schemaVersionOut receives the stored document version (0 when absent).
+    QJsonObject radioFeature(const QString& family, const QString& radioId,
+                             const QString& feature,
+                             int* schemaVersionOut = nullptr) const;
+    // Exact-row read — NO family-wide fallback. The write-side schema guard
+    // must judge the row it is about to overwrite, not whatever the read
+    // fallback resolves to (PR #4614 review).
+    QJsonObject radioFeatureExact(const QString& family, const QString& radioId,
+                                  const QString& feature,
+                                  int* schemaVersionOut = nullptr) const;
+    bool setRadioFeature(const QString& family, const QString& radioId,
+                         const QString& feature, int schemaVersion,
+                         const QJsonObject& doc);
+    bool removeRadioFeature(const QString& family, const QString& radioId,
+                            const QString& feature);
+
     // Station name (defaults to "AetherSDR").
     QString stationName() const;
     void setStationName(const QString& name);
@@ -64,6 +89,10 @@ public:
     // their keys and never iterate the shared namespace.
     QStringList allKeysForDiagnostics() const;
     QStringList stationKeysForDiagnostics() const;
+    // radio_settings rows as "family/radioId/feature@vN<TAB-side value>" pairs
+    // for the sanitizer's dump — the third table is part of "the whole store"
+    // (PR #4614 review).
+    QList<QPair<QString, QString>> radioFeaturesForDiagnostics() const;
 
     // Path of the settings database (the store this class persists to).
     QString filePath() const { return m_filePath; }
@@ -159,7 +188,7 @@ private:
     QString m_loadNotice;
     LoadState m_loadState{LoadState::NotAttempted};
 
-    QMutex m_saveMutex;                          // serializes save()/import I/O
+    mutable QMutex m_saveMutex;                  // serializes save()/import/feature-doc I/O
 
     std::unique_ptr<QLockFile> m_guiClientLock;
     QString m_persistentGuiClientId;
