@@ -2377,6 +2377,58 @@ synthetic data obeying the model: it solves both fields and predicts 300/300
 held-out symbols. So this is a real negative, not a broken solver. The connect
 frame is not the DATA frame's construction with the alphabet changed.
 
+### 3.47 — 2026-07-31 · Maximal degree, and no 16-bit seed: two routes closed
+
+**The complete cube.** All 512 points of the `AA<xyz>` cube with each character
+drawn from `HIJKLMNO` are captured and extract cleanly — a complete 2⁹ affine
+subspace of the input, so the algebraic degree is *exact* rather than sampled.
+Degree in the character bits equals degree in the digest bits, because the CRC is
+GF(2)-affine in the characters and affine substitution preserves degree.
+
+**The degree is 8 or 9 at every symbol position, against a maximum of 9**, over
+Z/35 and over GF(5) and GF(7) separately. A random control of the same shape
+scores 9. The code is indistinguishable from a random function at every order the
+cube can reach, so higher-order differentials — the attack that brought down the
+DATA frame's bit planes, which have degrees 1, 1, 2 and 3 — cannot touch it.
+
+Recorded because it nearly became a finding: an earlier pass reported "exact
+degree 6" from a complete 64-point cube. A 64-point cube spans 6 dimensions, so 6
+is that measurement's *ceiling*, not its result — the function had saturated, and
+saturation was read as a degree. The same statistic on 512 points reads 9.
+
+**No single 16-bit seed.** This decided whether origination was reachable by
+tabulation rather than by cracking the code: one 16-bit seed means at most 65536
+connect frames exist for every callsign on earth. Each candidate combination must
+reproduce frame equality exactly, and a combination that folds two distinct group
+values together predicts a collision that the data can refute.
+
+| candidate seed | false positives | false negatives |
+|---|---|---|
+| **tuple of per-group CRCs** | **0** | **0** |
+| XOR of per-group CRCs | 36 | 0 |
+| sum of per-group CRCs mod 2¹⁶ | 13 | 0 |
+| CRC chained over groups, reverse order | 2 | 0 |
+| CRC of the whole callsign | 9 | 0 |
+| last group only | 330 | 0 |
+
+1921 frames, 1,845,120 pairs. The chained model failed by only two pairs, so both
+were inspected rather than waved through: `AAHAS`/`KK7GW9` and `AASUM`/`F8CGE9`,
+different group content, identical predicted seed, frames differing 30/32 and
+31/32. Genuine counterexamples.
+
+So the seed is at least 32 bits for a two-group callsign and tabulation is dead.
+The tuple model survives on the enlarged corpus unchanged.
+
+**Where that leaves the attack.** Against: the code has maximal algebraic degree,
+no locality, no linearity in any tested domain, and the destination-only result
+(§3.46) means a receiving station can correlate against its own callsign rather
+than decode — so VARA never needs this frame to be invertible, and a scrambler is
+architecturally permitted. In favour: the digest turned out to be a stock
+CRC-16/0x1021, which is real evidence about how this author builds things, and
+**the seed is now computable**. Every previous generator search had to sweep seed
+space blindly. A search over standard generators seeded with the known digest is
+well-posed for the first time, and is the next thing to run.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
