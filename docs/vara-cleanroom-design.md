@@ -2254,6 +2254,62 @@ difference vector costs a rank in precisely the way a constant column does. On
 distinct frames the deficit vanishes. §3.42 was fooled by a constant column;
 this was the same error wearing a different hat.
 
+### 3.45 — 2026-07-31 · One kernel vector, 33 times, and the character coding
+
+1300 captures of `AA<triple>` — a blind random sample of three-letter groups with
+the rest of the callsign fixed — settle the group map. Every capture yielded a
+clean frame.
+
+**33 colliding pairs, and all 33 are the same vector.** 1300 frames, 1267
+distinct. Read as XOR deltas on **ASCII low six bits** (`'A' & 0x3F == 1`), every
+one of the 33 collisions is `(17, 2, 16)` — identical to the vector measured
+independently from `ACQ`/`PAA` two days earlier and in no way used to construct
+this sample. The count matches a one-dimensional kernel: 48 predicted before the
+letter-range restriction, which forbids partners that would leave A–Z.
+
+**The character coding is 1-based, which is what nearly hid this.** Read in
+0-based letter coding (`A = 0`), the same 33 collisions look like *twelve*
+different XOR deltas, and their additive deltas alternate between +15 and +17 with
+the parity of the first character — the signature of a carry chain, not of a
+structure. In 1-based coding the alternation disappears and one vector explains
+all 33. Worse, under 0-based coding those 33 vectors span 7 dimensions, which
+reads as a 7-dimensional kernel and is flatly inconsistent with observing only 33
+collisions. The coding, not the modem, produced that contradiction — and the
+contradiction is what exposed the coding.
+
+**Five bits per character is refuted; six is not.** If characters were coded by
+`ASCII & 0x1F`, digits would alias onto letters — `'0' & 0x1F == 16 == 'P'`. The
+completed 36-character sweep `KK7GW?` has **zero** collisions among all 36, and
+all ten predicted digit/letter aliases (`P`/`0` through `Y`/`9`) differ. Six bits
+puts letters at 1–26 and digits at 48–57 with no overlap, and is consistent with
+everything measured.
+
+**So the group carries 17 of its 18 bits.** A six-character callsign is two
+groups, roughly 34 bits. That is far too much to tabulate, which closes the last
+route that would have avoided recovering the code.
+
+**And the code resists the method that cracked the DATA frame.** The corpus gives
+603 pairs of callsigns differing in exactly one input bit — precisely the
+controlled differential that recovered the payload code. Two measurements:
+
+* For each single input bit the output delta is **different in essentially every
+  pair** (e.g. 58 pairs, 58 distinct deltas). A code linear in the character bits
+  would give exactly one delta per bit. It is not linear.
+* Every input bit reaches every symbol. The per-bit, per-symbol change rate is
+  **0.9717** against **0.9714** for a symbol resampled uniformly over 35 values,
+  and no symbol is ever untouched by any bit. There is no systematic part, no
+  convolutional window, no per-group section — nothing local to grip.
+
+This is consistent with a linear code whose output bits are converted to base-35
+digits as one large integer: one bit flip changes the integer and therefore nearly
+every digit, which would look exactly like this. It is equally consistent with a
+strong interleaver. Telling them apart needs the bit-to-symbol mapping, and the
+direct test for it — reading the frame back as a base-35 integer — is null
+(§3.44). Precedent suggests why: the DATA frame transmits `s = (d + r) mod 16`
+with a fixed per-position offset `r`, and an analogous `(b + r) mod 35` would
+destroy the integer reading while leaving the underlying code perfectly linear.
+Recovering `r` is the open problem.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.
