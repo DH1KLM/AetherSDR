@@ -76,6 +76,22 @@ int main(int argc, char** argv)
     auto& tm = ThemeManager::instance();
     EXPECT_TRUE(tm.color("color.accent").isValid());
 
+    // NOTE on testing the SEED itself: not from THIS target. This binary links
+    // resources.qrc, so the constructor loads Default Dark immediately after
+    // seeding and the JSON overwrites every token the seed set — a wrong seed is
+    // invisible here. That invisibility is what let the seed drift unnoticed for
+    // months (#3184).
+    //
+    // It is NOT invisible everywhere. tests/theme_seed_test.cpp links
+    // ThemeManager + ThemeSeedGenerated WITHOUT the theme resource, which is the
+    // resource-missing fallback path #3184 named, and asserts the seeded values
+    // through the ordinary public API. Those assertions fail against the old
+    // hand-written table. Put seed assertions there, not here.
+    //
+    // Two other layers back it up: tools/gen_theme_seed.py --check asserts the
+    // generated table matches the bundled JSON token-for-token, and the
+    // theme-seed CI gate runs it on every PR touching either side.
+
     // ── Default Dark loads from :/themes/ via setActiveTheme ──
     // The shipped resource theme should be in availableThemes(); switching
     // to it should leave color.accent at the canonical #00b4d8.
