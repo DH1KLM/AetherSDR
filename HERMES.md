@@ -999,6 +999,84 @@ have exposed the bug was the one that always looked fine.
   the same class of silent defect as the `CW` gap in §16.7. Left unmapped rather
   than guessed at; WDSP has no RTTY mode, so it needs a deliberate decision.
 
+### 14.9 The voice chain: what persists per radio, and what does not
+
+The Flex-shaped voice controls — the 8-band EQ applet, PROC with its
+NOR/DX/DX+ level, and the Phone applet's TX low-cut/high-cut — all emit command
+plane verbs that reach nothing here. They are wired instead to the DSP this host
+already runs on transmit audio: `ClientEq` and `ClientComp`, which `AudioEngine`
+applies before `submitTxAudio` ever sees a sample.
+
+**Two of those three persist in different scopes, and that is deliberate.** It
+looks like an inconsistency, so it is written down here rather than left for
+someone to "fix".
+
+| Control | Backing object | Persistence scope |
+|---|---|---|
+| TX low-cut / high-cut | `Hl2TxDsp` passband | **Per radio**, `ext.txSetpoints` in the RFC #4603 operating-state document |
+| PROC + NOR/DX/DX+ | `ClientComp` (shared) | **Per client** — the app-global audio-chain settings |
+| 8-band EQ | `ClientEq` (shared) | **Per client** — same |
+
+The TX cut points are per radio because they are a *radio* setpoint in exactly
+the sense the rest of `OperatingState` is: they live in the backend, they are
+pushed at the modulator, and nothing but this client remembers them. Leaving
+them in bare members while frequency, mode, passband, span, per-band LNA and
+drive all restored around them was the asymmetry the per-domain design exists to
+prevent.
+
+PROC and the EQ are per client because the objects underneath them are the
+operator's **audio chain**, not the radio's state — the same `ClientEq` and
+`ClientComp` the Aetherial strip edits, with their own app-global persistence
+that predates all of this. Two HL2s therefore share one PROC configuration while
+each keeps its own drive and LNA maps. That is the intended reading: an
+operator's voice processing is a property of their microphone, their room and
+their voice, none of which change when they switch radios.
+
+The consequence to know before changing any of it: because the EQ applet and
+PROC write into the *same* `ClientEq`/`ClientComp` as the strip, the two
+surfaces are two views of one object. Moving a graphic-EQ slider replaces the
+strip's band layout in slots 0..7, and toggling the strip's compressor lights
+PROC. Only a PROC move the operator actually made writes the NOR/DX/DX+ preset
+over the strip's compressor settings — that gate is
+`TransmitModel::speechProcessorCommandIssued`, and keying it off the broader
+`micStateChanged` instead is a bug that overwrites the operator's own work at
+the moment they enable their own compressor.
+
+The TX cut points are **flat**, not per band or per mode, unlike the drive and
+LNA maps beside them in the same extension document. There is one pair of
+sliders in the Phone applet; persisting per band would make them move on their
+own at every band change, which is the same surprise as a mode change silently
+replacing the passband — the thing `m_txFilterFromOperator` exists to prevent.
+
+The cut points apply to **SSB voice only** — `effectiveTxPassband()` — so a
+"shape my voice" slider cannot set the CW keying envelope's bandwidth or widen a
+digital mode past what the far-end decoder expects. The transmitter's actual
+passband is echoed upward as a `TransmitDelta` on every mode change,
+transmit-slice move and connect (`pushTxPassband()`), so the applet's readout
+tracks what the modulator is running instead of what was last asked for. The one
+push that does not echo is `setTxFilter()` itself: outside SSB, snapping the
+readout back to the mode default would make the operator's next nudge compute
+from that default and quietly overwrite the eSSB pair they had just set.
+
+### 14.10 Two surfaces, one object: who may write
+
+`ClientEq` and `ClientComp` **persist**; `EqualizerModel` and `TransmitModel` do
+not. That asymmetry is the whole reason `core/HostVoiceChainPolicy.h` exists, and
+both ways of getting it wrong shipped as far as review:
+
+- A connect edge that re-pushes the Flex-shaped controls unconditionally is
+  pushing their *construction defaults* — eight bands at 0 dB, every enable
+  false — because on this radio there is no `eq`/`transmit` status to populate
+  them. That lands on the operator's saved Aetherial strip layout, at every
+  connect, for someone who never opened the applet.
+- An unwind that fires on the family check alone fires on a plain **Flex**
+  connect too (`hostModulates` is false there), switching off that operator's own
+  RX EQ, TX EQ and compressor on a session with no HL2 in it.
+
+So both turn on one bit: has the operator actually moved a Flex-shaped control in
+this process? Nothing else distinguishes "re-apply their own choice" from
+"overwrite work this code never made".
+
 ---
 
 ## 15. Panadapter span and display rate
