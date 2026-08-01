@@ -8,6 +8,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **TCI PTT now keys the slice the client asked for (#4547).** Since v26.7.4 no
+  TCI client could activate the slice it named: the requested receiver was
+  discarded on every request whose slice was not already the transmit slice —
+  the common path, not an edge case — so keying stayed pinned to wherever
+  transmit already sat. Before that, in v26.7.3 and earlier, the opposite held:
+  every client's `trx:0` promoted the first slice, so a second WSJT-X instance
+  yanked transmit off the slice the first one was working. Both are fixed. An
+  externally selected transmit slice still answers instead, but only when a
+  route actually applies — split was requested, or VFO B bound a route for that
+  exact receiver — so satellite and cross-band split are preserved.
+
+  Three further faults in the same path go with it. A cached route can no
+  longer outlive the live transmit slice, which previously let a bare keypress
+  move transmit onto a stale slice's **band and antenna** with no operator
+  action. An unresolvable receiver is now declined instead of transmitting on
+  the first slice. And with two clients on one radio, each resolves against the
+  receiver it declared in `audio_start` when it sends the ambiguous `trx:0`
+  that every WSJT-X instance sends — an explicitly addressed receiver is always
+  honoured as sent.
+
+  Every PTT refusal now replies `trx:<n>,false;` instead of returning in
+  silence, including when a second client keys while another already holds TCI
+  PTT. WSJT-X reports those as "TCI failed to set ptt"; they previously arrived
+  with no cause at all.
+
 ### Added
 
 - **The TCI PTT slice-routing decision is now logged (#4547).** Reports of TCI
