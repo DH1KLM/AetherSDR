@@ -10,6 +10,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Amplifier bar gauges no longer keep painting the old scale after the range
+  changes (#4636).** When a gauge's scale is re-derived from live telemetry —
+  the ACOM auto-range as forward power outgrows its tier, an SPE LOW/MID/HIGH
+  change — the bar moved its axis but left the fill where the *previous* axis
+  had put it. A steady reading never corrected it, because an unchanged value
+  is discarded before it reaches the bar, so on a held carrier the wrong fill
+  persisted indefinitely. Measured on the bench: an ACOM reflected-power gauge
+  showed **206 W for 120 W** after an auto-range and stayed there, and an SPE
+  at a steady 1000 W read 1455 W after MID→HIGH and 688 W after HIGH→MID.
+  Reflected power is the worst case, since that is the reading an operator
+  uses to decide whether to stop transmitting. The fill now follows the axis
+  immediately — snapped rather than swept, because the scale moved and the
+  signal did not. The PA-temperature gauge's °C/°F toggle was already correct
+  and is unchanged.
+
 - **TCI PTT now keys the slice the client asked for (#4547).** Since v26.7.4 no
   TCI client could activate the slice it named: the requested receiver was
   discarded on every request whose slice was not already the transmit slice —
