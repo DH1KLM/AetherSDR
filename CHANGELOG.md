@@ -29,6 +29,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **The Display ▸ WtrFall Rate slider ran backwards on the Hermes-Lite 2 and
+  the demo rig.** The control is a rate — 1 slow, 100 fast — but it travels
+  under FlexRadio's `line_duration` wire name, which is typed as milliseconds.
+  On a radio whose waterfall this client paces itself, the number was read
+  literally, so 1 gave the fastest scroll and 100 the slowest. 100 is the
+  default, which meant every HL2 session started on the slowest setting at
+  about 10 rows/second. The slider now runs the right way and is linear in
+  rows per second: 0.2 rows/s at the bottom, and at the top the waterfall
+  simply tracks the panadapter's frame rate (which Display ▸ FFT FPS owns) —
+  measured at 25 rows/s on a real HL2. Half-way up the slider is now half
+  speed, which it never was. FlexRadio radios are unaffected: their own
+  display engine has always done this conversion. (#4606)
+
+- **Adaptive network throttling sped the waterfall up on a bad connection.**
+  The same unit confusion, one layer up: the throttle converted its frame-rate
+  cap straight into a duration and sent it as a rate, so a "Poor" 4 fps cap
+  asked for the *fastest* waterfall setting available. Worse network, faster
+  waterfall. It now converts through the same law the display uses. (#4606)
+
+- **The waterfall Black Level button offered a hardware mode on radios that
+  have no such thing.** `HW` hands the black-level decision to the radio, which
+  only FlexRadio hardware computes. On a Hermes-Lite 2, selecting it sent a
+  command nowhere and left the waterfall waiting for a level that never
+  arrived — the button moved, the setting stuck, the picture did not change.
+  The button now cycles `Off ↔ SW` on radios without it, and `SW` (this
+  client's own noise-floor estimate, available on every radio) is what runs.
+  If you chose `HW` on a FlexRadio, that choice is **remembered, not
+  overwritten**: connect an HL2 and the button reads `SW`, reconnect the Flex
+  and it is back on `HW` without you re-selecting it. (#4606)
+
 - **FlexControl now recovers on its own after losing its USB port.** The knob
   driver had no error handling at all: if the serial port dropped — a USB
   glitch, a driver reset, the host reclaiming the device — nothing noticed, and

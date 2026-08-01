@@ -5541,7 +5541,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
                 menu->setDeclaredBands(declaredBands);
                 menu->setXvtrBands(xvtrBands);
                 applyTuningRangeToOverlayMenu(menu);
-                applyRadioSideDspToOverlayMenu(menu);
+                applyRadioSideDspToPanDisplay(applet->spectrumWidget());
             }
         };
         QTimer::singleShot(2000, this, refreshXvtr);
@@ -6416,7 +6416,7 @@ void MainWindow::applyCapabilitiesToUi(bool connected, const RadioCapabilities& 
                 vfo->setHasRadioSideDsp(radioSideDsp);
             }
             // WNB lives in the pan's overlay menu, not the VFO.
-            applyRadioSideDspToOverlayMenu(sw->overlayMenu());
+            applyRadioSideDspToPanDisplay(sw);
         }
     }
 
@@ -6532,15 +6532,46 @@ void MainWindow::applyCapabilitiesToUi(bool connected, const RadioCapabilities& 
 
 }
 
-void MainWindow::applyRadioSideDspToOverlayMenu(SpectrumOverlayMenu* menu) const
+// Takes the WIDGET, not just its menu, because the waterfall auto-black gate has
+// to reach both and they must never disagree about whether HW exists — the menu
+// decides what the button shows, the widget decides what actually renders.
+void MainWindow::applyRadioSideDspToPanDisplay(SpectrumWidget* sw) const
 {
-    if (!menu) {
+    if (!sw) {
         return;
     }
-    menu->setRadioSideDspAvailable(m_radioModel.hasRadioSideDsp());
-    // The per-pan DAX button and panel, which the capability gate previously
-    // missed — so an HL2 kept IQ Ch / DAX Ch selectors that reach nothing.
-    menu->setDaxStreamsAvailable(m_radioModel.hasDaxStreams());
+    auto* menu = sw->overlayMenu();
+    if (menu) {
+        menu->setRadioSideDspAvailable(m_radioModel.hasRadioSideDsp());
+        // The Black Level button's HW position, which is a radio-side display
+        // computation rather than radio-side audio DSP — so it needs its own
+        // capability, not a ride on hasRadioSideDsp. (#4606)
+        menu->setRadioSideAutoBlackAvailable(
+            m_radioModel.hasRadioSideWaterfallAutoBlack());
+        // The per-pan DAX button and panel, which the capability gate previously
+        // missed — so an HL2 kept IQ Ch / DAX Ch selectors that reach nothing.
+        menu->setDaxStreamsAvailable(m_radioModel.hasDaxStreams());
+    }
+    // A MASK, not a rewrite: the operator's stored HW preference survives a
+    // session on a radio that has no hardware black level, and comes back by
+    // itself on the next Flex. Does not write AppSettings.
+    sw->setRadioSideAutoBlackAvailable(
+        m_radioModel.hasRadioSideWaterfallAutoBlack());
+    // NO RadioModel push from here, deliberately. This runs once PER PAN, from
+    // loops in applyCapabilitiesToUi and the infoChanged-bound XVTR refresh —
+    // but setWaterfallAutoBlackSource() is global state applied to activeWfId(),
+    // so pushing a per-pan value would let the last pan in the loop overwrite
+    // the ACTIVE pan's radio setting, and would emit one `display panafall set
+    // … auto_black=` per pan on every infoChanged. This function is UI
+    // visibility only.
+    //
+    // The model learns the effective source where it always did, and where the
+    // scope is right: the once-per-connect push in wirePanLifecycle (reset via
+    // m_displaySettingsPushed on each connection edge) and the operator's own
+    // click. Both already use effectiveWfAutoBlackRadioSide(). Nothing is lost
+    // by dropping it here — on a backend the mask applies to there is no Flex
+    // command plane for auto_black to reach, and the renderer is gated on the
+    // effective value in intensityToWaterfallLevel(). (#4606)
 }
 
 SliceModel* MainWindow::activeSlice() const
