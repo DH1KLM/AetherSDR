@@ -1732,6 +1732,13 @@ private:
     QTimer    m_operatingStateMaxWaitTimer;
 
     // ── Network quality monitor ──
+    // Take a transport snapshot from the backend seam: feed the loss window,
+    // rescore the link, and beat the heartbeat if traffic actually arrived.
+    void applyBackendLinkStats(const IRadioBackend::LinkStats& stats);
+    // Everything a new scoring session must forget. Shared by the two paths that
+    // start one — the Flex ping timer and the first backend LinkStats snapshot —
+    // because when it was open-coded in both they drifted.
+    void resetNetworkQualitySession();
     void startNetworkMonitor();
     void stopNetworkMonitor();
     void evaluateNetworkQuality();
@@ -1787,12 +1794,89 @@ private:
     qint64 m_lastThrottleEngageMs{0};   // QDateTime::currentMSecsSinceEpoch() at last engage
     bool   m_pendingThrottleLift{false}; // lift deferred by min-dwell; fired in evaluateNetworkQuality()
 
+    // ── Backend-reported transport (non-Flex families) ──
+    //
+    // The Flex path measures the network off m_connection (TCP ping RTT) and
+    // m_panStream (VITA-49 counters). A family that owns neither has both null,
+    // and every getter below used to answer a flat zero for it — so the whole
+    // network readout rendered "connected, 0 kbps, 0 packets" on a link that was
+    // working. This is the same data arriving from the other side of the seam.
+    //
+    // Populated ONLY from IRadioBackend::linkStatsUpdated, and only a backend
+    // that overrides linkStats() ever sends one. `reported` staying false is
+    // what keeps the Flex path bit-for-bit unchanged: every fallback below is
+    // gated on it, and the Flex sources are always consulted first.
+    IRadioBackend::LinkStats m_linkStats;
+
+    // What this backend's transport can MEASURE, as opposed to what it measured
+    // this second. m_linkStats above holds live counters and stopNetworkMonitor()
+    // drops it, because those numbers belong to the session that just ended —
+    // but "does this wire have a round trip to time" is a fact about the WIRE and
+    // stays true while it is down. Without the distinction a disconnected HL2
+    // falls back to the Flex branch, and lastPingRtt()'s 0 renders as "< 1 ms":
+    // the exact claim HERMES.md § 21.3 exists to forbid, one state transition
+    // later. Latched sticky-once-true so a window that closes with no samples in
+    // it cannot flip a readout mid-session, and reset in teardownBackend(),
+    // because only a new backend can change the answer.
+    struct BackendLinkShape {
+        bool reports   = false;   // a backend has published a LinkStats at all
+        bool hasRtt    = false;   // ...and that transport times a round trip
+        bool hasTiming = false;   // ...and it measures delivery spacing
+    };
+    BackendLinkShape m_backendLinkShape;
+
+    // True when the network figures come from the backend seam rather than from
+    // a Flex PanadapterStream. The single predicate every fallback branches on.
+    bool usesBackendLinkStats() const { return !m_panStream && m_linkStats.reported; }
+
     // Network diagnostics — byte counters for rate calculation
 
 public:
     // Network diagnostics getters
     int     lastPingRtt()      const { return m_lastPingRtt; }
     int     maxPingRtt()       const { return m_maxPingRtt; }
+
+    // Whether the current transport has a round trip to time at all.
+    //
+    // Not every link does. Protocol 1 is a one-way stream — EP2 out on a wall
+    // clock, EP6 back free-running, and nothing in either direction answering
+    // anything in the other — so there is no RTT to report and no honest way to
+    // fake one. Every RTT readout must ask this first: lastPingRtt() answers 0
+    // when nothing measured it, and 0 renders as "< 1 ms", which is a link
+    // quality claim the app never made a measurement to support.
+    // Answers for the WIRE, not for the moment — which is why the last branch
+    // consults the latched shape rather than the live snapshot. While connected
+    // the snapshot is authoritative; between sessions m_linkStats is cleared and
+    // the honest answer is still "this transport never had an RTT", not the Flex
+    // default.
+    bool    hasLinkRtt() const {
+        if (m_panStream)
+            return true;                        // Flex VITA-49 stack: TCP ping RTT
+        if (m_linkStats.reported)
+            return m_linkStats.rttMs >= 0;      // live snapshot from the seam
+        return !m_backendLinkShape.reports || m_backendLinkShape.hasRtt;
+    }
+    // Whether the transport has produced a delivery-timing window yet. Same trap
+    // as the RTT: the seam's -1 means "not measured", the getters clamp it to 0
+    // for the charts, and formatNetworkMs(0) renders "< 1 ms". A backend is
+    // `reported` from its first tick on purpose (so the readouts leave the Flex
+    // branch immediately), but its first gap window has not closed yet — so for
+    // about a second the pane would advertise sub-millisecond delivery it has
+    // not measured.
+    bool    hasLinkTiming() const {
+        if (m_panStream)
+            return true;
+        if (m_linkStats.reported)
+            return m_linkStats.gapMs >= 0;
+        return !m_backendLinkShape.reports || m_backendLinkShape.hasTiming;
+    }
+    // Whether per-stream (Audio / FFT / Waterfall / Meter / DAX) sequence
+    // counters exist. They are a property of the Flex VITA-49 multiplex, where
+    // each category is a separately-sequenced stream on one socket. A transport
+    // that carries everything in one stream has nothing to break down, and
+    // rendering five rows of "0 / 0 packets" for it invents a distinction the
+    // wire does not have.
+    bool    hasStreamCategoryStats() const { return m_panStream != nullptr; }
     bool    pendingThrottleLift() const { return m_pendingThrottleLift; }
     int     currentAdaptiveFpsCap() const;  // 0 = throttle inactive
     // The 1..100 waterfall RATE the adaptive throttle caps to for a given fps

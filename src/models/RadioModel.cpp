@@ -1153,10 +1153,62 @@ void RadioModel::setupBackend(const QString& family)
                 this, &RadioModel::onConnectionError);
     }
 
+    // Transport counters from a backend that owns its own socket. Wired
+    // unconditionally: a backend that measures nothing never emits this, and one
+    // that does is the only source the network readouts have.
+    connect(m_backend.get(), &IRadioBackend::linkStatsUpdated,
+            this, &RadioModel::applyBackendLinkStats);
+
     // Forward VITA-49 meter packets to MeterModel (cross-thread, auto-queued)
     if (m_panStream)
     connect(m_panStream, &PanadapterStream::meterDataReady,
             &m_meterModel, &MeterModel::updateValues);
+}
+
+void RadioModel::applyBackendLinkStats(const IRadioBackend::LinkStats& stats)
+{
+    if (!stats.reported)
+        return;
+
+    const bool first = !m_linkStats.reported;
+    m_linkStats = stats;
+    // What this transport can MEASURE, latched separately from what it measured
+    // this second. Sticky-once-true so a window that closes with no samples in
+    // it does not flip a readout back to "not measured" mid-session, and read by
+    // hasLinkRtt() / hasLinkTiming() after stopNetworkMonitor() has dropped the
+    // counters. See the member declaration for why the distinction matters.
+    m_backendLinkShape.reports = true;
+    if (stats.rttMs >= 0)
+        m_backendLinkShape.hasRtt = true;
+    if (stats.gapMs >= 0)
+        m_backendLinkShape.hasTiming = true;
+
+    if (first) {
+        // First snapshot of the session. resetNetworkHealthSamples() (called
+        // from the shared reset) now reads the new source, so the deltas are
+        // seeded from THIS snapshot rather than from zero — otherwise a
+        // reconnect's entire prior packet count lands in the first loss-window
+        // sample and scores the link as a catastrophe on its first second.
+        //
+        // Shared with startNetworkMonitor() rather than open-coded: the two
+        // drifted once, and the field this path had forgotten (m_lastPingRtt)
+        // is invisible on a transport that reports rttMs < 0, so the previous
+        // Flex session's RTT scored the HL2 link with nothing on screen to
+        // contradict it.
+        resetNetworkQualitySession();
+    }
+
+    if (stats.rttMs >= 0)
+        m_lastPingRtt = stats.rttMs;
+
+    evaluateNetworkQuality();
+
+    // The heartbeat is a statement about the RADIO, not about the timer that
+    // asked. Only a tick that saw fresh traffic counts as a beat; a tick on a
+    // silent link deliberately says nothing, so MainWindow's miss timer runs
+    // out and the indicator goes to its alarm state.
+    if (stats.alive)
+        emit pingReceived();
 }
 
 void RadioModel::teardownBackend()
@@ -1190,6 +1242,10 @@ void RadioModel::teardownBackend()
     m_backendPanIdByIndex.clear();
     m_backendPanCenterMhz.clear();
     m_backendPanBandwidthMhz.clear();
+    // What the transport could measure was a fact about the backend that just
+    // died, not about the app. A Flex arriving after an HL2 must not inherit
+    // "this wire has no round trip to time".
+    m_backendLinkShape = {};
 }
 
 RadioModel::RadioModel(QObject* parent)
@@ -5713,20 +5769,55 @@ void RadioModel::onVersionReceived(const QString& v)
 
 // ─── Network quality monitor ─────────────────────────────────────────────────
 
+namespace {
+// The loss window and every packet-count getter are int, matching the Flex
+// stream's own counters. A backend reports quint64, and an HL2 at 384 kHz puts
+// ~3000 EP6 packets a second on the wire — about eight days to reach INT_MAX.
+// CLAMP rather than let it wrap: a wrapped negative count turns the loss
+// percentage into nonsense and would drive the adaptive throttle off it. At the
+// ceiling the deltas simply go to zero, so the readout freezes instead of lying.
+int saturatingInt(quint64 v)
+{
+    constexpr quint64 kMax = static_cast<quint64>(std::numeric_limits<int>::max());
+    return static_cast<int>(std::min(v, kMax));
+}
+}  // namespace
+
+void RadioModel::resetNetworkQualitySession()
+{
+    // Everything a new scoring session must forget, in ONE place. Two paths
+    // start a session — startNetworkMonitor() for the Flex ping timer, and the
+    // first backend LinkStats snapshot for a family that has no command plane —
+    // and when this was open-coded in both they drifted: the backend path kept
+    // the previous session's m_lastPingRtt, which evaluateNetworkQuality() then
+    // scored the new link with. A stale WAN RTT against LAN_PING_POOR_MS caps
+    // the target score at 45 and engages the adaptive frame-rate throttle on a
+    // radio that is streaming perfectly, and hasLinkRtt() hides the number, so
+    // nothing on screen contradicts it.
+    m_netState = NetState::Excellent;
+    m_networkQualityScore = 100.0;
+    m_lastPingRtt = 0;
+    m_maxPingRtt = 0;
+    // Pure state, so it is safe on both paths. The MainWindow-side clear that
+    // startNetworkMonitor() emits below is deliberately NOT here: MainWindow
+    // already drops m_adaptiveThrottleActive on the disconnect edge, and the
+    // handler's !active branch re-asserts every pan's display rate — which on
+    // the backend path would fire against LIVE pans (they are published a
+    // second before the first link-stats tick), making the client re-assert
+    // state the radio owns. Principles II/III.
+    m_pendingThrottleLift = false;
+    resetNetworkHealthSamples();
+}
+
 void RadioModel::startNetworkMonitor()
 {
     m_pingTimer.stop();
     m_pingTimer.disconnect();
-    m_netState = NetState::Excellent;
-    m_networkQualityScore = 100.0;
-    resetNetworkHealthSamples();
-    m_lastPingRtt = 0;
-    m_maxPingRtt = 0;
+    resetNetworkQualitySession();
     m_pingMissCount = 0;
     m_pingDisconnectTriggered = false;
     m_lastMultiFlexClientConnectMs = 0;
     m_multiFlexPingGraceUntilMs = 0;
-    m_pendingThrottleLift = false;
     // Safety: ensure MainWindow's m_adaptiveThrottleActive is cleared even if
     // the connectionStateChanged(false) path was somehow skipped.  Pans are not
     // yet rebuilt at this point so the fps-restore loop in the handler is a no-op.
@@ -5811,14 +5902,40 @@ void RadioModel::stopNetworkMonitor()
         m_networkPingConnection = {};
     }
     m_netState = NetState::Off;
+    // Drop the backend transport snapshot on the same edge. Its counters belong
+    // to the session that just ended; carrying them into the next one would show
+    // the previous link's byte totals against a radio that has sent nothing.
+    // Clearing `reported` also puts every getter back on its Flex branch, so a
+    // disconnected model answers exactly what it did before this existed.
+    m_linkStats = {};
+
+    // ANNOUNCE the reset. m_netState going to Off is not observable on its own:
+    // the status-bar field is written only from this signal, and every emitter
+    // of it hangs off the ping/transport path that has just been torn down. So
+    // the last quality the link ever had stayed on screen after disconnect —
+    // a disconnected radio reading "Excellent" — until the next connection
+    // happened to overwrite it. Pre-existing on the Flex path too, and fixed
+    // for both here rather than only where it was noticed.
+    emit networkQualityChanged(networkQuality(), 0);
 }
 
 void RadioModel::evaluateNetworkQuality()
 {
-    if (!m_panStream)
-        return;   // non-Flex backend: no VITA-49 stream to score
-    const int currentErrors = m_panStream->packetErrorCount();
-    const int currentPackets = m_panStream->packetTotalCount();
+    // Two sources, one scorer. The Flex VITA-49 stream is consulted first and
+    // its behavior is untouched; a backend that reports its own transport is
+    // scored by exactly the same thresholds, because "the link is Fair" has to
+    // mean the same thing to the operator on either radio.
+    int currentErrors = 0;
+    int currentPackets = 0;
+    if (m_panStream) {
+        currentErrors = m_panStream->packetErrorCount();
+        currentPackets = m_panStream->packetTotalCount();
+    } else if (m_linkStats.reported) {
+        currentErrors = saturatingInt(m_linkStats.rxPacketsLost);
+        currentPackets = saturatingInt(m_linkStats.rxPackets);
+    } else {
+        return;   // nothing measures this transport
+    }
     recordNetworkHealthSample(currentErrors, currentPackets);
     const int ping = m_lastPingRtt;
 
@@ -5853,8 +5970,16 @@ void RadioModel::evaluateNetworkQuality()
 
 void RadioModel::resetNetworkHealthSamples()
 {
-    m_lastErrorCount = m_panStream ? m_panStream->packetErrorCount() : 0;
-    m_lastPacketCount = m_panStream ? m_panStream->packetTotalCount() : 0;
+    if (m_panStream) {
+        m_lastErrorCount = m_panStream->packetErrorCount();
+        m_lastPacketCount = m_panStream->packetTotalCount();
+    } else if (m_linkStats.reported) {
+        m_lastErrorCount = saturatingInt(m_linkStats.rxPacketsLost);
+        m_lastPacketCount = saturatingInt(m_linkStats.rxPackets);
+    } else {
+        m_lastErrorCount = 0;
+        m_lastPacketCount = 0;
+    }
     for (int i = 0; i < NETWORK_LOSS_WINDOW_SAMPLES; ++i) {
         m_lossSamplePackets[i] = 0;
         m_lossSampleErrors[i] = 0;
@@ -5917,13 +6042,19 @@ double RadioModel::networkQualityTargetScore(int pingMs) const
         }
     }
 
-    const int jitterMs = audioPacketJitterMs();
-    if (jitterMs >= poorJitterMs) {
-        score = std::min(score, 42.0);
-    } else if (jitterMs >= fairJitterMs) {
-        score = std::min(score, 58.0);
-    } else if (jitterMs >= goodJitterMs) {
-        score = std::min(score, 74.0);
+    // Skipped rather than scored as 0 when the transport has not produced a
+    // delivery-timing window yet: the getter clamps the seam's "not measured"
+    // sentinel to 0 for the charts, and a 0 here is the best possible jitter —
+    // a free pass on the first tick of every backend session.
+    if (hasLinkTiming()) {
+        const int jitterMs = audioPacketJitterMs();
+        if (jitterMs >= poorJitterMs) {
+            score = std::min(score, 42.0);
+        } else if (jitterMs >= fairJitterMs) {
+            score = std::min(score, 58.0);
+        } else if (jitterMs >= goodJitterMs) {
+            score = std::min(score, 74.0);
+        }
     }
 
     return score;
@@ -6087,39 +6218,58 @@ double RadioModel::packetLossPercent() const
     return (m_packetLossWindowErrors * 100.0) / m_packetLossWindowPackets;
 }
 
+// Each of the six below reads the Flex VITA-49 stream when there is one and the
+// backend's own transport counters when there is not. The Flex branch is first
+// and unchanged in every case; usesBackendLinkStats() is false unless a backend
+// has actually reported, so a family that measures nothing still answers the
+// same zeros it always did.
 int RadioModel::audioPacketGapMs() const
 {
-    return m_panStream ? m_panStream->audioPacketGapMs() : 0;
+    if (m_panStream)
+        return m_panStream->audioPacketGapMs();
+    return usesBackendLinkStats() ? std::max(0, m_linkStats.gapMs) : 0;
 }
 
 int RadioModel::audioPacketGapMaxMs() const
 {
-    return m_panStream ? m_panStream->audioPacketGapMaxMs() : 0;
+    if (m_panStream)
+        return m_panStream->audioPacketGapMaxMs();
+    return usesBackendLinkStats() ? std::max(0, m_linkStats.gapMaxMs) : 0;
 }
 
 int RadioModel::audioPacketJitterMs() const
 {
-    return m_panStream ? m_panStream->audioPacketJitterMs() : 0;
+    if (m_panStream)
+        return m_panStream->audioPacketJitterMs();
+    return usesBackendLinkStats() ? std::max(0, m_linkStats.jitterMs) : 0;
 }
 
 int RadioModel::packetDropCount() const
 {
-    return m_panStream ? m_panStream->packetErrorCount() : 0;
+    if (m_panStream)
+        return m_panStream->packetErrorCount();
+    return usesBackendLinkStats() ? saturatingInt(m_linkStats.rxPacketsLost) : 0;
 }
 
 int RadioModel::packetTotalCount() const
 {
-    return m_panStream ? m_panStream->packetTotalCount() : 0;
+    if (m_panStream)
+        return m_panStream->packetTotalCount();
+    return usesBackendLinkStats() ? saturatingInt(m_linkStats.rxPackets) : 0;
 }
 
 qint64 RadioModel::rxBytes() const
 {
-    return m_panStream ? m_panStream->totalRxBytes() : 0;
+    if (m_panStream)
+        return m_panStream->totalRxBytes();
+    return usesBackendLinkStats() ? m_linkStats.rxBytes : 0;
 }
 
 qint64 RadioModel::txBytes() const
 {
-    return m_panStream ? m_panStream->totalTxBytes() : 0;
+    if (m_panStream)
+        return m_panStream->totalTxBytes();
+    return usesBackendLinkStats() ? m_linkStats.txBytes : 0;
 }
 
 QString RadioModel::targetRadioIp() const
@@ -6150,8 +6300,14 @@ QString RadioModel::localTcpEndpoint() const
     if (m_wanConn)
         return QStringLiteral("SmartLink/WAN");
 
-    if (!m_connection)
+    if (!m_connection) {
+        // "Not connected" is true for a family that has no TCP command plane at
+        // all, and reads as a fault when the radio is streaming perfectly well.
+        // Say which it is.
+        if (usesBackendLinkStats())
+            return QStringLiteral("None (stream transport only)");
         return QStringLiteral("Not connected");
+    }
     const QHostAddress localAddr = m_connection->localAddress();
     const quint16 localPort = m_connection->localTcpPort();
     if (localAddr.isNull() || localPort == 0)
@@ -6161,8 +6317,11 @@ QString RadioModel::localTcpEndpoint() const
 
 QString RadioModel::localUdpEndpoint() const
 {
-    if (!m_panStream)
+    if (!m_panStream) {
+        if (usesBackendLinkStats() && !m_linkStats.localEndpoint.isEmpty())
+            return m_linkStats.localEndpoint;
         return QStringLiteral("Not bound");
+    }
     const QHostAddress localAddr = m_panStream->localAddress();
     const quint16 localPort = m_panStream->localPort();
     if (localAddr.isNull() || localPort == 0)
@@ -6172,7 +6331,9 @@ QString RadioModel::localUdpEndpoint() const
 
 bool RadioModel::firstUdpPacketSeen() const
 {
-    return m_panStream && m_panStream->hasReceivedPackets();
+    if (m_panStream)
+        return m_panStream->hasReceivedPackets();
+    return usesBackendLinkStats() && m_linkStats.rxPackets > 0;
 }
 
 PanadapterStream::CategoryStats RadioModel::categoryStats(PanadapterStream::StreamCategory cat) const
@@ -9718,6 +9879,15 @@ QJsonObject RadioModel::troubleshootingSnapshot() const
     network["audio_packet_jitter_ms"] = audioPacketJitterMs();
     network["rx_bytes"] = static_cast<qint64>(rxBytes());
     network["tx_bytes"] = static_cast<qint64>(txBytes());
+    // So a test can tell "the RTT is zero" from "this transport has no round
+    // trip to time" — the two are indistinguishable in last_ping_rtt_ms alone,
+    // and an assertion that reads it without this would pass on a link nothing
+    // measured. Same question the GUI readouts ask before printing "< 1 ms".
+    network["rtt_measured"] = hasLinkRtt();
+    network["timing_measured"] = hasLinkTiming();
+    network["stream_categories_measured"] = hasStreamCategoryStats();
+    network["source"] = usesBackendLinkStats() ? QStringLiteral("backend_link")
+                                               : QStringLiteral("vita49_stream");
     QJsonObject streamCategories;
     streamCategories["audio"] = categoryStatsToJson(PanadapterStream::CatAudio);
     streamCategories["fft"] = categoryStatsToJson(PanadapterStream::CatFFT);
