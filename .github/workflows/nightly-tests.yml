@@ -1,0 +1,292 @@
+name: Nightly Test Suite
+
+# Runs the ENTIRE ctest suite (~215 cases) once a night against main.
+#
+# Why this exists: the suite is built on every PR and almost none of it is
+# executed. `ci.yml`'s Linux `build` job compiles `all` — every test binary —
+# and runs exactly one case (cross_needle_meter_test, added by #4559/#4613);
+# check-windows runs five, check-macos one. A test that is compiled but never
+# run only proves it still compiles, and that gap is not theoretical: two
+# cross_needle_meter_test assertions sat failing on main for weeks because
+# nothing executed them.
+#
+# Why nightly rather than per-PR: #4655/#4656 cut a PR from ~130 to ~35 runner
+# -minutes, and the full suite measured ~314 s of ctest on a 4-vCPU runner on
+# top of a ~27 min build. Paying that on every PR would hand back a chunk of
+# what #4656 just recovered, to re-prove on each PR something that changes only
+# when main changes. A nightly cadence samples main at least as well for a
+# fraction of the spend. If the suite ever earns a place on the PR path, that
+# is a separate, deliberate trade — not something to smuggle in here.
+#
+# This is NOT a required status check and gates no merge. A red run means
+# "something on main is broken", which is the notification we want; nobody is
+# blocked on it. Failures land in a sticky issue (one per failing-test-set
+# fingerprint) so a persistent break does not file a fresh issue every night —
+# the same pattern sanitizers.yml uses, and for the same reason.
+
+on:
+  schedule:
+    # 03:00 UTC daily. Off the working-hours runner pool, and an hour ahead of
+    # system-libs-canary (04:00) so the two don't contend for the same slot.
+    - cron: '0 3 * * *'
+  # Manual trigger for "did that fix actually clear the nightly?"
+  workflow_dispatch:
+
+# Only ever runs against main (cron and manual dispatch both resolve there), so
+# the run_id suffix gives each run its own group and nothing is cancelled. Same
+# shape as ci.yml / codeql.yml / system-libs-canary.yml.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.run_id) || '' }}
+
+# contents: read to check out; issues: write for the sticky tracking issue.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  full-suite:
+    name: Full ctest suite
+    runs-on: ubuntu-latest
+    container: ghcr.io/ten9876/aethersdr-ci:latest
+    # Build is ~27 min and the suite ~6 min; 90 leaves room for a cold ccache
+    # without letting a hang run to the 6-hour job ceiling.
+    timeout-minutes: 90
+
+    # Same explicit CCACHE_DIR as ci.yml: the job runs as root in a container,
+    # so `~` resolves to /root and a `path:` of `~/.cache/ccache` would depend
+    # on the image's HOME. A fixed absolute path is unambiguous on both the
+    # cache and the compiler side.
+    env:
+      CCACHE_DIR: /ccache
+      CCACHE_MAXSIZE: 1000M
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # ccache is in .github/docker/Dockerfile as of #4655, but this job pins
+      # the image by :latest tag, so it runs against whatever was last
+      # published — including builds from before that layer existed. Install
+      # on demand when the image predates it; ~3 s and a no-op afterwards.
+      - name: Ensure ccache is present
+        run: command -v ccache || (apt-get update && apt-get install -y ccache)
+
+      # RESTORE-ONLY, and deliberately reading ci.yml's key prefix rather than
+      # owning one. This job configures identically to the Linux `build` job
+      # (same build type, same ENABLE_NVIDIA_AFX, same compiler launchers), so
+      # the objects PR builds leave behind are exactly the ones it needs — it
+      # gets a warm cache for free. Writing its own entries would add to the
+      # repo's 10 GB cache budget every night for no benefit to anyone else,
+      # and ci.yml's own comment flags eviction pressure as the thing to avoid
+      # (this cache must not push out the Qt/FFTW/DeepFilter entries other jobs
+      # depend on). A cold miss here costs build time in a job nobody waits on.
+      - name: Restore ccache objects
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: /ccache
+          key: ccache-linux-build-
+          restore-keys: |
+            ccache-linux-build-
+
+      # Content-addressed by the setup script's hash, so this shares ci.yml's
+      # entry outright: a hit saves nothing new, and a miss populates the same
+      # key every other job would have populated anyway.
+      - name: Cache DeepFilterNet3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        id: cache-deepfilter
+        with:
+          path: third_party/deepfilter
+          key: deepfilter-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/setup/setup-deepfilter.sh') }}
+
+      - name: Setup DeepFilterNet3 (DFNR)
+        if: steps.cache-deepfilter.outputs.cache-hit != 'true'
+        run: bash scripts/setup/setup-deepfilter.sh
+
+      # Kept byte-identical to ci.yml's Configure on purpose. Feature flags
+      # change which tests get registered — the count differs between a default
+      # local configure and this one — so a nightly that configured differently
+      # would be reporting on a different suite than the PR gate builds, and a
+      # "passes nightly, fails CI" split would be unexplainable.
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_NVIDIA_AFX=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      # -j4 matches the runner's 4 vCPUs. Measured ~314 s wall clock for the
+      # full suite, dominated by four cases that are ~2 min each
+      # (hl2_spectrum_rate_test, wdsp_channel_test, hl2_state_restore_test,
+      # hl2_tci_signaling_test); the other ~211 finish in about 50 s combined.
+      # ctest runs in declaration order without cost data, and two of those four
+      # sit at indices 171/173, so they don't start until ~3 min in and leave a
+      # tail. Nobody waits on this job, so that tail is not worth optimising —
+      # but if this suite ever moves onto the PR path, COST properties to force
+      # longest-first scheduling would roughly halve it.
+      #
+      # QT_QPA_PLATFORM=offscreen because the container has no display.
+      # CMakeLists.txt already sets it per-test via set_tests_properties for the
+      # cases that need it (ctest's ENVIRONMENT property wins over the inherited
+      # job env), so this is belt-and-braces for any case that renders without
+      # declaring it — and it keeps the requirement legible at the call site.
+      #
+      # --no-tests=error: ctest exits 0 on an empty test set. Without this, a
+      # refactor that stopped registering tests would turn this whole workflow
+      # green and silent — the exact failure mode it exists to prevent, one
+      # level up.
+      #
+      # shell: bash is required, not cosmetic: the container's /bin/sh is Dash,
+      # which understands neither `set -o pipefail` nor the `|| ec=$?` capture
+      # below. sanitizers.yml hit this and silently ran no tests at all.
+      # `|| ec=$?` is also required because Actions' default bash flags include
+      # -e, so a failing ctest would abort the step before the exit code is
+      # recorded and the reporting steps below would all skip.
+      - name: Run full test suite
+        id: ctest
+        timeout-minutes: 30
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          set -o pipefail
+          ec=0
+          ctest --test-dir build -j4 \
+            --output-on-failure \
+            --no-tests=error \
+            --output-junit test-results.xml 2>&1 | tee ctest.log || ec=$?
+          # NB: --output-junit resolves relative to the BUILD directory, not
+          # the cwd, so the file lands at build/test-results.xml — which is the
+          # path the upload step below has to name. Verified, not assumed.
+          echo "exit=$ec" >> "$GITHUB_OUTPUT"
+
+      # Turn the run into something readable without opening an artifact:
+      # scrolling a 215-case log in the web UI to find three names is exactly
+      # the friction that let the last breakage sit unnoticed.
+      - name: Summarise results
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Nightly test suite"
+            echo
+            grep -E '^[0-9]+% tests passed' ctest.log || echo "ctest produced no summary line."
+            echo
+            if grep -q '^The following tests FAILED:' ctest.log; then
+              echo '### Failing tests'
+              echo
+              echo '```'
+              sed -n '/^The following tests FAILED:/,$p' ctest.log
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect failure report
+        id: report
+        if: steps.ctest.outputs.exit != '0'
+        shell: bash
+        run: |
+          # The FAILED block is the signal; the full log is the artifact.
+          sed -n '/^The following tests FAILED:/,$p' ctest.log > failed.txt || true
+          if [ -s failed.txt ]; then
+            # Fingerprint the SET of failing test names, order-independent, so a
+            # persistent break keeps appending to one issue while a change in
+            # WHICH tests fail opens a new one.
+            #
+            # Scoped to failed.txt, NOT the whole log, and that matters: ctest
+            # prints a separate "The following tests did not run:" block in the
+            # same `<n> - <name>` shape (crdv_quarantined_test is Skipped every
+            # run). Fingerprinting the log would fold skips into the identity,
+            # so changing what is quarantined would rotate the fingerprint and
+            # split the sticky issue while the actual failures were unchanged.
+            fp=$(grep -oE '^[[:space:]]+[0-9]+ - [A-Za-z0-9_.-]+' failed.txt \
+                   | sed 's/.* - //' | sort -u | sha256sum | cut -c1-12)
+          else
+            # No FAILED block means ctest died before reporting one (configure
+            # error, --no-tests=error, crash). Keep the tail so the issue still
+            # says something useful, and use a fixed fingerprint so repeats of
+            # this state collapse onto one issue instead of spawning nightly.
+            tail -c 20000 ctest.log > failed.txt
+            fp=no-failed-block
+          fi
+          head -c 40000 failed.txt > failed.trim && mv failed.trim failed.txt
+          echo "fingerprint=${fp:-unknown}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: nightly-tests-${{ github.run_id }}
+          path: |
+            ctest.log
+            build/test-results.xml
+          retention-days: 30
+          # warn, not ignore: on a green run both files exist, so "not found"
+          # means the run shape changed and the artifact is silently empty.
+          if-no-files-found: warn
+
+      - name: Open or update tracking issue
+        if: steps.ctest.outputs.exit != '0'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          FP:      ${{ steps.report.outputs.fingerprint }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const fs = require('fs');
+            const failed = fs.readFileSync('failed.txt', 'utf8');
+            const title  = '[nightly] Full test suite failing on main';
+            const labels = ['nightly-tests'];
+            const sha    = context.sha.substring(0, 7);
+            const date   = new Date().toISOString().split('T')[0];
+
+            const body = [
+              `**Run:** ${process.env.RUN_URL}`,
+              `**Commit:** \`${sha}\``,
+              `**Date:** ${date}`,
+              `**Failing-set fingerprint:** \`${process.env.FP}\``,
+              '',
+              '```',
+              failed,
+              '```',
+              '',
+              'Full `ctest.log` and JUnit `test-results.xml` are attached to the run artifacts.',
+            ].join('\n');
+
+            // The label alone identifies the bucket, so the first open match is
+            // the sticky issue regardless of any title edits made by hand.
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              state: 'open',
+              labels: labels.join(','),
+              per_page: 100,
+            });
+            const existing = open.data[0];
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+              core.notice(`Appended to #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                title,
+                labels,
+                body,
+              });
+              core.notice(`Opened #${created.data.number}`);
+            }
+
+      - name: Fail the job if any test failed
+        if: steps.ctest.outputs.exit != '0'
+        run: exit 1
+
+      - name: ccache stats
+        if: always()
+        run: ccache --show-stats
