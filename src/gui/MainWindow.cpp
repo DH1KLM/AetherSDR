@@ -1327,6 +1327,24 @@ MainWindow::MainWindow(QWidget* parent)
     });
     connect(&m_radioModel, &RadioModel::interlockNotificationRequested,
             this, &MainWindow::showPanadapterInterlockNotification);
+    // Goes on the panadapter as a transient card, NOT the status bar (#4649).
+    // A QStatusBar temporary message hides every permanent widget for its whole
+    // duration -- the TX indicator, PA temperature and supply voltage among
+    // them -- so putting it there blanks exactly the telemetry an operator
+    // wants while transmitting, at the one moment they are transmitting.
+    // The status bar stays as a fallback for the case where no panadapter can
+    // be resolved, so the warning is never simply dropped.
+    connect(&m_radioModel, &RadioModel::txFilterBlockingAudio,
+            this, [this](const QString& title, const QString& detail,
+                         const QString& panId) {
+                if (!panId.trimmed().isEmpty() && m_panStack) {
+                    if (SpectrumWidget* sw = m_panStack->spectrum(panId.trimmed())) {
+                        sw->showTxFilterNotification(title, detail, 8000);
+                        return;
+                    }
+                }
+                statusBar()->showMessage(title + QStringLiteral(" - ") + detail, 8000);
+            });
 
     m_networkDiagnosticsHistory = new NetworkDiagnosticsHistory(&m_radioModel, m_audio, this);
     connect(&m_radioModel, &RadioModel::digitalVoiceWaveformDegradationStarted,

@@ -6558,6 +6558,27 @@ void SpectrumWidget::showInterlockNotification(const QString& message,
     upsertOverlayMessage(std::move(overlay));
 }
 
+void SpectrumWidget::showTxFilterNotification(const QString& title,
+                                              const QString& detail,
+                                              int durationMs)
+{
+    if (title.trimmed().isEmpty() && detail.trimmed().isEmpty()) {
+        return;
+    }
+    PanadapterOverlayMessage overlay;
+    // Own id, so re-keying replaces this card in place rather than stacking,
+    // and so it never collides with "interlock.active" -- the two describe
+    // different things and either must be able to appear without evicting the
+    // other.
+    overlay.id = QStringLiteral("txfilter.audio-loss");
+    overlay.title = title;
+    overlay.detail = detail;
+    overlay.timeoutMs = qMax(1, durationMs);
+    overlay.dismissible = true;
+    overlay.tone = PanadapterOverlayMessageTone::Warning;
+    upsertOverlayMessage(std::move(overlay));
+}
+
 void SpectrumWidget::drawConnectionAnimation(QPainter& p, const QRect& contentRect)
 {
     if (!m_connectionAnimationVisible || !m_connectionAnimationClock.isValid()) {

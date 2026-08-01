@@ -979,6 +979,12 @@ signals:
     void interlockNotificationRequested(const QString& message,
                                         const QString& key,
                                         const QString& panId);
+    // Emitted at most once per transmission when the TX filter is measurably
+    // removing the operator's transmit audio (#4649). Carries a ready-to-show
+    // operator-facing message naming the offending passband.
+    void txFilterBlockingAudio(const QString& title,
+                               const QString& detail,
+                               const QString& panId);
     // Emitted when global profile list or active profile changes.
     void globalProfilesChanged();
     void profileDatabaseImportingChanged(bool importing);
@@ -1443,6 +1449,8 @@ private:
     bool        m_txAudioGate{false}; // actual TX audio gate state
     bool        m_radioTransmitting{false}; // raw interlock TX state, any owner
     bool        m_operatorTransmitting{false}; // owned MOX/PTT/VOX (not tune/ATU/TCI/DAX)
+    int         m_txFilterKillSamples{0};      // consecutive qualifying meter packets (#4649)
+    bool        m_txFilterKillReported{false}; // latched, so we speak once per transmission
     QString     m_lastInterlockNotificationKey;
     qint64      m_lastInterlockNotificationMs{0};
     qint64      m_interlockNotificationArmedUntilMs{0};
@@ -1545,6 +1553,7 @@ private:
     QString localPttInterlockMessage(TransmitModel::PttSource source) const;
     QString txFilterFrequencyLimitMessage(int lowHz, int highHz) const;
     QString radioInterlockNotificationMessage(const QMap<QString, QString>& kvs) const;
+    void evaluateTxFilterAudioLoss(float scFilt1, float scFilt2);
     void armInterlockNotification(TransmitModel::PttSource source = TransmitModel::PttSource::Mox);
     // Recompute the operator-transmit predicate and emit operatorTransmitChanged
     // on a rising/falling edge. Cheap; safe to call from every TX-state path.

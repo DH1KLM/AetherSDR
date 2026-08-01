@@ -203,6 +203,12 @@ public:
     Q_INVOKABLE bool automationRemoveOverlayMessage(const QString& id);
     Q_INVOKABLE void automationClearOverlayMessages();
     Q_INVOKABLE QVariantList overlayMessageSnapshot() const;
+    // Transient card for a TX filter that is swallowing the transmit audio
+    // (#4649). Separate from showInterlockNotification: nothing is refusing
+    // to key here, so it must not claim "Transmit disabled".
+    void showTxFilterNotification(const QString& title,
+                                  const QString& detail,
+                                  int durationMs);
     void showInterlockNotification(const QString& message,
                                    const QString& key = QString(),
                                    int durationMs = 5000);
