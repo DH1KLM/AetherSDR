@@ -8,6 +8,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **The TCI PTT slice-routing decision is now logged (#4547).** Reports of TCI
+  keying the wrong slice have been arriving without logs because there were
+  none to send: the server logged audio, IQ, DAX and client connections, but
+  the decision that picks which slice transmits was silent. One line now
+  records the whole decision — the requested receiver, the slice it maps to,
+  the slice that was chosen and whether that is the one asked for, the slice
+  that actually holds transmit, and the cached route it was compared against —
+  which separates the three failure modes behind #4547 that otherwise look
+  identical to an operator. Slice ids are printed with their receiver number
+  (`0(trx0)`) so the line can be read against a client's own transcript.
+
+  It is off by default; turn it on with
+  `QT_LOGGING_RULES="aether.cat.info=true"` before starting AetherSDR, and
+  include the output when reporting a TCI routing problem. Three cases that
+  previously dropped a PTT request with no trace — unresolvable receiver,
+  resolved slice gone, and transmit-inhibited panadapter — now say so at the
+  normal logging level, no rule needed.
+
 ### Theme fallback colours corrected on themes that predate the token (#3184)
 
 - **Slice colours A–H and `color.accent.dim` now match the bundled themes.**

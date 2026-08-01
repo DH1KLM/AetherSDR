@@ -180,6 +180,13 @@ private:
     void broadcastBinary(const QByteArray& data);
     SliceModel* sliceForTrx(int trx) const;
     QVector<TciSliceEndpoint> routingEndpoints() const;
+    // Diagnostics helpers for the PTT routing decision log.
+    static const char* txRouteOwnerName(TciRoutingState::TxRouteOwner owner);
+    // "<sliceId>(trx<n>)", "<sliceId>(gone)" for a slice that is no longer
+    // live, "none" for a negative id. The wire speaks trx and the router
+    // speaks slice ids; the log has to state both or it cannot be read
+    // against a client transcript.
+    QString sliceTag(int sliceId) const;
     void handleVfoRequest(QWebSocket* client, const TciProtocol::VfoRequest& request);
     void handleSplitRequest(QWebSocket* client, const TciProtocol::SplitRequest& request);
     void handleTrxRequest(QWebSocket* client, const TciProtocol::TrxRequest& request);

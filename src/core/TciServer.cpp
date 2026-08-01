@@ -1167,6 +1167,39 @@ SliceModel* TciServer::sliceForTrx(int trx) const
     return m_trxMap.sliceForTrx(m_model, trx);
 }
 
+const char* TciServer::txRouteOwnerName(TciRoutingState::TxRouteOwner owner)
+{
+    switch (owner) {
+    case TciRoutingState::TxRouteOwner::None:
+        return "none";
+    case TciRoutingState::TxRouteOwner::External:
+        return "external";
+    case TciRoutingState::TxRouteOwner::TciCreated:
+        return "tci-created";
+    }
+    return "unknown";
+}
+
+QString TciServer::sliceTag(int sliceId) const
+{
+    // Everything a TCI client sees on the wire is a receiver number: trx:,
+    // tx_enable:, lock: and rx_filter_band: all carry m_trxMap.trxForSlice().
+    // The routing state speaks raw Flex slice ids instead, and since #4567
+    // pinned receiver numbers across a slice recreate the two genuinely
+    // diverge. A diagnostic that prints one and is read against the other
+    // manufactures agreements and disagreements that are not there, so print
+    // both wherever a slice id appears.
+    if (sliceId < 0) {
+        return QStringLiteral("none");
+    }
+    SliceModel* slice = m_model ? m_model->slice(sliceId) : nullptr;
+    if (!slice) {
+        // A cached route can outlive its slice; that is a finding, not a gap.
+        return QStringLiteral("%1(gone)").arg(sliceId);
+    }
+    return QStringLiteral("%1(trx%2)").arg(sliceId).arg(m_trxMap.trxForSlice(m_model, slice));
+}
+
 QVector<TciSliceEndpoint> TciServer::routingEndpoints() const
 {
     QVector<TciSliceEndpoint> endpoints;
@@ -1851,12 +1884,81 @@ void TciServer::handleTrxRequest(QWebSocket* client, const TciProtocol::TrxReque
 
     SliceModel* rxSlice = sliceForTrx(request.trx);
     if (!rxSlice) {
+        // Two very different situations reach here and they want different
+        // operator responses. TciTrxMap holds a receiver's binding across a
+        // band-change recreate and answers null rather than re-pointing it at
+        // whichever slice now sits at that index (#4577) — transient, and the
+        // next request succeeds. With no slices at all the session cannot key
+        // anything. Naming them apart is the whole point of logging this.
+        const bool haveSlices = m_model->isConnected() && !m_model->slices().isEmpty();
+        qCWarning(lcCat) << "TCI PTT: trx" << request.trx
+                         << (haveSlices
+                                    ? "maps to no live slice (unknown receiver, or its slice is"
+                                      " mid-recreate) - request dropped"
+                                    : "cannot be resolved - radio not connected, or no slices"
+                                      " - request dropped");
         return;
     }
-    const int txSliceId = m_routingState.resolvePttSlice(rxSlice->sliceId(), routingEndpoints());
+    const QVector<TciSliceEndpoint> endpoints = routingEndpoints();
+    const int liveTx = TciRoutingState::currentTxSlice(endpoints);
+    // Sample the cached route BEFORE resolving. resolvePttSlice() writes the
+    // live TX assignment through to the cache on the external-TX branch, so
+    // reading these afterwards would always show the cache agreeing with
+    // liveTx - erasing exactly the disagreement this line exists to catch.
+    const int cachedTx = m_routingState.txSliceId();
+    const int cachedRx = m_routingState.rxSliceId();
+    const char* const cachedOwner = txRouteOwnerName(m_routingState.owner());
+    const int txSliceId = m_routingState.resolvePttSlice(rxSlice->sliceId(), endpoints);
+
+    // Why did transmit land where it did?  Every TCI routing fault reported so
+    // far reduces to one of three things, and all three are invisible without
+    // this line: the requested trx resolved away, a cached route outliving the
+    // live TX assignment, or two clients addressing the same trx.  Log the
+    // whole decision - request, live state, cached state, result - so a report
+    // can be diagnosed from a log instead of a reproduction.
+    //
+    // source= is client-supplied and goes out last. simplified() collapses any
+    // embedded newline, because .noquote() means whatever a client puts in that
+    // field lands in the log verbatim — and a forged "TCI PTT route:" line in
+    // the evidence a reporter attaches is a worse failure than no line at all.
+    qCInfo(lcCat).nospace().noquote()
+        << "TCI PTT route: trx=" << request.trx
+        << (m_trxMap.trxForSlice(m_model, rxSlice) == request.trx ? "" : " [trx fallback]")
+        << " rxSlice=" << sliceTag(rxSlice->sliceId())
+        << " -> txSlice=" << sliceTag(txSliceId)
+        << (txSliceId == rxSlice->sliceId() ? " (the requested slice)"
+                                            : " (NOT the requested slice)")
+        << " | liveTx=" << sliceTag(liveTx)
+        << " cachedTx=" << sliceTag(cachedTx)
+        << " cachedRx=" << sliceTag(cachedRx)
+        << " owner=" << cachedOwner
+        << " split=" << (m_routingState.splitRequested() ? "true" : "false")
+        << " source="
+        << (request.source.isEmpty() ? QStringLiteral("(none)")
+                                     : request.source.simplified().left(32));
+
     SliceModel* txSlice = m_model->slice(txSliceId);
-    if (!txSlice || !m_model->panTransmitInhibitReason(txSlice->panId()).isEmpty()) {
+    if (!txSlice) {
+        qCWarning(lcCat).noquote() << "TCI PTT: resolved tx slice" << sliceTag(txSliceId)
+                                   << "does not exist - request dropped";
         return;
+    }
+    const QString inhibitReason = m_model->panTransmitInhibitReason(txSlice->panId());
+    if (!inhibitReason.isEmpty()) {
+        // simplified() for the same reason as source= above, and because a
+        // reason that is one grep-able line is worth more in a bug report
+        // than one that wraps: this is a translated sentence, not a token.
+        qCWarning(lcCat).noquote() << "TCI PTT: slice" << sliceTag(txSliceId)
+                                   << "is transmit-inhibited -" << inhibitReason.simplified();
+        return;
+    }
+
+    // Stated as intent, and only once the drop paths above are behind us: the
+    // promote below is asynchronous and can still come back unselected, so
+    // this is the request that survived every guard, not a completed move.
+    if (liveTx >= 0 && txSliceId != liveTx) {
+        qCInfo(lcCat).noquote() << "TCI PTT: transmit will move from slice" << sliceTag(liveTx)
+                                << "to slice" << sliceTag(txSliceId);
     }
 
     const QString mode = txSlice->mode().trimmed().toUpper();
