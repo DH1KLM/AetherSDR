@@ -5452,13 +5452,65 @@ QJsonObject AutomationServer::doRecord(const QString& action, const QString& val
                            {QStringLiteral("dir"), m_qsoRecorder->recordingDir()}};
     }
     if (a == QLatin1String("start")) {
+        // The start can be REFUSED (#4629) — Client-Side mode with PC Audio
+        // disabled has no RX audio stream to record, and Radio-Side mode means
+        // the radio is the recorder. `ok` already reported that correctly by
+        // reflecting isRecording(), but a bare false told a test nothing about
+        // WHY, so ask the policy and name the cause.
+        //
+        // A GUI dialog DOES appear for this even when the caller is the bridge:
+        // the app is running with a window, and QsoRecorder::recordingBlocked is
+        // wired to a notice in MainWindow regardless of who triggered the start.
+        // That notice is deliberately non-blocking (MainWindow::
+        // showRecorderNotice) — the blocking form held this reply until a human
+        // dismissed the box, which is exactly how it behaved before that fix.
+        //
+        // wasRecording is captured BEFORE the attempt: with a recording already
+        // in flight, startRecording() is a no-op and the reply must describe the
+        // live recording, not stamp a refusal onto it (review of #4652).
+        const bool wasRecording = m_qsoRecorder->isRecording();
+        const RecordStartDecision decision = m_qsoRecorder->evaluateStart();
         m_qsoRecorder->startRecording();
-        return QJsonObject{
+        QJsonObject reply{
             {QStringLiteral("ok"), m_qsoRecorder->isRecording()},
             {QStringLiteral("record"), QStringLiteral("start")},
             {QStringLiteral("recording"), m_qsoRecorder->isRecording()},
             {QStringLiteral("path"), m_qsoRecorder->recordingFilePath()},
         };
+        // Only when this call actually failed to start something. A refusal
+        // stamped onto an already-running recording produced
+        // `ok:true, recording:true, path:"", reason:...` — a success carrying a
+        // failure reason, with a valid path blanked out from under the caller.
+        if (!wasRecording && decision != RecordStartDecision::Allow) {
+            if (decision == RecordStartDecision::BlockedPcAudioDisabled) {
+                reply.insert(QStringLiteral("reason"),
+                             QStringLiteral("pc-audio-disabled"));
+                reply.insert(QStringLiteral("detail"),
+                             QStringLiteral("Client-Side recording requires PC Audio; "
+                                            "no RX audio stream exists."));
+            } else {
+                // Deliberately a REFUSAL, not a redirect to SliceModel. This verb
+                // is documented as driving the client-side recorder and returning
+                // the path of a local WAV; quietly starting a recording on the
+                // RADIO instead would be a hardware state change from a call that
+                // promised a local file, and a harness asking for that file would
+                // get a success it cannot use. Naming the mismatch lets the caller
+                // fix its own setup.
+                reply.insert(QStringLiteral("reason"),
+                             QStringLiteral("recording-mode-is-radio"));
+                reply.insert(QStringLiteral("detail"),
+                             QStringLiteral("RecordingMode is Radio, so the radio "
+                                            "records and no local file is written. "
+                                            "Set RecordingMode=Client to drive the "
+                                            "client-side recorder."));
+            }
+            // recordingFilePath() falls back to the LAST finalized recording
+            // when no file is open, so a refused start would otherwise hand back
+            // a path to an unrelated earlier WAV — observed live while verifying
+            // this fix. Nothing was created, so report nothing.
+            reply.insert(QStringLiteral("path"), QString());
+        }
+        return reply;
     }
     if (a == QLatin1String("stop")) {
         const int durationSecs = m_qsoRecorder->recordingDurationSecs();

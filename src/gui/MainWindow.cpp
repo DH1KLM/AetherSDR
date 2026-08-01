@@ -1212,6 +1212,67 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
 
+    // A backend that demodulates in-process (HL2, the sim) feeds the recorder
+    // over the seam and never uses `remote_audio_rx`, so the PC Audio guard
+    // below must not apply to it. Read live rather than cached — the sim in
+    // particular does NOT lock PC Audio on (it neither host-modulates nor
+    // transmits), so this is load-bearing, not belt-and-braces. See
+    // QsoRecordStartPolicy.h.
+    m_qsoRecorder->setBackendOwnsRxAudioProvider([this]() {
+        auto* backend = m_radioModel.backend();
+        return backend && backend->ownsRxAudio();
+    });
+
+    // A refused start (#4629). The recorder lives below the UI seam and can only
+    // report the REASON — the wording is ours. Informational only, deliberately:
+    // an "Enable PC Audio and record" action button would flip a setting the
+    // operator turned off on purpose, which is the behaviour #1071 removed.
+    connect(m_qsoRecorder, &QsoRecorder::recordingBlocked, this,
+            [this](AetherSDR::RecordStartDecision reason) {
+        if (reason == AetherSDR::RecordStartDecision::BlockedRecordingModeIsRadio) {
+            // Unreachable from the GUI — every operator-facing path tests
+            // RecordingMode and sends radio-side to SliceModel without ever
+            // touching this recorder. Handled rather than swallowed because a
+            // silently discarded refusal is the failure mode this whole change
+            // exists to remove; if a future caller forgets to route, this says
+            // so instead of leaving a stray header-only WAV.
+            showRecorderNotice(QStringLiteral("recording-mode-is-radio"),
+                tr("Radio Side Recording Is Selected"),
+                tr("The radio is doing the recording, so the client recorder was "
+                   "not started and no local file was created.\n\n"
+                   "Switch to Client Side in Radio Settings → Recording if you "
+                   "want the recording saved on this computer instead."));
+            return;
+        }
+        if (reason != AetherSDR::RecordStartDecision::BlockedPcAudioDisabled)
+            return;
+        showRecorderNotice(QStringLiteral("pc-audio-disabled"),
+            tr("PC Audio Required for Client-Side Recording"),
+            tr("Client-Side recording captures the same RX audio stream that PC "
+               "Audio uses, so it cannot record while PC Audio is off. No file "
+               "was created.\n\n"
+               "To record while still listening on the radio itself: enable PC "
+               "Audio in the title bar, set master volume to 0, and check that "
+               "Radio Settings → Receive → \"Mute local audio when "
+               "remote\" is Disabled.\n\n"
+               "Or switch to Radio Side recording in Radio Settings → "
+               "Recording. That records on the radio and does not use PC Audio."));
+    });
+
+    // Recorder failures that were previously silent: the directory could not be
+    // created, the file could not be opened, or the recording captured nothing
+    // (#4629). These have been emitted since the feature shipped with NOTHING
+    // connected to them, so every one of them reached the operator as a missing
+    // or empty file and no explanation.
+    connect(m_qsoRecorder, &QsoRecorder::recordingError, this,
+            [this](const QString& error) {
+        // One key for all recorder errors: auto-record's start/idle-stop cycle
+        // can raise the zero-capture diagnostic once per over, and stacking a
+        // modal per cycle would be worse than the silence it replaced.
+        showRecorderNotice(QStringLiteral("recorder-error"),
+                           tr("QSO Recording"), error);
+    });
+
     // PUDU TX monitor — captures post-PooDoo TX int16 audio, plays
     // back through the RX sink so the user can hear what their chain
     // is producing without keying the radio.  Registered with
@@ -6314,6 +6375,45 @@ bool MainWindow::activateMemorySpot(int memoryIndex, const QString& preferredPan
     if (!repeaterFixup.isEmpty())
         m_radioModel.sendCommand(repeaterFixup);
     return true;
+}
+
+// QSO-recorder notices (#4629 review). Two properties the blocking
+// QMessageBox::warning() convenience does not have, both of which turned out to
+// matter:
+//
+//   NON-BLOCKING. warning() spins a nested event loop until the operator
+//   clicks. The producers here are the automation bridge's reply path — where
+//   it stalled `record start` until a human dismissed the box, observed
+//   directly while testing this branch — and QsoRecorder::onMoxChanged, where
+//   it would block the GUI thread mid-transmission.
+//
+//   DEDUPED. Auto-record retries on every MOX rising edge and the zero-capture
+//   diagnostic can fire once per over, so a repeating condition would stack a
+//   box per transmission, each one re-entering the event loop of the last.
+//   QsoRecorder suppresses repeats at the source for auto-record; this is the
+//   backstop that holds regardless of which producer fires.
+void MainWindow::showRecorderNotice(const QString& key,
+                                    const QString& title,
+                                    const QString& text)
+{
+    if (m_recorderNotice) {
+        if (m_recorderNoticeKey == key) {
+            // Same cause still unacknowledged — surface the existing box rather
+            // than adding another saying the same thing.
+            m_recorderNotice->raise();
+            m_recorderNotice->activateWindow();
+            return;
+        }
+        // A different problem supersedes the old message.
+        m_recorderNotice->close();
+    }
+
+    auto* box = new QMessageBox(QMessageBox::Warning, title, text,
+                                QMessageBox::Ok, this);
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    m_recorderNotice = box;
+    m_recorderNoticeKey = key;
+    box->open();   // NOT exec(): returns immediately, no nested event loop
 }
 
 void MainWindow::applyMasterVolume(int pct)
