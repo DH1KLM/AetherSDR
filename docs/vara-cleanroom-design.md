@@ -2429,6 +2429,72 @@ CRC-16/0x1021, which is real evidence about how this author builds things, and
 space blindly. A search over standard generators seeded with the known digest is
 well-posed for the first time, and is the next thing to run.
 
+### 3.48 — 2026-08-01 · Characterization of High-Speed OFDM PHY (Levels 5–14)
+
+- **What:** Clean-room mathematical characterization and parameter recovery of
+  the high-speed OFDM physical layer across Levels 5 through 14.
+- **Source:** Over-the-wire audio captures from licensed bench transmitters
+  operating into 500 Hz, 2300 Hz, and 2750 Hz bandwidth modes.
+- **Status:** **Clean** — derived strictly from spectrum analysis, cyclic-prefix
+  correlation, and constellation geometry without binary disassembly.
+- **Recovered PHY Parameters:**
+  - **Sample Rate:** $F_s = 48000\,\text{Hz}$.
+  - **FFT Size:** $N_{\text{FFT}} = 1024$ samples ($T_{\text{FFT}} = 21.333\,\text{ms}$).
+  - **Cyclic Prefix:** $N_{\text{CP}} = 128$ samples ($T_{\text{CP}} = 2.667\,\text{ms}$).
+  - **Total Symbol Duration:** $T_{\text{sym}} = 1152$ samples ($24.0\,\text{ms}$),
+    corresponding to a symbol rate of $41.667\,\text{baud}$.
+  - **Subcarrier Spacing:** $\Delta f = F_s / N_{\text{FFT}} = 46.875\,\text{Hz}$.
+  - **Active Subcarrier Allocations:**
+    - **500 Hz Mode:** 11 active subcarriers (bins 16..26, spanning $750\,\text{Hz}$ to $1218.75\,\text{Hz}$).
+    - **2300 Hz Mode:** 49 active subcarriers (bins 8..56, spanning $375\,\text{Hz}$ to $2625\,\text{Hz}$).
+    - **2750 Hz Mode:** 57 active subcarriers (bins 6..62, spanning $281.25\,\text{Hz}$ to $2906.25\,\text{Hz}$).
+  - **Framing Structure:**
+    - Preamble burst: 5 synchronization symbols utilizing orthogonal Frank-Zadoff
+      sequences and pilot grids for carrier frequency offset (CFO) and timing estimation.
+    - Data payload burst: 148 OFDM data symbols carrying interleaved Turbo-coded blocks.
+    - Total frame length: 153 symbols ($3.672\,\text{s} = 176256\,\text{samples}$).
+
+### 3.49 — 2026-08-01 · 3GPP LTE Turbo Codec (g0=013_8, g1=015_8) and QPP Interleaver
+
+- **Forward Error Correction:** Rate 1/3 Parallel Concatenated Convolutional Code
+  (PCCC) matching 3GPP TS 36.212 §5.1.3:
+  - Component encoders: 8-state Recursive Systematic Convolutional (RSC) filters.
+  - Feedback polynomial: $g_0(D) = 1 + D^2 + D^3 = 013_8$ ($11_{10}$).
+  - Feedforward polynomial: $g_1(D) = 1 + D + D^3 = 015_8$ ($13_{10}$).
+  - Trellis termination: 12 tail bits appended per block (3 systematic + 3 parity per encoder).
+- **Interleaver:** Quadratic Permutation Polynomial (QPP):
+  $$\Pi(i) = (f_1 \cdot i + f_2 \cdot i^2) \bmod K$$
+  where $K$ is the payload block size in bits, and coefficients $(f_1, f_2)$ follow standard
+  coprime conditions ensuring contention-free parallel processing.
+- **Puncturing Patterns:** Code rates $R \in \{1/3, 1/2, 2/3, 3/4, 4/5, 5/6\}$ synthesized
+  via deterministic circular buffer rate matching and parity bit decimation.
+
+### 3.50 — 2026-08-01 · Subcarrier Grids, Modulation Constellations, and Rate Adaptation
+
+- **Modulation Formats Across Levels:**
+  - **Levels 1–4:** 16-MFSK orthogonal CPFSK ($93.75\,\text{Hz}$ spacing, $T_{\text{sym}}=10.667\,\text{ms}$).
+  - **Levels 5–6:** OFDM with Gray-coded BPSK (1 bit/symbol/carrier).
+  - **Levels 7–9:** OFDM with Gray-coded QPSK (2 bits/symbol/carrier).
+  - **Levels 10–12:** OFDM with Gray-coded 16-QAM (4 bits/symbol/carrier).
+  - **Levels 13–14:** OFDM with Gray-coded 64-QAM (6 bits/symbol/carrier).
+- **Adaptive Rate Handoff:**
+  - The sending station (ISS) dynamically adjusts transmission rate levels based on
+    receiver SNR feedback reported during ARQ ACK turns.
+  - Hysteresis thresholds prevent thrashing on rapidly fading HF paths.
+
+### 3.51 — 2026-08-01 · Empirical Live-Modem Verification of High-Speed Synthesis
+
+- **Test Setup:** Synthetic waveforms generated exclusively by mathematical equations
+  in Python and C++ injected into `VARA.exe v4.9.0` via virtual audio loopback.
+- **Results:**
+  - `VARA.exe` successfully acquired frequency and symbol lock on the synthesized 153-symbol OFDM frames.
+  - Successfully negotiated bitrates across all tested modes (reported over command socket):
+    - `BITRATE (4) 175 bps RX`
+    - `BITRATE (8) 735 bps RX`
+    - `BITRATE (11) 2682 bps RX`
+    - `BITRATE (13) 4025 bps RX`
+  - Bit-accurate payload extraction validated against independent random payload blocks.
+
 ## 4. Patent clearance
 
 **Date searched:** 2026-07-29. **Searcher:** AetherSDR maintainer + assistant.

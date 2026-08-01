@@ -682,6 +682,10 @@ set(CORE_SOURCES
     src/core/VaraWaveform.cpp
     src/core/VaraCodec.cpp
     src/core/VaraReceiver.cpp
+    src/core/VaraOfdmWaveform.cpp
+    src/core/VaraTurboCodec.cpp
+    src/core/VaraTransmitter.cpp
+    src/core/VaraSessionController.cpp
     src/core/AetherHfSettings.cpp
     src/core/MercuryProcess.cpp
     src/core/TciRoutingState.cpp
@@ -3910,6 +3914,64 @@ set_target_properties(vara_receiver_test PROPERTIES AUTOMOC ON)
 add_test(NAME vara_receiver_test COMMAND vara_receiver_test)
 set_tests_properties(vara_receiver_test PROPERTIES
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(vara_ofdm_waveform_test
+    tests/vara_ofdm_waveform_test.cpp
+    src/core/VaraOfdmWaveform.cpp
+    src/core/VaraProtocol.cpp
+)
+target_include_directories(vara_ofdm_waveform_test PRIVATE src)
+target_link_libraries(vara_ofdm_waveform_test PRIVATE Qt6::Core Qt6::Test)
+set_target_properties(vara_ofdm_waveform_test PROPERTIES AUTOMOC ON)
+add_test(NAME vara_ofdm_waveform_test COMMAND vara_ofdm_waveform_test)
+set_tests_properties(vara_ofdm_waveform_test PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(vara_turbo_codec_test
+    tests/vara_turbo_codec_test.cpp
+    src/core/VaraTurboCodec.cpp
+)
+target_include_directories(vara_turbo_codec_test PRIVATE src)
+target_link_libraries(vara_turbo_codec_test PRIVATE Qt6::Core Qt6::Test)
+set_target_properties(vara_turbo_codec_test PROPERTIES AUTOMOC ON)
+add_test(NAME vara_turbo_codec_test COMMAND vara_turbo_codec_test)
+set_tests_properties(vara_turbo_codec_test PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(vara_transmitter_test
+    tests/vara_transmitter_test.cpp
+    src/core/VaraTransmitter.cpp
+    src/core/VaraOfdmWaveform.cpp
+    src/core/VaraTurboCodec.cpp
+    src/core/VaraWaveform.cpp
+    src/core/VaraCodec.cpp
+    src/core/VaraProtocol.cpp
+)
+target_include_directories(vara_transmitter_test PRIVATE src)
+target_link_libraries(vara_transmitter_test PRIVATE Qt6::Core Qt6::Test)
+set_target_properties(vara_transmitter_test PROPERTIES AUTOMOC ON)
+add_test(NAME vara_transmitter_test COMMAND vara_transmitter_test)
+set_tests_properties(vara_transmitter_test PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(vara_session_controller_test
+    tests/vara_session_controller_test.cpp
+    src/core/VaraSessionController.cpp
+    src/core/VaraTransmitter.cpp
+    src/core/VaraReceiver.cpp
+    src/core/VaraOfdmWaveform.cpp
+    src/core/VaraTurboCodec.cpp
+    src/core/VaraWaveform.cpp
+    src/core/VaraCodec.cpp
+    src/core/VaraProtocol.cpp
+)
+target_include_directories(vara_session_controller_test PRIVATE src)
+target_link_libraries(vara_session_controller_test PRIVATE Qt6::Core Qt6::Test)
+set_target_properties(vara_session_controller_test PROPERTIES AUTOMOC ON)
+add_test(NAME vara_session_controller_test COMMAND vara_session_controller_test)
+set_tests_properties(vara_session_controller_test PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 
 
 add_executable(ole_compound_file_test
