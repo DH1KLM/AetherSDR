@@ -130,7 +130,7 @@ bool Codec::load(const QString& modelPath, QString* error)
     // are a prefix of it, so a payload of k bits uses the low k columns with no
     // repacking.
     m_words = (m_rowIndex.size() + 63) / 64;
-    m_packed.assign(equations, QVector<quint64>(m_words, 0));
+    m_packed.fill(QVector<quint64>(m_words, 0), equations);
     for (int e = 0; e < equations; ++e) {
         for (int c = 0; c < m_rowIndex.size(); ++c) {
             if (m_rows.value(m_rowIndex.at(c)).at(e))
@@ -298,7 +298,7 @@ bool Codec::solveSubset(const QVector<int>& bits, const QVector<int>& rows,
         ++r;
     }
 
-    out->assign(k, 0);
+    out->fill(0, k);
     for (int c = 0; c < k; ++c)
         (*out)[c] = quint8(m.at(qsizetype(c) * (words + 1) + words) & 1u);
     return true;

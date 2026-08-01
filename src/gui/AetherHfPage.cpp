@@ -735,8 +735,8 @@ void AetherHfPage::refreshConnectionState()
 
     m_stateDot->setStyleSheet(
         QStringLiteral("background:%1;border-radius:6px;")
-            .arg(linked ? QStringLiteral("#3ecf8e")
-                        : (up ? QStringLiteral("#f0b429")
+            .arg(linked ? QStringLiteral("#00ff88")
+                        : (up ? QStringLiteral("#f2c14e")
                               : QStringLiteral("#647187"))));
     m_stateText->setText(
         linked ? tr("Linked to %1").arg(m_vara->remoteCall())
