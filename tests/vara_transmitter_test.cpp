@@ -54,6 +54,35 @@ void testTxInhibit()
     expect(!tx.isTransmitInhibited(), "Transmitter reports TX permitted after reset");
 }
 
+// The arm is a safety property, so it gets its own assertions rather than
+// riding on the synthesis tests. Each maps to one of the four requirements
+// documented in VaraTransmitter.h.
+void testTransmitArm()
+{
+    Transmitter tx;
+
+    // (1) fail closed
+    expect(tx.isTransmitInhibited(), "a fresh Transmitter is inhibited");
+    expect(!tx.isArmed(), "a fresh Transmitter is not armed");
+
+    // (4) the gate is at the choke point, not only the synthesis entries: a
+    // caller holding a pre-built buffer must not be able to route around it.
+    QVector<float> prebuilt(256, 0.5f);
+    expect(tx.packageBurstWithPtt(prebuilt).isEmpty(),
+           "packageBurstWithPtt refuses a pre-built buffer while unarmed");
+
+    // (2) arming is deliberate and explicit
+    tx.armForSession();
+    expect(tx.isArmed(), "armForSession() arms the transmitter");
+    expect(!tx.packageBurstWithPtt(prebuilt).isEmpty(),
+           "an armed transmitter packages a burst");
+
+    tx.disarm();
+    expect(!tx.isArmed(), "disarm() re-inhibits");
+    expect(tx.packageBurstWithPtt(prebuilt).isEmpty(),
+           "packageBurstWithPtt refuses again after disarm");
+}
+
 void testOfdmSynthesis()
 {
     Transmitter tx;
@@ -93,6 +122,7 @@ int main(int argc, char* argv[])
     QCoreApplication app(argc, argv);
     std::printf("=== Running vara_transmitter_test ===\n");
     testTxInhibit();
+    testTransmitArm();
     testOfdmSynthesis();
     testMfskSynthesis();
 

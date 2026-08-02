@@ -35,7 +35,10 @@ namespace Vara {
 //
 // PROVENANCE OF THE NUMBERS. The model file is data/vara/vara_model.json,
 // produced by tools/vara_model_export.py from bench captures and committed so
-// this does not depend on repeating nine hours of measurement. A real VARA
+// this does not depend on repeating nine hours of measurement. That exporter
+// and the rest of the recovery tooling live on the `research/vara-cleanroom`
+// branch rather than in the product tree — the model is the only artifact the
+// build and tests need. A real VARA
 // modem decoded a frame synthesised from it for a payload it had never
 // transmitted, which is the end-to-end proof that the model is right.
 //

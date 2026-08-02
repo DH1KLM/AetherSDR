@@ -38,12 +38,36 @@ public:
     void setSpeedLevel(int level) { m_speedLevel = level; }
     int speedLevel() const { return m_speedLevel; }
 
-    // Transmit Inhibit guard ("Fail-Closed"). Defaults to INHIBITED: this class
-    // synthesises RF audio and asserts PTT, so an instance nobody has
-    // deliberately armed must not be able to key. Constitution VI — "if the
-    // operator's intent to transmit is not unambiguous, it does not key."
+    // ── Transmit arming (Constitution VI) ───────────────────────────────
+    //
+    // Fail-closed: a Transmitter nobody has deliberately armed cannot key.
+    // This class synthesises RF audio and is the last thing between a decision
+    // and an emission on the operator's licence, so the default is inhibited
+    // and arming is an explicit, auditable act.
+    //
+    // FOUR PROPERTIES, all required by the #4645 triage:
+    //
+    //   1. Defaults to inhibited and fails closed — m_txInhibited{true}.
+    //   2. Armed only by a deliberate operator action. armForSession() exists
+    //      to make that call site greppable: it must be reached from an
+    //      operator gesture, never from a state change, a timer, or a frame
+    //      arriving on the wire.
+    //   3. The armed state does NOT persist. Nothing here reads or writes
+    //      AppSettings, and SessionController disarms on every transition to
+    //      Disconnected — so a crash-restart or a reconnect comes back
+    //      inhibited rather than silently re-arming an auto-answering
+    //      transmitter.
+    //   4. It gates where the transmission is actually produced, not in the
+    //      UI. Every synthesis entry point checks it AND so does
+    //      packageBurstWithPtt(), which is the single choke point all audio
+    //      passes through on its way out. Any future PTT assertion must be
+    //      added there, behind that check.
+    void armForSession();
+    void disarm();
+
     void setTransmitInhibited(bool inhibited) { m_txInhibited = inhibited; }
     bool isTransmitInhibited() const { return m_txInhibited; }
+    bool isArmed() const { return !m_txInhibited; }
 
     // Lead-in and tail delay in milliseconds
     void setPttLeadTimeMs(int ms) { m_leadTimeMs = ms; }

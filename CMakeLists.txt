@@ -3946,6 +3946,11 @@ add_executable(vara_transmitter_test
     src/core/VaraWaveform.cpp
     src/core/VaraCodec.cpp
     src/core/VaraProtocol.cpp
+    # VaraTransmitter logs arm/disarm through lcVara — a safety-relevant audit
+    # trail, so the targets link LogManager rather than dropping the logging.
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
+    ${AETHER_SETTINGS_SOURCES}
 )
 target_include_directories(vara_transmitter_test PRIVATE src)
 target_link_libraries(vara_transmitter_test PRIVATE Qt6::Core Qt6::Test)
@@ -3964,6 +3969,11 @@ add_executable(vara_session_controller_test
     src/core/VaraWaveform.cpp
     src/core/VaraCodec.cpp
     src/core/VaraProtocol.cpp
+    # VaraTransmitter logs arm/disarm through lcVara — a safety-relevant audit
+    # trail, so the targets link LogManager rather than dropping the logging.
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
+    ${AETHER_SETTINGS_SOURCES}
 )
 target_include_directories(vara_session_controller_test PRIVATE src)
 target_link_libraries(vara_session_controller_test PRIVATE Qt6::Core Qt6::Test)
@@ -5610,6 +5620,8 @@ endif()
 # directly (rather than linking aethercore) needs the vendored SQLite engine.
 # Conditional targets are guarded with if(TARGET ...).
 set(AETHER_SETTINGS_CONSUMERS
+    vara_transmitter_test
+    vara_session_controller_test
     aetherhf_settings_test
     mercury_engine_test
     vara_client_inhibit_test

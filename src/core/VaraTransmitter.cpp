@@ -1,5 +1,7 @@
 #include "core/VaraTransmitter.h"
 
+#include "core/LogManager.h"
+
 #include <cmath>
 
 namespace AetherSDR {
@@ -8,6 +10,26 @@ namespace Vara {
 Transmitter::Transmitter(QObject* parent)
     : QObject(parent)
 {
+}
+
+void Transmitter::armForSession()
+{
+    // Deliberately not a setter taking a bool: arming must read as an act at
+    // the call site, so a reviewer can grep armForSession() and see every
+    // place transmission becomes possible. Callers must reach this from an
+    // operator gesture.
+    if (!m_txInhibited)
+        return;
+    m_txInhibited = false;
+    qCInfo(lcVara) << "native transmitter ARMED for this session";
+}
+
+void Transmitter::disarm()
+{
+    if (m_txInhibited)
+        return;
+    m_txInhibited = true;
+    qCInfo(lcVara) << "native transmitter disarmed";
 }
 
 bool Transmitter::loadModel(const QString& modelPath, QString* error)
@@ -145,6 +167,16 @@ QVector<float> Transmitter::synthesizeAckBurst(bool ack, int ackType)
 
 QVector<float> Transmitter::packageBurstWithPtt(const QVector<float>& burstAudio)
 {
+    // Public, and the single path all synthesised audio takes on its way out —
+    // so it carries the guard too, not just the synthesis entry points. A
+    // caller that reaches this directly with a pre-built buffer must not be
+    // able to route around the arm, and any future PTT assertion belongs here,
+    // below this check (property 4 in the header).
+    if (m_txInhibited) {
+        emit transmitInhibited();
+        return {};
+    }
+
     if (burstAudio.isEmpty()) {
         return {};
     }

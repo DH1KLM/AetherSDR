@@ -12,6 +12,11 @@ SessionController::SessionController(QObject* parent)
 
 void SessionController::setTransmitter(Transmitter* transmitter)
 {
+    // Wiring a transmitter in is plumbing, not consent — it must not arm.
+    // The controller's autonomous paths (auto-ACK on frame receipt, retry on
+    // timer) all run through synthesis, which refuses while inhibited, so an
+    // unarmed session is inert on the air by construction.
+
     m_transmitter = transmitter;
 }
 
@@ -83,6 +88,20 @@ void SessionController::sendData(const QByteArray& data)
 
 void SessionController::setState(State newState)
 {
+    // Property 3 of the transmit arm (VaraTransmitter.h): the armed state must
+    // not survive a session. A dropped link, an abort, a retry exhaustion or a
+    // reconnect all come back inhibited, and the operator has to arm again
+    // deliberately — the "not to recover or resync a state" clause of
+    // Principle VI.
+    //
+    // Deliberately OUTSIDE the state-change guard below. An operator can arm
+    // before connecting, so a controller sitting in Disconnected can already
+    // hold an armed transmitter; routing this through the transition check
+    // would make abortSession() a no-op in exactly that case and leave it
+    // armed. Disarm on any request to enter Disconnected, transition or not.
+    if (newState == State::Disconnected && m_transmitter)
+        m_transmitter->disarm();
+
     if (m_state != newState) {
         m_state = newState;
         emit stateChanged(newState);

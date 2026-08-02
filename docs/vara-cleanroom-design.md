@@ -1,5 +1,19 @@
 # VARA HF Clean-Room Design Note
 
+> **Where the working material lives.** The recovery tooling (`tools/vara_*.py`,
+> the bench scripts) and the bulk capture artifacts (`data/vara/fec_sweep/`, the
+> connect-frame indexes, `mb_spec.json`) are on the **`research/vara-cleanroom`**
+> branch, not in the product tree. They document and reproduce how the waveform
+> was recovered, but nothing in the app or the test suite reads them, and they
+> are 2.6 MB across ~548 files that would otherwise follow the repo forever.
+>
+> `data/vara/vara_model.json` stays in-tree: `vara_codec_test`,
+> `vara_receiver_test` and `vara_transmitter_test` all load it.
+>
+> Every provenance claim below remains checkable — the branch is a full
+> snapshot of the tree at the point the artifacts were removed.
+
+
 Status: **VARA HF host-interface client implemented and tested against a live
 modem; the VARA HF waveform characterised from captures. No VARA binary has
 been disassembled — every input is listed in §3.**

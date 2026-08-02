@@ -172,6 +172,15 @@ inline DaxTxPolicyDecision evaluateDaxTxPolicy(const DaxTxPolicyContext& context
         // makes it a HostedDaxBridge on Linux and macOS, and on Windows means
         // AetherSDR should create no stream at all because DAX2 owns the device
         // and the modem selects it directly.
+        //
+        // NOT YET REACHED. VaraTransmitter and VaraSessionController exist and
+        // are compiled, but nothing constructs a context with this reason —
+        // the native TX path is not wired to the UI. The policy is declared
+        // ahead of that wiring deliberately, so the DAX decision is settled and
+        // reviewed here rather than invented under time pressure by whoever
+        // connects the transmitter. Whoever does that must also gate it on
+        // Transmitter::armForSession() — a DAX stream being permitted is not
+        // the same as the operator having asked to transmit.
         return {true, QStringLiteral("aetherhf_sends_vita49_directly")};
 
     case DaxTxRequestReason::WsprBeacon:
