@@ -285,7 +285,62 @@ measurement and is not.
 
 ---
 
-## 6. Phasing
+## 6. Transport and codec commonality across models
+
+Recorded because it is the question that decides whether "add a model" means a
+table row or a second backend, and because the answer rests on inference rather
+than on any specification.
+
+### The UDP transport is the same protocol on every networked Icom
+
+Four independent checks, all agreeing:
+
+- **wfview has zero per-model branching in its UDP path.** `icomudpbase`,
+  `icomudphandler`, `icomudpaudio` and `icomudpcivdata` contain no `modelID`
+  test, no CI-V-address special case, and no mention of any model name. One
+  implementation drives the IC-705, IC-9700, IC-7610, IC-785x and IC-7300MK2.
+- **kappanhang** lists IC-705, IC-9700, IC-7610 and IC-785x as compatible with a
+  single codebase.
+- **The IC-7300MK2's own CI-V guide exposes the same three-port structure** —
+  `1A 05 01 10 / 11 / 12` are Control Port (UDP), Serial Port (UDP) and Audio
+  Port (UDP), alongside Network Control (`01 08`) and an Internet Access Line
+  setting (`01 13`, FTTH / ADSL-CATV). That FTTH value is the same string the
+  IC-705 returns in its login reply at offset `0x40`.
+- **The scope division split is identical**: `01` over LAN, `11` over USB.
+
+So `IcomStream` and `IcomSession` are expected to work against any of them
+unchanged, and per-model variation is confined to `IcomModels`. **This is an
+inference from convergent implementations plus a matching feature surface, not
+a documented guarantee** — Icom documents the transport nowhere, for any model.
+Treat a new model's first connection as a test of this claim.
+
+### The codec negotiation is shared; codec ACCEPTANCE is unverified per model
+
+The mechanism is unambiguously transport-level, not model-level: the client
+chooses the codec in the conninfo packet (`0x72` / `0x73`, sample rate at `0x74`
+/ `0x78`). Nothing about that is per-radio.
+
+What is **not** established is which codecs a given radio accepts. Neither the
+IC-705 nor the IC-7300MK2 CI-V guide mentions "codec" even once, and wfview
+offers its full nine-entry codec list to every radio unconditionally — which
+tells us wfview does not model per-radio codec support, not that every radio
+supports all nine.
+
+LPCM 1ch 16-bit at 48 kHz is what we negotiate, what kappanhang uses
+exclusively, and what wfview defaults to. It is the safe common denominator and
+should stay the default for any newly added model until someone proves
+otherwise on that radio.
+
+### Nothing here is an "air" protocol
+
+Worth stating once because the phrasing recurs: all of the above is the LAN /
+WiFi link. The over-the-air side — SSB, CW, FM modulation — happens entirely
+inside the radio. With no IQ on any networked Icom, this backend never handles
+anything airborne; it ships demodulated audio and receives a cooked spectrum.
+
+---
+
+## 7. Phasing
 
 Each phase is independently shippable and independently provable.
 
@@ -329,7 +384,7 @@ is a transport class, not a rewrite.
 
 ---
 
-## 7. Clean-room provenance
+## 8. Clean-room provenance
 
 **wfview is GPL-3.0 and AetherSDR cannot take code from it.** It is the best
 reference available and it must be treated as a *specification*: read it, cite
@@ -348,7 +403,7 @@ captures from our own radio.
 
 ---
 
-## 8. Explicitly out of scope for phase 1
+## 9. Explicitly out of scope for phase 1
 
 - **IQ.** It does not exist on this radio. Not deferred — absent.
 - **Memory channels.** The radio stores 99 in 100 groups (`1A 00`) and the decode
@@ -359,13 +414,21 @@ captures from our own radio.
 - **Bluetooth transport.** Unknown whether it carries all three streams.
 - **Opus and ADPCM codecs.** LPCM first. They matter for WAN use, so this is a
   deferral rather than a dismissal.
-- **USB transport.** Needs the 11-chunk scope reassembly the WLAN path avoids.
-- **Multi-model support.** Build the seams for it (`19 00` discovery, a model
-  table) and populate only the IC-705.
+- **USB transport.** Needs the 11-chunk scope reassembly the WLAN path avoids
+  (implemented in `ScopeDecoder` already; the transport is what is missing).
+- **Local serial CI-V.** Deferred, not cancelled — `CivCodec` is transport-free
+  precisely so this stays a transport class rather than a rewrite. It brings in
+  every non-networked Icom, the original IC-7300 included.
+- **Reading the radio's UDP ports over CI-V**, and **remote power-on**. Both are
+  IC-7300MK2 capabilities the IC-705 does not have. See §11.
+
+Multi-model support is no longer on this list: `19 00` discovery and the
+capability table are built, with the IC-705 and IC-7300MK2 both verified against
+their own Icom CI-V guides.
 
 ---
 
-## 9. Open questions needing a radio on the bench
+## 10. Open questions needing a radio on the bench
 
 Carried from oracle §12, because they gate specific phases:
 
@@ -376,6 +439,61 @@ Carried from oracle §12, because they gate specific phases:
    be polled? — gates whether the pan follows the operator's own zoom.
 5. **Second-client behaviour.** The protocol has `busy` and `computer` fields;
    the IC-705's single-session response to contention is untested.
+6. **Does an IC-7300MK2 answer on the LAN while in Standby?** This single
+   question gates the remote power-on feature in §11 — and it is the one whose
+   wrong answer is expensive, because a radio that shuts its interface down
+   cannot be woken and has to be reached physically.
 
 Answering 1–4 needs perhaps an hour with the radio and a packet capture, and
-would remove most of the guesswork from phases 2 and 3.
+would remove most of the guesswork from phases 2 and 3. Question 6 needs an
+MK2, which is a different radio from the one the rest of this targets.
+
+---
+
+## 11. Roadmap candidates
+
+Not built, deliberately. Each is recorded here with what it needs so the
+decision is not re-litigated from scratch.
+
+### Read the radio's UDP ports over CI-V (IC-7300MK2 and later)
+
+Today the backend assumes 50001 / 50002 / 50003 and, when the operator has
+changed them, fails with a timeout that names the wrong cause — "no answer from
+the radio" is indistinguishable from Network Control being off.
+
+The MK2 exposes them: `1A 05 01 10` (Control), `01 11` (Serial), `01 12` (Audio),
+each a three-byte BCD value covering 1–65535. `01 08` reads Network Control
+itself, so a connected client could also report *definitively* that it is
+disabled rather than guessing.
+
+The catch is ordering: those are CI-V commands, and CI-V arrives over the serial
+stream, which cannot open until the control stream's request has already
+announced the ports. So this cannot bootstrap a first connection. What it can do
+is **confirm and cache** them once connected, so a later reconnect uses the real
+values and a mismatch is reported precisely. That is worth having and is a
+smaller feature than it first looks.
+
+**The IC-705 does not expose these at all** — they are menu-only there. So this
+is per-model, gated on `IcomModel`, and another reason the capability table
+earns its place.
+
+### Remote power-on / reboot (IC-7300MK2)
+
+`capabilities().canReboot` is currently **false for every model**, on the
+reasoning that `18 00` powers the radio off, which drops the network interface,
+so the `18 01` that would bring it back has no path. That reasoning is sound for
+the IC-705 on WiFi and **may be too conservative for the MK2**.
+
+The MK2 has `1A 05 01 09` — "Power OFF Setting (for Remote Control)": `00` = Only
+Shutdown, `01` = Standby/Shutdown. And the IC-705's guide already documents that
+`18 01` "turns ON the transceiver when the transceiver is OFF
+(Standby/Shutdown)". A mains-powered radio with an Ethernet port plausibly keeps
+its LAN interface alive in Standby, which is exactly the condition that makes
+remote power-on work.
+
+**Unverified, and the failure mode is bad**: a reboot the operator cannot
+recover from strands the radio until someone walks to it. So this needs a bench
+answer to one question — *does the MK2 answer on the LAN while in Standby?* —
+before `canReboot` becomes true for it. If it does, the feature is
+`setPowerOffMode(Standby)` plus a guarded `18 00` / `18 01` pair, and the
+capability stays per-model.
