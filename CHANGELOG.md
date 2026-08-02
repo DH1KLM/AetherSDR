@@ -8,6 +8,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### AetherHF — engine-agnostic HF modem page, and a native clean-room VARA receiver
+
+**New "AetherHF" tab in the AetherModem window (#4645).** The HF data engine is
+now a choice inside one page rather than a per-vendor tab: **VARA** over its
+published TCP host interface, and **MercuryV2** (Rhizomatica, GPL-3.0), which
+speaks the same host protocol and is the genuinely cross-platform path — it
+builds on Linux, macOS, Windows and Android, where VARA is a Windows binary.
+Mercury can optionally be launched and supervised by AetherSDR; its default
+base port is 8400 rather than Mercury's own 8300, so running both engines side
+by side for comparison works without a port collision.
+
+Settings live in one nested `AetherHf` document with per-engine sub-objects, so
+adding an engine is an enumerator and a settings section rather than another tab
+(Constitution Principle V). There is deliberately no encryption setting —
+47 CFR §97.113(a)(4) prohibits messages encoded to obscure their meaning on
+amateur allocations.
+
+**A native clean-room VARA receiver** ships alongside: the low-speed DATA
+waveform (16-ary orthogonal CPFSK, 512-sample symbols at 48 kHz, 407 symbols per
+frame) was recovered by observing the modem on the wire and resynthesises
+bit-exactly against the reference. Per Constitution Principle IV nothing here
+derives from decompiling, disassembling or debugger-attaching VARA.exe;
+`docs/vara-cleanroom-design.md` logs every input with its provenance, including
+the hypotheses that turned out wrong.
+
+**Transmit safety (Principle VI).** Both the host client and the native
+transmitter default to *inhibited* and must be deliberately armed. `LISTEN ON`
+is treated as transmit-capable rather than receive-only: on an ARQ modem it arms
+auto-answer, and answering keys the radio with no operator in the loop. The
+native transmit stack and the ARQ session controller are compiled but not
+reachable from the UI, and wiring them requires an explicit operator-intent
+gate first.
+
+
 ### Minimum Qt raised to 6.8 — source builds on Ubuntu 24.04 need a newer Qt
 
 **Building from source now requires Qt 6.8 or newer.** Nothing changes for

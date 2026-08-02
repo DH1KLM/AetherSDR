@@ -32,6 +32,14 @@ QString findModelPath()
 void testTxInhibit()
 {
     Transmitter tx;
+    // The default is the safety property: a Transmitter nobody has deliberately
+    // armed must not be able to key (Constitution VI). Asserted first, because
+    // every other case below can pass with the default the wrong way round.
+    expect(tx.isTransmitInhibited(),
+           "a freshly constructed Transmitter is INHIBITED by default");
+    expect(tx.synthesizeAckBurst(true, 1).isEmpty(),
+           "an unarmed Transmitter refuses to synthesise");
+
     tx.setTransmitInhibited(true);
     expect(tx.isTransmitInhibited(), "Transmitter reports TX inhibited");
 
@@ -49,6 +57,7 @@ void testTxInhibit()
 void testOfdmSynthesis()
 {
     Transmitter tx;
+    tx.setTransmitInhibited(false);   // fail-closed: arming is deliberate
     tx.setBandwidth(Bandwidth::Bw2300);
 
     QByteArray payload(64, 'A');
@@ -65,6 +74,7 @@ void testOfdmSynthesis()
 void testMfskSynthesis()
 {
     Transmitter tx;
+    tx.setTransmitInhibited(false);   // fail-closed: arming is deliberate
     QString modelPath = findModelPath();
     if (!modelPath.isEmpty()) {
         bool loaded = tx.loadModel(modelPath);

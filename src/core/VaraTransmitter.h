@@ -38,7 +38,10 @@ public:
     void setSpeedLevel(int level) { m_speedLevel = level; }
     int speedLevel() const { return m_speedLevel; }
 
-    // Transmit Inhibit guard ("Fail-Closed")
+    // Transmit Inhibit guard ("Fail-Closed"). Defaults to INHIBITED: this class
+    // synthesises RF audio and asserts PTT, so an instance nobody has
+    // deliberately armed must not be able to key. Constitution VI — "if the
+    // operator's intent to transmit is not unambiguous, it does not key."
     void setTransmitInhibited(bool inhibited) { m_txInhibited = inhibited; }
     bool isTransmitInhibited() const { return m_txInhibited; }
 
@@ -83,7 +86,7 @@ private:
     Codec m_codec;
     Bandwidth m_bandwidth{Bandwidth::Bw2300};
     int m_speedLevel{1};
-    bool m_txInhibited{false};
+    bool m_txInhibited{true};
     int m_leadTimeMs{50};
     int m_tailTimeMs{20};
 };

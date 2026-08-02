@@ -275,6 +275,21 @@ QString VaraClient::setChat(bool on)
 
 QString VaraClient::listen(bool on)
 {
+    // LISTEN ON is a transmit-capable action, not a receive-only one. VARA is
+    // an ARQ modem: a listening instance ANSWERS an inbound call, and answering
+    // keys the radio with no operator in the loop. Observed directly on the
+    // bench — docs/vara-cleanroom-design.md §3.9 records an instance in
+    // LISTEN ON going PENDING -> CONNECTED -> DISCONNECTED, a handshake it
+    // could only complete by transmitting.
+    //
+    // So arming it honours the inhibit. LISTEN OFF is always allowed: it ends
+    // the ability to auto-answer rather than beginning one, the same reasoning
+    // that exempts disconnectLink() and abort().
+    if (on && m_txInhibited) {
+        qCWarning(lcVara) << "LISTEN ON refused - transmit is inhibited";
+        emit transmitInhibited(QStringLiteral("LISTEN"));
+        return QString();
+    }
     return send(Vara::cmdListen(on), QStringLiteral("LISTEN"));
 }
 

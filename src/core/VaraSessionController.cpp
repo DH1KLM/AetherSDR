@@ -45,7 +45,8 @@ void SessionController::connectTo(const QString& remoteCall)
     if (m_transmitter) {
         // Send Connect Request burst
         QVector<float> audio = m_transmitter->synthesizeAckBurst(true, 1);
-        emit m_transmitter->audioReady(audio);
+        if (!audio.isEmpty())
+            emit m_transmitter->audioReady(audio);
     }
 
     m_retryCount = 0;
@@ -57,7 +58,8 @@ void SessionController::disconnectSession()
     setState(State::Disconnecting);
     if (m_transmitter) {
         QVector<float> audio = m_transmitter->synthesizeAckBurst(false, 8); // QRT burst
-        emit m_transmitter->audioReady(audio);
+        if (!audio.isEmpty())
+            emit m_transmitter->audioReady(audio);
     }
     setState(State::Disconnected);
     emit disconnected();
@@ -160,14 +162,16 @@ void SessionController::onFramePayload(const QByteArray& payload, int residual)
         if (m_state == State::Connected_IRS && m_transmitter) {
             // Send ACK
             QVector<float> ackAudio = m_transmitter->synthesizeAckBurst(true, 1);
-            emit m_transmitter->audioReady(ackAudio);
+            if (!ackAudio.isEmpty())
+                emit m_transmitter->audioReady(ackAudio);
         }
     } else {
         // Parity errors -> NACK
         adaptRate(false, 10.0);
         if (m_state == State::Connected_IRS && m_transmitter) {
             QVector<float> nackAudio = m_transmitter->synthesizeAckBurst(false, 0);
-            emit m_transmitter->audioReady(nackAudio);
+            if (!nackAudio.isEmpty())
+                emit m_transmitter->audioReady(nackAudio);
         }
     }
 }

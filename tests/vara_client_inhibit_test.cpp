@@ -33,12 +33,18 @@ void expect(bool condition, const char* description)
 
 void testDefaultIsPermissive()
 {
-    // The client itself must stay usable for a future transmitting caller; the
-    // inhibit is opt-in, applied by the receive-only page. If the default were
-    // inhibited, a real TX path would fail confusingly instead of obviously.
+    // This previously asserted the opposite — that a fresh client is NOT
+    // inhibited, on the reasoning that a real TX path should fail obviously
+    // rather than confusingly. Constitution VI settles it the other way: "Any
+    // code path that can transmit fails closed: if the operator's intent to
+    // transmit is not unambiguous, it does not key." A transmitting caller has
+    // to opt in, and the refusal is not actually confusing — the client logs
+    // "CONNECT refused - transmit is inhibited" and emits transmitInhibited().
+    // A developer reading that loses a minute; the opposite default risks an
+    // emission on the operator's licence that cannot be recalled.
     VaraClient c;
-    expect(!c.isTransmitInhibited(),
-           "a fresh client is not inhibited: the restriction belongs to the caller");
+    expect(c.isTransmitInhibited(),
+           "a fresh client IS inhibited: transmit paths fail closed");
 }
 
 void testInhibitBlocksTransmittingCommands()

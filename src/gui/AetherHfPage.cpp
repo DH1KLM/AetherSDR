@@ -229,8 +229,16 @@ AetherHfPage::AetherHfPage(RadioModel* radio, QWidget* parent)
             m_vara->setMyCalls({call});
         m_vara->setBandwidth(AetherHfSettings::varaBandwidth());
         m_vara->setCompression(AetherHfSettings::varaCompression());
-        // Receive-only. LISTEN does not transmit; nothing on this page does.
-        m_vara->listen(true);
+        // Deliberately NOT sending LISTEN ON here. It arms the modem to answer
+        // an inbound call, which keys the radio as a side effect of a network
+        // event — Constitution VI forbids exactly that ("not as a side effect
+        // of a status update"). This page sets the transmit inhibit at
+        // construction, so VaraClient would refuse the command anyway; not
+        // issuing it from a connection callback is the point.
+        //
+        // Monitoring inbound traffic needs an explicit operator control that
+        // lifts the inhibit for the session. That is deliberately left as
+        // follow-up work rather than smuggled into a connect handler.
         refreshConnectionState();
     });
     connect(m_vara, &VaraClient::modemDisconnected, this, [this] {
@@ -320,6 +328,7 @@ void AetherHfPage::buildHeader()
 
     row->addWidget(fieldLabel(tr("Engine"), frame));
     m_engineCombo = new QComboBox(frame);
+    m_engineCombo->setAccessibleName(tr("HF engine"));
     m_engineCombo->addItem(hfEngineDisplayName(HfEngine::Vara),
                            static_cast<int>(HfEngine::Vara));
     m_engineCombo->addItem(hfEngineDisplayName(HfEngine::Mercury),
@@ -348,6 +357,7 @@ void AetherHfPage::buildHeader()
     row->addWidget(m_errorLabel, 2);
 
     m_connectButton = new QPushButton(tr("Connect"), frame);
+    m_connectButton->setAccessibleName(tr("Connect to engine"));
     connect(m_connectButton, &QPushButton::clicked,
             this, &AetherHfPage::toggleEngineConnection);
     row->addWidget(m_connectButton);
@@ -371,6 +381,7 @@ QWidget* AetherHfPage::buildConfigurationPanel()
     shared->setVerticalSpacing(8);
     shared->addWidget(fieldLabel(tr("Callsign"), frame), 0, 0);
     m_callsignEdit = new QLineEdit(frame);
+    m_callsignEdit->setAccessibleName(tr("Station callsign"));
     m_callsignEdit->setValidator(new QRegularExpressionValidator(
         QRegularExpression(QStringLiteral("[A-Za-z0-9/\\-]{0,16}")), this));
     // Shared across engines: it identifies the station, not the modem.
@@ -387,10 +398,12 @@ QWidget* AetherHfPage::buildConfigurationPanel()
 
     grid->addWidget(fieldLabel(tr("Host"), m_varaGroup), r, 0);
     m_hostEdit = new QLineEdit(m_varaGroup);
+    m_hostEdit->setAccessibleName(tr("VARA modem host"));
     grid->addWidget(m_hostEdit, r++, 1);
 
     grid->addWidget(fieldLabel(tr("Command port"), m_varaGroup), r, 0);
     m_portSpin = new QSpinBox(m_varaGroup);
+    m_portSpin->setAccessibleName(tr("VARA command port"));
     m_portSpin->setRange(AetherHfSettings::kMinPort, AetherHfSettings::kMaxPort);
     grid->addWidget(m_portSpin, r++, 1);
 
@@ -404,6 +417,7 @@ QWidget* AetherHfPage::buildConfigurationPanel()
 
     grid->addWidget(fieldLabel(tr("Bandwidth"), m_varaGroup), r, 0);
     m_bandwidthCombo = new QComboBox(m_varaGroup);
+    m_bandwidthCombo->setAccessibleName(tr("VARA bandwidth"));
     m_bandwidthCombo->addItem(tr("500 Hz"), 500);
     m_bandwidthCombo->addItem(tr("2300 Hz"), 2300);
     m_bandwidthCombo->addItem(tr("2750 Hz"), 2750);
@@ -411,6 +425,7 @@ QWidget* AetherHfPage::buildConfigurationPanel()
 
     grid->addWidget(fieldLabel(tr("Compression"), m_varaGroup), r, 0);
     m_compressionCombo = new QComboBox(m_varaGroup);
+    m_compressionCombo->setAccessibleName(tr("VARA compression"));
     m_compressionCombo->addItem(tr("Off"), 0);
     m_compressionCombo->addItem(tr("Text"), 1);
     m_compressionCombo->addItem(tr("Files"), 2);
@@ -433,10 +448,12 @@ QWidget* AetherHfPage::buildConfigurationPanel()
 
     mgrid->addWidget(fieldLabel(tr("Host"), m_mercuryGroup), mrow, 0);
     m_mercuryHostEdit = new QLineEdit(m_mercuryGroup);
+    m_mercuryHostEdit->setAccessibleName(tr("Mercury host"));
     mgrid->addWidget(m_mercuryHostEdit, mrow++, 1);
 
     mgrid->addWidget(fieldLabel(tr("Control port"), m_mercuryGroup), mrow, 0);
     m_mercuryPortSpin = new QSpinBox(m_mercuryGroup);
+    m_mercuryPortSpin->setAccessibleName(tr("Mercury base port"));
     m_mercuryPortSpin->setRange(AetherHfSettings::kMinPort,
                                 AetherHfSettings::kMaxPort);
     // Mercury's own default is 8300, the same as VARA's. Defaulting both to it
@@ -452,6 +469,7 @@ QWidget* AetherHfPage::buildConfigurationPanel()
 
     mgrid->addWidget(fieldLabel(tr("Bandwidth"), m_mercuryGroup), mrow, 0);
     m_mercuryBandwidthCombo = new QComboBox(m_mercuryGroup);
+    m_mercuryBandwidthCombo->setAccessibleName(tr("Mercury bandwidth"));
     m_mercuryBandwidthCombo->addItem(tr("500 Hz"), 500);
     m_mercuryBandwidthCombo->addItem(tr("2300 Hz"), 2300);
     m_mercuryBandwidthCombo->addItem(tr("2750 Hz"), 2750);
@@ -460,12 +478,14 @@ QWidget* AetherHfPage::buildConfigurationPanel()
 
     m_mercuryPublicCheck =
         new QCheckBox(tr("Accept calls addressed to any callsign"), m_mercuryGroup);
+    m_mercuryPublicCheck->setAccessibleName(tr("Accept calls to any callsign"));
     m_mercuryPublicCheck->setToolTip(
         tr("Mercury's PUBLIC mode. VARA has no equivalent."));
     mcol->addWidget(m_mercuryPublicCheck);
 
     m_mercuryLaunchCheck =
         new QCheckBox(tr("Start Mercury when connecting"), m_mercuryGroup);
+    m_mercuryLaunchCheck->setAccessibleName(tr("Start Mercury when connecting"));
     m_mercuryLaunchCheck->setToolTip(
         tr("Leave this off if you run Mercury yourself, or run it on another "
            "machine."));
@@ -477,17 +497,20 @@ QWidget* AetherHfPage::buildConfigurationPanel()
     int lrow = 0;
     lgrid->addWidget(fieldLabel(tr("Binary"), m_mercuryGroup), lrow, 0);
     m_mercuryBinaryEdit = new QLineEdit(m_mercuryGroup);
+    m_mercuryBinaryEdit->setAccessibleName(tr("Mercury binary path"));
     m_mercuryBinaryEdit->setPlaceholderText(tr("path to the mercury binary"));
     lgrid->addWidget(m_mercuryBinaryEdit, lrow++, 1);
 
     lgrid->addWidget(fieldLabel(tr("Sound system"), m_mercuryGroup), lrow, 0);
     m_mercurySoundSystemEdit = new QLineEdit(m_mercuryGroup);
+    m_mercurySoundSystemEdit->setAccessibleName(tr("Mercury sound system"));
     m_mercurySoundSystemEdit->setToolTip(
         tr("alsa, pulse, oss, coreaudio, dsound, wasapi, jack…"));
     lgrid->addWidget(m_mercurySoundSystemEdit, lrow++, 1);
 
     lgrid->addWidget(fieldLabel(tr("Capture device"), m_mercuryGroup), lrow, 0);
     m_mercuryCaptureEdit = new QLineEdit(m_mercuryGroup);
+    m_mercuryCaptureEdit->setAccessibleName(tr("Mercury capture device"));
     // Mercury opens the sound devices itself rather than being handed audio,
     // so this is how it gets pointed at the same cable the rig is on.
     m_mercuryCaptureEdit->setPlaceholderText(tr("e.g. plughw:1,0"));
@@ -495,6 +518,7 @@ QWidget* AetherHfPage::buildConfigurationPanel()
 
     lgrid->addWidget(fieldLabel(tr("Playback device"), m_mercuryGroup), lrow, 0);
     m_mercuryPlaybackEdit = new QLineEdit(m_mercuryGroup);
+    m_mercuryPlaybackEdit->setAccessibleName(tr("Mercury playback device"));
     m_mercuryPlaybackEdit->setPlaceholderText(tr("e.g. plughw:1,0"));
     lgrid->addWidget(m_mercuryPlaybackEdit, lrow++, 1);
     mcol->addLayout(lgrid);
@@ -516,6 +540,7 @@ QWidget* AetherHfPage::buildConfigurationPanel()
 
     m_enforceFilterCheck =
         new QCheckBox(tr("Match the receive filter to the bandwidth"), frame);
+    m_enforceFilterCheck->setAccessibleName(tr("Match receive filter to bandwidth"));
     m_enforceFilterCheck->setToolTip(
         tr("A filter narrower than the negotiated bandwidth prevents a link "
            "from forming, and nothing reports an error when that happens."));

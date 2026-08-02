@@ -165,7 +165,7 @@ private:
     QQueue<QString> m_pending;
 
     QString m_remoteCall;
-    bool m_txInhibited{false};
+    bool m_txInhibited{true};
     QString m_modemVersion;
     bool m_announcedConnected = false;
 };
