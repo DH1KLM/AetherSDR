@@ -261,6 +261,11 @@ QByteArray cmdListenCq()
     return command(QStringLiteral("LISTEN CQ"));
 }
 
+QByteArray cmdPublic(bool on)
+{
+    return on ? QByteArrayLiteral("PUBLIC ON\r") : QByteArrayLiteral("PUBLIC OFF\r");
+}
+
 QByteArray cmdConnect(const QString& source, const QString& destination)
 {
     return command(QStringLiteral("CONNECT %1 %2").arg(source, destination));

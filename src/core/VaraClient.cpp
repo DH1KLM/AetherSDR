@@ -295,7 +295,30 @@ QString VaraClient::listen(bool on)
 
 QString VaraClient::listenCq()
 {
+    // Gated for the same reason as listen(true), and not by analogy —
+    // MercuryV2's docs/TNC.md states it outright: "LISTEN CQ is treated as
+    // LISTEN ON (VarAC compatibility)." It arms auto-answer identically, so
+    // it cannot be the unguarded way around the guard on listen().
+    if (m_txInhibited) {
+        qCWarning(lcVara) << "LISTEN CQ refused - transmit is inhibited";
+        emit transmitInhibited(QStringLiteral("LISTEN CQ"));
+        return QString();
+    }
     return send(Vara::cmdListenCq(), QStringLiteral("LISTEN CQ"));
+}
+
+QString VaraClient::setPublic(bool on)
+{
+    // Mercury-only. PUBLIC ON widens auto-answer from "calls addressed to my
+    // callsign" to "any callsign", so it can only ever increase the number of
+    // inbound frames that cause the radio to key. Arming it honours the
+    // inhibit; PUBLIC OFF is always allowed because it narrows.
+    if (on && m_txInhibited) {
+        qCWarning(lcVara) << "PUBLIC ON refused - transmit is inhibited";
+        emit transmitInhibited(QStringLiteral("PUBLIC"));
+        return QString();
+    }
+    return send(Vara::cmdPublic(on), QStringLiteral("PUBLIC"));
 }
 
 QString VaraClient::cleanTxBuffer()

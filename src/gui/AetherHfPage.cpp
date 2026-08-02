@@ -229,6 +229,14 @@ AetherHfPage::AetherHfPage(RadioModel* radio, QWidget* parent)
             m_vara->setMyCalls({call});
         m_vara->setBandwidth(AetherHfSettings::varaBandwidth());
         m_vara->setCompression(AetherHfSettings::varaCompression());
+
+        // Mercury-only, and only ever sent to narrow. PUBLIC widens auto-answer
+        // to any callsign, so VaraClient refuses PUBLIC ON while the transmit
+        // inhibit is set — which this page always sets. Sending OFF explicitly
+        // still matters: an operator who ran Mercury themselves may have left
+        // it ON, and the setting says what they want here.
+        if (AetherHfSettings::engine() == HfEngine::Mercury)
+            m_vara->setPublic(AetherHfSettings::mercuryPublic());
         // Deliberately NOT sending LISTEN ON here. It arms the modem to answer
         // an inbound call, which keys the radio as a side effect of a network
         // event — Constitution VI forbids exactly that ("not as a side effect
@@ -480,7 +488,10 @@ QWidget* AetherHfPage::buildConfigurationPanel()
         new QCheckBox(tr("Accept calls addressed to any callsign"), m_mercuryGroup);
     m_mercuryPublicCheck->setAccessibleName(tr("Accept calls to any callsign"));
     m_mercuryPublicCheck->setToolTip(
-        tr("Mercury's PUBLIC mode. VARA has no equivalent."));
+        tr("Mercury's PUBLIC mode: accept calls addressed to any callsign, not "
+           "just yours. Sent to Mercury over its control channel. Turning it on "
+           "widens which inbound calls key the radio, so it is refused while "
+           "this page's transmit inhibit is set."));
     mcol->addWidget(m_mercuryPublicCheck);
 
     m_mercuryLaunchCheck =

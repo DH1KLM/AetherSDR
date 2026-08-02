@@ -237,6 +237,13 @@ int main()
                    && parseMessage(QString::fromLatin1(frames.at(1))).speedLevel == 9);
     }
 
+    // ── PUBLIC. Mercury-only; the spelling comes from MercuryV2's
+    //    docs/TNC.md ("PUBLIC ON\\r" / "PUBLIC OFF\\r", answered OK/WRONG),
+    //    not from VARA, which has no equivalent. Pinned so a typo cannot
+    //    silently become a command Mercury rejects.
+    report("PUBLIC ON", cmdPublic(true) == QByteArray("PUBLIC ON\r"));
+    report("PUBLIC OFF", cmdPublic(false) == QByteArray("PUBLIC OFF\r"));
+
     if (g_failed == 0) {
         std::printf("\nAll VARA protocol tests passed.\n");
     } else {

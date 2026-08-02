@@ -107,11 +107,37 @@ void testInhibitIsReversible()
 
 } // namespace
 
+// Auto-answer arming, in all three forms. LISTEN ON, LISTEN CQ and PUBLIC ON
+// all end with the modem keying on an inbound frame, so a guard on only one of
+// them is not a guard. LISTEN CQ is not an analogy: MercuryV2's docs/TNC.md
+// says "LISTEN CQ is treated as LISTEN ON (VarAC compatibility)."
+void testInhibitBlocksAutoAnswerArming()
+{
+    VaraClient c;
+    expect(c.isTransmitInhibited(), "fresh client is inhibited");
+    QSignalSpy spy(&c, &VaraClient::transmitInhibited);
+
+    expect(c.listen(true).isEmpty(), "LISTEN ON refused while inhibited");
+    expect(c.listenCq().isEmpty(), "LISTEN CQ refused while inhibited");
+    expect(c.setPublic(true).isEmpty(), "PUBLIC ON refused while inhibited");
+    expect(spy.count() == 3, "each refusal reported transmitInhibited()");
+
+    // The narrowing directions stay available: they reduce what can key, and a
+    // guard that blocked them would be a worse safety property than the one it
+    // enforces — the same reasoning that exempts disconnectLink() and abort().
+    QSignalSpy narrowing(&c, &VaraClient::transmitInhibited);
+    c.listen(false);
+    c.setPublic(false);
+    expect(narrowing.count() == 0,
+           "LISTEN OFF and PUBLIC OFF are never refused by the inhibit");
+}
+
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
     testDefaultIsPermissive();
     testInhibitBlocksTransmittingCommands();
+    testInhibitBlocksAutoAnswerArming();
     testStoppingIsNeverBlocked();
     testInhibitIsReversible();
     std::printf("%s: %d failure(s)\n", g_failures ? "FAILED" : "PASSED", g_failures);

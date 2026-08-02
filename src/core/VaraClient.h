@@ -64,6 +64,9 @@ public:
     QString setChat(bool on);
     QString listen(bool on);
     QString listenCq();
+    // Mercury-only; VARA has no equivalent. Honours the inhibit when turning
+    // ON, since it widens which inbound calls the modem will answer.
+    QString setPublic(bool on);
     QString cleanTxBuffer();
 
     // ── Transmit inhibit ────────────────────────────────────────────────

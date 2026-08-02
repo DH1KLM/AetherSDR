@@ -140,7 +140,9 @@ public:
     static void setMercuryConfigPath(const QString& path);
 
     // Mercury-only. VARA has no equivalent: accept calls addressed to any
-    // callsign rather than only our own.
+    // callsign rather than only our own. Sent over the TNC control channel as
+    // "PUBLIC ON|OFF" (MercuryV2 docs/TNC.md), NOT passed on the command line —
+    // Mercury's getopt string has no flag for it.
     static bool mercuryPublic();                 // default false
     static void setMercuryPublic(bool on);
 

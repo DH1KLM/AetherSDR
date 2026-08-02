@@ -161,6 +161,10 @@ QByteArray cmdVersion();
 QByteArray cmdMyCall(const QStringList& callsigns);  // caller must pass 1..5
 QByteArray cmdListen(bool on);
 QByteArray cmdListenCq();
+// Mercury-only (MercuryV2 docs/TNC.md). VARA has no equivalent: it makes the
+// modem accept incoming CALL frames regardless of the destination callsign
+// ("promiscuous"), which only has an effect while LISTEN is on. Default OFF.
+QByteArray cmdPublic(bool on);
 QByteArray cmdConnect(const QString& source, const QString& destination);
 QByteArray cmdDisconnect();
 QByteArray cmdAbort();
