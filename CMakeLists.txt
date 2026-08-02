@@ -595,6 +595,15 @@ set(CORE_SOURCES
     src/core/backends/hl2/Hl2Backend.cpp     # aetherd HL2 Phase 1b (IRadioBackend impl)
     src/core/backends/hl2/Hl2Discovery.cpp   # aetherd HL2 Phase 1c (HPSDR discovery -> picker)
     src/core/backends/hl2/Hl2Settings.cpp    # owned config object, "Hl2" root key (Principle V)
+    src/core/backends/icom/IcomProtocol.cpp  # IcomCIV Phase 0 (RS-BA1 UDP transport)
+    src/core/backends/icom/CivCodec.cpp      # IcomCIV Phase 1 (CI-V command plane, transport-free)
+    src/core/backends/icom/IcomStream.cpp    # IcomCIV Phase 0 (one UDP stream + ARQ)
+    src/core/backends/icom/IcomSession.cpp   # IcomCIV Phase 0 (handshake orchestration)
+    src/core/backends/icom/IcomScope.cpp     # IcomCIV Phase 2 (0x27 waveform -> panadapter)
+    src/core/backends/icom/IcomAudio.cpp     # IcomCIV Phase 3 (codecs + the 1364/556 split)
+    src/core/backends/icom/IcomMeters.cpp    # IcomCIV Phase 4 (calibration + poll scheduler)
+    src/core/backends/icom/IcomModels.cpp    # IcomCIV Phase 5 (per-model capability table)
+    src/core/backends/icom/IcomCivBackend.cpp # IcomCIV (IRadioBackend impl)
     src/core/dsp/WdspChannel.cpp
     ${AETHER_SETTINGS_SOURCES}
     src/core/RadioStateMemory.cpp   # RFC #4603 client-side radio memory
@@ -2907,6 +2916,16 @@ add_executable(icom_audio_test
 target_include_directories(icom_audio_test PRIVATE src)
 add_test(NAME icom_audio_test COMMAND icom_audio_test)
 
+# IcomCIV phases 4-5 — meter calibration curves, the poll scheduler (driven by
+# a synthetic clock), and the per-model capability table.
+add_executable(icom_meters_test
+    tests/icom_meters_test.cpp
+    src/core/backends/icom/IcomMeters.cpp
+    src/core/backends/icom/IcomModels.cpp
+    src/core/backends/icom/CivCodec.cpp)
+target_include_directories(icom_meters_test PRIVATE src)
+add_test(NAME icom_meters_test COMMAND icom_meters_test)
+
 # IcomCIV phases 0-3 end to end — the session against a fake IC-705 on
 # localhost. This is what proves the ORDER of the RS-BA1 handshake, which is the
 # part of the protocol Icom documents nowhere.
@@ -2918,9 +2937,16 @@ add_executable(icom_session_test
     src/core/backends/icom/CivCodec.cpp
     src/core/backends/icom/IcomScope.cpp
     src/core/backends/icom/IcomAudio.cpp)
-target_include_directories(icom_session_test PRIVATE src)
+target_include_directories(icom_session_test PRIVATE src tests)
 target_link_libraries(icom_session_test PRIVATE Qt6::Core Qt6::Network)
 add_test(NAME icom_session_test COMMAND icom_session_test)
+
+# IcomCIV backend seam test — the IRadioBackend implementor against the fake
+# IC-705, with the TCI/WSJT-X audio contract as the load-bearing assertion.
+add_executable(icom_backend_test tests/icom_backend_test.cpp)
+target_include_directories(icom_backend_test PRIVATE src tests)
+target_link_libraries(icom_backend_test PRIVATE aethercore Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME icom_backend_test COMMAND icom_backend_test)
 
 # IcomCIV live probe — REQUIRES A REAL RADIO, so deliberately NOT registered
 # with add_test(). Receive-only: it never sends a PTT command.

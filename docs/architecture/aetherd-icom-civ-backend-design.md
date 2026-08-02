@@ -227,7 +227,48 @@ wfview's per-rig `Periodic\N\Command` list with priorities is the proven shape.
 This should be a named component (`IcomMeters`) with its own test, not a timer
 sprinkled through the backend.
 
-### Gap C — the scope is not calibrated
+### Gap C — the seam's audio contract is 24 kHz stereo, and the radio is 48 kHz mono
+
+Not an Icom problem — a seam fact that is nowhere written down, and that this
+backend is the third to have to rediscover.
+
+Everything downstream of `sliceAudioFrameReady` consumes **interleaved stereo
+float32 at 24 kHz**. The evidence is spread across three files and no single one
+states it:
+
+- `Hl2RxDsp::audioReady(const std::vector<float>& stereoPcm)` — the parameter
+  name is the only declaration of channel order.
+- `Hl2RxDsp::Config::audioSampleRateHz = 24000` — the only declaration of rate.
+- `TciServer::onDaxAudioReady` divides by `2 * sizeof(float)` for the frame
+  count and constructs `Resampler(24000.0, cs.audioSampleRate, …)` — the only
+  place the two facts appear together, and it is in the consumer.
+
+The Icom delivers **48 kHz mono**, because that is what the RS-BA1 stream
+negotiates. So the backend owns a conversion, and **both halves of it are
+load-bearing**:
+
+| Skipped | Symptom |
+|---|---|
+| Rate conversion | Playback runs an octave low. WSJT-X sees every tone at twice its frequency and decodes nothing. |
+| Channel duplication | `TciServer` divides by `2 * sizeof(float)` and sees half the frames it has. |
+
+Both failures are **silent** — audio flows, meters move, the session is healthy.
+That is why `icom_backend_test` asserts the ratio (4800 mono samples in at 48 kHz
+→ ~2400 stereo frames out at 24 kHz) rather than merely asserting that audio
+arrived, and why it also asserts the *negative*: a passthrough would emit ~4800
+frames, so the test fails a backend that skipped the conversion.
+
+`Resampler::processMonoToStereo` does both halves in one call. It is stateful
+(r8brain), so the instance is built once at connect — a fresh one per callback
+restarts the filter history every block, which is audible as a periodic tick.
+
+**One TCI channel, and that is the whole requirement for WSJT-X.** Slice 0 →
+DAX channel 1 → TRX 0, via the existing `MainWindow_Session` wiring
+(`onDaxAudioReady(sliceId + 1, pcm)`). Nothing Icom-specific is needed in
+`TciServer`; the backend only has to emit the right bytes and publish a slice
+for the routing to resolve against.
+
+### Gap D — the scope is not calibrated
 
 `spectrumFrameReady` carries float dBm on the HL2 path. The Icom scope is 0–160
 display units relative to the `27 19` reference level, and Icom publishes no
@@ -268,14 +309,23 @@ a second receiver or a WebSDR, per `feedback-verify-outside-the-system`. A TX
 path that looks perfect from inside AetherSDR and is silent on the air is the
 exact failure mode this project has already been bitten by.
 
-**Phase 4 — meters and health.** `IcomMeters` with the poll scheduler and the
-calibration curves. Proof: S-meter tracks a signal generator; Po meter tracks a
-wattmeter into a dummy load.
+**Phase 4 — meters and health.** `IcomMeters`: the published calibration curves
+plus a poll scheduler with four rules (visible-only, TX/RX split, one request in
+flight, yield to user commands). The scheduler takes an injected clock so the
+policy is provable in microseconds rather than by watching a radio. Proof on
+hardware later: S-meter against a signal generator, Po against a wattmeter into
+a dummy load.
 
-**Phase 5 — breadth.** Model discovery via `19 00`, the per-model capability
-table, and CI-V over a **local serial port** with the network layer bypassed.
-That last one is a small increment and it brings in every non-networked Icom
-(IC-7300 and up), which is the strongest argument for the `IcomCIV` name.
+**Phase 5 — breadth.** Model discovery via `19 00` and a per-model capability
+table keyed by CI-V address. Only the IC-705 row is `verified`; every other row
+says so, and the unknown-model fallback is deliberately conservative (no scope,
+no transmit) because an unrecognised radio advertised as scope-capable wires a
+panadapter to a command it may not implement.
+
+**CI-V over a local serial port is DEFERRED, not cancelled.** It brings in every
+non-networked Icom (IC-7300 and up) and is the strongest argument for the
+`IcomCIV` name, which is why `CivCodec` is already transport-free — the increment
+is a transport class, not a rewrite.
 
 ---
 
