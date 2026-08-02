@@ -1844,6 +1844,8 @@ QJsonObject audioSnapshot(const AudioEngine* audio)
         {QStringLiteral("receivePresentationOutputSignalSuppressedCount"),
             static_cast<double>(
                 audio->receivePresentationOutputSignalSuppressedCount())},
+        {QStringLiteral("opusTxPacing"),
+            audio->opusTxPacingDiagnostics()},
         {QStringLiteral("endpoints"),
             audio->audioEndpointDiagnostics()},
     };
