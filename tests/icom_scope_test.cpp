@@ -101,6 +101,54 @@ static void testCentreModeHalfWidth()
           "5 kHz to 1 MHz total — this is why Icom zoom SNAPS");
 }
 
+static void testScrollModesAndNegativeEdge()
+{
+    // All four scope modes are REAL on the IC-7300MK2 — its CI-V guide lists
+    // 00/01/02/03 for 0x27 0x14. The IC-705's guide lists only 00 and 01, so
+    // the mode set is per-model. Geometrically the scroll modes behave like
+    // Fixed: lower and upper edges direct, no centre+span conversion.
+    std::vector<std::uint8_t> wave(kScopePointsIc705, 60);
+    ScopeDecoder d;
+
+    auto scrollF = d.feed(makeFirst(1, 1, ScopeMode::ScrollF, 7'000'000, 7'200'000, false, wave));
+    check(scrollF.has_value(), "a SCROLL-F sweep decodes");
+    check(scrollF->mode == ScopeMode::ScrollF, "and keeps its own mode label");
+    check(scrollF->startHz == 7'000'000 && scrollF->endHz == 7'200'000,
+          "with edges taken directly, like Fixed — no centre+span conversion");
+
+    auto scrollC = d.feed(makeFirst(1, 1, ScopeMode::ScrollC, 3'500'000, 3'800'000, false, wave));
+    check(scrollC.has_value() && scrollC->mode == ScopeMode::ScrollC, "and SCROLL-C likewise");
+
+    // A NEGATIVE lower edge. Near the bottom of the tuning range a wide span
+    // puts the window below 0 Hz, and Icom flags it with 0xF in the 1 GHz
+    // nibble. Before the signed decode this rejected the byte and dropped the
+    // WHOLE sweep — so the panadapter went black at exactly the setting that
+    // produces it.
+    std::vector<std::uint8_t> body;
+    body.push_back(0x00);
+    body.push_back(encodeBcdByte(1));
+    body.push_back(encodeBcdByte(1));
+    body.push_back(static_cast<std::uint8_t>(ScopeMode::Fixed));
+    auto lower = encodeFreq(200'000);
+    lower.back() |= 0xF0;                       // -200 kHz
+    const auto upper = encodeFreq(800'000);
+    body.insert(body.end(), lower.begin(), lower.end());
+    body.insert(body.end(), upper.begin(), upper.end());
+    body.push_back(0x00);
+    body.insert(body.end(), wave.begin(), wave.end());
+    auto wire = buildFrameSub(kIc705, cmd::kScope, scope::kWaveData, body);
+
+    ScopeDecoder neg;
+    auto f = neg.feed(*parseFrame(wire));
+    check(f.has_value(), "a sweep with a NEGATIVE lower edge is decoded, not dropped");
+    check(f && f->startHz == -200'000, "the lower edge really is negative");
+    check(f && f->endHz == 800'000, "the upper edge is unaffected");
+    // Clamping the start to zero would keep the number plausible and silently
+    // shrink the span, so every bin would map to the wrong frequency.
+    check(f && f->bandwidthHz() == 1'000'000, "and the span stays correct at 1 MHz, not 800 kHz");
+    check(f && f->centreHz() == 300'000, "so the centre lands where the radio means it");
+}
+
 static void testOutOfRange()
 {
     // The radio OMITS the waveform when out of range, so the packet is short.
@@ -198,6 +246,7 @@ int main()
 {
     testWlanSinglePacket();
     testCentreModeHalfWidth();
+    testScrollModesAndNegativeEdge();
     testOutOfRange();
     testUsbMultiDivision();
     testDivisionGapIsAbandoned();

@@ -205,6 +205,28 @@ std::optional<std::uint64_t> decodeFreq(std::span<const std::uint8_t> bcd)
     return hz;
 }
 
+std::optional<std::int64_t> decodeFreqSigned(std::span<const std::uint8_t> bcd)
+{
+    if (bcd.empty() || bcd.size() > 8)
+        return std::nullopt;
+
+    // The sign lives in the HIGH nibble of the LAST byte (the 1 GHz digit).
+    // 0xF means negative; 0x0 means positive. Anything else is not BCD.
+    std::vector<std::uint8_t> magnitude(bcd.begin(), bcd.end());
+    const std::uint8_t topNibble = (magnitude.back() >> 4) & 0x0f;
+    bool negative = false;
+    if (topNibble == 0x0f) {
+        negative = true;
+        magnitude.back() &= 0x0f;   // strip the flag before decoding the digits
+    }
+
+    auto value = decodeFreq(magnitude);
+    if (!value)
+        return std::nullopt;
+    const auto signedValue = static_cast<std::int64_t>(*value);
+    return negative ? -signedValue : signedValue;
+}
+
 std::array<std::uint8_t, 2> encodeLevel(int value)
 {
     const int v = std::clamp(value, 0, 9999);

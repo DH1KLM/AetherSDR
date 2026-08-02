@@ -40,11 +40,13 @@ struct ScopeGeometry {
 enum class ScopeMode : std::uint8_t {
     Centre = 0x00,
     Fixed  = 0x01,
-    // The IC-705's CI-V guide documents only 00 and 01 for the mode byte, but
-    // larger radios (and wfview's rig files) carry two scroll modes. We accept
-    // them on decode and treat them as Fixed rather than rejecting the frame:
-    // an unknown mode on a radio we did not expect it from should degrade the
-    // labelling, not blank the panadapter.
+    // REAL, and confirmed tier-1 on the IC-7300MK2, whose CI-V guide lists all
+    // four values for 0x27 0x14. The IC-705's guide lists only 00 and 01, so
+    // the mode set is per-model rather than universal.
+    //
+    // Geometrically the scroll modes behave like Fixed — they report lower and
+    // upper edges directly rather than centre+span — which is why the decoder
+    // needs no separate branch for them. Only the label differs.
     ScrollC = 0x02,
     ScrollF = 0x03,
 };
@@ -54,8 +56,14 @@ struct ScopeFrame {
     ScopeMode mode = ScopeMode::Centre;
     // Edges, in Hz, ALREADY normalised out of whichever representation the
     // radio used — see the note on Centre mode in IcomScope.cpp.
-    std::uint64_t startHz = 0;
-    std::uint64_t endHz   = 0;
+    //
+    // SIGNED, and startHz really can be negative: the IC-7300MK2's guide
+    // documents a sign flag on the lower edge for when a wide span sits near
+    // the bottom of the tuning range and the window extends below 0 Hz.
+    // Clamping it to zero here would keep the number plausible and silently
+    // shrink the span, so every bin would map to the wrong frequency.
+    std::int64_t startHz = 0;
+    std::int64_t endHz   = 0;
     // The radio is telling us the scope cannot show this range. When set, the
     // radio OMITS the waveform data entirely and the packet is short; we still
     // produce a frame (floor-filled) rather than dropping it, because a stalled
@@ -64,8 +72,8 @@ struct ScopeFrame {
     // Raw display units, 0..160. NOT dBm — see toDbm().
     std::vector<std::uint8_t> raw;
 
-    [[nodiscard]] std::uint64_t centreHz() const noexcept { return (startHz + endHz) / 2; }
-    [[nodiscard]] std::uint64_t bandwidthHz() const noexcept
+    [[nodiscard]] std::int64_t centreHz() const noexcept { return (startHz + endHz) / 2; }
+    [[nodiscard]] std::int64_t bandwidthHz() const noexcept
     {
         return endHz > startHz ? endHz - startHz : 0;
     }

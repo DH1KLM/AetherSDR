@@ -136,6 +136,19 @@ inline constexpr std::size_t kFreqBytes = 5;
                                                     std::size_t bytes = kFreqBytes);
 [[nodiscard]] std::optional<std::uint64_t> decodeFreq(std::span<const std::uint8_t> bcd);
 
+// A scope EDGE frequency, which can be NEGATIVE.
+//
+// The IC-7300MK2's CI-V guide documents `0xF` in the 1 GHz digit — the high
+// nibble of the last byte — as a sign flag meaning the lower edge is negative.
+// That happens when a wide span sits near the bottom of the tuning range, so
+// the scope window extends below 0 Hz.
+//
+// decodeFreq() stays STRICT and rejects it, deliberately: an OPERATING
+// frequency is never negative, and a corrupt one that decodes to something
+// still retunes the radio — on transmit that is an out-of-band emission. Only
+// the scope decoder should reach for this variant.
+[[nodiscard]] std::optional<std::int64_t> decodeFreqSigned(std::span<const std::uint8_t> bcd);
+
 // A 0000..9999 value as two BCD bytes, big-endian. This is the shape of every
 // level, meter reading and menu index in the protocol.
 [[nodiscard]] std::array<std::uint8_t, 2> encodeLevel(int value);

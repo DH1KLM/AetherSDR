@@ -72,8 +72,14 @@ std::optional<ScopeFrame> ScopeDecoder::feed(const CivFrame& frame)
         if (frame.data.size() < header)
             return std::nullopt;
 
-        const auto a = decodeFreq(std::span<const std::uint8_t>(frame.data).subspan(kOffFreqA, freqBytes));
-        const auto b = decodeFreq(
+        // SIGNED, because a lower edge genuinely can be negative — the
+        // IC-7300MK2 flags it with 0xF in the 1 GHz nibble when a wide span
+        // sits near the bottom of the tuning range. The strict unsigned decode
+        // would reject the byte and drop the entire sweep, so the panadapter
+        // would go black at exactly the setting that produces it.
+        const auto a = decodeFreqSigned(
+            std::span<const std::uint8_t>(frame.data).subspan(kOffFreqA, freqBytes));
+        const auto b = decodeFreqSigned(
             std::span<const std::uint8_t>(frame.data).subspan(kOffFreqA + freqBytes, freqBytes));
         if (!a || !b)
             return std::nullopt;
@@ -82,7 +88,7 @@ std::optional<ScopeFrame> ScopeDecoder::feed(const CivFrame& frame)
             // Centre mode reports CENTRE and SPAN, and Icom's span is a
             // HALF-WIDTH — the front panel reads "±100k" and the display covers
             // 200 kHz. So the edges are centre ∓ span, not centre ∓ span/2.
-            m_partial.startHz = (*a > *b) ? (*a - *b) : 0;
+            m_partial.startHz = *a - *b;
             m_partial.endHz   = *a + *b;
         } else {
             // Fixed (and both scroll modes) report the edges directly.

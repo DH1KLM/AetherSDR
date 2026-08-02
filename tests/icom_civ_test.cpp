@@ -87,6 +87,23 @@ static void testBcd()
     const std::vector<std::uint8_t> corrupt{0x00, 0x5A, 0x19, 0x14, 0x00};
     check(!decodeFreq(corrupt).has_value(), "a non-BCD nibble is rejected, not clamped");
 
+    // SCOPE EDGES can be negative. The IC-7300MK2's guide documents 0xF in the
+    // 1 GHz digit — the high nibble of the last byte — as a sign flag, for when
+    // a wide span sits near the bottom of the tuning range and the window
+    // extends below 0 Hz.
+    auto lower = encodeFreq(500'000);
+    lower.back() |= 0xF0;                       // flag it negative
+    check(!decodeFreq(lower).has_value(),
+          "the STRICT decoder still rejects it — an operating frequency is never negative");
+    auto signedLower = decodeFreqSigned(lower);
+    check(signedLower.has_value() && *signedLower == -500'000,
+          "but the signed decoder reads it as -500 kHz");
+    // Positive values must survive the signed path unchanged.
+    check(decodeFreqSigned(encodeFreq(14'195'000)).value_or(0) == 14'195'000,
+          "and a positive edge decodes identically through the signed path");
+    // Corruption must still be refused, sign flag or not.
+    check(!decodeFreqSigned(corrupt).has_value(), "the signed decoder is not a corruption bypass");
+
     // EVERYTHING ELSE runs BIG-endian.
     auto lvl = encodeLevel(255);
     check(lvl[0] == 0x02 && lvl[1] == 0x55, "level 0255 is big-endian BCD");

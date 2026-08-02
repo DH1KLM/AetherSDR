@@ -7,16 +7,21 @@ namespace {
 
 // The table.
 //
-// Only the IC-705 row is `verified`. Its numbers come from Icom's own CI-V
-// Reference Guide: 475 waveform points, data range 0..160, division max 1 over
-// WLAN and 11 over USB, one receiver, one scope (0x27 0x12 and 0x27 0x13 are
-// both fixed at 00), 10 W out.
+// TWO rows are `verified`, meaning their numbers were read out of that model's
+// OWN Icom CI-V Reference Guide (both are in sources/icom-official/):
+//
+//   IC-705      475 points, range 0..160, division max 1 over WLAN / 11 over
+//               USB, one receiver, one scope (0x27 0x12 and 0x27 0x13 are both
+//               fixed at 00), 10 W.
+//   IC-7300MK2  CI-V address 0xB6 (the guide's own frame diagram reads
+//               FE FE E0 B6), 475 points, range 0..160, LAN data length 490,
+//               0.03-74.8 MHz, and all FOUR scope modes.
 //
 // The rest are cross-referenced hardware facts and are marked unverified. Each
 // one needs its own model's CI-V guide read before this backend advertises
 // support for it — the shape of the transport is shared, the command table and
 // scope geometry are not.
-constexpr std::array<IcomModel, 6> kModels{{
+constexpr std::array<IcomModel, 7> kModels{{
     {
         /*civAddress*/ 0xA4, /*name*/ "IC-705",
         /*receivers*/ 1, /*vfos*/ 2,
@@ -68,6 +73,27 @@ constexpr std::array<IcomModel, 6> kModels{{
         true, 100.0,
         30'000ULL, 74'800'000ULL,
         false,
+    },
+    {
+        // IC-7300MK2 — VERIFIED against Icom's own CI-V Reference Guide
+        // (IC-7300MK2_ENG_CI-V_0), which is in sources/icom-official/.
+        //
+        // The big difference from the original IC-7300: it has a LAN PORT, so
+        // it speaks the RS-BA1 transport and this backend reaches it directly
+        // rather than needing Icom's server as a front end. The guide's own
+        // words: over LAN "it is sent all at once", over USB "divided into 11
+        // segments" — the same division-max 01/11 split as the IC-705.
+        //
+        // Its guide also states the LAN data length as 490 bytes, which
+        // independently confirms the 15-byte first-division header this
+        // decoder computes (3 + 1 + 5*2 + 1 == 15, and 15 + 475 == 490).
+        0xB6, "IC-7300MK2", 1, 2,
+        /*hasNetwork*/ true, /*hasWifi*/ false,   // Ethernet, not WiFi
+        /*hasScope*/ true, 475, 160, 11,
+        kFreqBytes,
+        true, 100.0,
+        30'000ULL, 74'800'000ULL,
+        /*verified*/ true,
     },
     {
         // SIX-BYTE FREQUENCIES above 10 GHz. A codec written against a

@@ -236,6 +236,29 @@ static void testModelTable()
     const IcomModel* ic7300 = modelForCivAddress(0x94);
     check(ic7300 && !ic7300->hasNetwork, "the IC-7300 has no network transport");
 
+    // The MK2 is the same radio family with a LAN port bolted on, and that one
+    // difference is what puts it in reach of this backend directly rather than
+    // through Icom's RS-BA1 server. Verified from its own CI-V guide, whose
+    // frame diagram reads FE FE E0 B6.
+    const IcomModel* mk2 = modelForCivAddress(0xB6);
+    check(mk2 != nullptr, "the IC-7300MK2 is in the table");
+    check(mk2 && mk2->name == "IC-7300MK2", "by name");
+    check(mk2 && mk2->hasNetwork, "and unlike the original IC-7300 it HAS a network transport");
+    check(mk2 && !mk2->hasWifi, "Ethernet, not WiFi — the IC-705 is the WiFi one");
+    check(mk2 && mk2->verified, "its numbers came from its own Icom CI-V guide");
+    check(mk2 && mk2->scopePoints == 475 && mk2->scopeMaxAmplitude == 160,
+          "475 points, 0..160");
+    check(mk2 && mk2->tuningMaxHz == 74'800'000ULL, "0.03 to 74.8 MHz");
+    check(ic7300 && mk2 && ic7300->civAddress != mk2->civAddress,
+          "and it is a DIFFERENT CI-V address from the original — 0x94 vs 0xB6");
+
+    // The MK2's guide states the LAN data length as 490 bytes. That is an
+    // independent confirmation of the 15-byte first-division header this
+    // decoder computes: 3 + 1 + 5*2 + 1 == 15, and 15 + 475 == 490. If the
+    // header maths were ever changed, this arithmetic would stop agreeing with
+    // a number Icom published.
+    check(15 + mk2->scopePoints == 490, "15-byte header + 475 points == the published 490");
+
     check(modelForCivAddress(0x01) == nullptr,
           "an unrecognised address resolves to nothing — a normal outcome, not an error");
     check(!knownModels().empty(), "the table is populated");
