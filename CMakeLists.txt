@@ -2922,6 +2922,21 @@ target_include_directories(icom_session_test PRIVATE src)
 target_link_libraries(icom_session_test PRIVATE Qt6::Core Qt6::Network)
 add_test(NAME icom_session_test COMMAND icom_session_test)
 
+# IcomCIV live probe — REQUIRES A REAL RADIO, so deliberately NOT registered
+# with add_test(). Receive-only: it never sends a PTT command.
+#   cmake --build build --target icom_live_probe
+#   ./build/icom_live_probe ic-705.local <user> <password>
+add_executable(icom_live_probe EXCLUDE_FROM_ALL
+    tests/icom_live_probe.cpp
+    src/core/backends/icom/IcomSession.cpp
+    src/core/backends/icom/IcomStream.cpp
+    src/core/backends/icom/IcomProtocol.cpp
+    src/core/backends/icom/CivCodec.cpp
+    src/core/backends/icom/IcomScope.cpp
+    src/core/backends/icom/IcomAudio.cpp)
+target_include_directories(icom_live_probe PRIVATE src)
+target_link_libraries(icom_live_probe PRIVATE Qt6::Core Qt6::Network)
+
 # HL2 live band-filter probe — REQUIRES REAL HARDWARE, so deliberately NOT
 # registered with add_test(). Build it and run it by hand against a radio:
 #   cmake --build build --target hl2_live_band_filter_probe
