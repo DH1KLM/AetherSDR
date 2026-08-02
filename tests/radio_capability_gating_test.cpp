@@ -71,8 +71,9 @@
 #include "core/backends/flex/FlexBackend.h"
 #include "core/backends/sim/SimBackend.h"
 
+#include "TestEventLoop.h"
+
 #include <QCoreApplication>
-#include <QDeadlineTimer>
 #include <QSignalSpy>
 
 #include <cstdio>
@@ -85,56 +86,15 @@ static void check(bool ok, const char* what)
     if (!ok) { std::fprintf(stderr, "FAIL: %s\n", what); ++g_failures; }
 }
 
-// Wait for a queued cross-thread signal, or give up at a real deadline.
-//
-// The obvious `for (200x) processEvents(AllEvents, 10)` does NOT do this. That
-// argument is a MAXIMUM, not a wait — processEvents() strips WaitForMoreEvents
-// and returns immediately on an empty queue — so all 200 iterations drain in
-// microseconds and the loop exits having waited approximately zero. It reads as
-// a 2-second budget and is a zero-second one.
-//
-// Measured with a standalone Qt 6.10.3 probe firing a worker-thread signal
-// after N ms. The old loop exited after 0 ms and MISSED it at every N tried
-// (5, 50, 200, 1000, 3000) — it never waited at all. This form catches it at
-// each of those and returns as the signal arrives (0 ms at N=0, 201 ms at
-// N=200), timing out only past the deadline.
-//
-// So both edge assertions here passed on luck — on whether the emission
-// happened to be queued already — which is why this test failed intermittently
-// on assertions unrelated to whatever was under review (#4693).
-//
-// count() is tested FIRST because wait() waits for the NEXT emission and would
-// miss one already delivered. 5 s is a timeout, not a duration: the normal path
-// returns in well under a millisecond.
-//
-// Sliced rather than one wait(timeoutMs) call, deliberately. QSignalSpy exits
-// its nested loop from the EMITTING thread, so a cross-thread emission racing
-// loop entry can in principle lose the wake; the outer re-check of count() then
-// recovers it at the cost of one slice, where a single un-sliced wait() would
-// sit out the whole timeout. That race is REPORTED on Qt 6.11 (a 0 ms emission
-// returning at 102 ms — one slice late, recovered), but it has not reproduced in
-// either attempt to measure it: Qt 6.10.3/Windows, 440 trials across four
-// emission delays with 220 under 14-way CPU contention, and Qt 6.11.1/Linux, 800
-// trials over the same delays with half under load. Both runs put the sliced and
-// un-sliced forms within a millisecond of each other at zero misses.
-//
-// The slicing stays on that asymmetry, then, not on a confirmed race: it costs
-// nothing when it does not trigger, and if the report is right an un-sliced
-// wait() turns one slice of latency into a full-timeout stall. So do not
-// collapse these into a single wait() on the strength of a probe that comes back
-// clean — that is the expected result on both versions measured so far.
-//
-// Retire this helper for AetherTest::waitForSignal() once #4699 lands. That PR
-// consolidates the spellings of this wait into tests/TestEventLoop.h but does
-// not touch this file, so until it is migrated the test that motivated the
-// shared helper is the one place still carrying a private copy of it.
-static bool waitForSpy(QSignalSpy& spy, int timeoutMs = 5000)
-{
-    QDeadlineTimer deadline(timeoutMs);
-    while (spy.count() == 0 && !deadline.hasExpired())
-        spy.wait(static_cast<int>(qMin<qint64>(100, deadline.remainingTime())));
-    return spy.count() > 0;
-}
+// This file is where the shared wait came from: it spun on an iteration count
+// (`for (200x) processEvents(AllEvents, 10)`), which waits approximately zero
+// because processEvents() strips WaitForMoreEvents and returns immediately on an
+// empty queue. Both edge assertions below therefore passed on luck — on whether
+// the emission happened to be queued already — and lost that luck on a loaded
+// box (#4693). AetherTest::waitForSignal() is that fix, generalised; the trap
+// itself is pinned as a negative case in tests/test_event_loop_test.cpp so it
+// cannot quietly stop being a trap. See tests/TestEventLoop.h for the full
+// account and for which helper to reach for.
 
 // The exact expression MainWindow::applyCapabilitiesToUi() applies to every
 // capability-gated surface. Stated once here so the assertions below read as
@@ -346,7 +306,7 @@ int main(int argc, char** argv)
         // chain has been delivered here. Asserting it before the relay has landed
         // means a worker that has not been scheduled at all inverts every
         // connected-branch assertion in this block, not just this one. (#4693)
-        const bool relayFired = waitForSpy(spy);
+        const bool relayFired = AetherTest::waitForSignal(spy);
 
         // Without it applyCapabilitiesToUi() never runs and every gated surface
         // keeps the previous radio's answer.
@@ -428,7 +388,7 @@ int main(int argc, char** argv)
         QSignalSpy spy(&model, &RadioModel::capabilitiesChanged);
         model.disconnectFromRadio();
         // Same ordering as the connect edge above, for the same reason. (#4693)
-        const bool relayFired = waitForSpy(spy);
+        const bool relayFired = AetherTest::waitForSignal(spy);
         check(relayFired,
               "relay: capabilitiesChanged fired on the disconnect edge");
         check(!model.isConnected(), "disconnected from the synthetic demo radio");

@@ -3628,6 +3628,18 @@ target_include_directories(mono_dsp_stereo_adapter_test PRIVATE src)
 target_link_libraries(mono_dsp_stereo_adapter_test PRIVATE Qt6::Core)
 add_test(NAME mono_dsp_stereo_adapter_test COMMAND mono_dsp_stereo_adapter_test)
 
+# tests/TestEventLoop.h is test infrastructure that makes correctness claims, so
+# it carries its own proof — including a negative case that pins the #4693
+# iteration-count idiom as genuinely broken, so the trap cannot quietly stop
+# being a trap. No aethercore link: the header depends only on Qt, and keeping
+# the target minimal means it still builds when the app does not. Every case
+# drives a worker thread, which is the delivery path the helpers exist to
+# observe.
+add_executable(test_event_loop_test tests/test_event_loop_test.cpp)
+target_include_directories(test_event_loop_test PRIVATE tests)
+target_link_libraries(test_event_loop_test PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME test_event_loop_test COMMAND test_event_loop_test)
+
 # Just the voice fixture — linking the full resources.qrc pulled 5.8 MB of
 # application assets into a unit test to reach one 458 KB WAV (PR #4689 review).
 qt_add_resources(RNNOISE_FILTER_TEST_RESOURCES tests/rnnoise_filter_test.qrc)
@@ -4508,7 +4520,7 @@ add_executable(ax25_link_timing_test
     src/core/AsyncLogWriter.cpp
     ${AETHER_SETTINGS_SOURCES}
 )
-target_include_directories(ax25_link_timing_test PRIVATE src)
+target_include_directories(ax25_link_timing_test PRIVATE src tests)
 target_link_libraries(ax25_link_timing_test PRIVATE Qt6::Core)
 add_test(NAME ax25_link_timing_test COMMAND ax25_link_timing_test)
 
@@ -4821,7 +4833,7 @@ add_test(NAME hl2_family_transition_test COMMAND hl2_family_transition_test)
 # both connection edges, and the `!connected || caps.hasX` rule the GUI applies
 # restores the permissive value on disconnect.
 add_executable(radio_capability_gating_test tests/radio_capability_gating_test.cpp)
-target_include_directories(radio_capability_gating_test PRIVATE src)
+target_include_directories(radio_capability_gating_test PRIVATE src tests)
 target_link_libraries(radio_capability_gating_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME radio_capability_gating_test COMMAND radio_capability_gating_test)
 
