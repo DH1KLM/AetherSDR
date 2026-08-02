@@ -2876,6 +2876,52 @@ add_executable(hl2_metis_protocol_test
 target_include_directories(hl2_metis_protocol_test PRIVATE src)
 add_test(NAME hl2_metis_protocol_test COMMAND hl2_metis_protocol_test)
 
+# IcomCIV wire layers — pure encode/decode, standalone (no Qt / aethercore).
+# An Icom networked radio is two protocols stacked: CI-V is the command plane
+# and RS-BA1 is the UDP transport it travels inside. Both halves unit-test
+# without a socket, and CivCodec is deliberately transport-free so a future
+# USB / local-serial mode reuses it unchanged.
+add_executable(icom_protocol_test
+    tests/icom_protocol_test.cpp
+    src/core/backends/icom/IcomProtocol.cpp)
+target_include_directories(icom_protocol_test PRIVATE src)
+add_test(NAME icom_protocol_test COMMAND icom_protocol_test)
+
+add_executable(icom_civ_test
+    tests/icom_civ_test.cpp
+    src/core/backends/icom/CivCodec.cpp)
+target_include_directories(icom_civ_test PRIVATE src)
+add_test(NAME icom_civ_test COMMAND icom_civ_test)
+
+add_executable(icom_scope_test
+    tests/icom_scope_test.cpp
+    src/core/backends/icom/IcomScope.cpp
+    src/core/backends/icom/CivCodec.cpp)
+target_include_directories(icom_scope_test PRIVATE src)
+add_test(NAME icom_scope_test COMMAND icom_scope_test)
+
+add_executable(icom_audio_test
+    tests/icom_audio_test.cpp
+    src/core/backends/icom/IcomAudio.cpp
+    src/core/backends/icom/IcomProtocol.cpp)
+target_include_directories(icom_audio_test PRIVATE src)
+add_test(NAME icom_audio_test COMMAND icom_audio_test)
+
+# IcomCIV phases 0-3 end to end — the session against a fake IC-705 on
+# localhost. This is what proves the ORDER of the RS-BA1 handshake, which is the
+# part of the protocol Icom documents nowhere.
+add_executable(icom_session_test
+    tests/icom_session_test.cpp
+    src/core/backends/icom/IcomSession.cpp
+    src/core/backends/icom/IcomStream.cpp
+    src/core/backends/icom/IcomProtocol.cpp
+    src/core/backends/icom/CivCodec.cpp
+    src/core/backends/icom/IcomScope.cpp
+    src/core/backends/icom/IcomAudio.cpp)
+target_include_directories(icom_session_test PRIVATE src)
+target_link_libraries(icom_session_test PRIVATE Qt6::Core Qt6::Network)
+add_test(NAME icom_session_test COMMAND icom_session_test)
+
 # HL2 live band-filter probe — REQUIRES REAL HARDWARE, so deliberately NOT
 # registered with add_test(). Build it and run it by hand against a radio:
 #   cmake --build build --target hl2_live_band_filter_probe
