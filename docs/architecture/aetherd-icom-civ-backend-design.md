@@ -584,3 +584,85 @@ third byte. `filterForWidthHz()` snaps a width request onto them correctly, but
 the UI still offers the full Flex step list, so most of its steps land on the
 same three filters. The reachable set is a capability the backend should
 publish, the same way the RF-gain control was narrowed to three preamp detents.
+
+---
+
+## Appendix D — Applet control inventory
+
+Which controls on the surfaces the operator uses actually reach this radio.
+
+**Method, and its limit.** This is a WIRING inventory traced from source: a
+control is "linked" when its intent reaches an `IRadioBackend` verb that
+`IcomCivBackend` overrides. It is not a live drive test — nothing below was
+confirmed by moving the control and watching the radio, so a control marked
+linked could still be wrong in its units or its scaling. Treat this as the map
+of what CAN work, and `radiocert` plus a live pass as the check on whether it
+DOES.
+
+### D.1 The structural finding
+
+**Most receive-DSP controls do not use the seam at all.** `SliceModel::setNr`,
+`setAnf`, `setNb`, `setSquelch` and the audio setters emit FlexRadio wire text:
+
+```cpp
+void SliceModel::setNr(bool on) {
+    m_nr = on;
+    sendCommand(QString("slice set %1 nr=%2").arg(m_id).arg(on ? 1 : 0));
+}
+```
+
+On a Flex that string is the command. On every other backend it is discarded —
+there is no `IRadioBackend` verb for any of them, so no backend can implement
+one however much it wants to. The control moves, the model updates, the UI
+agrees with itself, and the radio never hears about it.
+
+This is the same shape as lesson 1.5 (the bridge is not the UI) one layer down,
+and it is why the Icom's `hasRadioSideDsp = true` currently buys nothing: the
+capability says the radio's own firmware runs NR/NB/notch, and the intents to
+drive them have nowhere to go. **These need seam verbs before any backend but
+Flex can honour them**, and the CI-V commands are all mapped and waiting
+(`16 22` NB, `16 40` NR, `16 41` ANF, `16 48` manual notch, `14 03` squelch).
+
+### D.2 By surface
+
+| Surface | Control | State |
+|---|---|---|
+| **VFO / slice flag** | frequency | ✅ `setSliceFrequency` |
+| | mode | ✅ `setSliceMode` |
+| | S-meter flag | ✅ `SLC:LEVEL` |
+| | RIT / XIT | ⚠️ backend + CI-V done, **no control emits the intent** |
+| **S-meter applet** | level display | ✅ |
+| **RX Controls** | AGC mode | ✅ `setSliceAgc` (FAST/MID/SLOW) |
+| | AGC threshold | ❌ accepted and discarded — the radio has no threshold register |
+| | preamp / RF gain | ✅ `setPanRfGain` → 3-position preamp |
+| | filter width | ⚠️ `setSliceFilter` snaps to FIL1/2/3; **UI offers the full Flex list** |
+| | NR / NB / ANF / notch | ❌ **no seam verb** (D.1) |
+| | squelch | ❌ **no seam verb** (D.1) |
+| | AF gain / mute / pan | ❌ seam verbs exist, backend does not implement |
+| **TX Controls** | MOX / PTT | ✅ `setKeying` |
+| | TUNE | ✅ `setTune` |
+| | RF power | ✅ `setTxPower` |
+| | power / SWR gauges | ✅ (units fixed; unverified on hardware) |
+| | TX filter | ❌ `setTxFilter` not implemented (`16 58` unmapped) |
+| **Phone / CW** | PROC enable + NOR/DX/DX+ | ✅ `setSpeechProcessor` (`16 44` + `14 0E`) |
+| | ALC / Compression gauges | ✅ (ALC scale fixed; unverified) |
+| | Level gauge | ⛔ hidden — this radio publishes no mic meter |
+| | mic source | ✅ collapsed to PC by capability |
+| | mic gain | ❌ `setMicGain` not implemented (`14 0B` mapped, unused) |
+| | monitor | ❌ `setTxAudioMonitor` not implemented (`16 45` + `14 15` mapped) |
+| | VOX | ❌ no seam verb (`16 46` + `14 16` mapped) |
+| | CW speed / pitch / break-in | ❌ no seam verb (`14 0C`, `14 09` mapped; `16 47` unmapped) |
+| **Status bar** | voltage | ✅ `RAD:+13.8A` |
+| | temperature | ⛔ no temperature meter exists in CI-V |
+| | radio name / model | ✅ from the handshake + `19 00` |
+| | hostname / alias | ⚠️ shows the connect address; the radio's own name is in the capabilities packet and unused |
+
+### D.3 The cheap wins, in order
+
+1. **`setMicGain`, `setTxAudioMonitor`** — seam verbs already exist, CI-V
+   already mapped, backend override is a few lines each.
+2. **Filter-width capability** — publish the three reachable filters the way
+   the RF-gain control publishes its three preamp detents.
+3. **RIT/XIT control** — the whole path below the UI is done.
+4. **Seam verbs for receive DSP** (D.1) — the largest and the one that unblocks
+   every non-Flex backend, not just this one.
