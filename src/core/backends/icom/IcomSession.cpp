@@ -1,6 +1,7 @@
 #include "core/backends/icom/IcomSession.h"
 
 #include <QLoggingCategory>
+#include <QThread>
 #include <QTimer>
 
 namespace AetherSDR::icom {
@@ -89,10 +90,33 @@ void IcomSession::stop()
             *t = nullptr;
         }
     }
-    // Media streams first, control last: the control stream owns the session
-    // the others hang off, and tearing it down first leaves the radio holding
-    // two half-open streams until they time out.
-    for (IcomStream** s : {&m_serial, &m_audio, &m_control}) {
+    // DEAUTHENTICATE BEFORE TEARING DOWN.
+    //
+    // A per-stream disconnect (type 0x05) closes the STREAMS; it does not end
+    // the SESSION. The radio goes on holding the authenticated session until it
+    // times out, and the next login is refused — which is exactly the
+    // "auth failed on reconnect" the operator hit, and why a retry a minute
+    // later works. kappanhang sends auth 0x01 here for the same reason.
+    //
+    // Sent TWICE like every other control packet: this is the one packet whose
+    // loss the radio cannot ask us to retransmit, because we stop listening
+    // immediately afterwards.
+    if (m_control && m_control->isReady()) {
+        const auto bye = buildAuth(m_control->localSessionId(),
+                                   m_control->remoteSessionId(), m_innerSeq++, m_authId,
+                                   AuthKind::Deauth);
+        m_control->sendRaw(bye);
+        m_control->sendRaw(bye);
+        // Long enough for the datagram to leave and the radio to act on it,
+        // short enough not to stall a disconnect visibly. kappanhang waits
+        // 500 ms; it can afford to, being a daemon with no UI thread.
+        QThread::msleep(150);
+    }
+
+    // Control FIRST now. It owns the session the other two hang off, so the
+    // deauth above must be the last thing the radio hears from us — tearing the
+    // media streams down first would put two more disconnects after it.
+    for (IcomStream** s : {&m_control, &m_serial, &m_audio}) {
         if (*s) {
             (*s)->stop();
             (*s)->deleteLater();
@@ -211,7 +235,26 @@ void IcomSession::onControlPayload(const QByteArray& packet)
     case static_cast<qsizetype>(kLenStatus):
         switch (parseStatus(pkt)) {
         case StatusKind::AuthFailed:
-            fail(QStringLiteral("authentication failed — try power-cycling the radio"));
+            // ONLY FATAL BEFORE THE STREAMS ARE GRANTED.
+            //
+            // On a RECONNECT the radio sends this after the new session is
+            // fully established — login accepted, capabilities read, streams
+            // granted, token accepted, both media streams handshaking — and
+            // then one 0x50 carrying the failure sentinel. It is reporting the
+            // teardown of the PREVIOUS session, not a failure of this one.
+            //
+            // Treating it as fatal killed a working session every time, which
+            // is what the "auth error on reconnect" actually was. kappanhang
+            // hits the same packet and distinguishes the two cases by whether
+            // its streams had opened; this is that test, applied to the grant.
+            if (m_streamsRequested && m_authOk) {
+                qCWarning(lcIcom) << "status reports an auth failure AFTER the streams were "
+                                     "granted — treating as the previous session's teardown, "
+                                     "not this one's";
+                return;
+            }
+            fail(QStringLiteral("authentication failed — check the user name and password, "
+                                "or power-cycle the radio"));
             return;
         case StatusKind::Disconnected:
             fail(QStringLiteral("the radio dropped the session"));

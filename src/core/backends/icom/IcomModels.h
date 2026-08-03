@@ -72,6 +72,16 @@ struct IcomModel {
 // has ~130 CI-V addresses and this table has a handful.
 [[nodiscard]] const IcomModel* modelForCivAddress(std::uint8_t addr);
 
+// Look up by the name the radio reports in its RS-BA1 capabilities packet
+// ("IC-705"). That name arrives during the HANDSHAKE — before the session is
+// connected — whereas the CI-V address needs a 0x19 0x00 round trip on a
+// stream that does not exist yet. So this is what resolves the model in time
+// for the connect-edge capability publication; the address corrects it after.
+//
+// Matched case-insensitively and ignoring '-' so "IC705" and "ic-705" both
+// land, since the field is free text set on the radio.
+[[nodiscard]] const IcomModel* modelForName(std::string_view name);
+
 // Every model in the table.
 [[nodiscard]] std::span<const IcomModel> knownModels();
 

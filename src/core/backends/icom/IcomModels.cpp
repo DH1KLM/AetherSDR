@@ -1,6 +1,8 @@
 #include "core/backends/icom/IcomModels.h"
 
 #include <array>
+#include <cctype>
+#include <string>
 
 namespace AetherSDR::icom {
 namespace {
@@ -128,6 +130,30 @@ const IcomModel* modelForCivAddress(std::uint8_t addr)
 {
     for (const auto& m : kModels)
         if (m.civAddress == addr)
+            return &m;
+    return nullptr;
+}
+
+namespace {
+std::string canonicalName(std::string_view in)
+{
+    std::string out;
+    for (char c : in) {
+        if (c == '-' || c == ' ' || c == '_')
+            continue;
+        out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+    }
+    return out;
+}
+}  // namespace
+
+const IcomModel* modelForName(std::string_view name)
+{
+    if (name.empty())
+        return nullptr;
+    const std::string wanted = canonicalName(name);
+    for (const auto& m : kModels)
+        if (canonicalName(m.name) == wanted)
             return &m;
     return nullptr;
 }

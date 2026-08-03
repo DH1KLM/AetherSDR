@@ -197,6 +197,22 @@ void IcomCivBackend::onSessionConnected(const QString& deviceName)
     m_deviceName = deviceName;
     m_connected = true;
 
+    // RESOLVE THE MODEL FROM THE NAME, NOW.
+    //
+    // capabilities() answers from m_model, which starts as unknownModel() —
+    // deliberately conservative: no scope, NO TRANSMIT. That default is right
+    // for a radio we cannot characterise, and wrong the moment we can: the
+    // 0x19 0x00 address query needs a serial stream that does not exist until
+    // after this point, so anything reading capabilities on the connect edge
+    // saw canTransmit=false and refused to key a radio that transmits fine.
+    // radiocert's meters and tx phases both did exactly that.
+    //
+    // The capabilities packet already told us the name during the handshake, so
+    // use it. The address query still runs and still wins — it is the
+    // authority, this is just early enough to be useful.
+    if (const IcomModel* byName = modelForName(deviceName.toStdString()))
+        m_model = byName;
+
     // The radio's audio is 48 kHz mono; the seam's per-slice contract is 24 kHz
     // interleaved stereo. Built once here rather than per-buffer: r8brain is
     // stateful, and a fresh instance per callback restarts its filter history
