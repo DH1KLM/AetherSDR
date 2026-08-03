@@ -1,6 +1,6 @@
 # Radio certification — lessons and roadmap
 
-Lessons 1.1–1.18 came from the Hermes-Lite 2 bring-up. **1.19–1.25 came from the
+Lessons 1.1–1.18 came from the Hermes-Lite 2 bring-up. **1.19–1.26 came from the
 Icom IC-705**, the first radio brought up with `radiocert` in hand rather than
 after the fact — which is the point of the tool, and a useful check on it: some
 of what follows is a defect radiocert found, and some is a gap in radiocert
@@ -383,6 +383,35 @@ without TX now reports the inventory and a non-zero refusal count.
 
 ---
 
+### 1.26 Transmit state must be polled, not inferred from your own commands
+
+The operator keyed the IC-705 from its own front-panel PTT, watched the radio's
+meters move, and saw nothing at all in AetherSDR. Every transmit meter was
+defined, calibrated against Icom's own guide, and published under the right
+source — and none of them was ever *requested*.
+
+Two independent causes, either one sufficient:
+
+* `m_keyed` was set only by our own `setKeying()` and by an unsolicited
+  `1C 00` frame — and that frame arrives only if CI-V Transceive is enabled on
+  the radio. A backend that learns it is transmitting **only from its own
+  outbound commands** is blind to every other way the radio can be keyed:
+  front-panel PTT, a foot switch, VOX, a second client.
+* The five TX meters were never added to the poller's *visible* set, so even
+  with the keyed flag correct nothing would have asked for them.
+
+The failure mode is the nastiest kind — a meter that reads zero looks
+identical to a meter that is working and measuring nothing. The RX/TX split
+that suppresses transmit meters while receiving is right (they read zero and
+look like a fault), which is exactly why the state driving it has to come from
+the radio.
+
+**Consequence.** Poll `1C 00` on a slow cadence — 250 ms is plenty; it only has
+to *notice* a transmission, and it shares the CI-V stream with tuning. Fixed in
+`2d5ed841`; hardware confirmation under key still outstanding.
+
+---
+
 ## 2. Next steps
 
 ### 2.1 The radio profile — highest leverage
@@ -446,7 +475,7 @@ visible rather than quietly skipped.
 | Sideband stage saturates | even at 5 % drive into a dummy load a few inches away; needs inline attenuation or a second receiver |
 | Wire-convention stimulus harness (§1.4) | inject synthetic IQ at the backend boundary; needs no radio and would have caught the receive inversion |
 | **Reconnect stage** (§1.21) | connect / disconnect / immediately reconnect; nothing in the suite exercises teardown today, and a leaked session is invisible until the second connect |
-| **Icom `TX:SWR` / `TX:FWDPWR` / `TX:ALC` / `TX:COMPPEAK` defined but never fed** | the poller only requests TX meters while transmitting, and radiocert keys through its own path, so the flag never flips |
+| ~~**Icom `TX:SWR` / `TX:FWDPWR` / `TX:ALC` / `TX:COMPPEAK` defined but never fed**~~ | **Fixed in `2d5ed841`** (§1.26) — transmit state is now polled from the radio rather than inferred from our own commands, and the five TX meters are marked visible at connect. Root cause was a front-panel PTT the backend could not see. **Confirm on hardware under key.** |
 | **Icom `micSelection` still reports `MIC`** | the applet narrows the dropdown to PC on a radio whose input a client cannot choose, but the underlying TransmitModel value is not migrated — so preconditions warns TX audio capture is not running |
 | **Icom pan/waterfall agreement unverified** (§2.2) | reported by the operator, not reproduced; the capture shows them aligned. Needs the off-centre signal check, which is exactly what §2.2 would automate |
 
