@@ -1460,6 +1460,12 @@ void AppletPanel::applyCapabilityVisibility(const QString& id,
     applyBarLayout();
 }
 
+void AppletPanel::setRadioFilterWidths(const QList<int>& widthsHz)
+{
+    if (m_rxApplet)
+        m_rxApplet->setRadioFilterWidths(widthsHz);
+}
+
 void AppletPanel::setMicLevelMeterAvailable(bool available)
 {
     if (m_phoneCwApplet)

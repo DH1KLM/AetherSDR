@@ -326,6 +326,36 @@ public:
     // Two enables and one offset, because that is the shape every radio that
     // has them uses — including the IC-705, where they are 21 01, 21 02 and
     // 21 00. A radio without RIT simply does not implement these.
+    // RECEIVE DSP THE RADIO'S OWN FIRMWARE RUNS — the set gated by
+    // capabilities().hasRadioSideDsp.
+    //
+    // These arrived late, and their absence was a silent hole rather than a
+    // missing feature. SliceModel drove every one of them by emitting FlexRadio
+    // wire text ("slice set 0 nr=1"), which IS the command on a Flex and is
+    // discarded everywhere else — and with no verb here, no other backend could
+    // implement them however much it wanted to. So hasRadioSideDsp was a
+    // capability that promised something the seam had no way to deliver.
+    //
+    // Enable and level travel together: a radio with a level register generally
+    // needs both to make either meaningful, and splitting them is how a toggle
+    // lands before the level it implies. A backend without a level ignores it.
+    virtual void setSliceNoiseReduction(int sliceId, bool on, int level)
+    {
+        Q_UNUSED(sliceId); Q_UNUSED(on); Q_UNUSED(level);
+    }
+    virtual void setSliceNoiseBlanker(int sliceId, bool on, int level)
+    {
+        Q_UNUSED(sliceId); Q_UNUSED(on); Q_UNUSED(level);
+    }
+    virtual void setSliceAutoNotch(int sliceId, bool on)
+    {
+        Q_UNUSED(sliceId); Q_UNUSED(on);
+    }
+    virtual void setSliceSquelch(int sliceId, bool on, int level)
+    {
+        Q_UNUSED(sliceId); Q_UNUSED(on); Q_UNUSED(level);
+    }
+
     virtual void setRitEnabled(bool on) { Q_UNUSED(on); }
     virtual void setXitEnabled(bool on) { Q_UNUSED(on); }
     virtual void setRitOffset(int hz) { Q_UNUSED(hz); }

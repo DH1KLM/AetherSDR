@@ -76,6 +76,12 @@ public:
     void setTune(bool on, int tunePowerPercent = -1) override;
     void setTxPower(int percent) override;
     void setSpeechProcessor(bool on, int level) override;
+    void setMicGain(int gainPercent) override;
+    void setTxAudioMonitor(bool on) override;
+    void setSliceNoiseReduction(int sliceId, bool on, int level) override;
+    void setSliceNoiseBlanker(int sliceId, bool on, int level) override;
+    void setSliceAutoNotch(int sliceId, bool on) override;
+    void setSliceSquelch(int sliceId, bool on, int level) override;
     void setRitEnabled(bool on) override;
     void setXitEnabled(bool on) override;
     void setRitOffset(int hz) override;

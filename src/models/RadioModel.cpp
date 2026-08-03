@@ -1051,6 +1051,38 @@ void RadioModel::setupBackend(const QString& family)
                     [this, s](const QString& mode, int thresholdDb) {
                 if (m_backend) m_backend->setSliceAgc(s->sliceId(), mode, thresholdDb);
             });
+            // Receive DSP the radio runs. Same reasoning as AGC above: the
+            // applet toggles drive SliceModel, whose Flex wire text a non-Flex
+            // backend never sees, so without these the controls move and the
+            // radio's own NR/NB/notch/squelch keep whatever state they had.
+            connect(s, &SliceModel::noiseReductionCommandIssued, this,
+                    [this, s](bool on, int level) {
+                if (m_backend) m_backend->setSliceNoiseReduction(s->sliceId(), on, level);
+            });
+            connect(s, &SliceModel::noiseBlankerCommandIssued, this,
+                    [this, s](bool on, int level) {
+                if (m_backend) m_backend->setSliceNoiseBlanker(s->sliceId(), on, level);
+            });
+            connect(s, &SliceModel::autoNotchCommandIssued, this, [this, s](bool on) {
+                if (m_backend) m_backend->setSliceAutoNotch(s->sliceId(), on);
+            });
+            connect(s, &SliceModel::squelchCommandIssued, this,
+                    [this, s](bool on, int level) {
+                if (m_backend) m_backend->setSliceSquelch(s->sliceId(), on, level);
+            });
+            // RIT / XIT. The control already existed in VfoWidget and drove
+            // SliceModel; only the last hop to the seam was missing.
+            connect(s, &SliceModel::ritCommandIssued, this, [this](bool on, int hz) {
+                if (!m_backend) return;
+                m_backend->setRitEnabled(on);
+                m_backend->setRitOffset(hz);
+            });
+            connect(s, &SliceModel::xitCommandIssued, this, [this](bool on, int hz) {
+                if (!m_backend) return;
+                m_backend->setXitEnabled(on);
+                m_backend->setRitOffset(hz);
+            });
+
             wireSliceAudioIntentsToBackend(s);
             m_slices.append(s);
             s->applyChanges(mapped);

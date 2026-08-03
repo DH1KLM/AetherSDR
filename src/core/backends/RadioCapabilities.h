@@ -146,6 +146,18 @@ struct RadioCapabilities {
     // looks like a hardware fault.
     bool hasSelectableMicInputs = false;
 
+    // The RX filter widths this radio can actually reach, in Hz. EMPTY means
+    // "continuous, or unknown" and the UI keeps its own configurable list.
+    //
+    // Populated by a radio whose IF filters are a fixed, short set: the IC-705
+    // has exactly three (FIL1/FIL2/FIL3), so the applet's full FlexRadio width
+    // list gives most of its steps the same result and the operator gets a row
+    // of buttons that mostly do nothing. Same treatment the RF-gain slider got
+    // when it was narrowed to the three preamp detents that physically exist —
+    // advertise the real, discrete set rather than let a continuous-looking
+    // control sweep over hardware that cannot follow it.
+    QList<int> rxFilterWidthsHz;
+
     // The RADIO stores named configuration profiles (global / TX / mic) that a
     // client can list, load and save. The seam already carries ProfileDelta and
     // profileChanged in both directions; this is the flag that says whether the

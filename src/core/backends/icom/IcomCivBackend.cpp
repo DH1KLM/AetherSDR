@@ -121,6 +121,14 @@ RadioCapabilities IcomCivBackend::capabilities() const
     // cannot pick MIC / BAL / LINE / ACC, so the Phone applet collapses to PC.
     c.hasSelectableMicInputs = false;
 
+    // THREE, and only three. filterForWidthHz() already snaps a request onto
+    // them; this is what stops the UI offering widths that all land on the same
+    // filter. The values are the radio's own SSB defaults, which the operator
+    // can redefine in its SET menu and we cannot read back — so these are the
+    // best available labels, not a promise about the passband.
+    if (m_model->hasScope || m_model->isKnown())
+        c.rxFilterWidthsHz = {1800, 2400, 3000};
+
     c.hasProfiles = false;
     c.hasWaveforms = false;
     c.hasMultiClientSessions = false;
@@ -723,6 +731,57 @@ void IcomCivBackend::setSpeechProcessor(bool on, int level)
     const int preset = std::clamp(level, 0, 2);
     const int raw = kProcLevels[static_cast<std::size_t>(preset)] * 255 / 10;
     sendUserCommand(cmdSetLevel(addr, level::kCompLevel, raw));
+}
+
+void IcomCivBackend::setMicGain(int gainPercent)
+{
+    sendUserCommand(cmdSetLevel(m_session ? m_session->civAddress() : 0xA4,
+                                level::kMicGain, percentToRaw(gainPercent)));
+}
+
+void IcomCivBackend::setTxAudioMonitor(bool on)
+{
+    // The FUNCTION only. The radio has a separate monitor LEVEL (14 15) and no
+    // seam verb carries it, so setting it here would either overwrite whatever
+    // the operator dialled in on the radio or invent a value — both worse than
+    // leaving their own setting alone and toggling what was actually asked for.
+    sendUserCommand(cmdSetFunction(m_session ? m_session->civAddress() : 0xA4,
+                                   func::kMonitorFn, on ? 1 : 0));
+}
+
+void IcomCivBackend::setSliceNoiseReduction(int, bool on, int level)
+{
+    const std::uint8_t addr = m_session ? m_session->civAddress() : 0xA4;
+    sendUserCommand(cmdSetFunction(addr, func::kNoiseReduce, on ? 1 : 0));
+    // The level register survives the function being switched off, so pushing
+    // it while disabled would silently change what the operator gets back when
+    // they re-enable. Only touch it when it can take effect.
+    if (on)
+        sendUserCommand(cmdSetLevel(addr, level::kNrLevel, percentToRaw(level)));
+}
+
+void IcomCivBackend::setSliceNoiseBlanker(int, bool on, int level)
+{
+    const std::uint8_t addr = m_session ? m_session->civAddress() : 0xA4;
+    sendUserCommand(cmdSetFunction(addr, func::kNoiseBlanker, on ? 1 : 0));
+    if (on)
+        sendUserCommand(cmdSetLevel(addr, level::kNbLevel, percentToRaw(level)));
+}
+
+void IcomCivBackend::setSliceAutoNotch(int, bool on)
+{
+    sendUserCommand(cmdSetFunction(m_session ? m_session->civAddress() : 0xA4,
+                                   func::kAutoNotch, on ? 1 : 0));
+}
+
+void IcomCivBackend::setSliceSquelch(int, bool on, int level)
+{
+    // NO SQUELCH ENABLE EXISTS on this radio — the threshold IS the control,
+    // and squelch is "off" when it sits at zero. Mapping the UI's toggle onto
+    // the threshold is the only honest translation available; the alternative
+    // is a switch that does nothing.
+    sendUserCommand(cmdSetLevel(m_session ? m_session->civAddress() : 0xA4,
+                                level::kSquelch, on ? percentToRaw(level) : 0));
 }
 
 void IcomCivBackend::setRitEnabled(bool on)

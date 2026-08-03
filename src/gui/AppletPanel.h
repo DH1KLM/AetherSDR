@@ -182,6 +182,7 @@ public:
     // Capability passthrough to the Phone/CW applet — same shape as above.
     void setSelectableMicInputs(bool selectable);
     void setMicLevelMeterAvailable(bool available);
+    void setRadioFilterWidths(const QList<int>& widthsHz);
 
     // Show/hide the DAX and DAX-IQ buttons and applets based on whether the
     // connected radio produces per-slice audio / per-pan IQ streams

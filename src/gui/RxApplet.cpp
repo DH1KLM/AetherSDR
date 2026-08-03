@@ -2558,13 +2558,14 @@ void RxApplet::applyFilterPreset(int widthHz)
 
 void RxApplet::stepFilterWidth(int direction)
 {
-    if (!m_slice || m_filterWidths.isEmpty() || direction == 0) return;
+    const QVector<int>& stepWidths = effectiveFilterWidths();
+    if (!m_slice || stepWidths.isEmpty() || direction == 0) return;
 
     const int currentWidth = m_slice->filterHigh() - m_slice->filterLow();
     int idx = 0;
     int bestDist = std::numeric_limits<int>::max();
-    for (int i = 0; i < m_filterWidths.size(); ++i) {
-        const int dist = std::abs(currentWidth - m_filterWidths[i]);
+    for (int i = 0; i < stepWidths.size(); ++i) {
+        const int dist = std::abs(currentWidth - stepWidths[i]);
         if (dist < bestDist) { bestDist = dist; idx = i; }
     }
     const int next = std::clamp(idx + (direction > 0 ? 1 : -1),
@@ -2623,12 +2624,16 @@ void RxApplet::updateFilterButtons()
     int bestIdx = -1;
     int bestDist = INT_MAX;
     if (width >= 0) {
-        for (int i = 0; i < m_filterWidths.size(); ++i) {
-            int dist = std::abs(width - m_filterWidths[i]);
+        // Through the EFFECTIVE list, like the buttons themselves — reading the
+        // operator's list here while the buttons were built from the radio's
+        // would highlight a button by an index into a different array.
+        const QVector<int>& widths = effectiveFilterWidths();
+        for (int i = 0; i < widths.size(); ++i) {
+            int dist = std::abs(width - widths[i]);
             if (dist < bestDist) { bestDist = dist; bestIdx = i; }
         }
         // Only highlight if reasonably close (within 10% of the preset width)
-        if (bestIdx >= 0 && bestDist > m_filterWidths[bestIdx] / 10)
+        if (bestIdx >= 0 && bestDist > widths[bestIdx] / 10)
             bestIdx = -1;
     }
 
@@ -2737,6 +2742,15 @@ void RxApplet::updateModeSettings(const QString& mode)
     if (m_slice) updateFilterButtons();
 }
 
+void RxApplet::setRadioFilterWidths(const QList<int>& widthsHz)
+{
+    QVector<int> wanted(widthsHz.begin(), widthsHz.end());
+    if (wanted == m_radioFilterWidths)
+        return;   // rides capabilitiesChanged, which repeats on every edge
+    m_radioFilterWidths = wanted;
+    rebuildFilterButtons();
+}
+
 void RxApplet::rebuildFilterButtons()
 {
     // Remove old buttons
@@ -2744,16 +2758,24 @@ void RxApplet::rebuildFilterButtons()
     m_filterBtns.clear();
 
     // Create new buttons matching current mode's filter widths
-    for (int i = 0; i < m_filterWidths.size(); ++i) {
-        const int w = m_filterWidths[i];
+    const QVector<int>& widths = effectiveFilterWidths();
+    // Custom edges belong to the OPERATOR'S presets. A radio-declared set is
+    // fixed hardware — there is no edge to customise — so the parallel arrays
+    // are only consulted when that list is the one in force, which is also what
+    // keeps them from being indexed out of range by a shorter radio list.
+    const bool customisable = m_radioFilterWidths.isEmpty();
+    for (int i = 0; i < widths.size(); ++i) {
+        const int w = widths[i];
         auto* btn = mkToggle(formatStepLabel(w));
         btn->setStyleSheet(kButtonBase() + kBlueActive());
-        connect(btn, &QPushButton::clicked, this, [this, i](bool) {
+        connect(btn, &QPushButton::clicked, this, [this, i, customisable](bool) {
             if (!m_slice) return;
-            if (m_filterCustomLo[i] != INT_MIN) {
+            const QVector<int>& live = effectiveFilterWidths();
+            if (i >= live.size()) return;
+            if (customisable && m_filterCustomLo[i] != INT_MIN) {
                 m_slice->setFilterWidth(m_filterCustomLo[i], m_filterCustomHi[i]);
             } else {
-                applyFilterPreset(m_filterWidths[i]);
+                applyFilterPreset(live[i]);
             }
         });
 
