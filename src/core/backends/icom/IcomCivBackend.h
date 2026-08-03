@@ -186,6 +186,24 @@ private:
     // not WLAN then every byte of network audio is discarded and the radio
     // transmits its own microphone or nothing at all, at zero forward power,
     // with no error anywhere in the protocol.
+    // TUNE composes its own carrier, because on this radio nothing else will.
+    //
+    // The radio modulates from the audio WE send. Keying in SSB with silence
+    // therefore produces no carrier at all — which is why TUNE stopped working
+    // the moment MOD Input was corrected to WLAN: before that the radio was
+    // modulating ambient room noise from its own microphone, and that happened
+    // to be enough for an antenna tuner to see something.
+    //
+    // The tone REPLACES the outgoing audio inside submitTxAudio rather than
+    // being generated on a timer, so its cadence is the transmit callback's
+    // cadence and it cannot drift against the stream it is riding.
+    bool m_tuning = false;
+    double m_tunePhase = 0.0;
+    static constexpr double kTuneToneHz = 1500.0;
+    // -6 dBFS. Loud enough for a tuner to read instantly, short of the clipping
+    // that would splatter a carrier the operator is deliberately leaving up.
+    static constexpr float kTuneToneAmplitude = 0.5f;
+
     int m_dataOffModInput = -1;   // SSB / CW / AM / FM
     int m_dataModInput    = -1;   // data modes (FT8 and friends)
     void checkModInput();

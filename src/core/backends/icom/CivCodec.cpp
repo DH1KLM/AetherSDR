@@ -448,6 +448,16 @@ std::array<std::uint8_t, 2> settingItemBcd(int item)
 }
 }  // namespace
 
+std::vector<std::uint8_t> cmdReadLevel(std::uint8_t to, std::uint8_t which)
+{
+    return buildFrameSub(to, cmd::kLevel, which);
+}
+
+std::vector<std::uint8_t> cmdReadFunction(std::uint8_t to, std::uint8_t which)
+{
+    return buildFrameSub(to, cmd::kFunction, which);
+}
+
 std::vector<std::uint8_t> cmdReadSetting(std::uint8_t to, int item)
 {
     const auto bcd = settingItemBcd(item);

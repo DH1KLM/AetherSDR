@@ -330,6 +330,11 @@ enum class CivMode : std::uint8_t {
 [[nodiscard]] std::vector<std::uint8_t> cmdReadMode(std::uint8_t to);
 [[nodiscard]] std::vector<std::uint8_t> cmdSetLevel(std::uint8_t to, std::uint8_t which, int value);
 [[nodiscard]] std::vector<std::uint8_t> cmdReadMeter(std::uint8_t to, std::uint8_t which);
+// The READ forms of 0x14 and 0x16 — same subcommand, no payload. The radio
+// answers with the current value, which is the only way to open a control at
+// the position the radio is actually in rather than at our own default.
+[[nodiscard]] std::vector<std::uint8_t> cmdReadLevel(std::uint8_t to, std::uint8_t which);
+[[nodiscard]] std::vector<std::uint8_t> cmdReadFunction(std::uint8_t to, std::uint8_t which);
 [[nodiscard]] std::vector<std::uint8_t> cmdSetFunction(std::uint8_t to, std::uint8_t which,
                                                         int value);
 [[nodiscard]] std::vector<std::uint8_t> cmdSetPtt(std::uint8_t to, bool transmit);

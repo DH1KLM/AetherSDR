@@ -207,6 +207,7 @@ void IcomCivBackend::disconnectRadio()
     // read it back, so "unknown" is the only honest starting point — carrying
     // the last session's belief would suppress the first command that matters.
     m_nrEnableSent = m_nbEnableSent = m_anfEnableSent = -1;
+    m_tuning = false;
     if (m_connected) {
         m_connected = false;
         emit disconnected();
@@ -259,6 +260,28 @@ void IcomCivBackend::onSessionConnected(const QString& deviceName)
                                       setting::kDataOffModInput));
     m_session->sendCiv(cmdReadSetting(m_session->civAddress(),
                                       setting::kDataModInput));
+
+    // ADOPT THE RADIO'S OWN LEVELS. Constitution II/III says an Icom is
+    // authoritative over its operating state and the client must never push a
+    // restored one — but that cuts both ways, and the reading half was missing.
+    // Every control opened at its construction default instead: the power
+    // slider said one thing while the radio ran at another, and the first touch
+    // of any control JUMPED the radio to the UI's invented value rather than
+    // nudging it from where it actually was.
+    //
+    // Read-only. Nothing here writes; each answer is decoded in onCivFrame and
+    // published as a delta, exactly as an unsolicited change would be.
+    for (std::uint8_t which : {level::kRfPower, level::kAf, level::kSquelch,
+                               level::kMicGain, level::kCompLevel,
+                               level::kNrLevel, level::kNbLevel})
+        m_session->sendCiv(cmdReadLevel(m_session->civAddress(), which));
+
+    // ...and the switches, which have the same problem: the applet toggles all
+    // read "off" on a radio that may have NR or the compressor running.
+    for (std::uint8_t fn : {func::kPreamp, func::kAgc, func::kNoiseReduce,
+                            func::kNoiseBlanker, func::kAutoNotch,
+                            func::kCompressor, func::kMonitorFn, func::kVox})
+        m_session->sendCiv(cmdReadFunction(m_session->civAddress(), fn));
 
     applyScopeStartup();
 
@@ -490,6 +513,115 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
         return;
     }
 
+    // THE RADIO'S OWN LEVELS AND SWITCHES, adopted into the models.
+    //
+    // These arrive as answers to the connect-time reads above, and also
+    // unsolicited whenever the operator turns a knob on the radio — the same
+    // decode serves both, which is what keeps the UI honest while someone is
+    // standing at the rig.
+    case cmd::kLevel: {
+        if (!frame.hasSub)
+            return;
+        const auto raw = decodeLevel(frame.data);
+        if (!raw)
+            return;
+        // 0..255 back to the 0..100 every AetherSDR control uses.
+        const int pct = std::clamp((*raw * 100 + 127) / 255, 0, 100);
+        switch (frame.sub) {
+        case level::kRfPower: {
+            m_txPowerPercent = pct;
+            TransmitDelta t; t.rfPower = pct;
+            emit transmitChanged(t);
+            return;
+        }
+        case level::kMicGain: {
+            TransmitDelta t; t.micLevel = pct;
+            emit transmitChanged(t);
+            return;
+        }
+        case level::kCompLevel: {
+            // The radio's 0..10 compressor mapped back onto NOR/DX/DX+.
+            TransmitDelta t;
+            t.speechProcLevel = pct;
+            emit transmitChanged(t);
+            return;
+        }
+        case level::kAf: {
+            SliceDelta d; d.audioGain = pct;
+            emit sliceChanged(sliceId(), d);
+            return;
+        }
+        case level::kSquelch: {
+            SliceDelta d;
+            d.squelchLevel = pct;
+            // NO SEPARATE ENABLE on this radio — the threshold IS the control,
+            // so a non-zero threshold is what "squelch on" means here.
+            d.squelchOn = pct > 0;
+            emit sliceChanged(sliceId(), d);
+            return;
+        }
+        case level::kNrLevel: {
+            SliceDelta d; d.nrLevel = pct;
+            emit sliceChanged(sliceId(), d);
+            return;
+        }
+        case level::kNbLevel: {
+            SliceDelta d; d.nbLevel = pct;
+            emit sliceChanged(sliceId(), d);
+            return;
+        }
+        default:
+            return;
+        }
+    }
+
+    case cmd::kFunction: {
+        if (!frame.hasSub || frame.data.empty())
+            return;
+        const int v = frame.data[0];
+        switch (frame.sub) {
+        case func::kNoiseReduce: {
+            m_nrEnableSent = v ? 1 : 0;   // adopt, so we do not re-send it
+            SliceDelta d; d.nr = (v != 0);
+            emit sliceChanged(sliceId(), d);
+            return;
+        }
+        case func::kNoiseBlanker: {
+            m_nbEnableSent = v ? 1 : 0;
+            SliceDelta d; d.nb = (v != 0);
+            emit sliceChanged(sliceId(), d);
+            return;
+        }
+        case func::kAutoNotch: {
+            m_anfEnableSent = v ? 1 : 0;
+            SliceDelta d; d.anf = (v != 0);
+            emit sliceChanged(sliceId(), d);
+            return;
+        }
+        case func::kCompressor: {
+            TransmitDelta t; t.speechProcEnable = (v != 0);
+            emit transmitChanged(t);
+            return;
+        }
+        case func::kAgc: {
+            // 01 FAST, 02 MID, 03 SLOW.
+            SliceDelta d;
+            d.agcMode = v == 1 ? QStringLiteral("fast")
+                      : v == 3 ? QStringLiteral("slow")
+                               : QStringLiteral("med");
+            emit sliceChanged(sliceId(), d);
+            return;
+        }
+        case func::kPreamp: {
+            SliceDelta d; d.rfGain = v;
+            emit sliceChanged(sliceId(), d);
+            return;
+        }
+        default:
+            return;
+        }
+    }
+
     case cmd::kSetting: {
         // 1A 05 <item hi> <item lo> <value>
         if (!frame.hasSub || frame.sub != 0x05 || frame.data.size() < 3)
@@ -541,7 +673,19 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
 
     case cmd::kControl: {
         if (frame.hasSub && frame.sub == control::kPtt && !frame.data.empty()) {
-            m_keyed = frame.data[0] != 0;
+            const bool keyed = frame.data[0] != 0;
+            // ON CHANGE ONLY. This is the answer to a poll that runs four times
+            // a second, and it used to republish the transmit state on every
+            // one of them — a 4 Hz stream of "the radio is transmitting" events
+            // riding on top of every transmission, each re-applied through
+            // TransmitModel and everything downstream of it.
+            //
+            // Republishing unchanged state is never merely wasteful on a path
+            // this hot: it is indistinguishable, to every consumer, from the
+            // state having just changed.
+            if (keyed == m_keyed)
+                return;
+            m_keyed = keyed;
             m_meters.setTransmitting(m_keyed);
             TransmitDelta t;
             t.mox = m_keyed;
@@ -602,9 +746,24 @@ void IcomCivBackend::submitTxAudio(const QByteArray& int16Stereo, int sampleRate
         return;
     const auto* src = reinterpret_cast<const qint16*>(int16Stereo.constData());
     std::vector<float> mono(static_cast<std::size_t>(frames));
-    for (int i = 0; i < frames; ++i)
-        mono[static_cast<std::size_t>(i)] =
-            (src[i * 2] + src[i * 2 + 1]) * 0.5f / 32768.0f;
+    if (m_tuning) {
+        // A TUNE carrier, synthesised in place of whatever the engine sent.
+        // Phase is carried across buffers: restarting it each block would put a
+        // discontinuity at the block rate, which is a click every few
+        // milliseconds and splatter either side of the carrier.
+        const double step = 2.0 * M_PI * kTuneToneHz / static_cast<double>(sampleRateHz);
+        for (int i = 0; i < frames; ++i) {
+            mono[static_cast<std::size_t>(i)] =
+                kTuneToneAmplitude * static_cast<float>(std::sin(m_tunePhase));
+            m_tunePhase += step;
+            if (m_tunePhase > 2.0 * M_PI)
+                m_tunePhase -= 2.0 * M_PI;
+        }
+    } else {
+        for (int i = 0; i < frames; ++i)
+            mono[static_cast<std::size_t>(i)] =
+                (src[i * 2] + src[i * 2 + 1]) * 0.5f / 32768.0f;
+    }
 
     // RESAMPLE, don't refuse.
     //
@@ -909,7 +1068,19 @@ void IcomCivBackend::setKeying(bool key)
     if (!m_model->hasTransmit)
         return;   // an unknown radio is not advertised as transmit-capable
     sendUserCommand(cmdSetPtt(m_session ? m_session->civAddress() : 0xA4, key));
-    m_keyed = key;
+    // PUBLISH IT. Setting m_keyed silently here and leaving the announcement to
+    // the poll does not work now that the poll only speaks on change: our own
+    // keying moved the variable, so the poll's answer matched it and nothing
+    // was ever emitted. The model then read mox=false through an entire live
+    // transmission — with the radio plainly on the air and its own meters
+    // moving — which silently mis-gates everything downstream that asks
+    // "are we transmitting".
+    if (m_keyed != key) {
+        m_keyed = key;
+        TransmitDelta t;
+        t.mox = key;
+        emit transmitChanged(t);
+    }
     m_meters.setTransmitting(key);
     if (!key && m_session)
         m_session->flushTxAudio();   // queued audio belongs to the transmission that ended
@@ -924,6 +1095,12 @@ void IcomCivBackend::setTune(bool on, int tunePowerPercent)
     // see the design note.
     if (on && tunePowerPercent >= 0)
         setTxPower(tunePowerPercent);
+    // Raise the tone BEFORE keying and drop it after, so no part of the keyed
+    // window is silent — a tuner that samples during a silent leading edge
+    // reads infinite SWR and some will refuse to start.
+    m_tuning = on;
+    if (on)
+        m_tunePhase = 0.0;
     setKeying(on);
 }
 
