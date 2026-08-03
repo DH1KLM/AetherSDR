@@ -1,6 +1,6 @@
 # Radio certification — lessons and roadmap
 
-Lessons 1.1–1.18 came from the Hermes-Lite 2 bring-up. **1.19–1.26 came from the
+Lessons 1.1–1.18 came from the Hermes-Lite 2 bring-up. **1.19–1.28 came from the
 Icom IC-705**, the first radio brought up with `radiocert` in hand rather than
 after the fact — which is the point of the tool, and a useful check on it: some
 of what follows is a defect radiocert found, and some is a gap in radiocert
@@ -419,6 +419,58 @@ still unproven, and it can only be proven by a human pressing the button.
 
 ---
 
+### 1.27 "Fed" is not "rendered" — the seam is not the consumer
+
+`radiocert meters` reported every Icom transmit meter as `defined: true,
+everFed: true`, with ages around a second. It was **completely correct**, and
+five meters were dead on the operator's screen at that moment.
+
+The phase measures where the value ARRIVES. Nothing measured where it is
+CONSUMED. Between the two sits `MeterModel`, which interprets a meter by NAME
+and applies a unit it ASSUMES rather than the one the meter was declared with:
+
+| Meter | Declared | Assumed | What the operator saw |
+|---|---|---|---|
+| `TX:FWDPWR` | Watts | dBm, so `10^(v/10)/1000` | 5 W rendered as 0.003 W — motionless |
+| `TX:ALC` | Percent 0–100 | dBFS on a −20…0 gauge | pinned at the top, always |
+| `TX:SWR` | SWR | SWR ✓ | correct, and SUPPRESSED — its consumers gate on forward power, which was reading zero |
+
+The `unit` field was carried across the seam, printed in the inventory, and then
+ignored by the only two consumers that convert. A certification phase that
+prints a field nobody downstream honours is reporting the wire, not the product.
+
+Note the third row especially: SWR was never broken. It was **collateral** —
+one mis-scaled meter silenced a correct one through a dependency the inventory
+does not draw.
+
+**Consequence.** The meters phase must read back through the consumer. For every
+meter it can, assert on `MeterModel`'s converted output — `fwdPowerInstant()`,
+`swr()`, `swAlc()` — not on "a value arrived". And it must report the declared
+unit next to the unit the consumer will apply, because when those disagree the
+meter is already wrong and no amount of freshness will show it.
+
+### 1.28 Three ways a meter can be absent, and only one is a defect
+
+The same run raised concerns about `TX:MICPEAK` and `RAD:PATEMP`. Neither is a
+defect: the IC-705's CI-V meter set is `15 02/11/12/13/14/15/16` and contains no
+microphone-level meter and no temperature meter **at all**. There is nothing to
+wire.
+
+So "absent" needs to be three states, not one:
+
+* **unsupported** — the radio's protocol has no such meter. The UI should hide
+  the face; a permanent floor reading is indistinguishable from a fault.
+* **unmapped** — the protocol has it and this backend does not send for it.
+  A real gap, and the only one worth a warning.
+* **unfed** — mapped, requested, and nothing came back. The §1.8 orphan.
+
+Today all three render the same way, so a structural fact about the radio
+generates a warning on every run forever, and warnings that never go away stop
+being read. That is how the genuinely-unmapped ones hide.
+
+**Consequence.** A meter's absence must be reported with its REASON, and the
+reason has to come from the backend, which is the only thing that knows.
+
 ## 2. Next steps
 
 ### 2.1 The radio profile — highest leverage
@@ -470,7 +522,72 @@ Sketch:
 Until then it is emitted as an **operator check** in `manualChecks`, deliberately
 visible rather than quietly skipped.
 
-### 2.3 Smaller, already identified
+### 2.3 Rebuild the meters phase around the consumer
+
+§1.27 and §1.28 are the same request seen twice: the phase reports the seam, and
+the operator lives at the consumer. Concretely, and in the order that pays:
+
+**Report the unit twice.** Declared, and applied. One line per meter:
+`TX:FWDPWR  declared=Watts  applied=Watts  raw=5.0  rendered=5.0 W`. A mismatch
+between columns two and three is a defect with no other symptom, and it is
+free to detect — both values are already in the process.
+
+**Assert through `MeterModel`, not the seam.** `everFed` proves delivery. The
+question the operator is asking is whether the gauge moved, and the value the
+gauge reads is the converted one. Every meter that has a typed accessor should
+be checked through it.
+
+**Plausibility, not just liveness.** Two checks with known answers, both
+available on any dummy load:
+  * forward power must be **non-zero while keyed** — a fed meter reading zero
+    under key is the exact signature of a scale error;
+  * a meter sitting **exactly on a rail** for a whole keyed window is
+    suspicious, and pinned-at-full is how a unit mismatch presents.
+
+**Name the meters nothing reads.** `RAD:PACURRENT` and `RAD:OVF` are published
+by the Icom backend and consumed by nobody. That is not a bug, but it is
+invisible today, and the inverse — a consumer with no producer — is exactly the
+§1.8 orphan. The phase already knows both sides; it should print the join.
+
+**Draw the dependency.** SWR was suppressed by forward power, and no output in
+the run said so. When a meter is gated on another meter, a suppressed reading
+must name its gate rather than reporting as merely stale.
+
+**Finish the family table.** `expectationsApplied: false` on anything that is
+not an HL2 (§2.1). Until that lands, every per-meter reading is measured and
+valid and NOTHING renders a verdict on it — which is how a run can be green and
+useless at the same time.
+
+### 2.4 What the bridge needs for any of this to be automatable
+
+The five defects above were each found by hand — reading source, decoding wire
+dumps, and screenshotting a panadapter that turned out to say "Connecting to
+radio…". None of that is repeatable by an agent, and all of it could have been
+a verb.
+
+* **`meters` should join producer to consumer.** Today `get model=meters` lists
+  what the model holds. It cannot answer "what will the gauge show", which is
+  the only question that matters. The join — backend def, declared unit, raw
+  value, converted value, consuming accessor — exists entirely inside the
+  process and is not exposed anywhere.
+* **A session-liveness verb.** Several measurements in this bring-up were taken
+  against a session the radio had already revoked; `get model=pan` answered
+  cheerfully from stale state while the panadapter rendered a connecting
+  spinner. There is no cheap way to ask "is data still arriving". Something
+  like `health` reporting per-stream last-packet age would have caught it in
+  one call instead of a screenshot.
+* **Wire logging must be reachable at runtime.** `log set aether.icom.stream on`
+  returned `ok: true, enabled: false`, so every wire-level diagnosis needed a
+  process restart — and on a single-client radio each restart costs a ~60 s
+  session timeout. The decisive evidence for the zoom bug was a single CI-V
+  echo; it took three relaunches to see it.
+* **A raw command-injection verb, TX-gated.** Confirming a wire format
+  empirically meant editing C++, rebuilding, relaunching and reconnecting. For
+  the span command that loop ran twice. `civ send 27 15 00 00 00 25 00 00`
+  against a live session would have answered it in one call — and the FB/NG
+  reply is the ground truth that no internal test can produce (§1.1).
+
+### 2.5 Smaller, already identified
 
 | Item | Note |
 |---|---|
@@ -484,8 +601,11 @@ visible rather than quietly skipped.
 | **Reconnect stage** (§1.21) | connect / disconnect / immediately reconnect; nothing in the suite exercises teardown today, and a leaked session is invisible until the second connect |
 | ~~**Icom `TX:SWR` / `TX:FWDPWR` / `TX:ALC` / `TX:COMPPEAK` defined but never fed**~~ | **Fixed and confirmed on hardware** (`2d5ed841`, §1.26). Remaining: the front-panel-PTT path needs a human to key it. |
 | **The mic stages assume a radio that has a mic meter** | `meter-scale` and `control-effect` both certify through `TX:MICPEAK`, and the IC-705 publishes no mic-level meter at all — its set is `15 02/11/12/13/14/15/16`. On a radio that owns its own microphone (`hostModulates: false`) mic gain is not ours to set and mic peak is not ours to read, so both stages report a concern for something that is not a defect. Gate them on the capability, per §1.25 |
-| **Icom `micSelection` still reports `MIC`** | the applet narrows the dropdown to PC on a radio whose input a client cannot choose, but the underlying TransmitModel value is not migrated — so preconditions warns TX audio capture is not running |
-| **Icom pan/waterfall agreement unverified** (§2.2) | reported by the operator, not reproduced; the capture shows them aligned. Needs the off-centre signal check, which is exactly what §2.2 would automate |
+| ~~**Icom `micSelection` still reports `MIC`**~~ | **Fixed** — a forced selection is now adopted into TransmitModel without emitting a command nobody issued |
+| ~~**Icom pan/waterfall agreement unverified**~~ | **Confirmed fixed by the operator.** Never reproduced here — it went away with the slice/pan registration fix, which is itself worth noting: a symptom that resolves as a side effect was never understood, and §2.2 is what would have told us which |
+| **Icom RX filter steps are not capability-driven** | the radio has exactly FIL1/FIL2/FIL3 and the applet offers the full Flex width list, so most steps land on the same filter. The list is operator-configurable in settings, so narrowing it is a design question, not a constant |
+| **Icom RIT/XIT has no control** | `21 00/01/02` and the three seam verbs exist; nothing emits the intent. Also note the radio has ONE offset register shared by receive and transmit — a UI offering two independent offsets would be lying |
+| **The meter-unit fix is unverified on hardware** (§1.27) | forward power, SWR and ALC should come alive together under key. Until that is measured, three gauges are fixed only in the sense that the arithmetic changed |
 
 ---
 
