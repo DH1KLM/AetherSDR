@@ -120,8 +120,10 @@ void MeterModel::defineMeter(const MeterDef& def)
         m_sLevelIdxBySlice[def.sourceIndex] = def.index;
     else if (def.source == "SLC" && def.name == "ESC")
         m_escLevelIdxBySlice[def.sourceIndex] = def.index;
-    else if (def.source.startsWith("TX") && def.name == "FWDPWR")
+    else if (def.source.startsWith("TX") && def.name == "FWDPWR") {
         m_fwdPwrIdx = def.index;
+        m_fwdPwrUnit = def.unit;
+    }
     else if (def.source.startsWith("TX") && def.name == "REFPWR")
         m_refPwrIdx = def.index;
     else if (def.source.startsWith("TX") && def.name == "SWR")
@@ -140,8 +142,10 @@ void MeterModel::defineMeter(const MeterDef& def)
         m_compLevelIdx = def.index;
     else if (def.name == "HWALC")
         m_hwAlcIdx = def.index;
-    else if (def.name == "ALC")
+    else if (def.name == "ALC") {
         m_swAlcIdx = def.index;
+        m_swAlcUnit = def.unit;
+    }
     else if (isTxWaveformMeter(def)
              && (def.name == "SC_MIC" || def.name == "SC_FILT_1"
                  || def.name == "SC_FILT_2")) {
@@ -224,7 +228,7 @@ void MeterModel::removeMeter(int index)
             ++it;
         }
     }
-    if (index == m_fwdPwrIdx)   m_fwdPwrIdx = -1;
+    if (index == m_fwdPwrIdx) { m_fwdPwrIdx = -1; m_fwdPwrUnit.clear(); }
     if (index == m_refPwrIdx) {
         m_refPwrIdx = -1;
         m_reflectedPower = 0.0f;
@@ -235,7 +239,7 @@ void MeterModel::removeMeter(int index)
     if (index == m_micLevelIdx)  m_micLevelIdx = -1;
     if (index == m_compLevelIdx) m_compLevelIdx = -1;
     if (index == m_hwAlcIdx)     m_hwAlcIdx = -1;
-    if (index == m_swAlcIdx)     m_swAlcIdx = -1;
+    if (index == m_swAlcIdx)   { m_swAlcIdx = -1; m_swAlcUnit.clear(); }
     // A level must never outlive the meter it describes.
     // Resolve the ACTIVE indices BEFORE erasing: once the entry is gone the
     // resolver returns -1 and the has-a-sample flag would never be cleared.
@@ -337,6 +341,7 @@ void MeterModel::clear()
     m_manifestSliceContext = -1;
     m_activeTxSlice = -1;
     m_fwdPwrIdx = -1;
+    m_fwdPwrUnit.clear();
     m_refPwrIdx = -1;
     m_swrIdx = -1;
     m_micPeakIdx = -1;
@@ -344,6 +349,7 @@ void MeterModel::clear()
     m_compLevelIdx = -1;
     m_hwAlcIdx = -1;
     m_swAlcIdx = -1;
+    m_swAlcUnit.clear();
     m_paTempIdx = -1;
     m_scMicIdxByTxSource.clear();
     m_scMicIdxBySlice.clear();
@@ -413,6 +419,23 @@ void MeterModel::clearCompressionState()
     m_compPeakUpdatedMs = 0;
     m_lastCompressionSummaryLogMs = 0;
     m_lastCompressionSummaryReason.clear();
+}
+
+// Mirrors PhoneCwApplet's kAlcGaugeFloorDbfs. Duplicated rather than shared
+// because models must not include gui headers; meter_model_test pins the pair.
+static constexpr float kAlcGaugeFloorDbfs = -20.0f;
+
+float MeterModel::convertAlcToGaugeDbfs(float raw) const
+{
+    if (m_swAlcUnit.compare(QLatin1String("dBFS"), Qt::CaseInsensitive) == 0
+        || m_swAlcUnit.isEmpty()) {
+        return raw;   // already the gauge's own unit, or a backend from before this field
+    }
+    if (m_swAlcUnit.compare(QLatin1String("Percent"), Qt::CaseInsensitive) == 0) {
+        const float frac = qBound(0.0f, raw / 100.0f, 1.0f);
+        return kAlcGaugeFloorDbfs * (1.0f - frac);
+    }
+    return raw;
 }
 
 bool MeterModel::isTxWaveformMeter(const MeterDef& def) const
@@ -648,10 +671,17 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         } else if (idx == m_fwdPwrIdx) {
             m_lastTxMeterUpdateMs = packetUpdatedMs;
             m_lastFwdPowerUpdateMs = m_lastTxMeterUpdateMs;
-            // FWDPWR meter reports in dBm — convert to watts for display.
-            // watts = 10^(dBm/10) / 1000
-            // e.g. 50 dBm = 100 W, 47 dBm ≈ 50 W, 40 dBm = 10 W
-            float watts = std::pow(10.0f, v / 10.0f) / 1000.0f;
+            // HONOUR THE DECLARED UNIT. This used to convert unconditionally
+            // from dBm, which is right for a Flex or an HL2 and wrong for any
+            // backend that publishes watts directly — an IC-705 reporting 5 W
+            // arrived as 10^(5/10)/1000 = 0.003 W and the gauge never moved.
+            //
+            // dBm remains the default for a backend that declares nothing,
+            // because that is what every backend predating this field meant.
+            const bool alreadyWatts =
+                m_fwdPwrUnit.compare(QLatin1String("Watts"), Qt::CaseInsensitive) == 0
+                || m_fwdPwrUnit.compare(QLatin1String("W"), Qt::CaseInsensitive) == 0;
+            float watts = alreadyWatts ? v : std::pow(10.0f, v / 10.0f) / 1000.0f;
             m_fwdPowerInstant = watts;
             fwdInstantChanged = true;
             directionalChanged = true;
@@ -714,7 +744,16 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             m_hwAlc = v;
             hwAlcChangedFlag = true;
         } else if (idx == m_swAlcIdx) {
-            m_swAlc = v;
+            // The ALC consumers are a dBFS gauge (-20..0). A radio that runs its
+            // OWN ALC has no dBFS to give — the IC-705 reports 0..100 % of full
+            // scale — so a percentage handed straight over pins the gauge at the
+            // top and stays there, which is what "ALC is completely pegged"
+            // looked like.
+            //
+            // Map it onto the gauge instead. This is a PRESENTATION mapping and
+            // not a measurement: it says "this fraction of the radio's own ALC
+            // range", and the only honest claim it makes is proportionality.
+            m_swAlc = convertAlcToGaugeDbfs(v);
             swAlcChangedFlag = true;
         } else if (activeScMicIdx >= 0 && idx == activeScMicIdx) {
             m_scMic = v;

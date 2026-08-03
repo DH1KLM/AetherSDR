@@ -159,12 +159,30 @@ void PhoneCwApplet::setSelectableMicInputs(bool selectable)
 
     // On a radio with one possible source, SAY so rather than presenting a
     // one-entry dropdown that looks broken.
+    // TELL THE MODEL. Rebuilding the combo deliberately suppresses the
+    // operator-intent path, which left TransmitModel still reporting "MIC"
+    // while the screen showed PC — and radiocert reads the model, so it warned
+    // that transmit audio capture was not running on a radio where that is
+    // simply not how audio gets there.
+    if (!selectable && m_model) {
+        m_model->applyMicSelectionState(QStringLiteral("PC"));
+    }
+
     m_micSourceCombo->setEnabled(selectable);
     m_micSourceCombo->setToolTip(
         selectable ? QString()
                    : QStringLiteral(
                          "This radio takes transmit audio from this computer. "
                          "Its own input selection is made on the radio."));
+}
+
+void PhoneCwApplet::setMicLevelMeterAvailable(bool available)
+{
+    if (m_micLevelMeterAvailable == available)
+        return;   // idempotent: this rides capabilitiesChanged, which repeats
+    m_micLevelMeterAvailable = available;
+    if (m_levelGauge)
+        m_levelGauge->setVisible(available);
 }
 
 void PhoneCwApplet::buildPhonePanel()

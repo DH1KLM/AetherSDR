@@ -1460,6 +1460,12 @@ void AppletPanel::applyCapabilityVisibility(const QString& id,
     applyBarLayout();
 }
 
+void AppletPanel::setMicLevelMeterAvailable(bool available)
+{
+    if (m_phoneCwApplet)
+        m_phoneCwApplet->setMicLevelMeterAvailable(available);
+}
+
 void AppletPanel::setSelectableMicInputs(bool selectable)
 {
     if (m_phoneCwApplet)

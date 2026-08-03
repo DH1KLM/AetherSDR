@@ -148,6 +148,13 @@ public:
 
     // Convenience: mic peak level (dBFS) and radio-provided compression (dB).
     float micPeak()  const { return m_micPeak; }
+    // Whether the radio DEFINES a microphone-peak meter at all. Not "is it
+    // fresh" — whether it exists. Several radios own their own microphone and
+    // publish no mic meter in any form (the IC-705's CI-V set is 15 02/11/12/
+    // 13/14/15/16 and contains none), so a mic-level gauge on those is a face
+    // that can never move. Hiding it is the honest presentation; lesson 1.8
+    // says a dead meter and a real reading of nothing look identical.
+    bool hasMicPeakMeter() const { return m_micPeakIdx >= 0; }
     float compPeak() const { return m_compPeak; }
     bool hasCompressionMeterValue() const { return m_hasCompPeakValue; }
 
@@ -273,6 +280,9 @@ private:
     float convertRaw(const MeterDef& def, qint16 raw) const;
     void clearCompressionState();
     void recomputeSourceIndexMins();
+    // Map a radio-side ALC reading onto the dBFS range the gauges are built
+    // for. Identity when the backend already declares dBFS.
+    float convertAlcToGaugeDbfs(float raw) const;
     bool isTxWaveformMeter(const MeterDef& def) const;
     bool hasExplicitTxWaveformSourceIndex(const MeterDef& def) const;
     int implicitTxWaveformSliceIndex() const;
@@ -298,6 +308,20 @@ private:
     int m_minTxWaveformSourceIndex{-1};
     int m_manifestSliceContext{-1};
     int m_activeTxSlice{-1};
+    // The UNIT each of these was DECLARED with, cached at definition time.
+    //
+    // Load-bearing, and the absence of it was a real defect. This model used to
+    // interpret a meter purely by NAME and apply a unit it ASSUMED — FWDPWR was
+    // unconditionally converted from dBm, ALC was unconditionally treated as
+    // dBFS. A backend that published its radio's honest unit was then silently
+    // mis-rendered: an IC-705 reporting 5 watts of forward power arrived as
+    // 10^(5/10)/1000 = 0.003 W, and an ALC percentage landed on a -20..0 dBFS
+    // gauge and pinned. Both read as "the meter is dead" rather than "the meter
+    // is being misread", which is why they survived a certification run that
+    // correctly reported both as fed.
+    QString m_fwdPwrUnit;
+    QString m_swAlcUnit;
+
     int m_fwdPwrIdx{-1};     // "FWDPWR"
     int m_refPwrIdx{-1};     // "REFPWR"
     int m_swrIdx{-1};        // "SWR"
