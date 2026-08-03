@@ -4827,6 +4827,14 @@ add_test(NAME demo_applet_tooltip_test COMMAND demo_applet_tooltip_test)
 set_tests_properties(demo_applet_tooltip_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# IcomCIV backend selection — proves family="icom" reaches IcomCivBackend
+# through RadioModel's real swap path. Without this, every layer below can be
+# green while nothing in the application can construct it.
+add_executable(icom_family_test tests/icom_family_test.cpp)
+target_include_directories(icom_family_test PRIVATE src)
+target_link_libraries(icom_family_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME icom_family_test COMMAND icom_family_test)
+
 add_executable(hl2_family_transition_test tests/hl2_family_transition_test.cpp)
 target_include_directories(hl2_family_transition_test PRIVATE src)
 target_link_libraries(hl2_family_transition_test PRIVATE aethercore Qt6::Core Qt6::Test)

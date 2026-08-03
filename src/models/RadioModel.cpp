@@ -8,6 +8,7 @@
 #include "core/backends/flex/FlexBackend.h"   // aetherd RFC 2.2 radio-facing seam
 #include "core/backends/sim/SimBackend.h"     // RFC #4288 demo-mode backend (Route A)
 #include "core/backends/hl2/Hl2Backend.h"      // aetherd Gap A — HL2 backend (family "hl2")
+#include "core/backends/icom/IcomCivBackend.h"  // Icom networked radios (family "icom")
 #include "core/AppSettings.h"
 #include "core/RadioStateMemory.h"  // RFC #4603 typed restore handoff
 #include "core/CwTrace.h"
@@ -416,7 +417,8 @@ QJsonObject clientInfoToJson(quint32 handle,
 // aetherd Gap A (HL2 Phase 1c): the minimal backend-selection seam. Maps a radio
 // family string to its IRadioBackend. "flex" (the default, and any unrecognized
 // value) preserves the historical hard-wired FlexBackend; "hl2" selects the
-// Hermes-Lite 2 backend. A fuller step-3 registry supersedes this later.
+// Hermes-Lite 2 backend and "icom" the Icom networked-radio backend. A fuller
+// step-3 registry supersedes this later.
 
 // RFC #4603 proposal B: hand the remembered operating state to a backend
 // whose declared ClientSettingsDomains make the client its memory. Called
@@ -483,6 +485,16 @@ std::unique_ptr<IRadioBackend> RadioModel::makeBackend(const QString& family)
 {
     if (family.compare(QLatin1String("hl2"), Qt::CaseInsensitive) == 0)
         return std::make_unique<hl2::Hl2Backend>();
+    // Icom networked radios (IC-705, IC-7300MK2, …). Like HL2 this is a pure
+    // seam backend — it owns no RadioConnection and no PanadapterStream, so the
+    // dynamic_cast chain in setupBackend() correctly skips it and every model
+    // update arrives as a normalized delta.
+    //
+    // The radio here is authoritative about its own operating state, so unlike
+    // HL2 it declares NO ClientSettingsDomains and must never be pushed a
+    // restored state (Constitution II/III).
+    if (family.compare(QLatin1String("icom"), Qt::CaseInsensitive) == 0)
+        return std::make_unique<icom::IcomCivBackend>();
     // RFC #4288 demo mode: the synthetic radio is selected here like any other
     // family, which is what completes the "wire it through the real SimBackend
     // factory" ask. Unlike HL2 it is a Route A hybrid — it owns a RadioConnection

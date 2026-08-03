@@ -1038,7 +1038,7 @@ public:
     // advance local state to match a command MUST gate that on this return,
     // or the client will claim state the radio never took.
     bool sendCommand(const QString& cmd);
-    // Backend family currently in use ("flex", "hl2", "kiwi", ...).
+    // Backend family currently in use ("flex", "hl2", "icom", "sim", ...).
     QString family() const { return m_family; }
 
     // Flush any pending operating-state capture immediately (RFC #4603 PR 3).
@@ -1236,7 +1236,8 @@ private:
     void dropAllSessionModelsForFamilySwitch();
 
     // aetherd Gap A (HL2 Phase 1c): the minimal backend-selection seam. Returns
-    // the IRadioBackend for `family` ("flex" default, "hl2" for Hermes-Lite 2).
+    // the IRadioBackend for `family` ("flex" default, "hl2" for Hermes-Lite 2,
+    // "icom" for Icom networked radios, "sim" for demo mode).
     // Replaces the hard-wired make_unique<FlexBackend>; a fuller step-3 registry
     // supersedes it later. Flex-specific construction wiring (command sinks,
     // RadioConnection/PanadapterStream grabs) stays behind a dynamic_cast adapter
@@ -1262,7 +1263,7 @@ private:
     // (owned via unique_ptr below). As of 2.2b it OWNS the RadioConnection +
     // PanadapterStream and their worker threads; RadioModel keeps the two
     // NON-OWNING pointers below, obtained from the backend at construction.
-    // Radio family the live backend implements ("flex", "hl2"). Set by
+    // Radio family the live backend implements ("flex", "hl2", "icom"). Set by
     // setupBackend(); compared against the picked radio's RadioInfo::family to
     // decide whether a connect needs a different backend.
     QString m_family;
