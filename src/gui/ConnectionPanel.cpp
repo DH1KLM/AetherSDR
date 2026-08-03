@@ -257,6 +257,13 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
         "background: #09111b; color: #d7e4f2; }"
         "QComboBox QAbstractItemView { background: #09111b; color: #d7e4f2; "
         "selection-background-color: #1a3046; border: 1px solid #304050; }";
+    // The Icom credential fields are bare QLineEdits, not combo boxes, so they
+    // do not inherit comboStyle's palette. Without this they render as white
+    // boxes on a dark panel — the same widget, two different looks, in one row.
+    const QString lineEditStyle =
+        "QLineEdit { border: 1px solid #304050; border-radius: 4px; padding: 4px 6px; "
+        "background: #09111b; color: #d7e4f2; }"
+        "QLineEdit:focus { border-color: #66a8ff; }";
     const QString modeCardStyle =
         "QCommandLinkButton { text-align: left; border: 1px solid #304050; border-radius: 8px; "
         "padding: 10px 12px; background: #121a25; color: #d7e4f2; }"
@@ -670,6 +677,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
         tr("The network user name configured on the radio"));
     m_manualIcomUserEdit->setClearButtonEnabled(true);
     m_manualIcomUserEdit->setPlaceholderText(tr("Radio network user name"));
+    m_manualIcomUserEdit->setStyleSheet(lineEditStyle);
     m_manualIcomUserRow = addManualRow(QStringLiteral("Icom user:"), m_manualIcomUserEdit);
 
     m_manualIcomPassEdit = new QLineEdit(manualGroup);
@@ -680,6 +688,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
            "system keychain, never in the settings file."));
     m_manualIcomPassEdit->setEchoMode(QLineEdit::Password);
     m_manualIcomPassEdit->setPlaceholderText(tr("Radio network password"));
+    m_manualIcomPassEdit->setStyleSheet(lineEditStyle);
     m_manualIcomPassRow = addManualRow(QStringLiteral("Icom password:"), m_manualIcomPassEdit);
 
     manualGroupLayout->addLayout(manualForm);
