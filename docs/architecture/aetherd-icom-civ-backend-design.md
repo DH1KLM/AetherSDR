@@ -691,14 +691,38 @@ CERTIFICATION.md §1.31 because it generalises to any fanned-out control.
 
 ### D.4 What is left
 
-1. **Audio gain / mute / pan** — seam verbs exist, no override here.
+**Not implemented**
+
+1. **Audio gain / mute / pan** — seam verbs exist, no override here. The radio's
+   AF level IS now read at connect, so the control opens in the right place and
+   then cannot move it, which is arguably worse than not reading it.
 2. **Manual notch, VOX, CW speed / pitch / break-in** — CI-V mapped or trivially
    mappable; no seam verb yet.
 3. **TX filter** (`16 58` SSB TX bandwidth) — `setTxFilter` exists, unimplemented.
-4. **Drive mic gain and TX monitor live** — implemented and unproven, which is
-   exactly the state this appendix exists to make visible.
-5. **Confirm the three filter buttons on screen** — the capability is wired and
-   the UI has not been looked at with the applet open.
-6. **AGC threshold** is accepted and discarded; the radio has no threshold
-   register. Better to advertise it as unavailable than to keep a live slider
-   that does nothing.
+4. **AGC threshold** is accepted and discarded; the radio has no threshold
+   register. Better to advertise it as unavailable than keep a live slider that
+   does nothing.
+5. **The radio's own name** arrives in the capabilities packet and is unused;
+   the status bar shows the connect address instead.
+
+**Implemented and NOT proven on hardware** — the distinction this appendix
+exists to keep visible:
+
+6. **The TUNE carrier.** Synthesised, built, never keyed into a tuner.
+7. **Mic gain and TX monitor.** No bridge verb reaches either.
+8. **The three filter buttons**, on screen with the applet open.
+9. **Connect-time state adoption**, beyond confirming the values arrive: whether
+   each one lands on the control an operator is looking at is a separate
+   question, and it is the §1.27 gap in a different costume.
+10. **XIT.** RIT was driven and observed on the wire; XIT shares the offset
+    register and was not.
+
+**Open defects**
+
+11. **Transmit cuts out roughly once a second on FT8** — see CERTIFICATION.md
+    §2.6. The radio stays keyed and ALC stays active, so this is not a keying
+    or an audio-delivery fault; what remains is real RF pulsing or a low-drive
+    meter artefact, and those want a higher-power run to separate.
+12. **A revoked session still looks healthy.** The backend swallows a post-grant
+    auth failure as "the previous session's teardown" — right for a reconnect,
+    wrong when the radio really has withdrawn this one. It should disconnect.
