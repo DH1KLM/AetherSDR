@@ -389,8 +389,16 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
         } else if (spec->id == MeterId::Id) {
             m_idAmps = value;
         }
-        emit meterUpdate(QString::fromUtf8(spec->name.data(),
-                                           static_cast<int>(spec->name.size())), value);
+        // "SOURCE:NAME", the id every consumer looks up by. Emitting the bare
+        // name published a meter nothing could find: radiocert's inventory
+        // reported SLC:LEVEL as never defined while the S-meter was decoding
+        // correctly the whole time — the orphaned-meter-seam defect, again.
+        emit meterUpdate(QStringLiteral("%1:%2")
+                             .arg(QString::fromUtf8(spec->source.data(),
+                                                    static_cast<int>(spec->source.size())),
+                                  QString::fromUtf8(spec->name.data(),
+                                                    static_cast<int>(spec->name.size()))),
+                         value);
         return;
     }
 
@@ -655,7 +663,7 @@ void IcomCivBackend::publishMeterDefs()
     for (const MeterSpec& s : meterSpecs()) {
         MeterDef d;
         d.index = index++;
-        d.source = QStringLiteral("RAD");
+        d.source = QString::fromUtf8(s.source.data(), static_cast<int>(s.source.size()));
         d.name = QString::fromUtf8(s.name.data(), static_cast<int>(s.name.size()));
         d.unit = QString::fromUtf8(s.unit.data(), static_cast<int>(s.unit.size()));
         d.low = s.low;

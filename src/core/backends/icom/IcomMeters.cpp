@@ -62,24 +62,24 @@ constexpr std::array<CurvePoint, 2> kAlc{{
 // The intervals are the poll BUDGET, and they are deliberately modest: every
 // one of these costs a round trip on the same stream that carries tuning.
 constexpr std::array<MeterSpec, 8> kSpecs{{
-    {MeterId::SMeter,   meter::kSMeter,   "LEVEL",   "dBm",     -140.0,  -10.0,
+    {MeterId::SMeter,   meter::kSMeter,   "SLC", "LEVEL",   "dBm",  -140.0,  -10.0,
      MeterWhen::RxOnly, 100},
-    {MeterId::Power,    meter::kPower,    "FWDPWR",  "Watts",      0.0,   12.0,
+    {MeterId::Power,    meter::kPower,    "TX",  "FWDPWR",  "Watts",   0.0,   12.0,
      MeterWhen::TxOnly, 200},
-    {MeterId::Swr,      meter::kSwr,      "SWR",     "SWR",        1.0,    6.4,
+    {MeterId::Swr,      meter::kSwr,      "TX",  "SWR",     "SWR",     1.0,    6.4,
      MeterWhen::TxOnly, 200},
-    {MeterId::Alc,      meter::kAlc,      "ALC",     "Percent",    0.0,  100.0,
+    {MeterId::Alc,      meter::kAlc,      "TX",  "ALC",     "Percent", 0.0,  100.0,
      MeterWhen::TxOnly, 200},
-    {MeterId::Comp,     meter::kComp,     "COMP",    "dB",         0.0,   25.5,
+    {MeterId::Comp,     meter::kComp,     "TX",  "COMPPEAK","dB",      0.0,   25.5,
      MeterWhen::TxOnly, 200},
-    {MeterId::Vd,       meter::kVd,       "PAVOLTS", "Volts",      0.0,   16.0,
+    {MeterId::Vd,       meter::kVd,       "RAD", "+13.8A",  "Volts",   0.0,   16.0,
      MeterWhen::Always, 1000},
-    {MeterId::Id,       meter::kId,       "PACURRENT", "Amps",     0.0,    4.0,
+    {MeterId::Id,       meter::kId,       "RAD", "PACURRENT","Amps",   0.0,    4.0,
      MeterWhen::TxOnly, 500},
     // OVF is a boolean the radio reports through the meter command. It belongs
     // in the health snapshot rather than on a meter face, but it is polled the
     // same way, so it lives here.
-    {MeterId::Overflow, meter::kOverflow, "OVF",     "Percent",    0.0,    1.0,
+    {MeterId::Overflow, meter::kOverflow, "RAD", "OVF",     "Percent", 0.0,    1.0,
      MeterWhen::RxOnly, 500},
 }};
 

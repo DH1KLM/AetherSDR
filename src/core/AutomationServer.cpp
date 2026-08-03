@@ -6602,11 +6602,25 @@ QJsonObject AutomationServer::doRadioCert(const QString& phaseArg, const QString
             "Refusing to default to 'all', which keys the transmitter")
             .arg(phaseArg.trimmed()));
 
-    // tune and rx do not key; tx and meters do. Gating the non-keying phases
-    // would put the first things a new radio needs behind a permission nobody
-    // would have granted yet.
+    // tune and rx do not key. tx and all do, and are gated.
+    //
+    // `meters` is DELIBERATELY NOT GATED, by the same principle: its inventory
+    // stage — the one that answers "are the meters even wired up?" — reads the
+    // MeterModel and keys nothing. Only stageMeterScale and stageControlEffect
+    // transmit, and those already fail safe through the key-refusal path, which
+    // the report counts in `keyRefusals`.
+    //
+    // Refusing the whole phase put the single most useful early question behind
+    // a permission nobody grants on day one. On a new backend the answer is
+    // often "no consumer at all" — IRadioBackend::meterUpdate had none for the
+    // entire HL2 receive bring-up, so every value it computed was discarded and
+    // the S-meter was correct for days without being visible. That is a receive
+    // defect, and it should not need a transmit permission to find.
+    //
+    // A `meters` run without TX therefore reports the inventory and a non-zero
+    // keyRefusals, which reads as "the meters exist; the keyed scale checks did
+    // not run" rather than as nothing at all.
     const bool keys = opts.phase == RadioCertification::Phase::Tx
-                   || opts.phase == RadioCertification::Phase::Meters
                    || opts.phase == RadioCertification::Phase::All;
     if (keys && !m_txAllowed)
         return err(QStringLiteral(

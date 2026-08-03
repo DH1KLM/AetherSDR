@@ -110,6 +110,11 @@ enum class MeterWhen : std::uint8_t {
 struct MeterSpec {
     MeterId id{};
     std::uint8_t sub = 0;          // the 0x15 subcommand
+    // MeterDef::source — "SLC" for receive, "TX" for transmit, "RAD" for the
+    // radio itself. NOT cosmetic: consumers look a meter up by source AND name,
+    // so a receive level published under "RAD" is invisible to everything that
+    // wants "SLC:LEVEL", and radiocert reports it as never defined.
+    std::string_view source;
     std::string_view name;         // MeterDef::name
     std::string_view unit;         // MeterDef::unit
     double low = 0.0;
