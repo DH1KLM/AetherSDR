@@ -31,6 +31,34 @@ QByteArray floatBytes(const std::vector<float>& v)
 // AetherSDR's slider is 0..100; the radio's register is 0..255.
 int percentToRaw(int percent) { return std::clamp(percent, 0, 100) * 255 / 100; }
 
+// Default RX passband per mode, in Hz relative to the carrier. Sign carries the
+// sideband, matching SliceModel's convention.
+//
+// THE BACKEND MUST SUPPLY THIS. radiocert's passband-after-mode-change stage
+// found it missing on the first run: CW -> DIGU left the window at -1500..1500,
+// so a decoder in a wide mode saw a narrow slot. A radio that owns its own DSP
+// sends no passband echo to heal that, and the IC-705's three fixed IF filters
+// cannot be read back as Hz — so nothing else in the chain can fill it in.
+//
+// These are the radio's own defaults for each mode, not arbitrary picks.
+std::pair<int, int> defaultPassbandFor(const QString& mode)
+{
+    const QString u = mode.toUpper();
+    if (u == QLatin1String("LSB"))  return {-2700, -300};
+    if (u == QLatin1String("USB"))  return {300, 2700};
+    if (u == QLatin1String("DIGL")) return {-3000, -150};
+    if (u == QLatin1String("DIGU")) return {150, 3000};
+    if (u == QLatin1String("RTTY")) return {-3000, -150};
+    // CW is symmetric about the pitch; the radio centres its filter on the tone.
+    if (u == QLatin1String("CW") || u == QLatin1String("CWU")
+        || u == QLatin1String("CWL"))
+        return {-250, 250};
+    if (u == QLatin1String("AM"))   return {-4500, 4500};
+    if (u == QLatin1String("FM") || u == QLatin1String("NFM")) return {-7000, 7000};
+    if (u == QLatin1String("WFM"))  return {-100000, 100000};
+    return {-1500, 1500};
+}
+
 }  // namespace
 
 IcomCivBackend::IcomCivBackend(QObject* parent)
@@ -180,6 +208,19 @@ void IcomCivBackend::onSessionConnected(const QString& deviceName)
 
     applyScopeStartup();
 
+    // THE PAN FIRST, then the slice that names it.
+    //
+    // RadioModel maps a backend pan id to a neutral index on FIRST SIGHT, and
+    // the slice delta below carries that id. Announcing the slice first left it
+    // pointing at a pan nothing had registered, so the slice belonged to no
+    // pane — which is why click-to-tune reported "Slice capacity is full": the
+    // spectrum could not resolve a tune target on a pan it thought was empty,
+    // and fell through to the create-a-slice path against a one-slice radio.
+    //
+    // Provisional geometry: the first 0x27 sweep replaces it a few tens of ms
+    // later. A placeholder that is replaced beats an association that never forms.
+    emit panCenterBandwidthChanged(panId(), 0.0, 0.0);
+
     // One slice, and it exists from the moment we connect. Without it nothing
     // downstream has anything to attach audio to — including the TCI receiver
     // channel, which is routed by slice.
@@ -302,6 +343,12 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
             return;   // D-STAR: a waveform, not a demodulator setting
         SliceDelta s;
         s.mode = neutral;
+        // The passband travels WITH the mode, in the same delta, because the
+        // radio will never send one. Applied after the mode by SliceModel's own
+        // ordering, which is what stops a narrow CW window surviving into DIGU.
+        const auto [low, high] = defaultPassbandFor(neutral);
+        s.filterLow  = low;
+        s.filterHigh = high;
         emit sliceChanged(sliceId(), s);
         return;
     }
@@ -448,6 +495,21 @@ void IcomCivBackend::setSliceMode(int, const QString& mode)
     }
     m_dataMode = data;
     sendUserCommand(cmdSetMode(m_session ? m_session->civAddress() : 0xA4, *civ, 1));
+
+    // PUBLISH THE PASSBAND NOW, from the mode we just commanded.
+    //
+    // Waiting for the radio to report the mode back is not good enough: the
+    // report only arrives if CI-V Transceive is on, and even then it lands
+    // milliseconds later. radiocert's passband-after-mode-change stage caught
+    // exactly that — CW then DIGU left the window at the previous mode's width,
+    // so a decoder in a wide mode saw a narrow slot. The radio owns its DSP and
+    // sends no passband, so this is the only place it can come from.
+    const auto [low, high] = defaultPassbandFor(mode);
+    SliceDelta d;
+    d.mode = mode.toUpper();
+    d.filterLow  = low;
+    d.filterHigh = high;
+    emit sliceChanged(sliceId(), d);
 }
 
 void IcomCivBackend::setSliceFilter(int, int lowHz, int highHz)
