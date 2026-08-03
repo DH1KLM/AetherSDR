@@ -193,7 +193,7 @@ void IcomStream::onReadyRead()
         // radio said nothing" from "we ignored what it said".
         if (!isPing(asSpan(buf))) {
             qCDebug(lcIcomStream) << "role" << int(m_config.role) << "RX" << buf.size()
-                                  << "bytes:" << buf.left(96).toHex(' ');
+                                  << "bytes:" << buf.left(64).toHex(' ');
         }
         handleDatagram(buf);
     }

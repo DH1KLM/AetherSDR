@@ -74,11 +74,32 @@ QJsonObject loadRoutedProfiles()
 
 QString normalizeManualIp(const QString& ip)
 {
-    const QHostAddress address(ip.trimmed());
-    if (address.isNull())
+    const QString trimmed = ip.trimmed();
+    if (trimmed.isEmpty())
         return QString();
 
-    return address.toString();
+    // A numeric address is canonicalised, so "192.168.001.5" and
+    // "192.168.1.5" are one entry rather than two.
+    const QHostAddress address(trimmed);
+    if (!address.isNull())
+        return address.toString();
+
+    // A HOST NAME is legitimate here and used to be dropped SILENTLY, because
+    // QHostAddress parses numeric addresses only. That cost the recent list
+    // every VPN radio reached by DNS name, and it bites hardest on an Icom:
+    // the IC-705's documented default address is ic-705.local, so the one
+    // address the manual explicitly tells the operator to use was the one the
+    // field refused to remember.
+    //
+    // Conservative charset — letters, digits, dot, hyphen, underscore, with
+    // alphanumeric ends — so this widens what we REMEMBER without widening
+    // what we will hand to a resolver.
+    static const QRegularExpression hostName(
+        QStringLiteral("^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$"));
+    if (trimmed.size() <= 253 && hostName.match(trimmed).hasMatch())
+        return trimmed;
+
+    return QString();
 }
 
 void setAutomationError(QString* error, const QString& text)
