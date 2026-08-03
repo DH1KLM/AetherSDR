@@ -198,6 +198,10 @@ void IcomCivBackend::disconnectRadio()
     m_rxResampler.reset();
     m_scope.reset();
     m_meters.reset();
+    // The radio keeps its own DSP state across our sessions and we have not
+    // read it back, so "unknown" is the only honest starting point — carrying
+    // the last session's belief would suppress the first command that matters.
+    m_nrEnableSent = m_nbEnableSent = m_anfEnableSent = -1;
     if (m_connected) {
         m_connected = false;
         emit disconnected();
@@ -752,7 +756,10 @@ void IcomCivBackend::setTxAudioMonitor(bool on)
 void IcomCivBackend::setSliceNoiseReduction(int, bool on, int level)
 {
     const std::uint8_t addr = m_session ? m_session->civAddress() : 0xA4;
-    sendUserCommand(cmdSetFunction(addr, func::kNoiseReduce, on ? 1 : 0));
+    if (m_nrEnableSent != (on ? 1 : 0)) {
+        m_nrEnableSent = on ? 1 : 0;
+        sendUserCommand(cmdSetFunction(addr, func::kNoiseReduce, on ? 1 : 0));
+    }
     // The level register survives the function being switched off, so pushing
     // it while disabled would silently change what the operator gets back when
     // they re-enable. Only touch it when it can take effect.
@@ -763,13 +770,19 @@ void IcomCivBackend::setSliceNoiseReduction(int, bool on, int level)
 void IcomCivBackend::setSliceNoiseBlanker(int, bool on, int level)
 {
     const std::uint8_t addr = m_session ? m_session->civAddress() : 0xA4;
-    sendUserCommand(cmdSetFunction(addr, func::kNoiseBlanker, on ? 1 : 0));
+    if (m_nbEnableSent != (on ? 1 : 0)) {
+        m_nbEnableSent = on ? 1 : 0;
+        sendUserCommand(cmdSetFunction(addr, func::kNoiseBlanker, on ? 1 : 0));
+    }
     if (on)
         sendUserCommand(cmdSetLevel(addr, level::kNbLevel, percentToRaw(level)));
 }
 
 void IcomCivBackend::setSliceAutoNotch(int, bool on)
 {
+    if (m_anfEnableSent == (on ? 1 : 0))
+        return;
+    m_anfEnableSent = on ? 1 : 0;
     sendUserCommand(cmdSetFunction(m_session ? m_session->civAddress() : 0xA4,
                                    func::kAutoNotch, on ? 1 : 0));
 }

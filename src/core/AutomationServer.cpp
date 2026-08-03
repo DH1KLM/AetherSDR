@@ -2926,7 +2926,7 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                 if (a.action.isEmpty())
                     return err(QStringLiteral(
                         "slice requires an action (add|remove|select|tx|mode|filter|"
-                        "agc|diversity|centerlock|link|txant|rxant|rxsource|fixture|"
+                        "agc|dsp|diversity|centerlock|link|txant|rxant|rxsource|fixture|"
                         "clearfixture)"));
                 return s.doSlice(a.action, a.value);
             });
@@ -6263,6 +6263,70 @@ QJsonObject AutomationServer::doSlice(const QString& action, const QString& arg)
                            {QStringLiteral("id"), s->sliceId()},
                            {QStringLiteral("agcMode"), s->agcMode()},
                            {QStringLiteral("agcThreshold"), s->agcThreshold()}};
+    }
+    if (action == QLatin1String("dsp")) {
+        // "slice dsp <nr|nb|anf|squelch> <on|off> [level 0..100]"
+        //
+        // Drives the same operator setters the applets use, so the change emits
+        // the *CommandIssued intent and reaches the seam. Added because the
+        // existing routes were untestable from a bridge: the RX applet's DSP
+        // toggles carry no objectName and no accessibleName, so invoke() cannot
+        // address them, and the keyboard shortcut for NR cycles through the
+        // HOST-side NR2/NR4 chain and may never reach the slice at all. A
+        // control that cannot be driven cannot be certified.
+        const QStringList parts =
+            arg.trimmed().split(QRegularExpression(QStringLiteral("[\\s,]+")),
+                                Qt::SkipEmptyParts);
+        if (parts.size() < 2)
+            return err(QStringLiteral(
+                "slice dsp requires '<nr|nb|anf|squelch> <on|off> [level]'"));
+        const QString which = parts[0].toLower();
+        static const QStringList kWhich{QStringLiteral("nr"), QStringLiteral("nb"),
+                                        QStringLiteral("anf"), QStringLiteral("squelch")};
+        if (!kWhich.contains(which))
+            return err(QStringLiteral("slice dsp control must be one of: ")
+                       + kWhich.join(QLatin1Char('/')));
+        const QString state = parts[1].toLower();
+        if (state != QLatin1String("on") && state != QLatin1String("off"))
+            return err(QStringLiteral("slice dsp state must be on or off"));
+        const bool on = (state == QLatin1String("on"));
+        int level = -1;
+        if (parts.size() >= 3) {
+            bool okL = false;
+            level = parts[2].toInt(&okL);
+            if (!okL || level < 0 || level > 100)
+                return err(QStringLiteral("slice dsp level must be an integer 0..100"));
+        }
+
+        SliceModel* s = nullptr;
+        for (SliceModel* candidate : radio->slices()) {
+            if (candidate->isActive()) { s = candidate; break; }
+        }
+        if (!s && !radio->slices().isEmpty())
+            s = radio->slices().first();
+        if (!s)
+            return err(QStringLiteral("no slice available"));
+
+        // LEVEL BEFORE ENABLE, for the reason the AGC branch above gives: the
+        // enable setter emits an intent carrying both values, so setting the
+        // level first makes one request reach the backend as a coherent pair.
+        if (which == QLatin1String("nr")) {
+            if (level >= 0) s->setNrLevel(level);
+            s->setNr(on);
+        } else if (which == QLatin1String("nb")) {
+            if (level >= 0) s->setNbLevel(level);
+            s->setNb(on);
+        } else if (which == QLatin1String("anf")) {
+            s->setAnf(on);
+        } else {
+            s->setSquelch(on, level >= 0 ? level : s->squelchLevel());
+        }
+        return QJsonObject{{QStringLiteral("ok"), true},
+                           {QStringLiteral("slice"), QStringLiteral("dsp")},
+                           {QStringLiteral("id"), s->sliceId()},
+                           {QStringLiteral("control"), which},
+                           {QStringLiteral("on"), on},
+                           {QStringLiteral("level"), level}};
     }
     if (action == QLatin1String("txant") || action == QLatin1String("rxant")) {
         // Set the transmit/receive antenna port deterministically. The GUI

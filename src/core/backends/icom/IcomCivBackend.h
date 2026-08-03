@@ -160,6 +160,19 @@ private:
     // intents reason against it: a zoom step needs to know which of the eight
     // spans it is leaving, and a centre request needs a truth to snap back to.
     // Zero means no sweep has arrived yet, in which case neither intent acts.
+    // Last enable state actually SENT for each radio-side DSP function, so a
+    // level change does not re-send the enable.
+    //
+    // Live testing showed why: the level setter carries the current enable with
+    // it (they travel as a pair by design), so "NR on at level 60" arrived as
+    // level-then-enable and put 16 40 00 on the wire immediately before
+    // 16 40 01 — a real, if brief, disable of the operator's noise reduction,
+    // and two frames on a CI-V stream that metering already shares.
+    // -1 = unknown, 0 = off, 1 = on.
+    int m_nrEnableSent = -1;
+    int m_nbEnableSent = -1;
+    int m_anfEnableSent = -1;
+
     std::int64_t m_scopeCentreHz = 0;
     std::int64_t m_scopeSpanHz = 0;
 
