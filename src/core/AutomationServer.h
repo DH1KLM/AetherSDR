@@ -627,6 +627,8 @@ private:
     // Raw CI-V inject + frame trace. Icom-only; other backends report it as
     // unimplemented rather than silently succeeding.
     QJsonObject doCiv(const QString& action, const QString& arg);
+    // Data-arrival ages plus the meter producer->consumer join.
+    QJsonObject doLiveness();
     // Semantic transmitter keying (#3646 fidelity): `key ptt on|off` / `key mox`
     // route to RadioModel::setTransmit — the exact calls the space-bar PTT filter
     // and the mox_toggle shortcut make, but reachable headlessly. Keying is gated

@@ -602,6 +602,17 @@ void RadioModel::setupBackend(const QString& family)
     // so this connect is harmless for Flex and load-bearing for HL2.
     connect(m_backend.get(), &IRadioBackend::spectrumFrameReady,
             this, &RadioModel::onBackendSpectrumFrame);
+    // Liveness stamps, on the arrival edge rather than anywhere downstream: a
+    // frame that arrives and is then discarded still proves the link is alive,
+    // and that is the question these answer.
+    connect(m_backend.get(), &IRadioBackend::spectrumFrameReady, this,
+            [this](int, const QByteArray&) {
+        m_lastSpectrumMs = QDateTime::currentMSecsSinceEpoch();
+    });
+    connect(m_backend.get(), &IRadioBackend::audioFrameReady, this,
+            [this](const QByteArray&) {
+        m_lastAudioMs = QDateTime::currentMSecsSinceEpoch();
+    });
 
     // Demodulated RX audio from backends that produce it in-process (HL2).
     // Signal-to-signal: the payload is already the engine's native format.
@@ -4193,6 +4204,18 @@ bool RadioModel::requestPanCenter(const QString& panId,
         m_pendingProfileLoadPanWrites.supersedeBandwidth(panId);
     }
     return dispatchPanCenterBandwidth(panId, centerMhz, bandwidthMhz);
+}
+
+RadioModel::DataLiveness RadioModel::dataLiveness() const
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    DataLiveness l;
+    if (m_lastSpectrumMs > 0)
+        l.spectrumMs = now - m_lastSpectrumMs;
+    if (m_lastAudioMs > 0)
+        l.audioMs = now - m_lastAudioMs;
+    l.meterMs = m_meterModel.newestValueAgeMs();
+    return l;
 }
 
 bool RadioModel::requestPanBandwidth(const QString& panId, double bandwidthMhz)

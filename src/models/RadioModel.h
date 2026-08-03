@@ -111,6 +111,24 @@ public:
 
     // Sub-models owned by RadioModel (main thread). (#502)
     MeterModel&       meterModel()       { return m_meterModel; }
+
+    // PROOF OF LIFE, per data class, in milliseconds since the last arrival.
+    //
+    // -1 means nothing of that class has EVER arrived this session, which is a
+    // different answer from "arrived a long time ago" and must not collapse
+    // into it. Negative-vs-large is the whole diagnostic.
+    //
+    // Why this exists: a revoked session keeps every model populated. `get
+    // model=pan` answered cheerfully with a centre and a bandwidth while the
+    // panadapter rendered a "Connecting to radio…" spinner, and the only thing
+    // that caught it was a screenshot. Models hold the LAST value they were
+    // given; nothing above them says whether anything is still coming.
+    struct DataLiveness {
+        qint64 spectrumMs = -1;   // scope sweeps / FFT frames
+        qint64 audioMs    = -1;   // demodulated RX audio
+        qint64 meterMs    = -1;   // any meter value at all
+    };
+    [[nodiscard]] DataLiveness dataLiveness() const;
     TunerModel&       tunerModel()       { return m_tunerModel; }
     TransmitModel&    transmitModel()    { return m_transmitModel; }
     EqualizerModel&   equalizerModel()   { return m_equalizerModel; }
@@ -1379,6 +1397,10 @@ private:
     static constexpr int kBackendDefaultWfRate = 100;
     // Sub-models — value members on main thread (#502)
     MeterModel       m_meterModel;
+    // Epoch ms of the last arrival of each class; 0 = never. Written on the
+    // hot path, so they are plain scalars rather than anything that allocates.
+    qint64 m_lastSpectrumMs{0};
+    qint64 m_lastAudioMs{0};
     TunerModel       m_tunerModel;
     TransmitModel    m_transmitModel;
     EqualizerModel   m_equalizerModel;

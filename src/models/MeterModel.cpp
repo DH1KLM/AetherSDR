@@ -438,6 +438,18 @@ float MeterModel::convertAlcToGaugeDbfs(float raw) const
     return raw;
 }
 
+qint64 MeterModel::newestValueAgeMs() const
+{
+    qint64 newest = -1;
+    for (auto it = m_valueUpdatedMs.constBegin(); it != m_valueUpdatedMs.constEnd(); ++it) {
+        if (it.value() > newest)
+            newest = it.value();
+    }
+    if (newest < 0)
+        return -1;
+    return QDateTime::currentMSecsSinceEpoch() - newest;
+}
+
 bool MeterModel::isTxWaveformMeter(const MeterDef& def) const
 {
     return def.source.startsWith("TX");

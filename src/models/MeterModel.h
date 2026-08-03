@@ -80,6 +80,15 @@ public:
     // exposed this as age_ms; this makes it available in C++ for the same
     // reason.
     qint64 valueAgeMs(int index) const;
+    // Age of the FRESHEST value across every meter, or -1 when none has ever
+    // been fed. Proof that the metering path as a whole is still answering,
+    // which no single meter can give: a TX meter is legitimately silent while
+    // receiving, so its staleness proves nothing about the link.
+    qint64 newestValueAgeMs() const;
+    // Every meter index the radio has defined. Lets a caller walk the join in
+    // the producer->consumer direction as well as the reverse, which is how a
+    // meter that is published and rendered nowhere becomes visible.
+    QList<int> definedIndices() const { return m_defs.keys(); }
 
     // Current converted value for a meter index. Returns 0 if unknown.
     float value(int index) const;

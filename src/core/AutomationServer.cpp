@@ -14,6 +14,7 @@
 #include "models/Nr2SettingsModel.h"
 #include "models/RadioModel.h"   // RadioModel, SliceModel, PanadapterModel (get())
 #include "core/backends/IRadioBackend.h"   // backend()->invokeExtension (sim faults)
+#include "core/MeterSurfaces.h"
 #include "models/AetherClockModel.h"  // AetherClockModel (get clock)
 #include "IConnectionAutomation.h" // gui-free connect/disconnect/dialog hook
 #include "MemoryTelemetry.h"
@@ -3170,6 +3171,13 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                     {QStringLiteral("txwaterfall"), on},
                     {QStringLiteral("note"),
                      QStringLiteral("radio echoes status; re-read with get transmit showTxInWaterfall")}};
+            });
+
+        add("liveness", {},
+            "liveness — per-class data ages and the producer->consumer meter join",
+            parseValueOnly,
+            [](AutomationServer& s, A&, QLocalSocket*) -> QJsonObject {
+                return s.doLiveness();
             });
 
         add("civ", {},
@@ -6517,6 +6525,133 @@ QJsonObject AutomationServer::doTune(const QString& value, const QString& id)
 // because arbitrary bytes reach an unguarded command decoder, and among them are
 // "key the transmitter" and "tune to any frequency". Gating on the same switch
 // that guards keying is the honest reading of what this can do.
+// Liveness plus the producer->consumer meter join — the two questions a model
+// snapshot cannot answer.
+//
+// LIVENESS, because every model holds the LAST value it was given. A revoked
+// session leaves `get model=pan` answering cheerfully with a centre and a
+// bandwidth while the panadapter renders a connecting spinner; the only thing
+// that caught it was a screenshot. Ages per data class say whether anything is
+// still coming.
+//
+// THE JOIN, because "defined and fed" is measured at the seam and the operator
+// lives three boundaries downstream. Reported together because the two failure
+// modes look identical from the outside: a gauge that stopped moving is either
+// a dead link or a broken join, and one call now distinguishes them.
+QJsonObject AutomationServer::doLiveness()
+{
+    if (!m_radioModel)
+        return err(QStringLiteral("no radio model available"));
+
+    const auto live = m_radioModel->dataLiveness();
+    const auto& meters = m_radioModel->meterModel();
+
+    // -1 is "never, this session" and must not render as a large age. The
+    // distinction is the diagnostic: never-arrived is a wiring fault, and
+    // arrived-then-stopped is a link fault.
+    auto ageOrNever = [](qint64 ms) -> QJsonValue {
+        return ms < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(static_cast<double>(ms));
+    };
+
+    QJsonObject liveness{
+        {QStringLiteral("connected"), m_radioModel->isConnected()},
+        {QStringLiteral("spectrumAgeMs"), ageOrNever(live.spectrumMs)},
+        {QStringLiteral("audioAgeMs"), ageOrNever(live.audioMs)},
+        {QStringLiteral("meterAgeMs"), ageOrNever(live.meterMs)},
+        {QStringLiteral("note"),
+         QStringLiteral("null means NEVER this session — a wiring fault. A large "
+                        "number means it arrived and stopped — a link fault.")},
+    };
+
+    if (IRadioBackend* backend = m_radioModel->backend()) {
+        const auto ls = backend->linkStats();
+        if (ls.reported) {
+            liveness.insert(QStringLiteral("linkAlive"), ls.alive);
+            liveness.insert(QStringLiteral("rxPackets"),
+                            static_cast<double>(ls.rxPackets));
+            liveness.insert(QStringLiteral("rxPacketsLost"),
+                            static_cast<double>(ls.rxPacketsLost));
+        }
+    }
+
+    // The join. One row per meter the UI can actually show, plus a tail of
+    // anything the backend publishes that nothing renders.
+    QJsonArray join;
+    QStringList publishedNowhere, surfaceStarved, unitDisagreements;
+    for (const auto& surf : kMeterSurfaces) {
+        const QString key = QString::fromLatin1(surf.key);
+        const int colon = key.indexOf(QLatin1Char(':'));
+        const int idx = meters.findMeter(key.left(colon), key.mid(colon + 1));
+        const MeterDef* def = idx >= 0 ? meters.meterDef(idx) : nullptr;
+        const qint64 age = idx >= 0 ? meters.valueAgeMs(idx) : -1;
+
+        const QString declared = def ? def->unit : QString();
+        const QString accepted = QString::fromLatin1(surf.acceptedUnits);
+        // SET MEMBERSHIP, not equality — the consumer may legitimately handle
+        // several units, and asking "are these the same string" reported a
+        // healthy meter as broken forever. See MeterSurfaces.h.
+        const QStringList acceptedList =
+            accepted.split(QLatin1Char(','), Qt::SkipEmptyParts);
+        bool understood = acceptedList.isEmpty();
+        for (const QString& u : acceptedList) {
+            if (declared.compare(u.trimmed(), Qt::CaseInsensitive) == 0) {
+                understood = true;
+                break;
+            }
+        }
+        const bool disagrees = def && !declared.isEmpty() && !understood;
+        if (disagrees) {
+            unitDisagreements
+                << QStringLiteral("%1 (backend declares %2; the consumer handles only %3)")
+                       .arg(key, declared, accepted);
+        }
+        if (idx < 0)
+            surfaceStarved << key;
+
+        join.append(QJsonObject{
+            {QStringLiteral("meter"), key},
+            {QStringLiteral("definedByBackend"), idx >= 0},
+            {QStringLiteral("declaredUnit"), declared},
+            {QStringLiteral("consumerAccepts"), accepted},
+            {QStringLiteral("unitDisagrees"), disagrees},
+            {QStringLiteral("ageMs"), static_cast<double>(age)},
+            {QStringLiteral("consumer"), QString::fromLatin1(surf.consumer)},
+            {QStringLiteral("surfaces"), QString::fromLatin1(surf.surfaces)},
+        });
+    }
+
+    // The other direction: what the backend publishes that no surface reads.
+    for (int idx : meters.definedIndices()) {
+        const MeterDef* def = meters.meterDef(idx);
+        if (!def)
+            continue;
+        const QString key = def->source + QLatin1Char(':') + def->name;
+        if (meterSurfaceFor(QLatin1String(key.toLatin1().constData())))
+            continue;
+        publishedNowhere << key;
+    }
+
+    QJsonObject out{{QStringLiteral("ok"), true},
+                    {QStringLiteral("liveness"), liveness},
+                    {QStringLiteral("meterJoin"), join}};
+    if (!unitDisagreements.isEmpty()) {
+        out.insert(QStringLiteral("unitDisagreements"),
+                   QJsonArray::fromStringList(unitDisagreements));
+    }
+    if (!surfaceStarved.isEmpty()) {
+        // A surface exists and no backend meter feeds it. On a radio whose
+        // protocol has no such meter this is expected, not a defect — which is
+        // exactly why it is reported as a list rather than as a failure.
+        out.insert(QStringLiteral("surfacesWithNoProducer"),
+                   QJsonArray::fromStringList(surfaceStarved));
+    }
+    if (!publishedNowhere.isEmpty()) {
+        out.insert(QStringLiteral("publishedButRenderedNowhere"),
+                   QJsonArray::fromStringList(publishedNowhere));
+    }
+    return out;
+}
+
 QJsonObject AutomationServer::doCiv(const QString& action, const QString& arg)
 {
     if (!m_radioModel)
