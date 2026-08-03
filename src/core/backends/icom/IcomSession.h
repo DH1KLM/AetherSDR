@@ -125,6 +125,9 @@ private:
     bool m_haveRadioId = false;
     bool m_streamsRequested = false;
     bool m_connected = false;
+    // Re-entrancy guard: a teardown makes several streams fail at once, and
+    // each one calling stop() again would delete objects mid-signal.
+    bool m_failing = false;
 
     std::uint16_t m_serialSendSeq = 0;
     std::uint16_t m_audioSendSeq = 1;

@@ -2114,16 +2114,36 @@ void ConnectionPanel::probeRadio(const QString& ip)
         // race the keyring write.
         IcomCredentials::save(pass);
 
+        // RESOLVE FIRST. QHostAddress parses NUMERIC addresses only — given a
+        // host name it yields a null address SILENTLY, and the connect then
+        // goes to "" and times out with a message about the radio's network
+        // settings. That bites hardest on exactly the documented case: the
+        // IC-705's default name is ic-705.local, which is what this field's own
+        // placeholder suggests.
+        QHostAddress resolved(trimmedIp);
+        if (resolved.isNull()) {
+            const QHostInfo hostInfo = QHostInfo::fromName(trimmedIp);
+            if (hostInfo.addresses().isEmpty()) {
+                resetManualConnectButton();
+                setManualMessage(
+                    QStringLiteral("Could not resolve \"%1\". Check the name, or enter the "
+                                   "radio's IP address instead.").arg(trimmedIp),
+                    true);
+                return;
+            }
+            resolved = hostInfo.addresses().first();
+        }
+
         RadioInfo info;
         info.family   = QString::fromLatin1(kFamilyIcom);
-        info.address  = QHostAddress(trimmedIp);
+        info.address  = resolved;
         info.port     = IcomSettings::controlPort();
         info.model    = QStringLiteral("Icom");
         info.name     = info.model;
         // No discovery means no MAC and no reported serial, so the host is the
         // only stable identity this radio has for us. It has to be SOMETHING:
         // the restore/persist scope keys off it.
-        info.serial   = QStringLiteral("icom:%1").arg(trimmedIp);
+        info.serial   = QStringLiteral("icom:%1").arg(resolved.toString());
         info.nickname = info.model;
         rememberManualIp(trimmedIp);
         resetManualConnectButton();

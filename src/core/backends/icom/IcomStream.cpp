@@ -1,5 +1,6 @@
 #include "core/backends/icom/IcomStream.h"
 
+#include <QLoggingCategory>
 #include <QRandomGenerator>
 #include <QTimer>
 #include <QUdpSocket>
@@ -7,6 +8,9 @@
 #include <algorithm>
 
 namespace AetherSDR::icom {
+
+Q_LOGGING_CATEGORY(lcIcomStream, "aether.icom.stream")
+
 namespace {
 
 // How often the reorder buffer is examined. Well below kReorderHoldMs so a gap
@@ -60,7 +64,15 @@ bool IcomStream::bindOnly(const Config& config)
     m_remoteSid = 0;
     m_gotRemoteSid = false;
     m_ready = false;
-    m_txSeq = 0;
+    // ONE, NOT ZERO — and this is not cosmetic.
+    //
+    // The radio treats a tracked sequence of 0 as one BEFORE the start of the
+    // space, infers a wrap, and concludes it has missed the entire preceding
+    // window. Observed against a real radio: it answered our login with a
+    // stream of retransmit requests for 0xff81..0xffff and never processed the
+    // login itself, so the session hung after a handshake that had visibly
+    // succeeded. kappanhang sets sendSeq = 1 in pkt0.init() for the same reason.
+    m_txSeq = 1;
     m_pingSeq = 0;
     m_haveDelivered = false;
     m_gapPending = false;
@@ -175,6 +187,14 @@ void IcomStream::onReadyRead()
         buf.resize(static_cast<qsizetype>(n));
         m_counters.rxBytes += static_cast<quint64>(n);
         ++m_counters.rxPackets;
+        // EVERY inbound datagram, before any dispatch. On first contact with
+        // real hardware the failure was a step that produced no reply at all,
+        // and no amount of logging at the dispatch sites can distinguish "the
+        // radio said nothing" from "we ignored what it said".
+        if (!isPing(asSpan(buf))) {
+            qCDebug(lcIcomStream) << "role" << int(m_config.role) << "RX" << buf.size()
+                                  << "bytes:" << buf.left(96).toHex(' ');
+        }
         handleDatagram(buf);
     }
 }
@@ -209,6 +229,8 @@ void IcomStream::handleDatagram(const QByteArray& datagram)
         if (parseIAmHere(pkt, remote)) {
             m_remoteSid = remote;
             m_gotRemoteSid = true;
+            qCInfo(lcIcomStream) << int(m_config.role) << "got i-am-here, remote sid"
+                                 << Qt::hex << remote;
             sendRawTwice(buildAreYouReady(m_localSid, m_remoteSid));
         }
         return;
@@ -217,6 +239,8 @@ void IcomStream::handleDatagram(const QByteArray& datagram)
     if (!m_ready) {
         if (isIAmReady(pkt)) {
             m_ready = true;
+            qCInfo(lcIcomStream) << int(m_config.role) << "handshake complete on local port"
+                                 << m_boundPort;
 
             m_idleTimer = new QTimer(this);
             connect(m_idleTimer, &QTimer::timeout, this, &IcomStream::onIdleTick);

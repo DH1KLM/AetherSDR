@@ -1,8 +1,17 @@
 #include "core/backends/icom/IcomSession.h"
 
+#include <QLoggingCategory>
 #include <QTimer>
 
 namespace AetherSDR::icom {
+
+// The RS-BA1 handshake is a multi-step chain with no error packet for most of
+// its failure modes — a radio that refuses at any step simply stops answering.
+// Without these lines the whole sequence is a black box that either works or
+// silently does not, which is exactly what happened on first contact with real
+// hardware. Off by default; enable with QT_LOGGING_RULES="aether.icom*=true".
+Q_LOGGING_CATEGORY(lcIcom, "aether.icom.session")
+
 namespace {
 
 // How often the transmit packetiser is drained. A 20 ms frame is produced every
@@ -103,16 +112,36 @@ void IcomSession::stop()
 
 void IcomSession::fail(const QString& reason)
 {
+    if (m_failing)
+        return;   // a teardown can make several streams fail at once
     if (!m_connected && reason.isEmpty())
         return;
+    m_failing = true;
+    qCWarning(lcIcom) << "session failed:" << reason;
     const bool was = m_connected;
     m_connected = false;
     if (was || !reason.isEmpty())
         emit disconnected(reason);
+
+    // ACTUALLY TEAR DOWN. Emitting disconnected() and leaving the streams
+    // running left three UDP sockets open to the radio after a failed connect
+    // — and because an Icom serves ONE client, that held the radio's session
+    // slot so every later attempt timed out with "no answer". The operator sees
+    // a radio that worked once and then refuses to talk to anything.
+    //
+    // Deferred to the event loop because fail() is usually reached FROM a
+    // stream's own signal, and stop() deletes those streams.
+    QTimer::singleShot(0, this, [this] {
+        stop();
+        m_failing = false;
+    });
 }
 
 void IcomSession::onControlReady()
 {
+    qCInfo(lcIcom) << "control stream ready — sending login for user"
+                   << m_params.username << "(password"
+                   << (m_params.password.isEmpty() ? "EMPTY)" : "supplied)");
     m_control->sendTracked(buildLogin(m_control->localSessionId(), m_control->remoteSessionId(),
                                       m_innerSeq++, 0x0000,
                                       m_params.username.toStdString(),
@@ -127,6 +156,7 @@ void IcomSession::onControlPayload(const QByteArray& packet)
     // 0x00, and the length is the only thing that distinguishes them.
     switch (packet.size()) {
     case static_cast<qsizetype>(kLenLoginReply): {
+        qCInfo(lcIcom) << "got login reply";
         AuthId id{};
         switch (parseLoginReply(pkt, id)) {
         case LoginResult::BadCredentials:
@@ -138,6 +168,7 @@ void IcomSession::onControlPayload(const QByteArray& packet)
             break;
         }
         m_authId = id;
+        qCInfo(lcIcom) << "login accepted — sending first auth + token request";
         // Two auths, in this order. The first establishes the session and the
         // second requests the token that actually gates the media streams;
         // sending only one leaves a session that looks logged in and never
@@ -152,6 +183,8 @@ void IcomSession::onControlPayload(const QByteArray& packet)
     }
 
     case static_cast<qsizetype>(kLenToken):
+        qCInfo(lcIcom) << "got token/auth reply, accepted =" << isAuthAccepted(pkt)
+                       << "requestreply =" << pkt[0x14] << "requesttype =" << pkt[0x15];
         if (isAuthAccepted(pkt)) {
             m_authOk = true;
             if (!m_tokenTimer) {
@@ -167,6 +200,7 @@ void IcomSession::onControlPayload(const QByteArray& packet)
         return;
 
     case static_cast<qsizetype>(kLenCapabilities):
+        qCInfo(lcIcom) << "got capabilities packet";
         if (parseCapabilities(pkt, m_radioId)) {
             m_haveRadioId = true;
             m_radioName = QString::fromStdString(parseCapabilitiesName(pkt));
@@ -190,6 +224,8 @@ void IcomSession::onControlPayload(const QByteArray& packet)
         if (m_connected)
             return;
         const StreamGrant grant = parseStreamGrant(pkt);
+        qCInfo(lcIcom) << "got stream-request reply, granted =" << grant.granted
+                       << "byte0x60 =" << static_cast<quint8>(packet.at(0x60));
         if (!grant.granted)
             return;
         m_deviceName = QString::fromStdString(grant.deviceName);
@@ -202,14 +238,27 @@ void IcomSession::onControlPayload(const QByteArray& packet)
     }
 
     default:
+        // THE diagnostic that matters most on first contact: a control payload
+        // whose length we do not recognise means the radio answered with
+        // something this client does not model, and silently ignoring it is
+        // indistinguishable from the radio saying nothing at all.
+        qCWarning(lcIcom) << "UNHANDLED control payload, length" << packet.size()
+                          << "first bytes" << packet.left(24).toHex(' ');
         return;
     }
 }
 
 void IcomSession::requestStreamsIfReady()
 {
-    if (m_streamsRequested || !m_authOk || !m_haveRadioId)
+    if (m_streamsRequested || !m_authOk || !m_haveRadioId) {
+        qCDebug(lcIcom) << "stream request not yet possible: requested="
+                        << m_streamsRequested << "authOk=" << m_authOk
+                        << "haveRadioId=" << m_haveRadioId;
         return;
+    }
+    qCInfo(lcIcom) << "requesting serial + audio streams; radio name =" << m_radioName
+                   << "civ port =" << m_serial->localPort()
+                   << "audio port =" << m_audio->localPort();
     m_streamsRequested = true;
 
     StreamRequest req;
@@ -249,6 +298,7 @@ void IcomSession::onTokenRenew()
 
 void IcomSession::onSerialReady()
 {
+    qCInfo(lcIcom) << "serial stream ready — opening the CI-V pipe";
     // Opening the CI-V pipe is a separate step from the stream handshake. A
     // serial stream that handshakes and never opens carries keepalives forever
     // and no commands.
@@ -295,6 +345,7 @@ void IcomSession::onCivFrameTimeout()
 
 void IcomSession::onAudioReady()
 {
+    qCInfo(lcIcom) << "audio stream ready";
     if (!m_txTimer && m_params.enableTx) {
         m_txTimer = new QTimer(this);
         connect(m_txTimer, &QTimer::timeout, this, &IcomSession::onTxPump);
