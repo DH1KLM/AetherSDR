@@ -497,3 +497,90 @@ answer to one question — *does the MK2 answer on the LAN while in Standby?* �
 before `canReboot` becomes true for it. If it does, the feature is
 `setPowerOffMode(Standby)` plus a guarded `18 00` / `18 01` pair, and the
 capability stays per-model.
+
+---
+
+## Appendix C — CI-V coverage audit
+
+Every meter and switch the IC-705's CI-V guide documents, against what this
+backend maps and what the UI actually consumes. Written after live testing found
+five "broken" meters that were all publishing correctly at the seam.
+
+**The dominant defect is not a missing mapping — it is a UNIT CONTRACT.**
+`MeterModel` interprets a meter by NAME, with a unit it assumes rather than
+reads. `TX:FWDPWR` is unconditionally treated as dBm and converted with
+`10^(v/10)/1000`; `TX:ALC` is routed to `swAlcChanged(float dbfs)` and rendered
+on a −20…0 dBFS gauge. A backend that publishes the honest unit from its own
+radio — watts, percent — is silently mis-rendered. The `unit` field in
+`MeterDef` is carried, displayed, and then ignored by the consumers that matter.
+
+### C.1 Meters (`15 xx`)
+
+| CI-V | Guide semantics | Mapped | Published as | Verdict |
+|---|---|---|---|---|
+| `15 01` | Noise/S-meter squelch open | `kSquelchStatus` | — | constant defined, never polled |
+| `15 02` | S-meter, 0=S0 / 120=S9 / 241=S9+60 | ✅ | `SLC:LEVEL` dBm | **working** |
+| `15 05` | Various squelch (tone etc.) open | ✗ | — | unmapped |
+| `15 07` | ADC OVF indicator | `kOverflow` | `RAD:OVF` Percent | published, no consumer |
+| `15 11` | Po, 0=0% / 143=50% / 213=100% | ✅ | `TX:FWDPWR` **Watts** | **BROKEN — seam wants dBm** |
+| `15 12` | SWR, 0=1.0 / 48=1.5 / 80=2.0 / 120=3.0 | ✅ | `TX:SWR` SWR | **BROKEN — gated behind FWDPWR** |
+| `15 13` | ALC, 0=min / 120=max | ✅ | `TX:ALC` **Percent** | **BROKEN — seam wants dBFS, so it pegs** |
+| `15 14` | COMP, 0=0 dB / 130=15 dB / 210=25.5 dB | ✅ | `TX:COMPPEAK` dB | contract correct; reads 0 while PROC is unmapped |
+| `15 15` | Vd, 0=0 V / 75=5 V / 241=16 V | ✅ | `RAD:+13.8A` Volts | **working** |
+| `15 16` | Id, 0=0 A / 121=2 A / 241=4 A | ✅ | `RAD:PACURRENT` Amps | published, no consumer |
+
+**There is no mic-level meter and no temperature meter in the CI-V set.** The
+list above is complete. So the Phone/CW **Level** gauge (mic peak, dBFS) and
+`TX:MICPEAK` can never move on this radio, and neither can `RAD:PATEMP`. Both
+want hiding on a backend that owns its own microphone, not fixing.
+
+### C.2 Functions (`16 xx`) — switches
+
+| CI-V | Function | Mapped | Reaches a control |
+|---|---|---|---|
+| `16 02` | Preamp OFF/P.AMP1/P.AMP2 | ✅ | ✅ via `setPanRfGain` |
+| `16 12` | AGC FAST/MID/SLOW | ✅ | ✅ via `setSliceAgc` |
+| `16 22` | Noise blanker | ✅ | ✗ constant only |
+| `16 40` | Noise reduction | ✅ | ✗ constant only |
+| `16 41` | Auto notch | ✅ | ✗ constant only |
+| `16 43` | Tone squelch | ✗ | ✗ |
+| `16 44` | **Speech compressor (PROC)** | ✅ | ✗ **not wired — the PROC state disagrees with the radio** |
+| `16 45` | Monitor | ✅ | ✗ constant only |
+| `16 46` | VOX | ✅ | ✗ constant only |
+| `16 47` | BK-IN OFF/SEMI/FULL | ✗ | ✗ **CW break-in unreachable** |
+| `16 48` | Manual notch | ✅ | ✗ constant only |
+| `16 4F` | Twin peak filter (RTTY) | ✗ | ✗ |
+| `16 50` | Dial lock | ✅ | ✗ constant only |
+| `16 56` | DSP IF filter SHARP/SOFT | ✗ | ✗ |
+| `16 57` | Manual notch width W/M/N | ✗ | ✗ |
+| `16 58` | SSB TX bandwidth W/M/N | ✗ | ✗ |
+
+### C.3 Levels (`14 xx`)
+
+Mapped: AF `01`, RF `02`, squelch `03`, NR `06`, CW pitch `09`, RF power `0A`,
+mic gain `0B`, key speed `0C`, COMP level `0E`, NB level `12`, monitor `15`.
+
+Unmapped: notch position `0D`, break-in delay `0F`, VOX gain `16`, anti-VOX
+gain `17`.
+
+**`14 0E` is the missing half of PROC.** AetherSDR's processor control is a Flex
+shape — OFF / NOR / DX / DX+ — and on an Icom that is two commands, not one:
+`16 44` for the on/off and `14 0E` (0000–0255 ⇒ 0–10) for which of the three.
+
+### C.4 RIT / XIT (`21 xx`) — entirely unmapped
+
+| CI-V | Function | Mapped |
+|---|---|---|
+| `21 00` | RIT frequency | ✗ |
+| `21 01` | RIT ON/OFF | ✗ |
+| `21 02` | ∂TX (XIT) ON/OFF | ✗ |
+
+No constant, no builder, no call site. RIT and XIT are not wired in at all.
+
+### C.5 IF filter — three, not more
+
+The radio has exactly **FIL1 / FIL2 / FIL3**, selected in the mode command's
+third byte. `filterForWidthHz()` snaps a width request onto them correctly, but
+the UI still offers the full Flex step list, so most of its steps land on the
+same three filters. The reachable set is a capability the backend should
+publish, the same way the RF-gain control was narrowed to three preamp detents.
