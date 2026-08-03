@@ -3172,6 +3172,13 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                      QStringLiteral("radio echoes status; re-read with get transmit showTxInWaterfall")}};
             });
 
+        add("civ", {},
+            "civ <send <hex>|trace [all]> — raw CI-V inject and frame trace (Icom; send is TX-gated)",
+            parseActionRest,
+            [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
+                return s.doCiv(a.action, a.value);
+            });
+
         add("radiocert", {},
             "radiocert <tune|rx|tx|meters|all> [freqMhz] — radio bring-up diagnostic, in dependency order (tx/meters key)",
             parseActionValue,
@@ -6496,6 +6503,87 @@ QJsonObject AutomationServer::doTune(const QString& value, const QString& id)
 // is observed by the regression suite via the normal get/log surface (a stalled
 // scope, a dropped slice, a disconnect), not via a correlated result. That keeps
 // the assertion on AE's actual fail-closed behaviour, which is the point.
+// Raw CI-V injection and the frame trace — the two halves of "does the radio
+// accept THIS byte sequence", which is a question no internal test can answer.
+//
+// The trace is the more useful half day to day. A wire-format bug is decided by
+// one frame and its reply (FB accepted, FA rejected, or silence — and silence is
+// a real answer: the IC-705 ignores a span command that is one byte short
+// without complaining at all). Reading that used to require relaunching with
+// QT_LOGGING_RULES set, which on a single-client radio costs a session timeout
+// each time.
+//
+// SEND IS TX-GATED. Not because CI-V is transmit — most of it is not — but
+// because arbitrary bytes reach an unguarded command decoder, and among them are
+// "key the transmitter" and "tune to any frequency". Gating on the same switch
+// that guards keying is the honest reading of what this can do.
+QJsonObject AutomationServer::doCiv(const QString& action, const QString& arg)
+{
+    if (!m_radioModel)
+        return err(QStringLiteral("no radio model available"));
+    IRadioBackend* backend = m_radioModel->backend();
+    if (!backend)
+        return err(QStringLiteral("no backend available"));
+
+    const QString a = action.trimmed().toLower();
+    if (a.isEmpty() || (a != QLatin1String("send") && a != QLatin1String("trace")))
+        return err(QStringLiteral("civ requires an action (send|trace)"));
+    if (a == QLatin1String("send") && !m_txAllowed) {
+        return err(QStringLiteral(
+            "civ send is TX-gated: raw CI-V can key the transmitter and retune the "
+            "radio. Relaunch with AETHER_AUTOMATION_ALLOW_TX=1"));
+    }
+
+    // The Icom backend answers both verbs synchronously inside invokeExtension,
+    // so a direct connection lands before the call returns. Anything that does
+    // not answer leaves `answered` false and is reported as unsupported rather
+    // than as success — a fire-and-forget reply here would make an unrecognised
+    // namespace look like a working inject.
+    bool answered = false;
+    bool failed = false;
+    QVariant payload;
+    QString failure;
+    const quint64 rid = ++m_extensionRequestId;
+    auto okConn = connect(backend, &IRadioBackend::extensionResult, this,
+                          [&](quint64 id, const QVariant& v) {
+        if (id != rid) return;
+        answered = true;
+        payload = v;
+    }, Qt::DirectConnection);
+    auto errConn = connect(backend, &IRadioBackend::extensionError, this,
+                           [&](quint64 id, const QString& msg) {
+        if (id != rid) return;
+        answered = true;
+        failed = true;
+        failure = msg;
+    }, Qt::DirectConnection);
+
+    backend->invokeExtension(QStringLiteral("icom"),
+                             a == QLatin1String("send") ? QStringLiteral("civ.send")
+                                                        : QStringLiteral("civ.trace"),
+                             rid, arg.trimmed());
+    disconnect(okConn);
+    disconnect(errConn);
+
+    if (!answered) {
+        return err(QStringLiteral(
+            "this backend does not implement raw CI-V (it is an Icom-only verb)"));
+    }
+    if (failed)
+        return err(failure);
+
+    QJsonObject out{{QStringLiteral("ok"), true}, {QStringLiteral("civ"), a}};
+    out.insert(QStringLiteral("result"),
+               QJsonValue::fromVariant(payload));
+    if (a == QLatin1String("send")) {
+        out.insert(QStringLiteral("note"),
+                   QStringLiteral("read the radio's answer with `civ trace` — FB is "
+                                  "accepted, FA rejected, and NO reply at all means "
+                                  "the radio ignored the frame"));
+    }
+    return out;
+}
+
 QJsonObject AutomationServer::doSimFault(const QString& fault, const QString& arg)
 {
     if (!m_radioModel)

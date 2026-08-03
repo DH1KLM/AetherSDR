@@ -624,6 +624,9 @@ private:
     // Demo fault injection (RFC #4288 #4): route a fault to backend->
     // invokeExtension("sim", …). No-op error on non-Sim backends.
     QJsonObject doSimFault(const QString& fault, const QString& arg);
+    // Raw CI-V inject + frame trace. Icom-only; other backends report it as
+    // unimplemented rather than silently succeeding.
+    QJsonObject doCiv(const QString& action, const QString& arg);
     // Semantic transmitter keying (#3646 fidelity): `key ptt on|off` / `key mox`
     // route to RadioModel::setTransmit — the exact calls the space-bar PTT filter
     // and the mox_toggle shortcut make, but reachable headlessly. Keying is gated
@@ -789,6 +792,9 @@ private:
     bool    m_txKeyedAtRequestStart{false};
     int     m_txMaxPower{-1};      // power-ceiling clamp for invoke (-1 = off)
     bool    m_txAllowed{false};    // AETHER_AUTOMATION_ALLOW_TX at start()
+    // Correlates an extension reply with the request that caused it. Starts at
+    // 1 because the sim-fault path deliberately uses 0 for fire-and-forget.
+    quint64 m_extensionRequestId{0};
     bool    m_readOnly{false};     // observe-only gate (#4188 area 6)
     QString m_authToken;           // shared-secret gate; empty = open (#3646)
     // Log/event channel (#3646 observability suite). The tap fills m_logRing

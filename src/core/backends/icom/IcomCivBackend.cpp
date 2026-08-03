@@ -350,6 +350,20 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
         return;
     }
 
+    // PAST THE SCOPE RETURN, so sweeps never enter the ring. Re-serialised
+    // rather than captured raw because the parsed frame is what we have here,
+    // and for diagnosis the envelope is noise — the command bytes are the
+    // evidence. Terminator included so an FB/FA reply is unmistakable.
+    {
+        std::vector<std::uint8_t> flat;
+        flat.reserve(frame.data.size() + 4);
+        flat.push_back(frame.cmd);
+        if (frame.hasSub)
+            flat.push_back(frame.sub);
+        flat.insert(flat.end(), frame.data.begin(), frame.data.end());
+        traceCiv(/*outbound=*/false, flat);
+    }
+
     switch (frame.cmd) {
     case cmd::kReadId: {
         if (auto addr = parseModelIdReply(frame)) {
@@ -533,6 +547,7 @@ void IcomCivBackend::sendUserCommand(const std::vector<std::uint8_t>& frame)
     // Tell the scheduler a real command just went out, so metering yields and
     // the command is not stuck behind a queue of polls.
     m_meters.noteUserCommand(QDateTime::currentMSecsSinceEpoch());
+    traceCiv(/*outbound=*/true, frame);
     m_session->sendCiv(frame);
 }
 
@@ -758,6 +773,84 @@ void IcomCivBackend::setTxPower(int percent)
                                 level::kRfPower, percentToRaw(m_txPowerPercent)));
 }
 
+void IcomCivBackend::traceCiv(bool outbound, std::span<const std::uint8_t> frame)
+{
+    QString hex;
+    hex.reserve(static_cast<int>(frame.size()) * 3);
+    for (std::uint8_t b : frame) {
+        if (!hex.isEmpty())
+            hex += QLatin1Char(' ');
+        hex += QStringLiteral("%1").arg(b, 2, 16, QLatin1Char('0'));
+    }
+    m_civTrace.push_back({QDateTime::currentMSecsSinceEpoch(), outbound, hex});
+    while (m_civTrace.size() > kCivTraceMax)
+        m_civTrace.pop_front();
+}
+
+QVariantList IcomCivBackend::civTrace(bool includeRoutine) const
+{
+    const std::int64_t now = QDateTime::currentMSecsSinceEpoch();
+    QVariantList out;
+    for (const auto& e : m_civTrace) {
+        // ROUTINE POLL TRAFFIC IS HIDDEN BY DEFAULT, and this was learned by
+        // using the tool: the very first real trace buried the one frame that
+        // mattered under ~12 meter replies per second. The scope sweeps were
+        // already excluded for the same reason; these are the rest of the
+        // heartbeat — 15 xx meter answers and the 1C 00 transmit-state poll.
+        //
+        // Hidden, not dropped: `civ trace all` still returns them, because
+        // "the meters stopped answering" is itself a diagnosis and needs them.
+        if (!includeRoutine && !e.outbound) {
+            if (e.hex.startsWith(QLatin1String("15 "))
+                || e.hex.startsWith(QLatin1String("1c 00"))) {
+                continue;
+            }
+        }
+        QVariantMap m;
+        // AGE, not a wall clock. The consumer is an agent correlating a reply
+        // with a command it just sent, and "12 ms ago" answers that directly.
+        m.insert(QStringLiteral("ageMs"), static_cast<qint64>(now - e.atMs));
+        m.insert(QStringLiteral("dir"), e.outbound ? QStringLiteral("tx")
+                                                   : QStringLiteral("rx"));
+        m.insert(QStringLiteral("hex"), e.hex);
+        out.append(m);
+    }
+    return out;
+}
+
+namespace {
+// "27 15 00" / "271500" / "0x27,0x15" all parse. Deliberately permissive about
+// separators and strict about everything else: a malformed byte is refused
+// rather than silently dropped, because a short frame is still a legal frame
+// and the radio would act on it.
+std::optional<std::vector<std::uint8_t>> parseHexBytes(const QString& in)
+{
+    QString compact;
+    for (QChar c : in) {
+        if (c.isLetterOrNumber())
+            compact += c;
+        else if (c == QLatin1Char(' ') || c == QLatin1Char(',') || c == QLatin1Char(':'))
+            continue;
+        else
+            return std::nullopt;
+    }
+    // Tolerate an 0x prefix per byte by stripping it only where it is a prefix.
+    compact.remove(QLatin1String("0x"), Qt::CaseInsensitive);
+    if (compact.isEmpty() || compact.size() % 2 != 0)
+        return std::nullopt;
+    std::vector<std::uint8_t> out;
+    out.reserve(static_cast<std::size_t>(compact.size() / 2));
+    for (int i = 0; i < compact.size(); i += 2) {
+        bool ok = false;
+        const uint v = compact.mid(i, 2).toUInt(&ok, 16);
+        if (!ok)
+            return std::nullopt;
+        out.push_back(static_cast<std::uint8_t>(v));
+    }
+    return out;
+}
+}  // namespace
+
 void IcomCivBackend::invokeExtension(const QString& ns, const QString& verb, quint64 requestId,
                                      const QVariant& arg)
 {
@@ -780,6 +873,53 @@ void IcomCivBackend::invokeExtension(const QString& ns, const QString& verb, qui
                                           arg.toDouble()));
         m_scopeCal.referenceDb = arg.toDouble();
         emit extensionResult(requestId, true);
+        return;
+    }
+    if (verb == QLatin1String("civ.trace")) {
+        const QString mode = arg.toString().trimmed().toLower();
+        emit extensionResult(requestId, civTrace(mode == QLatin1String("all")));
+        return;
+    }
+    if (verb == QLatin1String("civ.send")) {
+        // RAW INJECTION. The caller supplies the command bytes ONLY — the
+        // preamble, addresses and terminator are ours. That is not politeness:
+        // letting a caller write the address fields would let it address a
+        // different radio on the bus, or forge a frame that looks like the
+        // radio's own reply on the way back through our decoder.
+        //
+        // Everything after that is unguarded on purpose. This exists to answer
+        // "does the radio accept THIS byte sequence", and a version that only
+        // permitted sequences we already believed in could not answer it.
+        if (!m_session || !m_connected) {
+            emit extensionError(requestId, QStringLiteral("not connected"));
+            return;
+        }
+        const auto bytes = parseHexBytes(arg.toString());
+        if (!bytes || bytes->empty()) {
+            emit extensionError(
+                requestId,
+                QStringLiteral("civ.send wants hex command bytes, e.g. \"27 15 00 00 00 25 00 00\""));
+            return;
+        }
+        if (bytes->size() + 6 > kMaxCommandFrameBytes) {
+            emit extensionError(requestId,
+                                QStringLiteral("frame too long (%1 command bytes)")
+                                    .arg(bytes->size()));
+            return;
+        }
+        std::vector<std::uint8_t> frame;
+        frame.reserve(bytes->size() + 6);
+        frame.push_back(kCivPreamble);
+        frame.push_back(kCivPreamble);
+        frame.push_back(m_session->civAddress());
+        frame.push_back(kControllerAddress);
+        frame.insert(frame.end(), bytes->begin(), bytes->end());
+        frame.push_back(kCivEom);
+        sendUserCommand(frame);
+        QVariantMap r;
+        r.insert(QStringLiteral("sent"), true);
+        r.insert(QStringLiteral("bytes"), static_cast<int>(frame.size()));
+        emit extensionResult(requestId, r);
         return;
     }
     emit extensionError(requestId, QStringLiteral("unknown verb %1").arg(verb));

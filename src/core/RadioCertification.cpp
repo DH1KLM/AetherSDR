@@ -304,7 +304,7 @@ void RadioCertification::stageMeterInventory()
         return;
     const auto& meters = m_radio->meterModel();
     QJsonObject m;
-    QStringList definedNeverFed, expectedButMissing;
+    QStringList definedNeverFed, expectedButMissing, unitMismatches;
 
     // kMeterTable's `expectedOnHl2` column is a fact about ONE radio class.
     const bool tableAppliesToThisRadio =
@@ -316,8 +316,24 @@ void RadioCertification::stageMeterInventory()
         const int idx = meters.findMeter(QString::fromLatin1(spec.source),
                                          QString::fromLatin1(spec.name));
         const qint64 age = idx >= 0 ? meters.valueAgeMs(idx) : -1;
+        // THE UNIT, TWICE. `unit` is what this table EXPECTS; `declaredUnit` is
+        // what the backend actually published. When they disagree the meter is
+        // already being misread and no amount of freshness will show it — an
+        // IC-705 declaring FWDPWR in Watts against a consumer assuming dBm
+        // rendered 5 W as 0.003 W while this stage reported it fed and healthy.
+        const MeterDef* def = idx >= 0 ? meters.meterDef(idx) : nullptr;
+        const QString declared = def ? def->unit : QString();
+        const bool unitDisagrees =
+            def && !declared.isEmpty()
+            && declared.compare(QLatin1String(spec.unit), Qt::CaseInsensitive) != 0;
+        if (unitDisagrees)
+            unitMismatches << QStringLiteral("%1 (declared %2, expected %3)")
+                                  .arg(key, declared, QString::fromLatin1(spec.unit));
+
         m[key] = QJsonObject{
             {QStringLiteral("unit"), QString::fromLatin1(spec.unit)},
+            {QStringLiteral("declaredUnit"), declared},
+            {QStringLiteral("unitDisagrees"), unitDisagrees},
             {QStringLiteral("defined"), idx >= 0},
             {QStringLiteral("everFed"), age >= 0},
             {QStringLiteral("ageMs"), static_cast<double>(age)},
@@ -369,6 +385,29 @@ void RadioCertification::stageMeterInventory()
             + QStringLiteral(". Either publish them with a documented scale or "
                              "stop defining them");
     }
+
+    // A UNIT MISMATCH OUTRANKS EVERYTHING ELSE HERE, so it goes first. Every
+    // other concern in this stage describes a meter that is not there; this one
+    // describes a meter that IS there, is fresh, and is wrong — which is the
+    // only failure mode in the set that looks healthy from every angle the
+    // stage previously had.
+    if (!unitMismatches.isEmpty()) {
+        QString lead = QStringLiteral(
+            "UNIT MISMATCH — these are defined, fed and MISREAD. The consumer "
+            "converts by the unit it expects, not the one the backend declared: ")
+            + unitMismatches.join(QStringLiteral(", "));
+        concern = concern.isEmpty() ? lead : lead + QStringLiteral(". ") + concern;
+    }
+
+    // WHAT THE GAUGE WILL ACTUALLY SHOW. Everything above measures the seam;
+    // these three are read back through the consumer that converts, because
+    // "a value arrived" and "the face moved" turned out to be different
+    // questions (CERTIFICATION.md 1.27).
+    m[QStringLiteral("asRendered")] = QJsonObject{
+        {QStringLiteral("fwdPowerWatts"), meters.fwdPowerInstant()},
+        {QStringLiteral("swr"), meters.swr()},
+        {QStringLiteral("alcDbfs"), meters.swAlc()},
+    };
 
     record(QStringLiteral("meter-inventory"),
            QStringLiteral("Meters exist and actually receive values"),

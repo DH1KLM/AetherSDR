@@ -143,6 +143,28 @@ void LogManager::setEnabled(const QString& id, bool on)
             return;
         }
     }
+
+    // NOT IN THE CURATED LIST — register it and honour the request anyway.
+    //
+    // The list above is the set worth OFFERING in the UI, and it was silently
+    // doubling as the set that could be TOGGLED AT ALL: a category it did not
+    // name accepted `setEnabled` and did nothing, while the verb that called it
+    // reported ok. `log set aether.icom.stream on` answered
+    // `{ok: true, enabled: false}`, so the only way to see wire traffic was to
+    // relaunch with QT_LOGGING_RULES — and on a single-client radio every
+    // relaunch costs a session timeout.
+    //
+    // Refusing loudly would be defensible; accepting is better. Qt categories
+    // are created by any translation unit that declares one, so no central list
+    // can be complete, and a diagnostic category nobody thought to curate is
+    // exactly the one you need at 2am.
+    if (!on)
+        return;   // nothing to turn off, and no reason to accrue an entry
+    m_categories.append({id, id, QStringLiteral("Registered on demand")});
+    m_categories.last().enabled = true;
+    applyFilterRules();
+    saveSettings();
+    emit categoryChanged(id, true);
 }
 
 void LogManager::setAllEnabled(bool on)

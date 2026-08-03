@@ -3,8 +3,11 @@
 #include <QByteArray>
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 
+#include <deque>
 #include <memory>
+#include <span>
 
 #include "core/backends/IRadioBackend.h"
 #include "core/backends/icom/CivCodec.h"
@@ -153,6 +156,29 @@ private:
     // Zero means no sweep has arrived yet, in which case neither intent acts.
     std::int64_t m_scopeCentreHz = 0;
     std::int64_t m_scopeSpanHz = 0;
+
+    // A short ring of recent CI-V frames, both directions, for diagnosis.
+    //
+    // WHY THIS IS HERE AND NOT IN THE LOG. The decisive evidence for a wire-
+    // format bug is one frame and its reply — our command echoed back, then FB
+    // (accepted) or FA (rejected). Getting at that used to mean relaunching
+    // with QT_LOGGING_RULES set, and on a single-client radio every relaunch
+    // costs a session timeout, so a three-line diagnosis took three restarts.
+    // Kept in the backend it is readable at any moment through one verb.
+    //
+    // SCOPE SWEEPS ARE EXCLUDED, and that is what makes the ring usable: they
+    // are ~500 bytes at 30 Hz and would evict everything interesting within a
+    // second. The exclusion is free — onCivFrame returns on them before it
+    // reaches the recorder.
+    struct CivTraceEntry {
+        std::int64_t atMs = 0;
+        bool outbound = false;
+        QString hex;
+    };
+    void traceCiv(bool outbound, std::span<const std::uint8_t> frame);
+    [[nodiscard]] QVariantList civTrace(bool includeRoutine) const;
+    std::deque<CivTraceEntry> m_civTrace;
+    static constexpr std::size_t kCivTraceMax = 200;
     LinkStats m_link;
 };
 
