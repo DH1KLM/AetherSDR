@@ -277,6 +277,13 @@ void IcomCivBackend::onSessionConnected(const QString& deviceName)
     m_meters.setVisible(MeterId::SMeter, true);
     m_meters.setVisible(MeterId::Vd, true);
     m_meters.setVisible(MeterId::Overflow, true);
+    // The transmit meters. Visible so the poller WILL ask for them — it still
+    // only does so while transmitting, which is what the TX/RX split is for.
+    m_meters.setVisible(MeterId::Power, true);
+    m_meters.setVisible(MeterId::Swr, true);
+    m_meters.setVisible(MeterId::Alc, true);
+    m_meters.setVisible(MeterId::Comp, true);
+    m_meters.setVisible(MeterId::Id, true);
 
     m_meterTimer = new QTimer(this);
     connect(m_meterTimer, &QTimer::timeout, this, &IcomCivBackend::onMeterTick);
@@ -704,6 +711,22 @@ void IcomCivBackend::onMeterTick()
     if (!m_session || !m_connected)
         return;
     const std::int64_t now = QDateTime::currentMSecsSinceEpoch();
+
+    // ASK THE RADIO WHETHER IT IS TRANSMITTING, rather than assuming we are the
+    // only thing that can key it.
+    //
+    // m_keyed was set only by our own setKeying() and by an unsolicited 1C 00
+    // frame — which arrives only if CI-V Transceive is on. Key from the
+    // radio's own PTT and we never learned, so the TX/RX split kept every
+    // transmit meter suppressed and they read as "defined but never fed" while
+    // the radio's own meters were plainly moving. That is the operator's
+    // report, and it is a receive-side blindness rather than a metering bug.
+    if (m_session && now - m_lastPttPollMs >= kPttPollMs) {
+        m_lastPttPollMs = now;
+        m_session->sendCiv(buildFrameSub(m_session->civAddress(), cmd::kControl,
+                                         control::kPtt));
+    }
+
     for (MeterId id : m_meters.due(now)) {
         const MeterSpec* spec = meterSpecFor(id);
         if (!spec)

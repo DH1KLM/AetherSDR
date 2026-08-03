@@ -138,6 +138,11 @@ private:
     double m_vdVolts = 0.0;
     double m_idAmps = 0.0;
     int m_txPowerPercent = 0;
+    // Keying can originate at the radio's own PTT, so transmit state is POLLED
+    // rather than inferred from our own commands. Slow: it only has to notice a
+    // transmission, and it shares the CI-V stream with tuning.
+    std::int64_t m_lastPttPollMs = 0;
+    static constexpr int kPttPollMs = 250;
     LinkStats m_link;
 };
 
