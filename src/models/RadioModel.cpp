@@ -9907,6 +9907,23 @@ void RadioModel::createAudioStream()
 
 bool RadioModel::ensureDaxTxStream(DaxTxRequestReason reason)
 {
+    // A BACKEND THAT TAKES TX AUDIO OVER THE SEAM NEEDS NO DAX STREAM, and
+    // asking for one is how TCI transmit died on an Icom: `stream create` went
+    // to a radio with no Flex command plane, failed with 0x50000063, and every
+    // caller read that as "transmit cannot proceed".
+    //
+    // TRUE, not false. The contract of this function is "is there a route for
+    // transmit audio", and there is — AudioEngine's final-monitor tap into
+    // IRadioBackend::submitTxAudio. False would be the same outage with a
+    // tidier log.
+    if (backendCapabilities().takesTxAudioOverSeam) {
+        qCDebug(lcDax).noquote()
+            << "RadioModel: DAX TX not needed — this backend takes transmit audio"
+            << "over the seam"
+            << QStringLiteral("reason=%1").arg(daxTxRequestReasonName(reason));
+        return true;
+    }
+
     const DaxTxPolicyContext policyContext = currentDaxTxPolicyContext(reason);
     const DaxTxPolicyDecision decision = evaluateDaxTxPolicy(policyContext);
     const quint32 ourHandle = clientHandle();
@@ -10010,7 +10027,9 @@ bool RadioModel::prepareWsprTransmit()
     // would put shack ambience on the WSPR frame — but AudioEngine::
     // startWsprPump() already does that with setDaxTxMode(true), which gates
     // onTxAudioReady() locally on every family.
-    if (backendCapabilities().hostModulates) {
+    // Any backend whose transmit audio leaves through the seam, not only one
+    // that modulates locally — the beacon reaches submitTxAudio either way.
+    if (backendCapabilities().takesTxAudioOverSeam) {
         m_wsprTxHostModulated = true;
         return true;
     }

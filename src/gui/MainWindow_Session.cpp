@@ -578,14 +578,28 @@ void MainWindow::wireRadioModel()
         // it says so AND is actually allowed to transmit. An RX-only (or
         // transmit-blocked) backend must not open the mic / lock PC audio. (#4449)
         const RadioCapabilities caps = m_radioModel.backendCapabilities();
+        // TWO DIFFERENT QUESTIONS, and they were one flag until an Icom proved
+        // they are not. `hostModulates` is "does the HOST run the modulator";
+        // takesTxAudioOverSeam is "does transmit audio leave through the seam".
+        // An Icom answers no to the first and YES to the second — its own
+        // firmware modulates, from PCM this computer captures and ships.
+        //
+        // Everything below is about the AUDIO, so all of it keys off the
+        // second. Gating it on the first meant an Icom captured nothing,
+        // processed nothing and emitted nothing: the radio keyed and put no
+        // modulation on the air.
         const bool hostModulates = caps.hostModulates && caps.canTransmit;
-        m_audio->setHostModulation(hostModulates && connected);
+        const bool seamTxAudio = caps.takesTxAudioOverSeam && caps.canTransmit;
+        m_audio->setHostModulation(seamTxAudio && connected);
         // PC audio is not optional on a host-modulating backend: all audio, both
         // directions, lives on this computer. Turning it off would leave the
         // operator deaf and mute with nothing to explain it.
+        // PC audio is not optional when all the audio lives here, which is true
+        // of any backend that both owns RX audio and takes TX audio over the
+        // seam — not only of one that modulates locally.
         if (m_titleBar)
-            m_titleBar->setPcAudioLocked(connected && hostModulates);
-        if (connected && hostModulates) {
+            m_titleBar->setPcAudioLocked(connected && seamTxAudio);
+        if (connected && seamTxAudio) {
             if (!m_audio->isTxStreaming())
                 audioStartTx(m_radioModel.radioAddress(), 4991);
             // RX must be started imperatively, exactly like TX. Locking the
@@ -599,7 +613,7 @@ void MainWindow::wireRadioModel()
             AppSettings::instance().setValue("PcAudioEnabled", "True");
             AppSettings::instance().save();
             audioStartRx();
-        } else if (!connected && hostModulates) {
+        } else if (!connected && seamTxAudio) {
             audioStopTx();
         }
     });

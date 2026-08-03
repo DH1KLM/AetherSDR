@@ -146,6 +146,26 @@ struct RadioCapabilities {
     // looks like a hardware fault.
     bool hasSelectableMicInputs = false;
 
+    // Transmit audio reaches this backend through IRadioBackend::submitTxAudio
+    // rather than through a Flex DAX/VITA-49 stream.
+    //
+    // SEPARATE FROM hostModulates, and conflating the two cost a working
+    // transmitter. `hostModulates` answers "does the HOST run the modulator" —
+    // true for the HL2, false for an Icom, whose own firmware modulates. But
+    // the Icom still needs the host to capture, process and SHIP the audio,
+    // over its own UDP stream. There are three cases, not two:
+    //
+    //   Flex   modulates on the radio, audio leaves via DAX      → false
+    //   HL2    modulates on the host,  audio leaves via the seam → true
+    //   Icom   modulates on the radio, audio leaves via the seam → true
+    //
+    // AudioEngine gated its entire transmit chain on hostModulates, so an Icom
+    // captured nothing, processed nothing and emitted nothing: the radio keyed
+    // and transmitted no modulation at all. Meanwhile TCI's transmit path tried
+    // to create a DAX stream and failed with "this radio has no command plane",
+    // which is the same mistake read from the other end.
+    bool takesTxAudioOverSeam = false;
+
     // The RX filter widths this radio can actually reach, in Hz. EMPTY means
     // "continuous, or unknown" and the UI keeps its own configurable list.
     //

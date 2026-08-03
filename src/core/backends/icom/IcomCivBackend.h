@@ -135,6 +135,12 @@ private:
     // mono plays back an octave low in one ear, which through TCI means WSJT-X
     // decodes nothing and the spectrum looks half as wide as it is.
     std::unique_ptr<Resampler> m_rxResampler;
+    // The mirror of m_rxResampler: the engine's transmit tap runs at 24 kHz and
+    // this radio's audio stream at 48. Keyed by source rate so a change in the
+    // engine's rate rebuilds it rather than silently resampling from the wrong
+    // ratio.
+    std::unique_ptr<Resampler> m_txResampler;
+    int m_txResamplerFromHz = 0;
     static constexpr int kRadioAudioRateHz  = 48000;
     static constexpr int kEngineAudioRateHz = 24000;
 
@@ -172,6 +178,17 @@ private:
     int m_nrEnableSent = -1;
     int m_nbEnableSent = -1;
     int m_anfEnableSent = -1;
+
+    // The radio's MOD Input selection, as last reported (-1 = not yet read).
+    //
+    // THE SINGLE MOST IMPORTANT SETTING FOR TRANSMIT, and the one nothing else
+    // can infer. The radio modulates from ONE source per mode class; if it is
+    // not WLAN then every byte of network audio is discarded and the radio
+    // transmits its own microphone or nothing at all, at zero forward power,
+    // with no error anywhere in the protocol.
+    int m_dataOffModInput = -1;   // SSB / CW / AM / FM
+    int m_dataModInput    = -1;   // data modes (FT8 and friends)
+    void checkModInput();
 
     std::int64_t m_scopeCentreHz = 0;
     std::int64_t m_scopeSpanHz = 0;

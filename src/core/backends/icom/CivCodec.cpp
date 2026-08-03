@@ -438,6 +438,29 @@ std::vector<std::uint8_t> cmdScopeSpan(std::uint8_t to, int spanHz)
     return buildFrameSub(to, cmd::kScope, scope::kSpan, body);
 }
 
+namespace {
+// The menu number as two BCD bytes, big-endian: item 119 -> 01 19.
+std::array<std::uint8_t, 2> settingItemBcd(int item)
+{
+    const int v = std::clamp(item, 0, 9999);
+    return {static_cast<std::uint8_t>((((v / 1000) % 10) << 4) | ((v / 100) % 10)),
+            static_cast<std::uint8_t>((((v / 10) % 10) << 4) | (v % 10))};
+}
+}  // namespace
+
+std::vector<std::uint8_t> cmdReadSetting(std::uint8_t to, int item)
+{
+    const auto bcd = settingItemBcd(item);
+    return buildFrameSub(to, cmd::kSetting, 0x05, bcd);
+}
+
+std::vector<std::uint8_t> cmdWriteSetting(std::uint8_t to, int item, std::uint8_t value)
+{
+    const auto bcd = settingItemBcd(item);
+    const std::array<std::uint8_t, 3> body{bcd[0], bcd[1], value};
+    return buildFrameSub(to, cmd::kSetting, 0x05, body);
+}
+
 std::vector<std::uint8_t> cmdTuneOffsetHz(std::uint8_t to, int hz)
 {
     // +/- 9.99 kHz, and the radio takes a MAGNITUDE plus a separate sign byte.

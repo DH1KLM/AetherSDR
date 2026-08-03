@@ -222,6 +222,32 @@ inline constexpr std::uint8_t kBreakIn       = 0x47;   // 00 off, 01 semi, 02 fu
 inline constexpr std::uint8_t kDialLock      = 0x50;
 }  // namespace func
 
+// SET-menu items reached through 1A 05 <two BCD bytes>.
+//
+// MOD INPUT IS THE ONE THAT DECIDES WHETHER WE ARE HEARD AT ALL. The radio
+// modulates from ONE source per mode class, and if that source is not WLAN then
+// every byte of network audio we send is discarded — the radio keys, transmits
+// a bare carrier or its own microphone, and reports zero forward power. There
+// is no error anywhere: the transmit path is working perfectly into a modulator
+// that is listening somewhere else.
+namespace setting {
+inline constexpr int kDataOffModInput = 118;   // SSB/CW/AM/FM — "DATA OFF MOD"
+inline constexpr int kDataModInput    = 119;   // data modes    — "DATA MOD"
+inline constexpr int kWlanModLevel    = 117;
+
+// 1A 05 values for the two above.
+inline constexpr std::uint8_t kModMic     = 0x00;
+inline constexpr std::uint8_t kModUsb     = 0x01;
+inline constexpr std::uint8_t kModMicUsb  = 0x02;
+inline constexpr std::uint8_t kModWlan    = 0x03;
+}  // namespace setting
+
+// Read or write a 1A 05 SET-menu item. `item` is the DECIMAL menu number as
+// printed in the guide (118, 119, ...); it is encoded as two BCD bytes.
+[[nodiscard]] std::vector<std::uint8_t> cmdReadSetting(std::uint8_t to, int item);
+[[nodiscard]] std::vector<std::uint8_t> cmdWriteSetting(std::uint8_t to, int item,
+                                                        std::uint8_t value);
+
 // Command 0x21 — RIT and dTX (which is what Icom calls XIT).
 namespace tuneOffset {
 inline constexpr std::uint8_t kFrequency = 0x00;   // signed, +/- 9.99 kHz

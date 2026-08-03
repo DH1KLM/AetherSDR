@@ -1291,7 +1291,9 @@ RadioCapabilities Hl2Backend::capabilities() const
     // Reported from the gate, not hardcoded: the engine's TX guard keys off this,
     // so a build with transmit disabled must look RX-only from above the seam.
     c.canTransmit = m_txAllowed;
-    c.hostModulates = true;             // PC runs the modulator; no on-radio mic jacks
+    c.hostModulates = true;
+    // Same tap, same seam — see RadioCapabilities::takesTxAudioOverSeam.
+    c.takesTxAudioOverSeam = true;             // PC runs the modulator; no on-radio mic jacks
     c.txPowerMaxWatts = 0.0;            // uncalibrated; see the oracle on power counts
     c.hasTuner = false;
     c.hasAmplifier = false;

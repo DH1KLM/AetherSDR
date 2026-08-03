@@ -6633,6 +6633,13 @@ QJsonObject AutomationServer::doLiveness()
             liveness.insert(QStringLiteral("linkAlive"), ls.alive);
             liveness.insert(QStringLiteral("rxPackets"),
                             static_cast<double>(ls.rxPackets));
+            // TX BYTES, because "is anything leaving" is half of every transmit
+            // diagnosis and nothing exposed it. A keyed radio with a flat
+            // txBytes counter says the audio never left this computer; one that
+            // climbs while forward power stays at zero says it left and the
+            // radio did not use it — two completely different investigations.
+            liveness.insert(QStringLiteral("txBytes"),
+                            static_cast<double>(ls.txBytes));
             liveness.insert(QStringLiteral("rxPacketsLost"),
                             static_cast<double>(ls.rxPacketsLost));
         }

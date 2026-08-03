@@ -100,6 +100,11 @@ RadioCapabilities IcomCivBackend::capabilities() const
     // host microphone on a radio that will never use it.
     c.hostModulates = false;
 
+    // ...but the host still SHIPS the audio. The radio modulates from PCM we
+    // send over its own UDP stream, so the transmit capture and DSP chain must
+    // run here even though no modulator does.
+    c.takesTxAudioOverSeam = true;
+
     // NR / NB / notch are 0x16 commands executed in the radio's own firmware.
     c.hasRadioSideDsp = true;
 
@@ -245,6 +250,16 @@ void IcomCivBackend::onSessionConnected(const QString& deviceName)
     m_session->sendCiv(cmdReadFrequency(m_session->civAddress()));
     m_session->sendCiv(cmdReadMode(m_session->civAddress()));
 
+    // ASK WHERE THE RADIO TAKES ITS MODULATION FROM. Not cosmetic: if this is
+    // not WLAN, everything else about transmit can be perfect and the operator
+    // still gets zero output. Diagnosing it from the outside means noticing
+    // that a keyed radio with healthy audio counters makes no power, which is
+    // exactly the dead end this avoids.
+    m_session->sendCiv(cmdReadSetting(m_session->civAddress(),
+                                      setting::kDataOffModInput));
+    m_session->sendCiv(cmdReadSetting(m_session->civAddress(),
+                                      setting::kDataModInput));
+
     applyScopeStartup();
 
     // CONNECTED FIRST, then the state.
@@ -322,6 +337,49 @@ void IcomCivBackend::onSessionDisconnected(const QString& reason)
         emit disconnected();
     if (!reason.isEmpty())
         emit connectionError(reason);
+}
+
+void IcomCivBackend::checkModInput()
+{
+    // Report ONCE both answers are in, and only when something is actually
+    // wrong. A warning that fires on a correctly configured radio is one the
+    // operator learns to scroll past (CERTIFICATION.md 1.28).
+    if (m_dataOffModInput < 0 || m_dataModInput < 0)
+        return;
+
+    const bool voiceOk = m_dataOffModInput == setting::kModWlan;
+    const bool dataOk  = m_dataModInput == setting::kModWlan;
+    if (voiceOk && dataOk)
+        return;
+
+    auto name = [](int v) -> QString {
+        switch (v) {
+        case setting::kModMic:    return QStringLiteral("MIC");
+        case setting::kModUsb:    return QStringLiteral("USB");
+        case setting::kModMicUsb: return QStringLiteral("MIC+USB");
+        case setting::kModWlan:   return QStringLiteral("WLAN");
+        default:                  return QStringLiteral("unknown(%1)").arg(v);
+        }
+    };
+
+    QStringList wrong;
+    if (!voiceOk)
+        wrong << QStringLiteral("voice modes take modulation from %1")
+                     .arg(name(m_dataOffModInput));
+    if (!dataOk)
+        wrong << QStringLiteral("data modes take modulation from %1")
+                     .arg(name(m_dataModInput));
+
+    // A connectionError rather than a log line: this silently costs the
+    // operator every transmission, and it is fixable in about ten seconds once
+    // they know which menu to open.
+    emit connectionError(
+        QStringLiteral("The radio is not listening to network audio — %1. "
+                       "AetherSDR's transmit audio will be ignored and the radio "
+                       "will key at zero output. On the radio: MENU > SET > "
+                       "Connectors > MOD Input > set DATA OFF MOD and DATA MOD "
+                       "to WLAN.")
+            .arg(wrong.join(QStringLiteral(", "))));
 }
 
 void IcomCivBackend::applyScopeStartup()
@@ -432,6 +490,22 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
         return;
     }
 
+    case cmd::kSetting: {
+        // 1A 05 <item hi> <item lo> <value>
+        if (!frame.hasSub || frame.sub != 0x05 || frame.data.size() < 3)
+            return;
+        const int item = decodeBcdByte(frame.data[0]) * 100 + decodeBcdByte(frame.data[1]);
+        const int value = frame.data[2];
+        if (item == setting::kDataOffModInput)
+            m_dataOffModInput = value;
+        else if (item == setting::kDataModInput)
+            m_dataModInput = value;
+        else
+            return;
+        checkModInput();
+        return;
+    }
+
     case cmd::kMeter: {
         if (!frame.hasSub)
             return;
@@ -532,18 +606,33 @@ void IcomCivBackend::submitTxAudio(const QByteArray& int16Stereo, int sampleRate
         mono[static_cast<std::size_t>(i)] =
             (src[i * 2] + src[i * 2 + 1]) * 0.5f / 32768.0f;
 
-    // Rate mismatch is a silent corruption rather than a failure, so it is
-    // reported once rather than resampled behind the operator's back.
+    // RESAMPLE, don't refuse.
+    //
+    // This used to drop every buffer whose rate was not already the radio's,
+    // on the reasoning that converting silently would hide a mismatch. That was
+    // backwards: the seam's transmit contract IS 24 kHz (AudioEngine::
+    // DEFAULT_SAMPLE_RATE) and this radio's stream is 48 kHz, so converting is
+    // the job — exactly as the receive path already converts 48 kHz down to 24.
+    // Refusing turned a known, expected rate difference into a transmitter that
+    // keyed and sent nothing.
     if (sampleRateHz != kRadioAudioRateHz) {
-        static bool warned = false;
-        if (!warned) {
-            warned = true;
-            emit connectionError(QStringLiteral(
-                "transmit audio arrived at %1 Hz but the radio negotiated %2 Hz")
-                                     .arg(sampleRateHz)
-                                     .arg(kRadioAudioRateHz));
+        if (sampleRateHz <= 0)
+            return;
+        // Built once and kept: r8brain is stateful, and a fresh instance per
+        // buffer restarts its filter history every block — audible as a tick at
+        // the block rate, and on a transmit path that goes on the air.
+        if (!m_txResampler || m_txResamplerFromHz != sampleRateHz) {
+            m_txResamplerFromHz = sampleRateHz;
+            m_txResampler = std::make_unique<Resampler>(
+                static_cast<double>(sampleRateHz),
+                static_cast<double>(kRadioAudioRateHz), 4096);
         }
-        return;
+        const QByteArray out =
+            m_txResampler->process(mono.data(), static_cast<int>(mono.size()));
+        if (out.isEmpty())
+            return;
+        const auto* f = reinterpret_cast<const float*>(out.constData());
+        mono.assign(f, f + out.size() / static_cast<int>(sizeof(float)));
     }
     m_session->sendAudio(mono);
 }
@@ -1099,6 +1188,29 @@ IRadioBackend::HealthSnapshot IcomCivBackend::healthSnapshot() const
     h.values.insert(QStringLiteral("civ"),
                     QStringLiteral("0x%1").arg(m_model->civAddress, 2, 16, QLatin1Char('0')));
     h.labels.insert(QStringLiteral("civ"), QStringLiteral("CI-V address"));
+
+    // WHERE THE RADIO TAKES ITS MODULATION FROM. On a health readout because
+    // "keys but makes no power" has no other visible cause: the audio counters
+    // climb, the meters are fresh, and the modulator is listening elsewhere.
+    if (m_dataOffModInput >= 0 || m_dataModInput >= 0) {
+        auto name = [](int v) -> QString {
+            switch (v) {
+            case setting::kModMic:    return QStringLiteral("MIC");
+            case setting::kModUsb:    return QStringLiteral("USB");
+            case setting::kModMicUsb: return QStringLiteral("MIC+USB");
+            case setting::kModWlan:   return QStringLiteral("WLAN");
+            default:                  return QStringLiteral("?");
+            }
+        };
+        const bool ok = m_dataOffModInput == setting::kModWlan
+                        && m_dataModInput == setting::kModWlan;
+        h.values.insert(QStringLiteral("modinput"),
+                        QStringLiteral("%1 voice / %2 data%3")
+                            .arg(name(m_dataOffModInput), name(m_dataModInput),
+                                 ok ? QString() : QStringLiteral("  — NOT WLAN")));
+        h.labels.insert(QStringLiteral("modinput"), QStringLiteral("MOD Input"));
+        h.order << QStringLiteral("modinput");
+    }
     h.order << QStringLiteral("civ");
 
     if (!m_model->verified) {
