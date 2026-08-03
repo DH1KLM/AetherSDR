@@ -9,6 +9,8 @@
 #include "core/backends/sim/SimBackend.h"     // RFC #4288 demo-mode backend (Route A)
 #include "core/backends/hl2/Hl2Backend.h"      // aetherd Gap A — HL2 backend (family "hl2")
 #include "core/backends/icom/IcomCivBackend.h"  // Icom networked radios (family "icom")
+#include "core/backends/icom/IcomCredentials.h"  // password: keychain, never settings
+#include "core/backends/icom/IcomSettings.h"     // host/user/ports (Principle V)
 #include "core/AppSettings.h"
 #include "core/RadioStateMemory.h"  // RFC #4603 typed restore handoff
 #include "core/CwTrace.h"
@@ -479,6 +481,29 @@ void RadioModel::handRestoredStateToBackend(const QString& serial)
     // backend reuse leaking radio A's maps and live members into radio B
     // ("this radio has no memory" is information, not a no-op).
     m_backend->applyRestoredState(state);
+}
+
+
+// Family-specific connect parameters.
+//
+// The neutral RadioConnectRequest carries host/port/serial; anything a family
+// needs beyond that rides in `params`, namespaced by family. Icom is the first
+// family that cannot connect without a credential, so this is where the
+// username (settings) and password (keychain session cache) are attached.
+//
+// SYNCHRONOUS by necessity: this runs on the connect path, including from the
+// auto-reconnect timer, and a keychain read is async. IcomCredentials keeps a
+// process-lifetime session cache primed by the connect dialog precisely so this
+// call cannot block on the keyring — see its header.
+static void populateFamilyParams(RadioConnectRequest& req, const QString& family)
+{
+    if (family.compare(QLatin1String("icom"), Qt::CaseInsensitive) != 0)
+        return;
+    req.params.insert(QStringLiteral("icom.username"), IcomSettings::username());
+    req.params.insert(QStringLiteral("icom.password"), IcomCredentials::sessionPassword());
+    req.params.insert(QStringLiteral("icom.serialPort"), IcomSettings::serialPort());
+    req.params.insert(QStringLiteral("icom.audioPort"), IcomSettings::audioPort());
+    req.params.insert(QStringLiteral("icom.civAddress"), IcomSettings::civAddress());
 }
 
 std::unique_ptr<IRadioBackend> RadioModel::makeBackend(const QString& family)
@@ -1821,6 +1846,10 @@ RadioModel::RadioModel(QObject* parent)
                 req.host   = m_lastInfo.address.toString();
                 req.port   = m_lastInfo.port;
                 req.serial = m_lastInfo.serial;
+                // The RECONNECT path needs these too. Populating only the
+                // initial connect gives a session that authenticates once and
+                // then fails every automatic retry.
+                populateFamilyParams(req, m_family);
                 handRestoredStateToBackend(req.serial);
                 m_backend->connectRadio(req);
             }
@@ -2830,6 +2859,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         req.host   = info.address.toString();
         req.port   = info.port;
         req.serial = info.serial;
+        populateFamilyParams(req, info.family);
         handRestoredStateToBackend(req.serial);
         m_backend->connectRadio(req);
     }

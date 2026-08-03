@@ -1,6 +1,8 @@
 #include "ConnectionPanel.h"
 #include "core/AppSettings.h"
 #include "core/backends/hl2/Hl2Discovery.h"   // shared nickname + MAC->serial helpers
+#include "core/backends/icom/IcomCredentials.h"  // password -> OS keychain, never settings
+#include "core/backends/icom/IcomSettings.h"     // host/user/ports (Principle V)
 #include "core/backends/hl2/MetisProtocol.h"  // discoveryRequest/parseDiscoveryReply, kMetisPort
 #include "core/backends/sim/SimBackend.h"
 #include "core/NetworkPathResolver.h"
@@ -12,6 +14,8 @@
 #include <span>
 
 #include <QAbstractItemView>
+#include <QPointer>
+#include <QLineEdit>
 #include <QFormLayout>
 #include <QGuiApplication>
 #include <QInputDialog>
@@ -148,9 +152,11 @@ QString familyFromProfile(const QJsonObject& profile)
 {
     const QString family =
         profile.value("identity").toObject().value("family").toString().trimmed().toLower();
-    return family == QLatin1String(ConnectionPanel::kFamilyHl2)
-        ? QString::fromLatin1(ConnectionPanel::kFamilyHl2)
-        : QString::fromLatin1(ConnectionPanel::kFamilyFlex);
+    if (family == QLatin1String(ConnectionPanel::kFamilyHl2))
+        return QString::fromLatin1(ConnectionPanel::kFamilyHl2);
+    if (family == QLatin1String(ConnectionPanel::kFamilyIcom))
+        return QString::fromLatin1(ConnectionPanel::kFamilyIcom);
+    return QString::fromLatin1(ConnectionPanel::kFamilyFlex);
 }
 
 RadioBindSettings bindSettingsFromProfile(const QJsonObject& profile)
@@ -599,11 +605,15 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
 
     constexpr int kManualLabelWidth = 96;
     constexpr int kManualFieldHeight = 30;
-    const auto addManualRow = [&](const QString& labelText, QComboBox* field) {
-        auto* row = new QHBoxLayout;
+    // Returns the row CONTAINER so a caller can hide the label and the field
+    // together. Takes QWidget* rather than QComboBox* because the Icom
+    // credential fields are QLineEdits; both calls below it are QWidget methods.
+    const auto addManualRow = [&](const QString& labelText, QWidget* field) -> QWidget* {
+        auto* rowWidget = new QWidget(manualGroup);
+        auto* row = new QHBoxLayout(rowWidget);
         row->setContentsMargins(0, 0, 0, 0);
         row->setSpacing(12);
-        auto* label = new QLabel(labelText, manualGroup);
+        auto* label = new QLabel(labelText, rowWidget);
         label->setMinimumWidth(kManualLabelWidth);
         label->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
@@ -611,7 +621,8 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
         field->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         row->addWidget(label);
         row->addWidget(field, 1);
-        manualForm->addLayout(row);
+        manualForm->addWidget(rowWidget);
+        return rowWidget;
     };
 
     // Radio type. A FlexRadio answers a TCP/4992 command-plane probe; a
@@ -627,6 +638,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualRadioTypeCombo->setStyleSheet(comboStyle);
     m_manualRadioTypeCombo->addItem(tr("FlexRadio"), QString::fromLatin1(kFamilyFlex));
     m_manualRadioTypeCombo->addItem(tr("Hermes-Lite 2"), QString::fromLatin1(kFamilyHl2));
+    m_manualRadioTypeCombo->addItem(tr("Icom (network)"), QString::fromLatin1(kFamilyIcom));
     addManualRow(QStringLiteral("Radio type:"), m_manualRadioTypeCombo);
 
     m_manualIpCombo = new QComboBox(manualGroup);
@@ -647,6 +659,29 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualIpEdit->setPlaceholderText("Example: 10.0.0.25");
     m_manualIpEdit->setMinimumHeight(26);
     addManualRow(QStringLiteral("Radio IP:"), m_manualIpCombo);
+
+    // Icom credentials. Hidden for every other family — see
+    // updateManualFamilyHints(). An Icom will not answer the RS-BA1 handshake
+    // without them, so unlike the Flex and HL2 paths this is not optional.
+    m_manualIcomUserEdit = new QLineEdit(manualGroup);
+    m_manualIcomUserEdit->setObjectName(QStringLiteral("connectionManualIcomUser"));
+    m_manualIcomUserEdit->setAccessibleName(tr("Icom network username"));
+    m_manualIcomUserEdit->setAccessibleDescription(
+        tr("The network user name configured on the radio"));
+    m_manualIcomUserEdit->setClearButtonEnabled(true);
+    m_manualIcomUserEdit->setPlaceholderText(tr("Radio network user name"));
+    m_manualIcomUserRow = addManualRow(QStringLiteral("Icom user:"), m_manualIcomUserEdit);
+
+    m_manualIcomPassEdit = new QLineEdit(manualGroup);
+    m_manualIcomPassEdit->setObjectName(QStringLiteral("connectionManualIcomPassword"));
+    m_manualIcomPassEdit->setAccessibleName(tr("Icom network password"));
+    m_manualIcomPassEdit->setAccessibleDescription(
+        tr("The network password configured on the radio. Stored in the operating "
+           "system keychain, never in the settings file."));
+    m_manualIcomPassEdit->setEchoMode(QLineEdit::Password);
+    m_manualIcomPassEdit->setPlaceholderText(tr("Radio network password"));
+    m_manualIcomPassRow = addManualRow(QStringLiteral("Icom password:"), m_manualIcomPassEdit);
+
     manualGroupLayout->addLayout(manualForm);
 
     auto* manualActionRow = new QHBoxLayout;
@@ -1150,7 +1185,8 @@ bool ConnectionPanel::automationConnectByIp(const QString& hostOrIp,
     const QString wantedFamily = family.trimmed().toLower();
     if (!wantedFamily.isEmpty()
         && wantedFamily != QLatin1String(kFamilyFlex)
-        && wantedFamily != QLatin1String(kFamilyHl2)) {
+        && wantedFamily != QLatin1String(kFamilyHl2)
+        && wantedFamily != QLatin1String(kFamilyIcom)) {
         setAutomationError(
             error,
             QStringLiteral("unknown radio family '%1' (use flex or hl2)").arg(family.trimmed()));
@@ -1832,9 +1868,11 @@ void ConnectionPanel::setManualFamily(const QString& family)
     if (!m_manualRadioTypeCombo)
         return;
 
-    const QString wanted = family.trimmed().toLower() == QLatin1String(kFamilyHl2)
-        ? QString::fromLatin1(kFamilyHl2)
-        : QString::fromLatin1(kFamilyFlex);
+    const QString lowered = family.trimmed().toLower();
+    const QString wanted =
+        lowered == QLatin1String(kFamilyHl2)  ? QString::fromLatin1(kFamilyHl2)
+      : lowered == QLatin1String(kFamilyIcom) ? QString::fromLatin1(kFamilyIcom)
+                                              : QString::fromLatin1(kFamilyFlex);
     const int index = m_manualRadioTypeCombo->findData(wanted);
     if (index < 0 || index == m_manualRadioTypeCombo->currentIndex()) {
         updateManualFamilyHints();
@@ -1856,10 +1894,44 @@ void ConnectionPanel::setManualFamily(const QString& family)
 
 void ConnectionPanel::updateManualFamilyHints()
 {
-    const bool hl2 = currentManualFamily() == QLatin1String(kFamilyHl2);
+    const QString family = currentManualFamily();
+    const bool hl2  = family == QLatin1String(kFamilyHl2);
+    const bool icom = family == QLatin1String(kFamilyIcom);
+
+    // The credential pair belongs to Icom alone. Hiding the row CONTAINERS
+    // rather than the fields keeps their labels from being left behind.
+    if (m_manualIcomUserRow)
+        m_manualIcomUserRow->setVisible(icom);
+    if (m_manualIcomPassRow)
+        m_manualIcomPassRow->setVisible(icom);
+
+    if (icom) {
+        // Fill from settings, and read the password out of the keychain — which
+        // is asynchronous, so the field populates a beat later. Guarded by the
+        // widget pointer inside the callback because the panel can be closed
+        // between the request and the answer.
+        if (m_manualIcomUserEdit && m_manualIcomUserEdit->text().isEmpty())
+            m_manualIcomUserEdit->setText(IcomSettings::username());
+        if (m_manualIpEdit && m_manualIpEdit->text().isEmpty())
+            m_manualIpEdit->setText(IcomSettings::lastHost());
+        if (m_manualIcomPassEdit && m_manualIcomPassEdit->text().isEmpty()) {
+            QPointer<QLineEdit> field(m_manualIcomPassEdit);
+            IcomCredentials::load(this, [field](const QString& password) {
+                if (field && field->text().isEmpty())
+                    field->setText(password);
+            });
+        }
+    }
+
     if (m_manualHintLabel) {
         m_manualHintLabel->setText(
-            hl2
+            icom
+                ? QStringLiteral(
+                      "Enter the radio address and the network user name and password set on "
+                      "the radio itself. On the radio, Network Control must be ON (IC-705: "
+                      "Menu > Set > WLAN set > Remote settings). The password is stored in "
+                      "your operating system keychain, never in the settings file.")
+                : hl2
                 ? QStringLiteral(
                       "Use this path when discovery broadcasts cannot reach the radio — a VPN, a "
                       "routed subnet, or a switch that drops broadcasts. AetherSDR sends a "
@@ -1870,8 +1942,10 @@ void ConnectionPanel::updateManualFamilyHints()
                       "care of the probe."));
     }
     if (m_manualIpEdit) {
-        m_manualIpEdit->setPlaceholderText(hl2 ? QStringLiteral("Example: 192.168.1.21")
-                                               : QStringLiteral("Example: 10.0.0.25"));
+        m_manualIpEdit->setPlaceholderText(
+            icom ? QStringLiteral("Example: ic-705.local")
+          : hl2  ? QStringLiteral("Example: 192.168.1.21")
+                 : QStringLiteral("Example: 10.0.0.25"));
     }
 }
 
@@ -2005,6 +2079,49 @@ void ConnectionPanel::probeRadio(const QString& ip)
     // Metis discovery datagram — so there is nothing to gain from trying both,
     // and trying HL2 first (as this used to) charged every Flex connect the HL2
     // timeout before it started.
+    if (currentManualFamily() == QLatin1String(kFamilyIcom)) {
+        // NO ANONYMOUS PROBE. A Flex answers TCP/4992 and an HL2 answers a
+        // Metis datagram without credentials, so both can be probed before
+        // committing. An Icom will not answer usefully until the RS-BA1 login
+        // has succeeded — so the connect IS the probe, and a wrong password
+        // surfaces as a session failure rather than as "nothing there".
+        const QString user = m_manualIcomUserEdit ? m_manualIcomUserEdit->text().trimmed()
+                                                  : QString();
+        const QString pass = m_manualIcomPassEdit ? m_manualIcomPassEdit->text() : QString();
+        if (user.isEmpty() || pass.isEmpty()) {
+            resetManualConnectButton();
+            setManualMessage(
+                QStringLiteral("An Icom needs the network user name and password set on the "
+                               "radio. Check Network Control is ON in the radio's menu, then "
+                               "enter the same credentials here."),
+                true);
+            return;
+        }
+
+        IcomSettings::setUsername(user);
+        IcomSettings::setLastHost(trimmedIp);
+        // Keychain for the password, never the settings file — and the save
+        // primes the session cache synchronously, so the connect below cannot
+        // race the keyring write.
+        IcomCredentials::save(pass);
+
+        RadioInfo info;
+        info.family   = QString::fromLatin1(kFamilyIcom);
+        info.address  = QHostAddress(trimmedIp);
+        info.port     = IcomSettings::controlPort();
+        info.model    = QStringLiteral("Icom");
+        info.name     = info.model;
+        // No discovery means no MAC and no reported serial, so the host is the
+        // only stable identity this radio has for us. It has to be SOMETHING:
+        // the restore/persist scope keys off it.
+        info.serial   = QStringLiteral("icom:%1").arg(trimmedIp);
+        info.nickname = info.model;
+        rememberManualIp(trimmedIp);
+        resetManualConnectButton();
+        emit connectRequested(info);
+        return;
+    }
+
     if (currentManualFamily() == QLatin1String(kFamilyHl2)) {
         // Only a genuine timeout earns the "check the radio" message. A bind
         // failure has already reported itself, and pointing the operator at the

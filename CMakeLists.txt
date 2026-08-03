@@ -604,6 +604,8 @@ set(CORE_SOURCES
     src/core/backends/icom/IcomMeters.cpp    # IcomCIV Phase 4 (calibration + poll scheduler)
     src/core/backends/icom/IcomModels.cpp    # IcomCIV Phase 5 (per-model capability table)
     src/core/backends/icom/IcomCivBackend.cpp # IcomCIV (IRadioBackend impl)
+    src/core/backends/icom/IcomSettings.cpp  # owned config, "Icom" root key (Principle V)
+    src/core/backends/icom/IcomCredentials.cpp # password -> keychain, NEVER settings
     src/core/dsp/WdspChannel.cpp
     ${AETHER_SETTINGS_SOURCES}
     src/core/RadioStateMemory.cpp   # RFC #4603 client-side radio memory
@@ -4830,6 +4832,14 @@ set_tests_properties(demo_applet_tooltip_test PROPERTIES
 # IcomCIV backend selection — proves family="icom" reaches IcomCivBackend
 # through RadioModel's real swap path. Without this, every layer below can be
 # green while nothing in the application can construct it.
+# IcomCIV settings + credentials. The load-bearing check is the SECURITY one:
+# the Icom network password must never reach the settings database. Own process
+# because AppSettings is a process-wide singleton.
+add_executable(icom_settings_test tests/icom_settings_test.cpp)
+target_include_directories(icom_settings_test PRIVATE src tests)
+target_link_libraries(icom_settings_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME icom_settings_test COMMAND icom_settings_test)
+
 add_executable(icom_family_test tests/icom_family_test.cpp)
 target_include_directories(icom_family_test PRIVATE src)
 target_link_libraries(icom_family_test PRIVATE aethercore Qt6::Core Qt6::Test)
