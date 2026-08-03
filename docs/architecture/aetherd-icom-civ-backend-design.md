@@ -591,18 +591,20 @@ publish, the same way the RF-gain control was narrowed to three preamp detents.
 
 Which controls on the surfaces the operator uses actually reach this radio.
 
-**Method, and its limit.** This is a WIRING inventory traced from source: a
-control is "linked" when its intent reaches an `IRadioBackend` verb that
-`IcomCivBackend` overrides. It is not a live drive test — nothing below was
-confirmed by moving the control and watching the radio, so a control marked
-linked could still be wrong in its units or its scaling. Treat this as the map
-of what CAN work, and `radiocert` plus a live pass as the check on whether it
-DOES.
+**Method.** Two passes. The first traced wiring from source — a control is
+"linked" when its intent reaches an `IRadioBackend` verb this backend overrides.
+The second DROVE the controls against a live IC-705 and read the resulting CI-V
+frames back through `civ trace`, checking each encoded value against arithmetic
+rather than against an observed capture.
 
-### D.1 The structural finding
+Rows marked ✅ **verified** were driven and their bytes checked. Rows marked
+✅ implemented were traced but never driven — treat those exactly as the first
+pass intended: the map of what CAN work, not evidence that it does.
 
-**Most receive-DSP controls do not use the seam at all.** `SliceModel::setNr`,
-`setAnf`, `setNb`, `setSquelch` and the audio setters emit FlexRadio wire text:
+### D.1 The structural finding — FIXED
+
+**Most receive-DSP controls did not use the seam at all.** `SliceModel::setNr`,
+`setAnf`, `setNb` and `setSquelch` emitted FlexRadio wire text:
 
 ```cpp
 void SliceModel::setNr(bool on) {
@@ -617,27 +619,44 @@ one however much it wants to. The control moves, the model updates, the UI
 agrees with itself, and the radio never hears about it.
 
 This is the same shape as lesson 1.5 (the bridge is not the UI) one layer down,
-and it is why the Icom's `hasRadioSideDsp = true` currently buys nothing: the
-capability says the radio's own firmware runs NR/NB/notch, and the intents to
-drive them have nowhere to go. **These need seam verbs before any backend but
-Flex can honour them**, and the CI-V commands are all mapped and waiting
-(`16 22` NB, `16 40` NR, `16 41` ANF, `16 48` manual notch, `14 03` squelch).
+and it was why `hasRadioSideDsp = true` bought nothing: the capability said the
+radio's own firmware runs NR/NB/notch while the intents to drive them had
+nowhere to go.
+
+**Resolved.** `setSliceNoiseReduction` / `NoiseBlanker` / `AutoNotch` / `Squelch`
+now exist on the seam, `SliceModel` emits operator-intent signals alongside the
+Flex wire text (so Flex is unchanged), and `RadioModel` routes them for any
+non-Flex backend. The audio setters (`setSliceAudioGain` / `Mute` / `Pan`) have
+verbs and this backend still does not implement them.
+
+Two enabling changes came out of trying to TEST this, and both are lessons in
+their own right (CERTIFICATION.md §1.29):
+
+* the RX applet's DSP toggles have no `objectName` and no `accessibleName`, so
+  `invoke()` cannot address them — hence the `slice dsp` bridge verb;
+* `nr2_toggle` cycles off → NR → NR2 → NR4 through the HOST chain and can fail
+  to reach the slice at all, so the one shortcut that names NR is not a reliable
+  way to drive it.
 
 ### D.2 By surface
 
 | Surface | Control | State |
 |---|---|---|
 | **VFO / slice flag** | frequency | ✅ `setSliceFrequency` |
-| | mode | ✅ `setSliceMode` |
+| | mode + IF filter | ✅ **verified** — `06 03 01` (CW, FIL1) |
 | | S-meter flag | ✅ `SLC:LEVEL` |
-| | RIT / XIT | ⚠️ backend + CI-V done, **no control emits the intent** |
+| | RIT | ✅ **verified** — `21 01 01` then `21 00 00 00 00` |
+| | XIT | ✅ implemented (`21 02`); shares ONE offset register with RIT |
 | **S-meter applet** | level display | ✅ |
 | **RX Controls** | AGC mode | ✅ `setSliceAgc` (FAST/MID/SLOW) |
 | | AGC threshold | ❌ accepted and discarded — the radio has no threshold register |
 | | preamp / RF gain | ✅ `setPanRfGain` → 3-position preamp |
-| | filter width | ⚠️ `setSliceFilter` snaps to FIL1/2/3; **UI offers the full Flex list** |
-| | NR / NB / ANF / notch | ❌ **no seam verb** (D.1) |
-| | squelch | ❌ **no seam verb** (D.1) |
+| | filter width | ✅ snaps to FIL1/2/3, and the three are now published as `rxFilterWidthsHz` so the applet stops offering widths that all land on the same filter. Capability wiring is code-verified; the three buttons have NOT been confirmed on screen |
+| | NR | ✅ **verified** — `16 40 01` + `14 06 01 53` (60 % = 153) |
+| | NB | ✅ **verified** — `16 22 01` + `14 12 01 40` (55 % = 140) |
+| | ANF | ✅ **verified** — `16 41 01` |
+| | squelch | ✅ **verified** — `14 03 01 02` (40 % = 102). No enable exists: the threshold IS the control and off is zero |
+| | manual notch | ❌ `16 48` mapped, no seam verb |
 | | AF gain / mute / pan | ❌ seam verbs exist, backend does not implement |
 | **TX Controls** | MOX / PTT | ✅ `setKeying` |
 | | TUNE | ✅ `setTune` |
@@ -648,8 +667,8 @@ Flex can honour them**, and the CI-V commands are all mapped and waiting
 | | ALC / Compression gauges | ✅ (ALC scale fixed; unverified) |
 | | Level gauge | ⛔ hidden — this radio publishes no mic meter |
 | | mic source | ✅ collapsed to PC by capability |
-| | mic gain | ❌ `setMicGain` not implemented (`14 0B` mapped, unused) |
-| | monitor | ❌ `setTxAudioMonitor` not implemented (`16 45` + `14 15` mapped) |
+| | mic gain | ✅ implemented (`14 0B`) — **not driven live**, no bridge verb reaches it |
+| | monitor | ✅ implemented (`16 45`) — **not driven live**. Function only: the radio's monitor LEVEL is a separate register and no verb carries it, so writing one would overwrite what the operator set on the radio |
 | | VOX | ❌ no seam verb (`16 46` + `14 16` mapped) |
 | | CW speed / pitch / break-in | ❌ no seam verb (`14 0C`, `14 09` mapped; `16 47` unmapped) |
 | **Status bar** | voltage | ✅ `RAD:+13.8A` |
@@ -657,12 +676,29 @@ Flex can honour them**, and the CI-V commands are all mapped and waiting
 | | radio name / model | ✅ from the handshake + `19 00` |
 | | hostname / alias | ⚠️ shows the connect address; the radio's own name is in the capabilities packet and unused |
 
-### D.3 The cheap wins, in order
+### D.3 One control, two registers
 
-1. **`setMicGain`, `setTxAudioMonitor`** — seam verbs already exist, CI-V
-   already mapped, backend override is a few lines each.
-2. **Filter-width capability** — publish the three reachable filters the way
-   the RF-gain control publishes its three preamp detents.
-3. **RIT/XIT control** — the whole path below the UI is done.
-4. **Seam verbs for receive DSP** (D.1) — the largest and the one that unblocks
-   every non-Flex backend, not just this one.
+NR and NB are single switches here and two registers on the radio, so the intent
+carries enable and level together. Driving "NR on at level 60" first produced
+`16 40 00` immediately before `16 40 01` — a brief disable of the operator's
+noise reduction, from two individually-correct commands in the wrong order.
+
+The backend now sends a function command only when the state actually changes,
+and forgets what it believes on disconnect: the radio keeps its own DSP state
+across our sessions and we never read it back, so carrying the previous
+session's belief would suppress the first command that matters. Recorded as
+CERTIFICATION.md §1.31 because it generalises to any fanned-out control.
+
+### D.4 What is left
+
+1. **Audio gain / mute / pan** — seam verbs exist, no override here.
+2. **Manual notch, VOX, CW speed / pitch / break-in** — CI-V mapped or trivially
+   mappable; no seam verb yet.
+3. **TX filter** (`16 58` SSB TX bandwidth) — `setTxFilter` exists, unimplemented.
+4. **Drive mic gain and TX monitor live** — implemented and unproven, which is
+   exactly the state this appendix exists to make visible.
+5. **Confirm the three filter buttons on screen** — the capability is wired and
+   the UI has not been looked at with the applet open.
+6. **AGC threshold** is accepted and discarded; the radio has no threshold
+   register. Better to advertise it as unavailable than to keep a live slider
+   that does nothing.

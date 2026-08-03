@@ -1,6 +1,6 @@
 # Radio certification — lessons and roadmap
 
-Lessons 1.1–1.18 came from the Hermes-Lite 2 bring-up. **1.19–1.28 came from the
+Lessons 1.1–1.18 came from the Hermes-Lite 2 bring-up. **1.19–1.31 came from the
 Icom IC-705**, the first radio brought up with `radiocert` in hand rather than
 after the fact — which is the point of the tool, and a useful check on it: some
 of what follows is a defect radiocert found, and some is a gap in radiocert
@@ -471,6 +471,74 @@ being read. That is how the genuinely-unmapped ones hide.
 **Consequence.** A meter's absence must be reported with its REASON, and the
 reason has to come from the backend, which is the only thing that knows.
 
+### 1.29 A control that cannot be DRIVEN cannot be certified
+
+Certifying the Icom control surface stalled before it began, twice, and neither
+cause was a defect in the radio or the backend:
+
+* **The RX applet's DSP toggles carry no `objectName` and no
+  `accessibleName`.** In a bridge tree dump they appear as anonymous buttons
+  reading `"checked"` / `"unchecked"`. `invoke()` addresses controls by name, so
+  NR, NB and ANF were unreachable — not broken, unreachable.
+* **The NR keyboard shortcut does not toggle NR.** `nr2_toggle` cycles
+  off → NR → NR2 → NR4, where NR2 and NR4 are HOST-side. Fired four times
+  against a live radio it emitted nothing on the wire, because the host chain's
+  enable is applied through a queued invocation and the cycle re-entered its
+  first branch every time. The one control it appears to name is the one it can
+  fail to reach.
+
+Both were found by trying to drive them, and neither would have appeared in any
+amount of source reading — the second in particular looks correct at every line.
+
+**Consequence.** Addressability is a TESTABILITY requirement, not a nicety.
+Anything a certification stage must exercise needs either a stable identifier or
+a model-level verb that bypasses the widget entirely. `slice dsp <control>
+<on|off> [level]` was added for exactly this, and it is the pattern: when a
+control is hard to address, add the verb rather than the accessible name, because
+the verb also survives the applet being redesigned.
+
+### 1.30 A frame proves the route; only its VALUE proves the translation
+
+The Icom control run reported 8 of 8 passing, and the check behind each was
+"did a frame containing `16 40` appear". That is a test of wiring, and it would
+have passed just as cleanly with every level wrong.
+
+The check that means something compares the bytes against the encoding computed
+independently:
+
+```
+NR level 40 %  ->  14 06 01 02      because 40 * 255 / 100 == 102 == BCD 0102
+NB level 55 %  ->  14 12 01 40      because 55 * 255 / 100 == 140
+squelch  40 %  ->  14 03 01 02
+```
+
+This is §1.6 (controls are certified by effect) applied one layer lower: the
+arithmetic is doable on paper, so it transfers to any radio and any register
+without a bench.
+
+**Consequence.** A control stage asserts the DECODED value, never the presence
+of a command. And the expected value is computed in the test from the percentage
+rather than pasted from an observed capture — a captured constant only proves
+the implementation still agrees with itself (§1.1).
+
+### 1.31 When one control is two registers, the ORDER is on the wire
+
+AetherSDR's NR is a single control. The IC-705 splits it: `16 40` enables,
+`14 06` sets depth. So the intent carries both, and "NR on at level 60" reached
+the backend as a level change followed by an enable — putting `16 40 00` on the
+wire immediately before `16 40 01`.
+
+A brief disable of the operator's noise reduction, and two frames on a CI-V
+stream that metering already shares. Every individual command was correct.
+
+**Consequence.** A backend that fans one control into several registers must
+suppress the ones that did not change, and must forget what it believes on
+disconnect — the radio keeps its own state across sessions and we have not read
+it back, so carrying the last session's belief would suppress the first command
+that matters. And a certification stage should assert the SEQUENCE a control
+produces, not the set: correct commands in the wrong order are a defect that
+set-membership cannot see.
+
 ## 2. Next steps
 
 ### 2.1 The radio profile — highest leverage
@@ -587,7 +655,28 @@ a verb.
   against a live session would have answered it in one call — and the FB/NG
   reply is the ground truth that no internal test can produce (§1.1).
 
-### 2.5 Smaller, already identified
+### 2.5 A control-certification phase
+
+There isn't one. `radiocert` proves meters, tuning, sideband and keying, and
+says nothing about whether the operator's switches reach the radio — which on
+this bring-up was where most of the defects were. §1.29–1.31 are what it would
+need:
+
+* **Drive through model verbs, not widgets.** The applet toggles are not
+  addressable and the shortcut for NR does not reach the slice. Verbs are also
+  the only route that survives an applet redesign.
+* **Assert the decoded value against arithmetic**, computed in the stage from
+  the requested percentage — never a constant pasted from a capture.
+* **Assert the sequence**, so a fan-out that emits its registers in a harmful
+  order is caught. `civ trace` already provides the ordered frames.
+* **Report unreachable controls as a distinct outcome.** "This control has no
+  backend verb" and "this control was driven and the radio ignored it" are
+  different findings and currently look identical, which is §1.28's shape again.
+* **Cover the inventory, not a sample.** The per-family control map in
+  `aetherd-icom-civ-backend-design.md` Appendix D is the list; a stage that
+  walks it can report coverage instead of leaving it to be counted by hand.
+
+### 2.6 Smaller, already identified
 
 | Item | Note |
 |---|---|
