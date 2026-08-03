@@ -845,6 +845,19 @@ void RadioModel::setupBackend(const QString& family)
         if (m_backend)
             m_backend->setTxPower(percent);
     });
+    // The speech processor to a backend that owns its own compressor.
+    //
+    // OPERATOR INTENT ONLY — speechProcessorCommandIssued, never micStateChanged.
+    // The distinction is the one TransmitModel documents at the declaration: a
+    // state-mirroring signal would hand the radio's own echo back as a fresh
+    // command. Flex takes this as text and ignores the seam; a host-modulating
+    // backend runs the compressor in our DSP and also ignores it.
+    connect(&m_transmitModel, &TransmitModel::speechProcessorCommandIssued, this,
+            [this](bool on, int level) {
+        if (m_backend && !m_flexBackend)
+            m_backend->setSpeechProcessor(on, level);
+    });
+
     // Tell the transmit model whether the HOST modulates. It drives the
     // mic-source list: a backend that modulates here has no physical input jacks
     // to choose between, so "PC" is the only truthful answer.

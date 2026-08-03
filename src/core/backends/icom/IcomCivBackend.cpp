@@ -687,6 +687,47 @@ void IcomCivBackend::setPanRfGain(const QString&, int gainDb)
                                    func::kPreamp, preamp));
 }
 
+void IcomCivBackend::setSpeechProcessor(bool on, int level)
+{
+    const std::uint8_t addr = m_session ? m_session->civAddress() : 0xA4;
+
+    // TWO REGISTERS, not one. The operator's control is Flex-shaped — an enable
+    // plus NOR/DX/DX+ — and on this radio the enable is a function (16 44) while
+    // "how hard" is a level (14 0E, 0000..0255 spanning 0..10). Sending only the
+    // enable is what left AetherSDR's PROC disagreeing with a front panel that
+    // plainly showed the compressor on.
+    sendUserCommand(cmdSetFunction(addr, func::kCompressor, on ? 1 : 0));
+    if (!on)
+        return;   // the level is meaningless while the compressor is bypassed
+
+    // NOR / DX / DX+ onto the radio's 0..10 scale. Icom publishes no mapping —
+    // these are thirds of its range, which is the honest reading of a
+    // three-position control against a continuous one, and they are here rather
+    // than open-coded so the choice is visible and adjustable.
+    static constexpr std::array<int, 3> kProcLevels{3, 6, 9};   // of 10
+    const int preset = std::clamp(level, 0, 2);
+    const int raw = kProcLevels[static_cast<std::size_t>(preset)] * 255 / 10;
+    sendUserCommand(cmdSetLevel(addr, level::kCompLevel, raw));
+}
+
+void IcomCivBackend::setRitEnabled(bool on)
+{
+    sendUserCommand(cmdRitEnable(m_session ? m_session->civAddress() : 0xA4, on));
+}
+
+void IcomCivBackend::setXitEnabled(bool on)
+{
+    sendUserCommand(cmdXitEnable(m_session ? m_session->civAddress() : 0xA4, on));
+}
+
+void IcomCivBackend::setRitOffset(int hz)
+{
+    // ONE offset register serves both RIT and XIT on this radio — 21 00 is the
+    // shift, and 21 01 / 21 02 decide which of receive and transmit it applies
+    // to. A caller that expects two independent offsets will not get them.
+    sendUserCommand(cmdTuneOffsetHz(m_session ? m_session->civAddress() : 0xA4, hz));
+}
+
 void IcomCivBackend::setKeying(bool key)
 {
     if (!m_model->hasTransmit)

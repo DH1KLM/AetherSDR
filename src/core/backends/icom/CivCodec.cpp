@@ -438,6 +438,32 @@ std::vector<std::uint8_t> cmdScopeSpan(std::uint8_t to, int spanHz)
     return buildFrameSub(to, cmd::kScope, scope::kSpan, body);
 }
 
+std::vector<std::uint8_t> cmdTuneOffsetHz(std::uint8_t to, int hz)
+{
+    // +/- 9.99 kHz, and the radio takes a MAGNITUDE plus a separate sign byte.
+    const int clamped   = std::clamp(hz, -9990, 9990);
+    const int magnitude = std::abs(clamped);
+    // Two BCD bytes, LITTLE-endian like a frequency: 1/10 Hz pair first.
+    const std::array<std::uint8_t, 3> body{
+        static_cast<std::uint8_t>((((magnitude / 10) % 10) << 4) | (magnitude % 10)),
+        static_cast<std::uint8_t>((((magnitude / 1000) % 10) << 4) | ((magnitude / 100) % 10)),
+        static_cast<std::uint8_t>(clamped < 0 ? 0x01 : 0x00),
+    };
+    return buildFrameSub(to, cmd::kTuneOffset, tuneOffset::kFrequency, body);
+}
+
+std::vector<std::uint8_t> cmdRitEnable(std::uint8_t to, bool on)
+{
+    const std::array<std::uint8_t, 1> body{static_cast<std::uint8_t>(on ? 0x01 : 0x00)};
+    return buildFrameSub(to, cmd::kTuneOffset, tuneOffset::kRitOnOff, body);
+}
+
+std::vector<std::uint8_t> cmdXitEnable(std::uint8_t to, bool on)
+{
+    const std::array<std::uint8_t, 1> body{static_cast<std::uint8_t>(on ? 0x01 : 0x00)};
+    return buildFrameSub(to, cmd::kTuneOffset, tuneOffset::kXitOnOff, body);
+}
+
 std::vector<std::uint8_t> cmdScopeReference(std::uint8_t to, double db)
 {
     // -20.0 .. +20.0 dB in 0.5 dB steps. Magnitude is two BCD bytes holding

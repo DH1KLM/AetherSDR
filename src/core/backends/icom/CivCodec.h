@@ -177,6 +177,9 @@ inline constexpr std::uint8_t kReadId       = 0x19;   // sub 00: read transceive
 inline constexpr std::uint8_t kSetting      = 0x1A;   // memory / filter / SET menu
 inline constexpr std::uint8_t kControl      = 0x1C;   // PTT, tuner, XFC
 inline constexpr std::uint8_t kScope        = 0x27;
+// RIT / dTX. Icom calls transmit incremental tuning "dTX"; the operator-facing
+// name everywhere else is XIT, and they are the same control.
+inline constexpr std::uint8_t kTuneOffset   = 0x21;
 }  // namespace cmd
 
 namespace level {
@@ -215,8 +218,16 @@ inline constexpr std::uint8_t kCompressor    = 0x44;
 inline constexpr std::uint8_t kMonitorFn     = 0x45;
 inline constexpr std::uint8_t kVox           = 0x46;
 inline constexpr std::uint8_t kManualNotch   = 0x48;
+inline constexpr std::uint8_t kBreakIn       = 0x47;   // 00 off, 01 semi, 02 full
 inline constexpr std::uint8_t kDialLock      = 0x50;
 }  // namespace func
+
+// Command 0x21 — RIT and dTX (which is what Icom calls XIT).
+namespace tuneOffset {
+inline constexpr std::uint8_t kFrequency = 0x00;   // signed, +/- 9.99 kHz
+inline constexpr std::uint8_t kRitOnOff  = 0x01;
+inline constexpr std::uint8_t kXitOnOff  = 0x02;   // the guide writes this dTX
+}  // namespace tuneOffset
 
 namespace control {
 inline constexpr std::uint8_t kPtt   = 0x00;   // 00 RX, 01 TX
@@ -302,6 +313,14 @@ enum class CivMode : std::uint8_t {
 [[nodiscard]] std::vector<std::uint8_t> cmdScopeMode(std::uint8_t to, bool fixed);
 [[nodiscard]] std::vector<std::uint8_t> cmdScopeSpan(std::uint8_t to, int spanHz);
 [[nodiscard]] std::vector<std::uint8_t> cmdScopeReference(std::uint8_t to, double db);
+
+// RIT / dTX. The OFFSET is a signed magnitude: two BCD bytes little-endian
+// holding 0000..9999 Hz, then a sign byte (00 plus, 01 minus) — the same
+// separate-sign shape the scope reference level uses, and the same mistake is
+// available (folding the sign into the magnitude tunes the wrong way).
+[[nodiscard]] std::vector<std::uint8_t> cmdTuneOffsetHz(std::uint8_t to, int hz);
+[[nodiscard]] std::vector<std::uint8_t> cmdRitEnable(std::uint8_t to, bool on);
+[[nodiscard]] std::vector<std::uint8_t> cmdXitEnable(std::uint8_t to, bool on);
 
 // The eight spans the IC-705 offers, in Hz. Anything else SNAPS to the nearest.
 inline constexpr std::array<int, 8> kScopeSpansHz{

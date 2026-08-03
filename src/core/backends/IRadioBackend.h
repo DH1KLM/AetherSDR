@@ -306,6 +306,30 @@ public:
     // implements it.
     virtual void setTxPower(int percent) { Q_UNUSED(percent); }
 
+    // The speech processor, as the operator sees it: an enable plus one of
+    // three presets (0 = NOR, 1 = DX, 2 = DX+).
+    //
+    // That shape is FlexRadio's, and it is not universal. On a radio with its
+    // own compressor the two halves are SEPARATE registers — the IC-705 wants
+    // 16 44 for the enable and 14 0E for how hard — so a backend receives both
+    // together and decides how to spend them. Default no-op: Flex takes this as
+    // text from TransmitModel, and a host-modulating backend runs its own
+    // compressor in our DSP instead.
+    virtual void setSpeechProcessor(bool on, int level)
+    {
+        Q_UNUSED(on);
+        Q_UNUSED(level);
+    }
+
+    // Receive and transmit incremental tuning. Hz relative to the VFO.
+    //
+    // Two enables and one offset, because that is the shape every radio that
+    // has them uses — including the IC-705, where they are 21 01, 21 02 and
+    // 21 00. A radio without RIT simply does not implement these.
+    virtual void setRitEnabled(bool on) { Q_UNUSED(on); }
+    virtual void setXitEnabled(bool on) { Q_UNUSED(on); }
+    virtual void setRitOffset(int hz) { Q_UNUSED(hz); }
+
     // Transmit audio passband, in Hz above the carrier — the Phone applet's TX
     // low-cut and high-cut.
     //
