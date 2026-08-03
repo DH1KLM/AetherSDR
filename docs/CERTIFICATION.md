@@ -1,5 +1,11 @@
 # Radio certification — lessons and roadmap
 
+Lessons 1.1–1.18 came from the Hermes-Lite 2 bring-up. **1.19–1.25 came from the
+Icom IC-705**, the first radio brought up with `radiocert` in hand rather than
+after the fact — which is the point of the tool, and a useful check on it: some
+of what follows is a defect radiocert found, and some is a gap in radiocert
+itself that only a second radio could expose.
+
 Why `radiocert` is shaped the way it is, and what it still cannot do.
 
 The reference tables live in [`radio-certification.md`](radio-certification.md);
@@ -265,6 +271,118 @@ result.
 
 ---
 
+### 1.19 An undocumented constant in a reference implementation is load-bearing
+
+kappanhang sets its tracked sequence to `1` in one line, with no comment. Ours
+started at `0` — the obvious choice — and the IC-705 read `0` as one *before*
+the start of the space, inferred a wrap, and answered our login with a stream of
+retransmit requests for a window that never existed. It never processed the
+login. Every visible indicator was healthy: the handshake completed, pings
+answered, RTT 30 ms.
+
+**Consequence.** When porting from a reference, an unexplained initial value is
+a fact about the *radio*, not a stylistic choice. Diverge only with evidence.
+Recorded in `icom-oracle.md` §2.6 so the next model does not pay for it.
+
+---
+
+### 1.20 A failed session must actually tear down
+
+`fail()` emitted `disconnected()` and left the streams running, so a failed
+connect leaked three UDP sockets. An Icom serves **one client**, so those held
+the radio's session slot and every later attempt — from any program — timed out
+with "no answer". A radio that worked once and then refused to talk to anything.
+
+**Consequence.** Reporting a failure and *ending* it are different jobs, and on
+a single-client radio the second one is what the next connect depends on.
+Confirmed with `lsof` against the app's own pid, which is the check worth
+running when a radio goes unreachable after a failure.
+
+---
+
+### 1.21 The disconnect packet does not end the session
+
+Closing each stream (type `0x05`) closes the **streams**. The **session** stays
+authenticated on the radio until it times out, and the next login is refused —
+presenting as "auth error on reconnect", which sounds like a credential problem
+and is not. The protocol has a separate deauthentication (`auth 0x01`), and
+teardown order matters: it must be the last thing the radio hears.
+
+**Consequence.** Certification should include a **reconnect** stage:
+connect, disconnect, immediately reconnect. Nothing else in the suite exercises
+teardown, and a leaked session is invisible until the second connect.
+
+---
+
+### 1.22 One packet shape, two meanings, decided by session phase
+
+On reconnect the radio sends a status packet carrying an auth-failure sentinel
+*after* the new session is fully established — login accepted, capabilities
+read, streams granted, token accepted, both media streams handshaking. It is
+reporting the **previous** session's teardown. Read as fatal, it killed a
+working connection every time, and §1.20's fix (making failures real) turned the
+misreading into a hard failure instead of a harmless log line.
+
+Found by reading the log: every stage reported success, and then the session
+died.
+
+**Consequence.** A packet's meaning can depend on where the session is, not only
+on its bytes. Classify against session phase, and be suspicious of any fatal
+verdict that arrives after a complete success sequence.
+
+---
+
+### 1.23 A conservative default applied at the wrong moment is a false negative
+
+The Icom backend answers capabilities from a model record that starts as
+"unknown" — deliberately no scope, **no transmit** — until the CI-V address
+query identifies the radio. That default is right for a radio we cannot
+characterise. But the address query needs a stream that does not exist on the
+connect edge, so anything reading capabilities *then* saw `canTransmit=false`
+and refused to key a radio that transmits perfectly well. `radiocert meters` and
+`radiocert tx` were both blocked by it, and the message pointed at TX permission
+— which was granted.
+
+**Consequence.** A safe default needs a defined *resolution point*, not just a
+safe value. Here the radio's name arrives during the handshake, early enough to
+resolve the model before capabilities are first read; the address query still
+runs and still wins.
+
+---
+
+### 1.24 Inherited limits carry their source's assumptions
+
+Two constants taken from reference implementations were correct *there* and
+wrong for us, with the same signature: **commands work perfectly and the
+panadapter is black.**
+
+- The CI-V frame cap of 80 bytes is the longest *command* frame. Hamlib and
+  kappanhang both use it; neither decodes spectrum. A scope sweep is ~496 bytes.
+- The serial payload length is a 16-bit field. kappanhang reads 8 bits, which is
+  byte-identical below 256 and all it ever needs — again, no spectrum.
+
+**Consequence.** When adopting a constant, ask what the source *does* with it.
+A limit that has never met your use case has never been tested against it.
+
+---
+
+### 1.25 Gate the stages that key, not the phase that contains them
+
+`radiocert meters` refused outright without TX permission, but only two of its
+stages transmit — the **inventory** reads the meter model and keys nothing. That
+put the single most useful early question ("are the meters wired up at all?")
+behind a permission nobody grants on day one, and it is a *receive* question.
+
+Running it immediately found that every Icom meter was published under a source
+and id nothing looks up — §1.8's orphaned-meter seam, reached by a different
+route, on a backend whose S-meter had been decoding correctly for days.
+
+**Consequence.** Phase-level gating is too coarse. Gate the keying stages; let
+the rest report, and let `keyRefusals` say what did not run. Applied — `meters`
+without TX now reports the inventory and a non-zero refusal count.
+
+---
+
 ## 2. Next steps
 
 ### 2.1 The radio profile — highest leverage
@@ -327,6 +445,10 @@ visible rather than quietly skipped.
 | `RTTY` unmapped | silently demodulated as USB; conventionally lower-sideband on HF, so it wants a decision rather than a default |
 | Sideband stage saturates | even at 5 % drive into a dummy load a few inches away; needs inline attenuation or a second receiver |
 | Wire-convention stimulus harness (§1.4) | inject synthetic IQ at the backend boundary; needs no radio and would have caught the receive inversion |
+| **Reconnect stage** (§1.21) | connect / disconnect / immediately reconnect; nothing in the suite exercises teardown today, and a leaked session is invisible until the second connect |
+| **Icom `TX:SWR` / `TX:FWDPWR` / `TX:ALC` / `TX:COMPPEAK` defined but never fed** | the poller only requests TX meters while transmitting, and radiocert keys through its own path, so the flag never flips |
+| **Icom `micSelection` still reports `MIC`** | the applet narrows the dropdown to PC on a radio whose input a client cannot choose, but the underlying TransmitModel value is not migrated — so preconditions warns TX audio capture is not running |
+| **Icom pan/waterfall agreement unverified** (§2.2) | reported by the operator, not reproduced; the capture shows them aligned. Needs the off-centre signal check, which is exactly what §2.2 would automate |
 
 ---
 
