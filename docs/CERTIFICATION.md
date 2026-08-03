@@ -408,7 +408,14 @@ the radio.
 
 **Consequence.** Poll `1C 00` on a slow cadence — 250 ms is plenty; it only has
 to *notice* a transmission, and it shares the CI-V stream with tuning. Fixed in
-`2d5ed841`; hardware confirmation under key still outstanding.
+`2d5ed841`. **Confirmed on a live IC-705 into a dummy load**: all four transmit
+meters now feed (`TX:FWDPWR`, `TX:SWR`, `TX:ALC`, `TX:COMPPEAK`, ages ~1.1 s),
+with `keyRefusals: 0` and SWR reading 1.0:1 — the one number in that set with an
+independent right answer.
+
+That run keyed through radiocert's own path, so it proves the *visible-set* half.
+The *polling* half — a front-panel PTT, which is how the operator hit this — is
+still unproven, and it can only be proven by a human pressing the button.
 
 ---
 
@@ -475,7 +482,8 @@ visible rather than quietly skipped.
 | Sideband stage saturates | even at 5 % drive into a dummy load a few inches away; needs inline attenuation or a second receiver |
 | Wire-convention stimulus harness (§1.4) | inject synthetic IQ at the backend boundary; needs no radio and would have caught the receive inversion |
 | **Reconnect stage** (§1.21) | connect / disconnect / immediately reconnect; nothing in the suite exercises teardown today, and a leaked session is invisible until the second connect |
-| ~~**Icom `TX:SWR` / `TX:FWDPWR` / `TX:ALC` / `TX:COMPPEAK` defined but never fed**~~ | **Fixed in `2d5ed841`** (§1.26) — transmit state is now polled from the radio rather than inferred from our own commands, and the five TX meters are marked visible at connect. Root cause was a front-panel PTT the backend could not see. **Confirm on hardware under key.** |
+| ~~**Icom `TX:SWR` / `TX:FWDPWR` / `TX:ALC` / `TX:COMPPEAK` defined but never fed**~~ | **Fixed and confirmed on hardware** (`2d5ed841`, §1.26). Remaining: the front-panel-PTT path needs a human to key it. |
+| **The mic stages assume a radio that has a mic meter** | `meter-scale` and `control-effect` both certify through `TX:MICPEAK`, and the IC-705 publishes no mic-level meter at all — its set is `15 02/11/12/13/14/15/16`. On a radio that owns its own microphone (`hostModulates: false`) mic gain is not ours to set and mic peak is not ours to read, so both stages report a concern for something that is not a defect. Gate them on the capability, per §1.25 |
 | **Icom `micSelection` still reports `MIC`** | the applet narrows the dropdown to PC on a radio whose input a client cannot choose, but the underlying TransmitModel value is not migrated — so preconditions warns TX audio capture is not running |
 | **Icom pan/waterfall agreement unverified** (§2.2) | reported by the operator, not reproduced; the capture shows them aligned. Needs the off-centre signal check, which is exactly what §2.2 would automate |
 
