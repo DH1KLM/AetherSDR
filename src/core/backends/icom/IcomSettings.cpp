@@ -4,6 +4,7 @@
 #include "core/backends/icom/IcomProtocol.h"
 
 #include <QJsonDocument>
+#include <QtGlobal>
 #include <QJsonObject>
 
 namespace AetherSDR {
@@ -57,7 +58,14 @@ void IcomSettings::writeObj(const QJsonObject& obj)
 
 QString IcomSettings::username()
 {
-    return readObj().value(QLatin1String(kFieldUsername)).toString();
+    const QString stored = readObj().value(QLatin1String(kFieldUsername)).toString();
+    if (!stored.isEmpty())
+        return stored;
+    // Headless fallback, symmetric with IcomCredentials' password env var: an
+    // automation launch on a fresh profile has nothing stored and no dialog to
+    // type into, so `connect ip <host> icom` would fail on a missing user name
+    // even with the password supplied.
+    return qEnvironmentVariable("AETHER_ICOM_USERNAME");
 }
 
 void IcomSettings::setUsername(const QString& username)

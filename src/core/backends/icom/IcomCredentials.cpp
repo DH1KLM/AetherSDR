@@ -1,6 +1,7 @@
 #include "core/backends/icom/IcomCredentials.h"
 
 #include <QLoggingCategory>
+#include <QtGlobal>
 #include <QMutex>
 #include <QMutexLocker>
 
@@ -87,8 +88,20 @@ void IcomCredentials::save(const QString& password)
 
 QString IcomCredentials::sessionPassword()
 {
-    QMutexLocker lock(&g_mutex);
-    return g_sessionPassword;
+    {
+        QMutexLocker lock(&g_mutex);
+        if (!g_sessionPassword.isEmpty())
+            return g_sessionPassword;
+    }
+    // HEADLESS FALLBACK. An automation or CI launch has no dialog to type into
+    // and, on a build without QtKeychain, nothing persisted either — so the
+    // bridge's connect verb had no way to authenticate and `connect ip <host>
+    // icom` could only ever fail.
+    //
+    // An environment variable rather than a bridge argument on purpose: bridge
+    // commands are echoed into the app log ring, and a password in the log is
+    // exactly the exposure the keychain policy exists to avoid.
+    return qEnvironmentVariable("AETHER_ICOM_PASSWORD");
 }
 
 void IcomCredentials::setSessionPassword(const QString& password)

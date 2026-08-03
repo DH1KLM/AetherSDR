@@ -1219,7 +1219,8 @@ bool ConnectionPanel::automationConnectByIp(const QString& hostOrIp,
         && wantedFamily != QLatin1String(kFamilyIcom)) {
         setAutomationError(
             error,
-            QStringLiteral("unknown radio family '%1' (use flex or hl2)").arg(family.trimmed()));
+            QStringLiteral("unknown radio family '%1' (use flex, hl2 or icom)")
+                .arg(family.trimmed()));
         return false;
     }
 
@@ -2115,9 +2116,17 @@ void ConnectionPanel::probeRadio(const QString& ip)
         // committing. An Icom will not answer usefully until the RS-BA1 login
         // has succeeded — so the connect IS the probe, and a wrong password
         // surfaces as a session failure rather than as "nothing there".
-        const QString user = m_manualIcomUserEdit ? m_manualIcomUserEdit->text().trimmed()
-                                                  : QString();
-        const QString pass = m_manualIcomPassEdit ? m_manualIcomPassEdit->text() : QString();
+        QString user = m_manualIcomUserEdit ? m_manualIcomUserEdit->text().trimmed()
+                                            : QString();
+        QString pass = m_manualIcomPassEdit ? m_manualIcomPassEdit->text() : QString();
+        // Fall back to stored credentials when the fields are empty. This is
+        // what makes the bridge's `connect ip <host> icom` work at all: an
+        // automation launch has no dialog to type into, so without it the verb
+        // could only ever report "needs a user name and password".
+        if (user.isEmpty())
+            user = IcomSettings::username();
+        if (pass.isEmpty())
+            pass = IcomCredentials::sessionPassword();
         if (user.isEmpty() || pass.isEmpty()) {
             resetManualConnectButton();
             setManualMessage(

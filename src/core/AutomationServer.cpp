@@ -5401,13 +5401,15 @@ QJsonObject AutomationServer::doConnect(const QString& action,
         QString family;
         if (ipTokens.size() > 1) {
             family = ipTokens.at(1).toLower();
-            if (family != QLatin1String("flex") && family != QLatin1String("hl2")) {
-                return err(QStringLiteral("connect ip radio type must be flex or hl2, got '%1'")
+            if (family != QLatin1String("flex") && family != QLatin1String("hl2")
+                && family != QLatin1String("icom")) {
+                return err(QStringLiteral(
+                               "connect ip radio type must be flex, hl2 or icom, got '%1'")
                                .arg(ipTokens.at(1)));
             }
         }
         if (ipTokens.size() > 2) {
-            return err(QStringLiteral("connect ip takes at most <host-or-ip> [flex|hl2]"));
+            return err(QStringLiteral("connect ip takes at most <host-or-ip> [flex|hl2|icom]"));
         }
 
         QPointer<QObject> guard(conn->asQObject());
