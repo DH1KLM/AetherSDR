@@ -1961,7 +1961,14 @@ void ConnectionPanel::updateManualFamilyHints()
                       "Enter the radio address and the network user name and password set on "
                       "the radio itself. On the radio, Network Control must be ON (IC-705: "
                       "Menu > Set > WLAN set > Remote settings). The password is stored in "
-                      "your operating system keychain, never in the settings file.")
+                      "your operating system keychain, never in the settings file.\n\n"
+                      "TO TRANSMIT, the radio must also be told to take its modulation from "
+                      "the network. Under Menu > Set > Connectors > MOD Input, set BOTH:\n"
+                      "    \u2022  DATA OFF MOD \u2192 WLAN  (SSB, CW, AM, FM \u2014 voice)\n"
+                      "    \u2022  DATA MOD \u2192 WLAN  (FT8 and other data modes)\n"
+                      "Each covers a different set of modes, so setting only one leaves the "
+                      "other silent. If either is left on MIC or USB the radio ignores the "
+                      "audio AetherSDR sends: it keys, makes no power, and reports no error.")
                 : hl2
                 ? QStringLiteral(
                       "Use this path when discovery broadcasts cannot reach the radio — a VPN, a "
