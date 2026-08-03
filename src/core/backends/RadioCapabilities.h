@@ -129,6 +129,23 @@ struct RadioCapabilities {
     // genuinely having a PA. It already means something other than this.
     bool hasSupplyVoltageTelemetry = false;
 
+    // The radio exposes SELECTABLE HARDWARE microphone inputs — the Phone
+    // applet's MIC / BAL / LINE / ACC choices, which are FlexRadio's front and
+    // rear connectors.
+    //
+    // False does NOT mean "no microphone". It means a client cannot pick the
+    // input: the only source this application can feed is its own host audio,
+    // so the dropdown collapses to PC. An Icom takes network audio and chooses
+    // its own input from its own menu (MOD Input > DATA MOD); an HL2 is
+    // modulated on this host entirely.
+    //
+    // Offering the Flex connector names on such a radio is the "the control
+    // moves and nothing happens" failure the other capability comments warn
+    // about — worse here, because picking MIC on a radio that will only ever
+    // hear network audio produces a transmission with no modulation, which
+    // looks like a hardware fault.
+    bool hasSelectableMicInputs = false;
+
     // The RADIO stores named configuration profiles (global / TX / mic) that a
     // client can list, load and save. The seam already carries ProfileDelta and
     // profileChanged in both directions; this is the flag that says whether the

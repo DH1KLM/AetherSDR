@@ -179,6 +179,8 @@ public:
     // a connected radio that reports the capability false takes it away. A
     // disconnected session keeps both, which is what the operator saw before.
     void setProfilesVisible(bool visible);
+    // Capability passthrough to the Phone/CW applet — same shape as above.
+    void setSelectableMicInputs(bool selectable);
 
     // Show/hide the DAX and DAX-IQ buttons and applets based on whether the
     // connected radio produces per-slice audio / per-pan IQ streams

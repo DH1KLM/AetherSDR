@@ -6491,6 +6491,12 @@ void MainWindow::applyCapabilitiesToUi(bool connected, const RadioCapabilities& 
     // See the header for why every flag is `!connected || caps.x` and why each
     // surface gets exactly one owning call.
 
+    // ── Mic sources: MIC / BAL / LINE / ACC are Flex connectors ────────────
+    // A radio that cannot have its input chosen by a client collapses to PC.
+    if (m_appletPanel) {
+        m_appletPanel->setSelectableMicInputs(!connected || caps.hasSelectableMicInputs);
+    }
+
     // ── Profiles: the PROF applet, the Profiles menu, and both dialogs ──────
     const bool profiles = !connected || caps.hasProfiles;
     if (m_appletPanel) {

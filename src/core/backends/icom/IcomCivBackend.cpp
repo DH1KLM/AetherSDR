@@ -110,6 +110,11 @@ RadioCapabilities IcomCivBackend::capabilities() const
     // is unanswerable from the radio; false is the safer default.
     c.hasTuner = false;
 
+    // The radio chooses its own modulation input from its own menu (MOD Input
+    // > DATA MOD, which must be WLAN for us to be heard at all). A client
+    // cannot pick MIC / BAL / LINE / ACC, so the Phone applet collapses to PC.
+    c.hasSelectableMicInputs = false;
+
     c.hasProfiles = false;
     c.hasWaveforms = false;
     c.hasMultiClientSessions = false;
@@ -208,6 +213,18 @@ void IcomCivBackend::onSessionConnected(const QString& deviceName)
 
     applyScopeStartup();
 
+    // CONNECTED FIRST, then the state.
+    //
+    // RadioModel stages the previous session's slices and CLEARS m_slices on
+    // the connect edge (stagePreviousSessionModelsForReconnect). Publishing the
+    // slice before connected() therefore created it and had it swept away in
+    // the same breath — the model ended with no slice at all, which is why
+    // click-to-tune reported "Slice capacity is full" (the spectrum could not
+    // resolve a tune target, so it fell through to the create-a-slice path
+    // against a one-slice radio) and why txSlice never took.
+    emit connected();
+    publishCapabilities();
+
     // THE PAN FIRST, then the slice that names it.
     //
     // RadioModel maps a backend pan id to a neutral index on FIRST SIGHT, and
@@ -253,8 +270,7 @@ void IcomCivBackend::onSessionConnected(const QString& deviceName)
     connect(m_linkTimer, &QTimer::timeout, this, &IcomCivBackend::onLinkTick);
     m_linkTimer->start(kLinkTickMs);
 
-    emit connected();
-    publishCapabilities();
+
 }
 
 void IcomCivBackend::onSessionDisconnected(const QString& reason)

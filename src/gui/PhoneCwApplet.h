@@ -21,6 +21,9 @@ class PhoneCwApplet : public QWidget {
     Q_OBJECT
 
 public:
+    // Narrow the mic-source dropdown to PC on a radio whose input this client
+    // cannot choose (capability hasSelectableMicInputs). Idempotent.
+    void setSelectableMicInputs(bool selectable);
     explicit PhoneCwApplet(QWidget* parent = nullptr);
 
     void setTransmitModel(TransmitModel* model);

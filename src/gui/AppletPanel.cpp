@@ -1460,6 +1460,12 @@ void AppletPanel::applyCapabilityVisibility(const QString& id,
     applyBarLayout();
 }
 
+void AppletPanel::setSelectableMicInputs(bool selectable)
+{
+    if (m_phoneCwApplet)
+        m_phoneCwApplet->setSelectableMicInputs(selectable);
+}
+
 void AppletPanel::setProfilesVisible(bool visible)
 {
     applyCapabilityVisibility(QStringLiteral("PROF"),
