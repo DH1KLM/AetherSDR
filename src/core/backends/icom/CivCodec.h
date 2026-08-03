@@ -309,4 +309,18 @@ inline constexpr std::array<int, 8> kScopeSpansHz{
 };
 [[nodiscard]] int nearestScopeSpanHz(int requestedHz) noexcept;
 
+// The span one detent away from `spanHz`, in the given direction (-1 narrower,
+// +1 wider). Clamps at the ends of the table rather than wrapping.
+//
+// WHY THIS EXISTS, because "snap to nearest" looks like it should be enough and
+// is not. The spans above are spaced by ratios of 2 and 2.5, while the zoom
+// buttons scale the view by 1.5. Multiplying a span by 1.5 therefore NEVER
+// reaches the midpoint of the gap to the next one up, so nearest-snapping a
+// zoom-out request always returns the span it started from. Measured across the
+// whole table, zoom-out was inert at all eight spans and zoom-in worked at
+// seven — an asymmetry that reads as "zoom is broken" rather than "zoom is
+// quantised", and which no amount of clicking can escape because the view is
+// re-seeded from the radio's own sweep 30 times a second.
+[[nodiscard]] int adjacentScopeSpanHz(int spanHz, int direction) noexcept;
+
 }  // namespace AetherSDR::icom

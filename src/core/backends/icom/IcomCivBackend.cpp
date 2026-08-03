@@ -1,6 +1,7 @@
 #include "core/backends/icom/IcomCivBackend.h"
 
 #include <QDateTime>
+#include <QLoggingCategory>
 #include <QTimer>
 #include <QVariant>
 
@@ -12,6 +13,11 @@
 
 namespace AetherSDR::icom {
 namespace {
+
+// The pan intents are the two that most need to say what they DECIDED rather
+// than what they were asked, because both of them deliberately do something
+// other than the literal request: one refuses, the other quantises.
+Q_LOGGING_CATEGORY(lcIcomPan, "aether.icom.pan")
 
 // Metering is examined this often; the MeterPoller decides what is actually
 // due. Deliberately faster than the fastest meter interval so a due meter is
@@ -329,6 +335,14 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
         geom.points = m_model->scopePoints ? m_model->scopePoints : kScopePointsIc705;
         geom.maxAmplitude = m_model->scopeMaxAmplitude ? m_model->scopeMaxAmplitude
                                                        : kScopeMaxAmplitude;
+        // THE RADIO'S OWN GEOMETRY, kept so the pan intents below have something
+        // true to reason against. Both of them need it: a zoom step has to know
+        // which of the eight spans it is leaving, and a centre request has to
+        // know what to snap the view back to.
+        if (sweep->bandwidthHz() > 0) {
+            m_scopeCentreHz = sweep->centreHz();
+            m_scopeSpanHz   = sweep->bandwidthHz() / 2;
+        }
         emit panCenterBandwidthChanged(panId(),
                                        static_cast<double>(sweep->centreHz()) / 1e6,
                                        static_cast<double>(sweep->bandwidthHz()) / 1e6);
@@ -587,20 +601,79 @@ void IcomCivBackend::setSliceAgc(int, const QString& mode, int)
 
 void IcomCivBackend::setPanCenter(const QString&, double hz)
 {
-    // In centre mode the scope follows the operating frequency, so moving the
-    // pan centre IS retuning.
-    setSliceFrequency(sliceId(), hz);
+    Q_UNUSED(hz);
+
+    // THE PAN CENTRE IS NOT OURS TO SET, and this used to retune the radio.
+    //
+    // In centre mode the scope window is slaved to the operating frequency —
+    // the radio offers no way to offset one from the other — so this used to
+    // forward to setSliceFrequency() on the reasoning that moving the window IS
+    // retuning. That reasoning is backwards from the operator's. Dragging a
+    // panadapter is a request to LOOK somewhere, and on every other backend it
+    // moves the view while the slice stays put. Here it moved the radio: a drag
+    // across the waterfall walked the VFO off frequency, and because zoom
+    // dispatches centre and bandwidth together, so did every zoom click.
+    //
+    // So: refuse, and re-assert the truth IMMEDIATELY rather than waiting for
+    // the next sweep to contradict the view. Without the re-assert the widget
+    // keeps its optimistic centre for up to a frame and the trace visibly
+    // slides before snapping back.
+    //
+    // The honest alternative would be the radio's FIXED scope mode, whose
+    // window is genuinely independent of the VFO. It is not reachable from
+    // here: its edges are not free-form but three saved presets per band
+    // (0x27 0x1E), so following a drag would overwrite the operator's own
+    // stored scope edges thirty times a second.
+    qCDebug(lcIcomPan) << "pan-centre request REFUSED (the scope is slaved to the VFO);"
+                       << "asked" << hz << "Hz, radio is at" << m_scopeCentreHz << "Hz";
+    if (m_scopeSpanHz <= 0)
+        return;
+
+    // QUEUED, and that is not incidental. RadioModel writes the REQUESTED centre
+    // into the pan model on the line after it calls us, so a direct emit here is
+    // overwritten by the very value we are refusing. Deferring to the next event
+    // loop iteration puts the correction after that write and still lands inside
+    // the same frame — sooner than the next sweep would, which is the whole
+    // reason to re-assert at all rather than just waiting 33 ms.
+    const double centreMhz = static_cast<double>(m_scopeCentreHz) / 1e6;
+    const double widthMhz  = static_cast<double>(m_scopeSpanHz * 2) / 1e6;
+    QMetaObject::invokeMethod(this, [this, centreMhz, widthMhz] {
+        emit panCenterBandwidthChanged(panId(), centreMhz, widthMhz);
+    }, Qt::QueuedConnection);
 }
 
 void IcomCivBackend::setPanBandwidth(const QString&, double hz)
 {
-    if (hz <= 0.0)
+    if (hz <= 0.0 || !m_model->hasScope)
         return;
     // hz is a TOTAL width and Icom's span is a HALF-width, so the conversion is
     // not a rename. It also SNAPS to one of eight values — what was actually
     // taken comes back with the next sweep, via panCenterBandwidthChanged.
-    const int span = spanForBandwidthHz(static_cast<int>(std::llround(hz)));
-    sendUserCommand(cmdScopeSpan(m_session ? m_session->civAddress() : 0xA4, span));
+    const int requested = spanForBandwidthHz(static_cast<int>(std::llround(hz)));
+    int target = requested;
+
+    // NEAREST IS NOT ENOUGH — see adjacentScopeSpanHz. A zoom step of 1.5
+    // against spans spaced by 2 and 2.5 lands short of the midpoint every time
+    // it widens, so nearest-snapping returned the current span and the command
+    // was a no-op. Zoom out did nothing at all eight spans.
+    //
+    // When the request resolves back to where we already are, honour its
+    // DIRECTION instead of its magnitude and move exactly one detent. Quantised
+    // zoom is the truth about this radio; inert zoom is a bug.
+    if (m_scopeSpanHz > 0 && target == m_scopeSpanHz) {
+        const int wanted = static_cast<int>(std::llround(hz / 2.0));
+        if (wanted < m_scopeSpanHz)
+            target = adjacentScopeSpanHz(target, -1);
+        else if (wanted > m_scopeSpanHz)
+            target = adjacentScopeSpanHz(target, +1);
+        else
+            return;   // genuinely no change asked for
+    }
+
+    qCDebug(lcIcomPan) << "pan-bandwidth request" << hz << "Hz ->"
+                       << "span" << target << "Hz (nearest was" << requested
+                       << ", radio is at" << m_scopeSpanHz << ")";
+    sendUserCommand(cmdScopeSpan(m_session ? m_session->civAddress() : 0xA4, target));
 }
 
 void IcomCivBackend::setPanRfGain(const QString&, int gainDb)

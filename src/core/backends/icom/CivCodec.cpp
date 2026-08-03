@@ -402,14 +402,40 @@ int nearestScopeSpanHz(int requestedHz) noexcept
     return best;
 }
 
+int adjacentScopeSpanHz(int spanHz, int direction) noexcept
+{
+    // Anchor on the nearest table entry first: the caller's "current" span comes
+    // from a decoded sweep, and an off-by-a-few-Hz value must not fall through
+    // to the front of the table.
+    const int cur = nearestScopeSpanHz(spanHz);
+    for (std::size_t i = 0; i < kScopeSpansHz.size(); ++i) {
+        if (kScopeSpansHz[i] != cur)
+            continue;
+        if (direction < 0)
+            return i == 0 ? kScopeSpansHz.front() : kScopeSpansHz[i - 1];
+        return i + 1 >= kScopeSpansHz.size() ? kScopeSpansHz.back() : kScopeSpansHz[i + 1];
+    }
+    return cur;
+}
+
 std::vector<std::uint8_t> cmdScopeSpan(std::uint8_t to, int spanHz)
 {
-    // The span is encoded exactly like an operating frequency: 5 BCD bytes,
-    // little-endian. And it SNAPS — the radio has eight spans and no others, so
-    // a request for 37 kHz becomes 25 kHz. The caller must report back what was
-    // actually taken (panCenterBandwidthChanged), never what it asked for.
+    // SIX data bytes: a LEADING FIXED 0x00, then the span as a 5-byte
+    // little-endian BCD frequency.
+    //
+    // That leading byte is the whole command. Without it the radio simply
+    // IGNORES the frame — no NG, no error, the scope just stays where it was —
+    // which reads as "zoom does nothing" and sends you hunting through the UI.
+    // Icom's own diagram for 27 15 numbers six boxes and labels the first two
+    // digits "0 (Fixed)"; the same leading byte appears on 27 00 (where this
+    // decoder already honours it when PARSING) and on 27 19. Building without
+    // it while parsing with it is the asymmetry that hid this.
+    std::vector<std::uint8_t> body;
+    body.reserve(1 + kFreqBytes);
+    body.push_back(0x00);
     const auto bcd = encodeFreq(static_cast<std::uint64_t>(nearestScopeSpanHz(spanHz)));
-    return buildFrameSub(to, cmd::kScope, scope::kSpan, bcd);
+    body.insert(body.end(), bcd.begin(), bcd.end());
+    return buildFrameSub(to, cmd::kScope, scope::kSpan, body);
 }
 
 std::vector<std::uint8_t> cmdScopeReference(std::uint8_t to, double db)
@@ -423,7 +449,10 @@ std::vector<std::uint8_t> cmdScopeReference(std::uint8_t to, double db)
     // Round to the nearest half-dB the radio can actually represent.
     const int halfSteps = static_cast<int>(std::lround(std::abs(clamped) * 2.0));
     const int tenths    = halfSteps * 5;            // e.g. 20.5 dB -> 205
-    const std::array<std::uint8_t, 3> body{
+    // FOUR bytes, and the first is the 0x27 family's leading fixed 0x00 — the
+    // same one 27 15 needs. See cmdScopeSpan for what omitting it costs.
+    const std::array<std::uint8_t, 4> body{
+        0x00,
         static_cast<std::uint8_t>((((tenths / 100) % 10) << 4) | ((tenths / 10) % 10)),
         static_cast<std::uint8_t>(((tenths % 10) << 4) | 0),
         static_cast<std::uint8_t>(negative ? 0x01 : 0x00),

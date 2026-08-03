@@ -19,8 +19,11 @@
 
 #include <QCoreApplication>
 #include <QSignalSpy>
+#include <QTest>
 
+#include <algorithm>
 #include <cmath>
+#include <span>
 #include <cstdio>
 
 using namespace AetherSDR;
@@ -190,11 +193,73 @@ int main(int argc, char** argv)
         check(waitFor([&] { return meterSpy.count() > 0; }), "a meter reading reaches the seam");
         if (meterSpy.count() > 0) {
             const auto args = meterSpy.first();
-            check(args.at(0).toString() == QStringLiteral("LEVEL"), "as the LEVEL meter");
+            // SOURCE:NAME, not a bare name. This assertion was left behind when
+            // the meters were re-homed onto the convention MeterModel actually
+            // looks up; a bare "LEVEL" is published where nothing reads it.
+            check(args.at(0).toString() == QStringLiteral("SLC:LEVEL"),
+                  "as the SLC:LEVEL meter");
             // Raw 120 is S9. On 20 m that is -73 dBm; the value must be
             // calibrated, not the raw byte.
             check(std::fabs(args.at(1).toDouble() - -73.0) < 1.0,
                   "calibrated to -73 dBm (S9 on HF), not passed through raw");
+        }
+    }
+
+    // ---- the pan intents --------------------------------------------------
+    //
+    // The sweep pushed above put the radio at a 100 kHz span (200 kHz wide),
+    // which is what both of these reason against.
+    {
+        // DRAGGING THE PAN MUST NOT RETUNE THE RADIO. This used to forward to
+        // setSliceFrequency() on the theory that in centre mode moving the
+        // window IS retuning — true of the hardware, backwards from the
+        // operator, who dragged the waterfall to look around and walked the VFO
+        // off frequency instead. Zoom dispatches centre alongside bandwidth, so
+        // it moved the radio too.
+        radio.clearCivLog();
+        QSignalSpy panSpy(&backend, &IRadioBackend::panCenterBandwidthChanged);
+        backend.setPanCenter(QStringLiteral("0"), 14'050'000.0);
+        QTest::qWait(120);
+
+        const auto& sent = radio.civCommands();
+        const bool retuned = std::any_of(sent.begin(), sent.end(), [](const CivFrame& f) {
+            return f.cmd == cmd::kSetFreq || f.cmd == cmd::kSetFreqTrx;
+        });
+        check(!retuned, "a pan-centre request sends NO frequency command");
+        check(panSpy.count() > 0,
+              "and re-asserts the radio's real centre, so the view snaps back "
+              "rather than drifting for a frame");
+        if (panSpy.count() > 0) {
+            check(std::fabs(panSpy.first().at(1).toDouble() - 14.1) < 1e-6,
+                  "re-asserted at the radio's centre, not the requested one");
+        }
+    }
+
+    {
+        // ZOOM OUT MUST ACTUALLY WIDEN. The UI scales by 1.5 and the radio's
+        // spans step by 2 and 2.5, so nearest-snapping a widen request returned
+        // the span already in use — at every one of the eight spans. The
+        // operator clicked zoom out and nothing happened, permanently, because
+        // the view is re-seeded from the radio's own sweep 30 times a second.
+        radio.clearCivLog();
+        // 200 kHz * 1.5 — the exact request the zoom-out button produces here.
+        backend.setPanBandwidth(QStringLiteral("0"), 300'000.0);
+        QTest::qWait(120);
+
+        const auto& sent = radio.civCommands();
+        auto it = std::find_if(sent.begin(), sent.end(), [](const CivFrame& f) {
+            return f.cmd == cmd::kScope && f.hasSub && f.sub == scope::kSpan;
+        });
+        check(it != sent.end(), "a zoom-out request reaches the radio as a span command");
+        if (it != sent.end()) {
+            // data[0] is the 0x27 family's leading fixed byte; the frequency
+            // starts after it.
+            check(!it->data.empty() && it->data.front() == 0x00,
+                  "the span frame carries the leading fixed 0x00 the radio requires");
+            const auto span = decodeFreq(
+                std::span<const std::uint8_t>(it->data).subspan(1));
+            check(span.has_value() && *span == 250'000,
+                  "and steps to the NEXT span up (250 kHz), not back to 100 kHz");
         }
     }
 

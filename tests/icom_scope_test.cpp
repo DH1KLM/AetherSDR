@@ -7,6 +7,7 @@
 
 #include "core/backends/icom/IcomScope.h"
 
+#include <cmath>
 #include <cstdio>
 #include <numeric>
 #include <vector>
@@ -99,6 +100,57 @@ static void testCentreModeHalfWidth()
     check(widths.size() == kScopeSpansHz.size(), "eight reachable bandwidths");
     check(widths.front() == 5'000 && widths.back() == 1'000'000,
           "5 kHz to 1 MHz total — this is why Icom zoom SNAPS");
+}
+
+// THE ZOOM STALL, pinned against the behaviour that shipped.
+//
+// The UI zooms by 1.5 and the radio's spans step by 2 and 2.5, so widening a
+// span by 1.5 never reaches the midpoint of the gap to the next one. Nearest-
+// snapping therefore returned the span we were already on — at EVERY span, in
+// the widening direction. This test asserts the old arithmetic really was inert
+// (so the fix is not aimed at a phantom) and that the directional step escapes
+// it.
+static void testZoomEscapesTheSnap()
+{
+    // The zoom factor the panadapter's +/- buttons actually use. A literal
+    // rather than a reference to the widget: pinning the value is the point, so
+    // that a change to it re-fails this test instead of silently un-fixing zoom.
+    constexpr double kUiZoomFactor = 1.5;
+
+    int inertWidening = 0;
+    for (int span : kScopeSpansHz) {
+        const int bw = bandwidthForSpanHz(span);
+
+        // Old behaviour, reconstructed: nearest-snap the scaled request.
+        const int naiveOut = spanForBandwidthHz(
+            static_cast<int>(std::llround(bw * kUiZoomFactor)));
+        if (naiveOut == span)
+            ++inertWidening;
+
+        // New behaviour: when the request resolves back to where we are, step
+        // one detent in the direction asked for.
+        const int steppedOut = (naiveOut == span) ? adjacentScopeSpanHz(span, +1) : naiveOut;
+        const bool atCeiling = (span == kScopeSpansHz.back());
+        check(atCeiling ? steppedOut == span : steppedOut > span,
+              "zoom out widens the span (or holds at the ceiling)");
+
+        const int naiveIn = spanForBandwidthHz(
+            static_cast<int>(std::llround(bw / kUiZoomFactor)));
+        const int steppedIn = (naiveIn == span) ? adjacentScopeSpanHz(span, -1) : naiveIn;
+        const bool atFloor = (span == kScopeSpansHz.front());
+        check(atFloor ? steppedIn == span : steppedIn < span,
+              "zoom in narrows the span (or holds at the floor)");
+    }
+
+    check(inertWidening == static_cast<int>(kScopeSpansHz.size()),
+          "the shipped nearest-snap really was inert at ALL eight spans widening");
+
+    check(adjacentScopeSpanHz(kScopeSpansHz.front(), -1) == kScopeSpansHz.front(),
+          "stepping below the narrowest span clamps rather than wrapping");
+    check(adjacentScopeSpanHz(kScopeSpansHz.back(), +1) == kScopeSpansHz.back(),
+          "stepping above the widest span clamps rather than wrapping");
+    check(adjacentScopeSpanHz(99'700, +1) == 250'000,
+          "an off-by-a-few-Hz current span still anchors to its table entry");
 }
 
 static void testScrollModesAndNegativeEdge()
@@ -246,6 +298,7 @@ int main()
 {
     testWlanSinglePacket();
     testCentreModeHalfWidth();
+    testZoomEscapesTheSnap();
     testScrollModesAndNegativeEdge();
     testOutOfRange();
     testUsbMultiDivision();

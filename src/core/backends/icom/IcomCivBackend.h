@@ -143,6 +143,12 @@ private:
     // transmission, and it shares the CI-V stream with tuning.
     std::int64_t m_lastPttPollMs = 0;
     static constexpr int kPttPollMs = 250;
+    // The scope geometry the RADIO last reported, from its own sweeps. Both pan
+    // intents reason against it: a zoom step needs to know which of the eight
+    // spans it is leaving, and a centre request needs a truth to snap back to.
+    // Zero means no sweep has arrived yet, in which case neither intent acts.
+    std::int64_t m_scopeCentreHz = 0;
+    std::int64_t m_scopeSpanHz = 0;
     LinkStats m_link;
 };
 

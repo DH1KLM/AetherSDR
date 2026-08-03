@@ -231,20 +231,27 @@ static void testCommands()
     check(nearestScopeSpanHz(37000) == 25000, "37 kHz snaps down to 25 kHz");
     check(nearestScopeSpanHz(1) == 2500, "below the floor snaps to the narrowest");
     check(nearestScopeSpanHz(9'999'999) == 500000, "above the ceiling snaps to the widest");
+    // SIX data bytes. The leading 0x00 is not padding — omit it and the radio
+    // ignores the frame silently, which is exactly how "zoom does nothing"
+    // presented on a live IC-705.
     check(bytesAre(cmdScopeSpan(kIc705, 100000),
-                   {0xFE, 0xFE, 0xA4, 0xE0, 0x27, 0x15, 0x00, 0x00, 0x10, 0x00, 0x00, 0xFD}),
-          "span is a 5-byte little-endian BCD frequency");
+                   {0xFE, 0xFE, 0xA4, 0xE0, 0x27, 0x15,
+                    0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0xFD}),
+          "span is a LEADING 0x00 then a 5-byte little-endian BCD frequency");
 
     // The sign is a SEPARATE byte. Folding it into the magnitude puts the
     // reference level 20 dB out.
     auto refPlus = cmdScopeReference(kIc705, 10.5);
-    check(bytesAre(refPlus, {0xFE, 0xFE, 0xA4, 0xE0, 0x27, 0x19, 0x10, 0x50, 0x00, 0xFD}),
-          "+10.5 dB reference");
+    check(bytesAre(refPlus,
+                   {0xFE, 0xFE, 0xA4, 0xE0, 0x27, 0x19, 0x00, 0x10, 0x50, 0x00, 0xFD}),
+          "+10.5 dB reference, behind the same leading 0x00");
     auto refMinus = cmdScopeReference(kIc705, -20.0);
-    check(bytesAre(refMinus, {0xFE, 0xFE, 0xA4, 0xE0, 0x27, 0x19, 0x20, 0x00, 0x01, 0xFD}),
+    check(bytesAre(refMinus,
+                   {0xFE, 0xFE, 0xA4, 0xE0, 0x27, 0x19, 0x00, 0x20, 0x00, 0x01, 0xFD}),
           "-20.0 dB reference, sign in its own byte");
     auto refClamped = cmdScopeReference(kIc705, 99.0);
-    check(refClamped[8] == 0x00 && refClamped[6] == 0x20,
+    // Indices shifted by one when the leading fixed 0x00 was added.
+    check(refClamped[9] == 0x00 && refClamped[7] == 0x20,
           "out-of-range reference clamps to +20.0 rather than wrapping");
 }
 

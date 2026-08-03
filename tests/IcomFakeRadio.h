@@ -187,6 +187,13 @@ public:
     [[nodiscard]] bool serialOpened() const { return m_serialOpened; }
     [[nodiscard]] bool sawUsernameObfuscated() const { return m_usernameObfuscated; }
     [[nodiscard]] int civCommandsSeen() const { return m_civCommands; }
+
+    // Every CI-V command the client sent, in order. Counting them says the link
+    // is alive; keeping them is what lets a test assert that a particular
+    // command was NOT sent — which is the only way to prove an intent stopped
+    // retuning the radio.
+    [[nodiscard]] const std::vector<CivFrame>& civCommands() const { return m_civLog; }
+    void clearCivLog() { m_civLog.clear(); }
     [[nodiscard]] int audioPacketsFromClient() const { return m_audioFromClient; }
 
     // Push an unsolicited CI-V frame (CI-V Transceive, or a scope sweep).
@@ -304,6 +311,7 @@ private:
         if (!frame)
             return;
         ++m_civCommands;
+        m_civLog.push_back(*frame);
 
         // Name itself. A real radio answers 0x19 0x00 with its own CI-V
         // address, and that is how a client learns WHICH Icom it is talking to
@@ -345,6 +353,7 @@ private:
     std::uint16_t m_audioSeq = 0;
     std::uint16_t m_audioInner = 1;
     std::uint8_t  m_civSeq = 0;
+    std::vector<CivFrame> m_civLog;
     bool m_sentCaps = false;
     bool m_serialOpened = false;
     bool m_usernameObfuscated = false;
