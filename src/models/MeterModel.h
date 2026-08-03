@@ -72,6 +72,15 @@ public:
     // Find the meter index for a given source+name (e.g. "SLC", "LEVEL").
     int findMeter(const QString& source, const QString& name, int sourceIndex = -1) const;
 
+    // How long ago this meter's value last changed, in ms; -1 if never.
+    //
+    // MeterModel keeps LAST-KNOWN values — it does not clear them when a reading
+    // stops arriving — so a caller asking "is there forward power right now"
+    // gets the answer from whenever power last flowed. allMeters() has always
+    // exposed this as age_ms; this makes it available in C++ for the same
+    // reason.
+    qint64 valueAgeMs(int index) const;
+
     // Current converted value for a meter index. Returns 0 if unknown.
     float value(int index) const;
 

@@ -265,6 +265,23 @@ public:
     // capabilities().canTransmit is false implements this as a no-op.
     virtual void setKeying(bool key) = 0;
 
+    // Let receive audio through WHILE TRANSMITTING.
+    //
+    // Receive audio is normally muted on transmit — the radio hears its own
+    // signal at enormous strength, and unmuted it is fuzz on a carrier and an
+    // acoustic feedback loop on voice. That mute is for the operator's comfort,
+    // not for correctness.
+    //
+    // A diagnostic needs the opposite: demodulating our OWN transmission is the
+    // only self-contained way to check the sideband convention, because the
+    // panadapter reads raw wire order and therefore agrees with the transmitter
+    // by construction, while the demodulator applies the receive conjugation and
+    // WDSP's sideband selection independently. That distinction is what a whole
+    // bring-up turned on — see HERMES.md 14.6 and 15.5.
+    //
+    // Default OFF. Turning it on outside a measurement will be unpleasant.
+    virtual void setTxAudioMonitor(bool on) { Q_UNUSED(on); }
+
     // Tune carrier on/off, at the operator's TUNE power (percent, 0..100).
     //
     // Flex takes "transmit tune N" as a text command, so FlexBackend has nothing

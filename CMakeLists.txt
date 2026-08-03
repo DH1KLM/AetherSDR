@@ -689,6 +689,7 @@ set(CORE_SOURCES
     src/core/TciServer.cpp
     src/core/TciProtocol.cpp
     src/core/TciRoutingState.cpp
+    src/core/RadioCertification.cpp
     src/core/TciTrxMap.cpp
     src/core/AutomationServer.cpp
     src/core/MqttClient.cpp
@@ -4789,6 +4790,13 @@ add_executable(hl2_txdsp_test tests/hl2_txdsp_test.cpp)
 target_include_directories(hl2_txdsp_test PRIVATE src)
 target_link_libraries(hl2_txdsp_test PRIVATE aethercore Qt6::Core)
 add_test(NAME hl2_txdsp_test COMMAND hl2_txdsp_test)
+
+# radiocert's measurement primitives. Header-only by design so this needs no
+# Qt and no link against aethercore — see the test's header comment for why it
+# exists at all (both shipped bugs in the diagnostic were in this arithmetic).
+add_executable(radio_certification_math_test tests/radio_certification_math_test.cpp)
+target_include_directories(radio_certification_math_test PRIVATE src)
+add_test(NAME radio_certification_math_test COMMAND radio_certification_math_test)
 
 add_executable(hl2_tx_loopback_test tests/hl2_tx_loopback_test.cpp)
 target_include_directories(hl2_tx_loopback_test PRIVATE src)

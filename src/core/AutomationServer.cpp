@@ -1,4 +1,5 @@
 #include "AutomationServer.h"
+#include "core/RadioCertification.h"
 #include "LogManager.h"
 #include "AppSettings.h"          // StationName (restore the user's real station name)
 #include "DigitalVoiceWaveformProcess.h"
@@ -19,6 +20,7 @@
 
 #include <QAction>
 #include <QLocalServer>
+#include <QScopeGuard>
 #include <QLocalSocket>
 #include <QApplication>
 #include <QScreen>
@@ -3168,6 +3170,13 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                     {QStringLiteral("txwaterfall"), on},
                     {QStringLiteral("note"),
                      QStringLiteral("radio echoes status; re-read with get transmit showTxInWaterfall")}};
+            });
+
+        add("radiocert", {},
+            "radiocert <tune|rx|tx|meters|all> [freqMhz] — radio bring-up diagnostic, in dependency order (tx/meters key)",
+            parseActionValue,
+            [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
+                return s.doRadioCert(a.action, a.value);
             });
 
         add("key", {}, "key <ptt on|off | mox> — semantic keying (TX-gated)",
@@ -6560,6 +6569,97 @@ QJsonObject AutomationServer::doMemory(const QString& action, const QString& arg
 }
 
 // ── Semantic transmitter keying (#3646 fidelity — item 3) ───────────────────
+// `radiocert <tune|rx|tx|meters|all> [freqMhz]` — the radio bring-up diagnostic.
+// Runs synchronously, spinning the event loop for tens of seconds (minutes for
+// `all`), and the tx/meters phases key the transmitter repeatedly.
+QJsonObject AutomationServer::doRadioCert(const QString& phaseArg, const QString& freqArg)
+{
+    if (!m_radioModel)
+        return err(QStringLiteral("no radio model available"));
+    if (!m_audioEngine)
+        return err(QStringLiteral("no audio engine available"));
+
+    // ONE AT A TIME. run() spins nested event loops for the whole diagnostic, so
+    // any bridge command arriving meanwhile — including a second radiocert — is
+    // dispatched INSIDE the run and mutates the same models mid-measurement.
+    if (m_certRunning)
+        return err(QStringLiteral("radiocert is already running"));
+
+    RadioCertification::Options opts;
+    const QString phase = phaseArg.trimmed().toLower();
+    if (phase == QLatin1String("tune"))        opts.phase = RadioCertification::Phase::Tune;
+    else if (phase == QLatin1String("rx"))     opts.phase = RadioCertification::Phase::Rx;
+    else if (phase == QLatin1String("tx"))     opts.phase = RadioCertification::Phase::Tx;
+    else if (phase == QLatin1String("meters")) opts.phase = RadioCertification::Phase::Meters;
+    else if (phase == QLatin1String("all"))    opts.phase = RadioCertification::Phase::All;
+    else
+        // FAIL CLOSED. An unrecognised phase used to leave opts.phase at its
+        // default of All — the longest run, and the one that keys. So a bare
+        // `radiocert`, or a typo like `radiocert reciever`, silently started a
+        // multi-minute transmit sequence nobody asked for.
+        return err(QStringLiteral(
+            "radiocert: unknown phase '%1' — expected tune|rx|tx|meters|all. "
+            "Refusing to default to 'all', which keys the transmitter")
+            .arg(phaseArg.trimmed()));
+
+    // tune and rx do not key; tx and meters do. Gating the non-keying phases
+    // would put the first things a new radio needs behind a permission nobody
+    // would have granted yet.
+    const bool keys = opts.phase == RadioCertification::Phase::Tx
+                   || opts.phase == RadioCertification::Phase::Meters
+                   || opts.phase == RadioCertification::Phase::All;
+    if (keys && !m_txAllowed)
+        return err(QStringLiteral(
+            "blocked: this phase keys the transmitter — enable TX automation "
+            "(or set AETHER_AUTOMATION_ALLOW_TX=1), or run 'radiocert tune' / 'radiocert rx'"));
+
+    bool okF = false;
+    const double mhz = freqArg.trimmed().toDouble(&okF);
+    if (okF && mhz > 0.0)
+        opts.frequencyMhz = mhz;
+
+    // Hand the bridge's power ceiling to the run. The widget-setpoint clamp does
+    // not cover this verb — radiocert keys through its own path — so without this
+    // every keyed stage transmitted at the operator's full RF power, which is
+    // exactly what AETHER_AUTOMATION_TX_MAX_POWER exists to prevent.
+    opts.maxRfPowerPercent = m_txMaxPower;
+
+    m_certRunning = true;
+    const auto clearRunning = qScopeGuard([this] {
+        m_certRunning = false;
+        m_txKeyedSinceMs = 0;
+        m_txBridgeInitiated = false;
+    });
+
+    // ARM THE WATCHDOG PER KEY, NOT PER RUN.
+    //
+    // Arming once around the whole diagnostic did not work, in both directions:
+    //
+    //   - onTxWatchdog() clears m_txBridgeInitiated on ANY poll that finds the
+    //     radio unkeyed. This run is idle for its first ~30 s and unkeys between
+    //     every stage, so the first poll disowned it and every subsequent key
+    //     went unpoliced — the exact opposite of the guarantee.
+    //   - m_txKeyedSinceMs was stamped once at run start, so the 20 s limit
+    //     elapsed against WALL CLOCK rather than continuous key time and
+    //     forceUnkey() landed mid-measurement, poisoning whichever stage was
+    //     running while the diagnostic still believed it was keyed.
+    //
+    // Every other keying verb arms immediately before each key and disarms
+    // after; the key observer makes this one do the same, so each individual key
+    // is owned and timed on its own.
+    RadioCertification cert(m_radioModel, m_audioEngine);
+    cert.setKeyObserver([this](bool on) {
+        if (on) {
+            m_txKeyedSinceMs = QDateTime::currentMSecsSinceEpoch();
+            m_txBridgeInitiated = true;
+        } else {
+            m_txKeyedSinceMs = 0;
+            m_txBridgeInitiated = false;
+        }
+    });
+    return cert.run(opts);
+}
+
 // `key ptt on|off` and `key mox` drive RadioModel::setTransmit — the exact
 // calls the space-bar PTT event filter (MainWindow_Shortcuts.cpp) and the
 // mox_toggle QShortcut make, which `invoke` cannot reach (one is an app-level
@@ -6568,6 +6668,7 @@ QJsonObject AutomationServer::doMemory(const QString& action, const QString& arg
 // deterministic and focus-independent. KEYING is gated by the same
 // AETHER_AUTOMATION_ALLOW_TX rail as txtest/atu and arms the force-unkey
 // watchdog; UNKEY is always allowed (it only reduces TX risk).
+
 QJsonObject AutomationServer::doKey(const QString& name, const QString& arg)
 {
     if (!m_radioModel)

@@ -1074,6 +1074,17 @@ public:
     // Forward processed transmit audio to a host-modulating backend. No-op when
     // the backend modulates on the radio side.
     void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz);
+    // Let receive audio through while transmitting. Diagnostic use only — see
+    // IRadioBackend::setTxAudioMonitor.
+    void setTxAudioMonitor(bool on);
+
+    // Whether the BACKEND reports it can transmit.
+    //
+    // Distinct from capabilities(), which is the Flex model-name lookup. Note
+    // that IRadioBackend::capabilities().canTransmit had no consumer anywhere
+    // outside the backends when this was added — the same shape as meterUpdate
+    // and setKeying, both of which were wired to nothing.
+    bool backendCanTransmit() const;
 
     // Request local PTT for our station. Sends "client set local_ptt=1" and applies
     // an optimistic update in case the radio doesn't echo the state change.

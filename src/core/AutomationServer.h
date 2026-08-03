@@ -629,6 +629,7 @@ private:
     // and the mox_toggle shortcut make, but reachable headlessly. Keying is gated
     // by AETHER_AUTOMATION_ALLOW_TX (the same rail as txtest/atu); unkey is not.
     QJsonObject doKey(const QString& name, const QString& arg);
+    QJsonObject doRadioCert(const QString& phaseArg, const QString& freqArg);
     // Drive the CWX keyer (send a CW string / set WPM / abort). `send` keys the
     // transmitter so it sits on the AETHER_AUTOMATION_ALLOW_TX rail and arms the
     // force-unkey watchdog; speed/stop do not key. CW's rapid TX→RX edges are the
@@ -777,6 +778,9 @@ private:
     // so it enforces only when this is set — otherwise it force-unkeys a human
     // holding MOX mid-sentence.
     bool    m_txBridgeInitiated{false};
+    // radiocert spins nested event loops for minutes; commands arriving
+    // during a run dispatch inside it, so a second one is refused.
+    bool    m_certRunning{false};
     // Transmitter state sampled at the top of handleLine(), before any verb
     // handler runs. markTxBridgeInitiated() needs it: it is called after its
     // action has been issued, and the key verbs update TransmitModel
