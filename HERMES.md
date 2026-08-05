@@ -203,6 +203,70 @@ the modes.
 - Mode vocabulary: `off/slow/med/fast` → WDSP RXA 0/2/3/4. WDSP's "long" (1)
   has no representation in the four-way UI control.
 
+### AM/SAM hand back a DC pedestal, and nothing upstream removes it
+
+WDSP's AM/SAM detector is an **envelope** detector — `amd.c` emits
+`sqrt(I² + Q²)`, which is strictly non-negative — so the carrier arrives in the
+demodulated audio as DC. Three things that each look like they would remove it,
+and do not:
+
+- **`levelfade` is not a DC blocker.** On by default (`RXA.c`). It computes
+  `audio += dc_insert - dc` from an 8 Hz-corner average and a 0.11 Hz-corner
+  average. Those cancel *fading*; they deliberately **hold** the pedestal at the
+  long-term carrier level. That is the entire point of the stage.
+- **The AM/SAM passband cannot strip it.** `defaultPassbandForMode` gives AM and
+  SAM `{-4000, +4000}` — symmetric about the carrier, because both detectors
+  need it that way — which puts 0 Hz mid-band.
+- **AetherSDR had no DC blocker on the RX demodulated-audio path.** The only
+  `setDcBlockEnabled` in the tree is on the **TX** final limiter
+  (`ClientFinalLimiter`). `ClientPudu` has a one-pole DC block too, but it is
+  internal to the opt-in Aphex HF path and exists to remove the offset that
+  path's own one-sided clipping introduces — it is not in the chain unless the
+  operator switched that effect on, and it is downstream of the applet anyway.
+
+Measured on a 50%-modulated carrier, unfixed: settled audio mean **1.79** on a
+±1.0 float scale, AC RMS 0.70 — measured at the `WdspChannel` output, so that is
+*after* AGC. The pedestal alone is 79% past full scale, so AM audio clipped hard
+against the rails everywhere downstream.
+
+Every zero-referenced consumer downstream inherits the offset. The visible
+symptom was the **WAVE applet drawing two waveforms, the lower one inverted**:
+it renders `peak` and `rms` — both magnitudes — mirrored about a hard
+centreline, so a DC-shifted trace draws a phantom upside-down copy of itself in
+the bottom half. SSB looked fine throughout because it is already zero-mean, and
+that asymmetry is the tell.
+
+`Hl2RxDsp` now applies a 20 Hz one-pole DC blocker per channel to the
+`WdspChannel` output, **unconditionally for every mode** — SSB/CW are already
+zero-mean so it is a no-op there, FM wants it for the same reason AM does, and
+an unconditional filter has no mode-change state to get wrong. Guarded by
+`hl2_am_dcblock_test`, which measures the *settled tail* (`dc_insert` is a 1.4 s
+pole, so a short burst shows almost no DC even unfixed) and asserts a DC/AC
+**ratio** rather than a level, since AGC scales both equally.
+
+That test also pins the corner, which is the half of the property that is easy
+to satisfy by accident: a blocker whose corner has crept up into the audio band
+removes the pedestal just as thoroughly while eating the bass out of every mode,
+and every DC measurement stays green through it. So it checks a 60 Hz vs 400 Hz
+modulation ratio through the real chain, the closed-form `|H(f)|` at three audio
+rates, and the unconfigured bypass. It is one of the few HL2 tests in the
+per-PR CI gate; the rest of the suite runs weekly under the sanitizers job.
+
+**Why on `Hl2RxDsp` and not on `WdspChannel`.** The root cause is `amd`'s
+envelope detector, which belongs to WDSP, so a blocker on `WdspChannel`'s own RX
+output would fix it once for every future consumer rather than per caller.
+`Hl2RxDsp` is the only WDSP **receive** consumer in the tree today — `Hl2TxDsp`
+is the one other user and is transmit-only — so per-caller costs nothing yet.
+The next WDSP RX path added will not inherit it: push the blocker down into
+`WdspChannel` at that point rather than repeating it.
+
+**What this does not fix.** The blocker is downstream of the entire RXA chain,
+so `wcpAGC` — which sits after `amd` *inside* RXA — still rides the pedestal.
+Its gain decisions on AM/SAM remain biased by the carrier. Correcting that needs
+DC removal between `amd` and the AGC, and WDSP exposes no hook there;
+`SetRXAAMDFadeLevel(0)` is not one, since it only drops the fade correction and
+leaves `sqrt(I² + Q²)` just as non-negative. Left as a known residual.
+
 ---
 
 ## 6. Seam gaps found (the reusable checklist)
