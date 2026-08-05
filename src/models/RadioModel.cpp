@@ -5907,6 +5907,13 @@ void RadioModel::onDisconnected()
     m_netCwLastSendMs = -1;
     m_lineoutGain = 50;
     m_headphoneGain = 50;
+    // The mutes are the previous radio's state just as much as the gains are.
+    // Leaving them set meant a reconnect asserted the OLD radio's mute state
+    // until the new one's first `audio` status arrived — the same staleness the
+    // nickname clearing above exists to prevent. (#4771)
+    m_lineoutMute = false;
+    m_headphoneMute = false;
+    m_frontSpeakerMute = false;
 
     stopNetworkMonitor();
     // stop() must run on the network thread (socket lives there). (#561)
@@ -9195,10 +9202,32 @@ void RadioModel::setLineoutGain(int v)
     emit audioOutputChanged();
 }
 
+// The three mute setters below mirror the command into the model the way the
+// gain setters already do. Principle II allows the optimistic write — the
+// radio's own `audio` status supersedes it on the next echo — and Flex echoes
+// gain and mute alike (FlexBackend.cpp:942-946), so this is the same bargain
+// setLineoutGain()/setHeadphoneGain() have always made, not a new one.
+//
+// Without it these flags are written ONLY by a Flex status, and Flex is their
+// only parser. On every other backend they stay pinned to their `false`
+// initialisers for the life of the session, so a reconciler reading them
+// contradicts what the operator just asked for: mute from the title bar, nudge
+// the headphone slider, and setHeadphoneGain()'s audioOutputChanged drives the
+// glyph back to unmuted with no command sent to undo it (#4771).
+//
+// Where these differ from the gain setters: the command is sent
+// unconditionally rather than short-circuited on an unchanged value. A mute is
+// a request, and suppressing it because the model already believes the radio is
+// muted would leave a model that has drifted from the radio unrecoverable from
+// the UI — and that drift is precisely what this fixes.
 void RadioModel::setLineoutMute(bool m)
 {
     qCDebug(lcAudio) << "setLineoutMute:" << m;
     sendCmd(QString("mixer lineout mute %1").arg(m ? 1 : 0));
+    if (m_lineoutMute != m) {
+        m_lineoutMute = m;
+        emit audioOutputChanged();
+    }
 }
 
 void RadioModel::setHeadphoneGain(int v)
@@ -9213,16 +9242,26 @@ void RadioModel::setHeadphoneGain(int v)
     emit audioOutputChanged();
 }
 
+// Optimistic mirror — see the rationale on setLineoutMute() above.
 void RadioModel::setHeadphoneMute(bool m)
 {
     qCDebug(lcAudio) << "setHeadphoneMute:" << m;
     sendCmd(QString("mixer headphone mute %1").arg(m ? 1 : 0));
+    if (m_headphoneMute != m) {
+        m_headphoneMute = m;
+        emit audioOutputChanged();
+    }
 }
 
+// Optimistic mirror — see the rationale on setLineoutMute() above.
 void RadioModel::setFrontSpeakerMute(bool m)
 {
     qCDebug(lcAudio) << "setFrontSpeakerMute:" << m;
     sendCmd(QString("mixer front_speaker mute %1").arg(m ? 1 : 0));
+    if (m_frontSpeakerMute != m) {
+        m_frontSpeakerMute = m;
+        emit audioOutputChanged();
+    }
 }
 
 void RadioModel::handleSliceStatus(int id,
