@@ -624,6 +624,7 @@ set(CORE_SOURCES
     # radio-specific types) plus the FlexRadio DAX IQ capture adapter. The core
     # is the measurement half of a digital-predistortion loop, so it is kept
     # free of Flex specifics for the HPSDR adapter that follows.
+    src/core/TxLinearitySettings.cpp          # owned config object (Principle V)
     src/core/txlinearity/SpectrumWindow.cpp
     src/core/txlinearity/TxSpectrumAnalyzer.cpp
     src/core/txlinearity/ImdAnalyzer.cpp
@@ -3696,6 +3697,18 @@ add_executable(tx_linearity_imd_test
 target_include_directories(tx_linearity_imd_test PRIVATE src ${FFTW3_INCLUDE_DIRS})
 target_link_libraries(tx_linearity_imd_test PRIVATE ${FFTW3_LIBRARIES})
 add_test(NAME tx_linearity_imd_test COMMAND tx_linearity_imd_test)
+
+# The owned config object (Principle V): defaults as a unit, round-trips as a
+# unit, and a drifted document degrades field by field. The range clamp is
+# load-bearing — timeoutSec feeds a transmit interlock.
+add_executable(tx_linearity_settings_test
+    tests/tx_linearity_settings_test.cpp
+    src/core/TxLinearitySettings.cpp
+    ${AETHER_SETTINGS_SOURCES}
+)
+target_include_directories(tx_linearity_settings_test PRIVATE src)
+target_link_libraries(tx_linearity_settings_test PRIVATE aethercore Qt6::Core)
+add_test(NAME tx_linearity_settings_test COMMAND tx_linearity_settings_test)
 
 # The safety interlocks are clock-injected and Qt-free specifically so they can
 # be tested without transmitting. An interlock that can only be exercised by

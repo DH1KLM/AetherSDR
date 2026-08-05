@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PersistentDialog.h"
+#include "core/TxLinearitySettings.h"
 #include "core/txlinearity/TxLinearityController.h"
 
 #include <QString>
@@ -87,6 +88,10 @@ private:
 
     RadioModel* m_model{nullptr};
     BandPlanManager* m_bandPlan{nullptr};
+
+    // The feature's owned configuration object (Principle V) — loaded once,
+    // written as a unit. The dummy-load confirmation is deliberately not in it.
+    TxLinearitySettings m_settings;
 
     txlin::TxLinearityController m_controller;
     std::unique_ptr<txlin::FlexDaxIqCapture> m_capture;

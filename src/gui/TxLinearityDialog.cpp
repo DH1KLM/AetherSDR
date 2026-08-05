@@ -1,8 +1,8 @@
 #include "TxLinearityDialog.h"
 
 #include "TxLinearitySpectrumView.h"
-#include "core/AppSettings.h"
 #include "core/ThemeManager.h"
+#include "core/TxLinearitySettings.h"
 #include "core/TxKeyingMarker.h"
 #include "core/txlinearity/FlexDaxIqCapture.h"
 #include "models/BandPlanManager.h"
@@ -50,16 +50,6 @@ constexpr double kLevelGoodLowDbfs = -30.0;
 constexpr double kLevelGoodHighDbfs = -12.0;
 constexpr double kLevelTooHighDbfs = -9.0;
 
-// Persisted setup choices. The dummy-load confirmation is deliberately NOT in
-// this list — see TxLinearitySafety.
-constexpr auto kKeyDaxChannel = "TxLinearityDaxChannel";
-constexpr auto kKeyToneSpacing = "TxLinearityToneSpacingHz";
-constexpr auto kKeyTunePower = "TxLinearityTunePower";
-constexpr auto kKeyAverages = "TxLinearityAverages";
-constexpr auto kKeyTimeoutSec = "TxLinearityTimeoutSec";
-constexpr auto kKeyWindow = "TxLinearityWindow";
-constexpr auto kKeyMaxOrder = "TxLinearityMaxOrder";
-
 QString refText(double perTone, double pep, bool trusted)
 {
     if (!trusted) {
@@ -87,6 +77,11 @@ TxLinearityDialog::TxLinearityDialog(RadioModel* model, BandPlanManager* bandPla
 
     auto* root = new QVBoxLayout(bodyWidget());
     root->setSpacing(9);
+
+    // One read of the owned config object, then every control seeds from it
+    // (Principle V). load() has already defaulted and range-clamped, so no
+    // control below has to second-guess what came back.
+    m_settings = TxLinearitySettings::load();
 
     buildSetupGroup(root);
     buildTestGroup(root);
@@ -129,8 +124,7 @@ void TxLinearityDialog::buildSetupGroup(QVBoxLayout* root)
     m_daxChannel->setAccessibleName(tr("DAX IQ channel"));
     m_daxChannel->setAccessibleDescription(
         tr("Which of the radio's four DAX IQ channels captures the feedback signal."));
-    m_daxChannel->setCurrentIndex(
-        AppSettings::instance().value(kKeyDaxChannel, "1").toInt() - 1);
+    m_daxChannel->setCurrentIndex(m_settings.daxChannel - 1);
     grid->addWidget(m_daxChannel, 1, 1);
 
     grid->addWidget(new QLabel(tr("Feedback panadapter")), 1, 2);
@@ -176,9 +170,8 @@ void TxLinearityDialog::buildSetupGroup(QVBoxLayout* root)
     root->addWidget(group);
 
     connect(m_daxChannel, &QComboBox::currentIndexChanged, this, [this] {
-        AppSettings::instance().setValue(
-            kKeyDaxChannel, QString::number(m_daxChannel->currentData().toInt()));
-        AppSettings::instance().save();
+        m_settings.daxChannel = m_daxChannel->currentData().toInt();
+        m_settings.save();
         // A channel change invalidates the capture adapter bound to the old one.
         m_capture.reset();
         m_controller.setCaptureSource(nullptr);
@@ -203,14 +196,12 @@ void TxLinearityDialog::buildTestGroup(QVBoxLayout* root)
     auto* grid = new QGridLayout(group);
     grid->setSpacing(6);
 
-    AppSettings& settings = AppSettings::instance();
-
     grid->addWidget(new QLabel(tr("Tone spacing")), 0, 0);
     m_toneSpacing = new QDoubleSpinBox(group);
     m_toneSpacing->setRange(200.0, 10000.0);
     m_toneSpacing->setSingleStep(100.0);
     m_toneSpacing->setSuffix(tr(" Hz"));
-    m_toneSpacing->setValue(settings.value(kKeyToneSpacing, "2000").toDouble());
+    m_toneSpacing->setValue(m_settings.toneSpacingHz);
     m_toneSpacing->setAccessibleName(tr("Tone spacing"));
     m_toneSpacing->setAccessibleDescription(
         tr("Separation between the two test tones. Order 7 products reach three "
@@ -221,14 +212,14 @@ void TxLinearityDialog::buildTestGroup(QVBoxLayout* root)
     m_tunePower = new QSpinBox(group);
     m_tunePower->setRange(1, 100);
     m_tunePower->setSuffix(tr(" W"));
-    m_tunePower->setValue(settings.value(kKeyTunePower, "10").toInt());
+    m_tunePower->setValue(m_settings.tunePowerW);
     m_tunePower->setAccessibleName(tr("Tune power"));
     grid->addWidget(m_tunePower, 0, 3);
 
     grid->addWidget(new QLabel(tr("Averages")), 1, 0);
     m_averages = new QSpinBox(group);
     m_averages->setRange(1, 64);
-    m_averages->setValue(settings.value(kKeyAverages, "8").toInt());
+    m_averages->setValue(m_settings.averages);
     m_averages->setAccessibleName(tr("Averages"));
     m_averages->setAccessibleDescription(
         tr("Welch averages to collect. More averages lower the noise floor but "
@@ -239,7 +230,7 @@ void TxLinearityDialog::buildTestGroup(QVBoxLayout* root)
     m_timeoutSec = new QSpinBox(group);
     m_timeoutSec->setRange(1, 10);
     m_timeoutSec->setSuffix(tr(" s"));
-    m_timeoutSec->setValue(settings.value(kKeyTimeoutSec, "10").toInt());
+    m_timeoutSec->setValue(m_settings.timeoutSec);
     m_timeoutSec->setAccessibleName(tr("Transmit timeout"));
     m_timeoutSec->setAccessibleDescription(
         tr("Hard limit on continuous test transmission. Adjustable downward only."));
@@ -253,8 +244,7 @@ void TxLinearityDialog::buildTestGroup(QVBoxLayout* root)
         m_window->addItem(QString::fromStdString(txlin::windowKindLabel(kind)),
                           QString::fromStdString(txlin::windowKindKey(kind)));
     }
-    m_window->setCurrentIndex(m_window->findData(
-        settings.value(kKeyWindow, "blackman-harris-7").toString()));
+    m_window->setCurrentIndex(m_window->findData(m_settings.window));
     m_window->setAccessibleName(tr("Analysis window"));
     m_window->setAccessibleDescription(
         tr("Blackman-Harris 7 is the default because its low sidelobes are what make "
@@ -266,8 +256,7 @@ void TxLinearityDialog::buildTestGroup(QVBoxLayout* root)
     m_maxOrder->addItem(tr("IMD3"), 3);
     m_maxOrder->addItem(tr("IMD3 + 5"), 5);
     m_maxOrder->addItem(tr("IMD3 + 5 + 7"), 7);
-    m_maxOrder->setCurrentIndex(
-        m_maxOrder->findData(settings.value(kKeyMaxOrder, "7").toInt()));
+    m_maxOrder->setCurrentIndex(m_maxOrder->findData(m_settings.maxOrder));
     m_maxOrder->setAccessibleName(tr("Highest intermodulation order"));
     grid->addWidget(m_maxOrder, 2, 3);
 
@@ -548,14 +537,15 @@ void TxLinearityDialog::onStartClicked()
         return;
     }
 
-    AppSettings& settings = AppSettings::instance();
-    settings.setValue(kKeyToneSpacing, QString::number(m_toneSpacing->value()));
-    settings.setValue(kKeyTunePower, QString::number(m_tunePower->value()));
-    settings.setValue(kKeyAverages, QString::number(m_averages->value()));
-    settings.setValue(kKeyTimeoutSec, QString::number(m_timeoutSec->value()));
-    settings.setValue(kKeyWindow, m_window->currentData().toString());
-    settings.setValue(kKeyMaxOrder, QString::number(m_maxOrder->currentData().toInt()));
-    settings.save();
+    // One atomic write of the whole object, not six independent keys.
+    m_settings.daxChannel = m_daxChannel->currentData().toInt();
+    m_settings.toneSpacingHz = m_toneSpacing->value();
+    m_settings.tunePowerW = m_tunePower->value();
+    m_settings.averages = m_averages->value();
+    m_settings.timeoutSec = m_timeoutSec->value();
+    m_settings.window = m_window->currentData().toString();
+    m_settings.maxOrder = m_maxOrder->currentData().toInt();
+    m_settings.save();
 
     // Bring up the capture adapter for the selected channel if it is not
     // already bound. Doing this here rather than on every combo change keeps a
