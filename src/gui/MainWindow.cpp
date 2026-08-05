@@ -6680,6 +6680,56 @@ void MainWindow::applyCapabilitiesToUi(bool connected, const RadioCapabilities& 
         updateStatusBarMinimumWidth();
     }
 
+    // ── The status-bar CWX / DVK / FDX toggles ──────────────────────────────
+    //
+    // HIDDEN, not disabled. Each of these three is a verb the radio's firmware
+    // executes — `cwx …`, `dvk …`, `radio set full_duplex_enabled=` — and on a
+    // backend with no command plane to carry it the control has nothing behind
+    // it at all. A greyed-out button says "not right now"; these are "not on
+    // this radio, ever", and permanently dim labels in the status bar read as a
+    // fault the operator can go looking for.
+    //
+    // TWO neighbours in this row are deliberately NOT gated:
+    //
+    //   ASR — Copy Assist is host-side. AsrAudioTap subscribes to the engine's
+    //   post-DSP RX audio and whisper runs here, so it works on every family.
+    //   Hiding it would remove a working control, the mistake the hardware EQ
+    //   gate above documents.
+    //
+    //   TNF — `tnf` is a Flex command-plane verb and by the test above it looks
+    //   like it belongs here, but a host-side notch is landing and these are
+    //   the surfaces it will drive. Gating it now would mean deleting the
+    //   control and putting it straight back. See RadioCapabilities.h.
+    //
+    // The panels are hidden with their buttons. CWX and DVK are dockable
+    // splitter children that survive a reconnect, so a panel left open from a
+    // Flex session would otherwise stay on screen next to a hidden button, its
+    // F-key rows still drawn against a radio that refuses every send.
+    const bool cwx = !connected || caps.hasRadioSideCwKeyer;
+    const bool dvk = !connected || caps.hasVoiceKeyer;
+    const bool fdx = !connected || caps.hasFullDuplex;
+
+    if (m_cwxIndicator) {
+        m_cwxIndicator->setVisible(cwx);
+    }
+    if (!cwx && m_cwxPanel) {
+        m_cwxPanel->hide();
+    }
+    if (m_dvkIndicator) {
+        m_dvkIndicator->setVisible(dvk);
+    }
+    if (!dvk && m_dvkPanel) {
+        m_dvkPanel->hide();
+    }
+    if (m_fdxIndicator) {
+        m_fdxIndicator->setVisible(fdx);
+    }
+    // updateKeyerAvailability() owns the enabled/dim state and the F1-F12 arming
+    // for the two keyers, and applies the same capabilities. Run it here so a
+    // mid-session revision disarms the shortcuts at the moment the buttons go,
+    // rather than waiting for the next TX-slice mode change.
+    updateKeyerAvailability();
+
     // ── Flex platform features that are not DSP ─────────────────────────────
     if (m_waveformsAction) {
         m_waveformsAction->setVisible(!connected || caps.hasWaveforms);
@@ -8653,6 +8703,19 @@ void MainWindow::updateKeyerAvailability()
     static const QString kAvail    = "QLabel { color: #404858; font-weight: bold; font-size: 24px; }";
     static const QString kDisabled = "QLabel { color: #252530; font-weight: bold; font-size: 24px; }";
 
+    // QWidget::setStyleSheet() does not compare before it acts — it unpolishes
+    // and repolishes the widget every call. This function is no longer reached
+    // only on mode and connection edges: applyCapabilitiesToUi() calls it, and
+    // that slot is itself re-invoked from the gpsStatusChanged lambda, which a
+    // GPSDO Flex drives periodically because the status carries UTC time. Three
+    // labels restyled per second for no change is cheap but pointless, so the
+    // rewrite is skipped when the sheet already matches.
+    const auto setIndicatorStyle = [](QLabel* label, const QString& sheet) {
+        if (label && label->styleSheet() != sheet) {
+            label->setStyleSheet(sheet);
+        }
+    };
+
     // CWX and DVK both key the radio's TX slice, so their availability and
     // F1-F12 shortcuts follow that slice — not the selected RX slice.  FlexLib
     // scopes CWX to the TX slice (reference/FlexLib_API_v4.1.5.39794/FlexLib/
@@ -8663,7 +8726,29 @@ void MainWindow::updateKeyerAvailability()
     // activatedAmbiguously (#2464, #2582, #4173).
     SliceModel* txSlice = m_radioModel.txSlice();
     const QString txMode = txSlice ? txSlice->mode() : QString();
-    const bool txIsCw  = (txMode == "CW" || txMode == "CWL");
+    // Both keyers carry a family gate ahead of the mode gate: a radio with no
+    // text buffer and no voice recorder never gains one by switching mode, so
+    // the capability is ANDed into the availability that drives the enabled
+    // state, the panel auto-hide AND the F1-F12 arming below.
+    //
+    // The BUTTONS are hidden entirely by applyCapabilitiesToUi(); this exists
+    // because the shortcuts are ApplicationShortcuts that stay armed whether or
+    // not their button is on screen. Without it an HL2 in CW would keep F1-F12
+    // firing `cwx send` into a backend that has no such verb — a keypress that
+    // does nothing, which is exactly the report the DVK entitlement gate below
+    // was added for.
+    //
+    // Through RadioModel's accessors, not a local backendCapabilities() read:
+    // the same two questions are asked by the FlexControl macro action, the MQTT
+    // CW-transmit topic, TCI's cw_msg / cw_macros and the bridge's `cwx` verb,
+    // and they carry the permissive disconnected rule with them so no caller can
+    // forget it. A default-constructed RadioCapabilities says false, so a raw
+    // read here would hide the keyers with nothing attached.
+    const bool hasCwKeyer = m_radioModel.hasRadioSideCwKeyer();
+    const bool hasVoiceKeyer = m_radioModel.hasVoiceKeyer();
+
+    const bool txIsCw  = hasCwKeyer
+                         && (txMode == "CW" || txMode == "CWL");
     const bool txIsSsb = (txMode == "USB" || txMode == "LSB"
                           || txMode == "AM" || txMode == "SAM"
                           || txMode == "FM" || txMode == "NFM"
@@ -8678,7 +8763,12 @@ void MainWindow::updateKeyerAvailability()
         txIsSsb,
         m_radioModel.licenseFeatureSeen(kDvkLicenseFeature),
         m_radioModel.licenseFeatureEnabled(kDvkLicenseFeature));
-    const bool dvkAvailable = (dvkBlocker == DvkIndicatorBlocker::None);
+    // hasVoiceKeyer is ANDed in HERE rather than into txIsSsb, because txIsSsb
+    // also drives the ASR indicator further down and Copy Assist is host-side —
+    // folding a voice-keyer capability into the shared mode test would take a
+    // working transcription feature down with the keyer.
+    const bool dvkAvailable = hasVoiceKeyer
+                              && (dvkBlocker == DvkIndicatorBlocker::None);
     const bool dvkUnlicensed = (dvkBlocker == DvkIndicatorBlocker::NotLicensed);
 
     if (m_cwxPanel) m_cwxPanel->setShortcutsEnabled(txIsCw);
@@ -8692,11 +8782,11 @@ void MainWindow::updateKeyerAvailability()
     m_cwxIndicator->setEnabled(txIsCw);
     if (txSlice && !txIsCw && m_cwxPanel->isVisible()) {
         m_cwxPanel->hide();
-        m_cwxIndicator->setStyleSheet(kDisabled);
+        setIndicatorStyle(m_cwxIndicator, kDisabled);
     } else if (m_cwxPanel->isVisible()) {
-        m_cwxIndicator->setStyleSheet(kActive);
+        setIndicatorStyle(m_cwxIndicator, kActive);
     } else {
-        m_cwxIndicator->setStyleSheet(txIsCw ? kAvail : kDisabled);
+        setIndicatorStyle(m_cwxIndicator, txIsCw ? kAvail : kDisabled);
     }
     m_cwxIndicator->setCursor(txIsCw ? Qt::PointingHandCursor : Qt::ArrowCursor);
 
@@ -8708,11 +8798,11 @@ void MainWindow::updateKeyerAvailability()
     // transient no-TX-slice" caveat (#4173) applies only to the mode gate.
     if ((dvkUnlicensed || (txSlice && !txIsSsb)) && m_dvkPanel->isVisible()) {
         m_dvkPanel->hide();
-        m_dvkIndicator->setStyleSheet(kDisabled);
+        setIndicatorStyle(m_dvkIndicator, kDisabled);
     } else if (m_dvkPanel->isVisible()) {
-        m_dvkIndicator->setStyleSheet(kActive);
+        setIndicatorStyle(m_dvkIndicator, kActive);
     } else {
-        m_dvkIndicator->setStyleSheet(dvkAvailable ? kAvail : kDisabled);
+        setIndicatorStyle(m_dvkIndicator, dvkAvailable ? kAvail : kDisabled);
     }
     m_dvkIndicator->setCursor(dvkAvailable ? Qt::PointingHandCursor
                                            : Qt::ArrowCursor);
@@ -8731,11 +8821,11 @@ void MainWindow::updateKeyerAvailability()
             m_copyAssistApplet && m_copyAssistApplet->isCopyAssistVisible();
         if (txSlice && !txIsSsb && asrVisible) {
             m_copyAssistApplet->setCopyAssistVisible(false);
-            m_asrIndicator->setStyleSheet(kDisabled);
+            setIndicatorStyle(m_asrIndicator, kDisabled);
         } else if (asrVisible) {
-            m_asrIndicator->setStyleSheet(kActive);
+            setIndicatorStyle(m_asrIndicator, kActive);
         } else {
-            m_asrIndicator->setStyleSheet(txIsSsb ? kAvail : kDisabled);
+            setIndicatorStyle(m_asrIndicator, txIsSsb ? kAvail : kDisabled);
         }
         m_asrIndicator->setCursor(txIsSsb ? Qt::PointingHandCursor : Qt::ArrowCursor);
     }
