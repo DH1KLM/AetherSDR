@@ -332,10 +332,11 @@ The dependency direction is CI-enforced (`tools/check_engine_boundary.py`,
 - **EB2** — no `core/`/`models/` file may use QtWidgets (a shrinking
   tracked-legacy set warns, new usage errors).
 - **EB3** — no file **above the radio seam** (all of `src/gui/`,
-  `src/core/`, `src/models/` **except** the backend tree
-  `src/core/backends/`) may include a **vendor header** — the
-  family-specific wire classes the RFC keeps behind `IRadioBackend`
-  (SmartSDR/FlexLib + KiwiSDR; the headers tagged `vendor(...)` in
+  `src/core/`, `src/models/`, plus the app-shell files at the `src/` root,
+  **except** the backend tree `src/core/backends/`) may include a
+  **vendor header** — the family-specific wire classes the RFC keeps
+  behind `IRadioBackend` (SmartSDR/FlexLib, KiwiSDR, Hermes-Lite 2 and the
+  synthetic demo family; the headers tagged `vendor(...)` in
   `docs/architecture/aetherd-touchpoint-tags.json`). Only `vendor(...)` is
   EB3-gated: a standalone *accessory* device's own transport (the 4O3A
   antenna switch, the Tgxl/Pgxl direct sockets) is `peripheral(...)`, a
@@ -401,6 +402,18 @@ you:
 - **`src/gui/**` is in the CI trigger** for `static-checks.yml` now
   (EB3 guards gui files), so a gui-only PR that adds vendor coupling is
   still caught.
+- **The catalogue is CI-checked, and EB3 reads from it.** If your PR adds
+  an engine header that any `gui/` file includes, run
+  `python tools/gen_touchpoint_manifest.py` and give the new header a tag
+  in `docs/architecture/aetherd-touchpoint-tags.json`, in the same PR —
+  `static-checks.yml` fails on a stale manifest. This is not bookkeeping:
+  EB3 derives its vendor vocabulary from that file, so an untagged header
+  is a header the ratchet cannot see. The whole `src/core/backends/`
+  tree was untagged until 2026-08-05, which is precisely how the `hl2`
+  and `sim` backends came to be reached from above the seam
+  (`ConnectionPanel`, `MainWindow`, `DemoApplet`, `main.cpp`) with CI
+  green throughout. Those ten includes are now tracked baseline rows and
+  are burndown targets, not permission.
 
 **Where radio-facing code goes now that the seam exists.** Route by kind:
 
