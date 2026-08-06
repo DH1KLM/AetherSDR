@@ -130,18 +130,26 @@ bool waterfallFrameResizeFailureForced()
 }
 #endif
 
+#ifdef AETHER_GPU_SPECTRUM
+constexpr bool kGpuSpectrumBuild = true;
+#else
+constexpr bool kGpuSpectrumBuild = false;
+#endif
+
 constexpr int dssFillVerticesPerRow()
 {
     // Two exact-row crossfade layers, each with two triangles per column.
-    // Together with the matching ribbon VBO this is about 20.2 MiB of static
-    // vertex storage at 768 columns x 96 visible rows (about 7.3 MiB before
-    // fixed-grid crossfading). It is built once, never rebuilt while scrolling.
-    return (DssRenderer::kCols - 1) * 6 * 2;
+    // Together with the matching ribbon VBO this is about 33.7 MiB of static
+    // vertex storage at kMeshCols (1280) columns x 96 visible rows. It is built
+    // once, never rebuilt while scrolling. The column count is kMeshCols rather
+    // than kCols so the on-screen part of a row widened by rowSpanFactor still
+    // samples the height texture at least once per texel — see kMeshCols.
+    return (DssRenderer::kMeshCols - 1) * 6 * 2;
 }
 
 constexpr int dssLineVerticesPerRow()
 {
-    return (DssRenderer::kCols - 1) * 6 * 2;
+    return (DssRenderer::kMeshCols - 1) * 6 * 2;
 }
 
 constexpr int kMaxWaterfallRowsPerUpdate = 1;
@@ -1919,6 +1927,11 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
 
     // Floating overlay menu (child widget, stays on top)
     m_overlayMenu = new SpectrumOverlayMenu(this);
+    // Start the 3D Span row disabled and let the GPU path prove itself below.
+    // A build without AETHER_GPU_SPECTRUM never reaches that code at all, so
+    // defaulting to enabled would leave the control permanently inert there.
+    m_overlayMenu->setDssRowSpanSupported(
+        AetherSDR::dssRowSpanSupported(kGpuSpectrumBuild, false));
     m_overlayMenu->raise();
 
     m_tnfHoverPopup = new QLabel(this);
@@ -2424,8 +2437,9 @@ void SpectrumWidget::loadSettings()
     m_wfColorScheme  = static_cast<WfColorScheme>(
         std::clamp(s.value(settingsKey("DisplayWfColorScheme"), "0").toInt(),
                    0, static_cast<int>(WfColorScheme::Count) - 1));
-    m_dssGain = std::clamp(
-        s.value(settingsKey("Display3DGain"), "70").toInt(), 0, 100);
+    // Principle V: the 3D view's controls live in one owned object. The legacy
+    // flat Display3DGain key is grandfathered and only seeds the first load.
+    loadDisplay3DSettings(s.value(settingsKey("Display3DGain"), "70").toInt());
     m_spectrumRenderMode = static_cast<SpectrumRenderMode>(
         std::clamp(s.value(settingsKey("DisplaySpectrumRenderMode"), "0").toInt(),
                    0, static_cast<int>(SpectrumRenderMode::Count) - 1));
@@ -2458,7 +2472,7 @@ void SpectrumWidget::loadSettings()
             m_fftHeatMap, static_cast<int>(m_wfColorScheme), m_showGrid,
             m_fftLineWidth, m_wfAutoBlackRadioSide,
             static_cast<int>(m_spectrumRenderMode), dssFloorDepth(),
-            m_dssGain, m_fftLineColor);
+            m_dssGain, m_fftLineColor, m_dssRowSpanPct);
         m_overlayMenu->syncExtraDisplaySettings(m_wfBlankerEnabled,
             m_wfBlankerThreshold, m_bgOpacity, m_freqGridSpacingKhz, m_bgFillColor,
             m_freqScaleFontPt);
@@ -2639,6 +2653,87 @@ void SpectrumWidget::setFftAverage(int frames) {
         m_overlayMenu->syncPanProcessingSettings(
             m_fftAverage, m_fftFps, m_fftWeightedAvg);
     }
+}
+
+QString SpectrumWidget::display3DSettingsKey() const
+{
+    return settingsKey(QStringLiteral("Display3DSettings"));
+}
+
+void SpectrumWidget::loadDisplay3DSettings(int legacyGain)
+{
+    // Defaults first, so an absent or unreadable object still leaves the
+    // feature fully configured — the "one place to default" Principle V wants.
+    m_dssGain = std::clamp(legacyGain, 0, 100);
+    m_dssRowSpanPct = 100;
+
+    const QString raw = AppSettings::instance()
+        .value(display3DSettingsKey(), QString()).toString();
+    if (raw.trimmed().isEmpty()) {
+        // No object yet: this is the one-time migration off the grandfathered
+        // flat Display3DGain key. Persist it NOW, otherwise the flat key would
+        // be re-read on every launch and "the object owns the value" would only
+        // become true once the operator happened to touch a control.
+        saveDisplay3DSettings();
+    } else {
+        QJsonParseError error;
+        const QJsonDocument doc =
+            QJsonDocument::fromJson(raw.toUtf8(), &error);
+        if (error.error != QJsonParseError::NoError || !doc.isObject()) {
+            // Keep the defaults rather than half-applying a damaged object, and
+            // deliberately do NOT write: overwriting here would destroy the
+            // evidence and whatever a future version may have stored.
+            qCWarning(lcGui).noquote()
+                << "SpectrumWidget: ignoring invalid Display3DSettings"
+                << display3DSettingsKey() << error.errorString();
+        } else {
+            const QJsonObject obj = doc.object();
+            if (obj.contains(QStringLiteral("gain"))) {
+                m_dssGain = std::clamp(
+                    obj.value(QStringLiteral("gain")).toInt(m_dssGain),
+                    0, 100);
+            }
+            if (obj.contains(QStringLiteral("span"))) {
+                m_dssRowSpanPct = std::clamp(
+                    obj.value(QStringLiteral("span")).toInt(m_dssRowSpanPct),
+                    0, 100);
+            }
+            // An existing object is left exactly as written, including one from
+            // a newer version carrying fields this build does not know about.
+        }
+    }
+
+#ifdef AETHER_GPU_SPECTRUM
+    m_dssLutToken = ~0ull;  // gain feeds the GPU palette LUT
+#endif
+    m_dss.invalidate();     // and the CPU fallback surface colours
+}
+
+void SpectrumWidget::saveDisplay3DSettings()
+{
+    QJsonObject obj;
+    obj.insert(QStringLiteral("version"), 1);
+    obj.insert(QStringLiteral("gain"), std::clamp(m_dssGain, 0, 100));
+    obj.insert(QStringLiteral("span"), std::clamp(m_dssRowSpanPct, 0, 100));
+
+    // One setValue + save for the whole object (Principle XIV): a crash cannot
+    // leave the 3D view half-configured the way per-key writes could.
+    auto& s = AppSettings::instance();
+    s.setValue(display3DSettingsKey(), QString::fromUtf8(
+        QJsonDocument(obj).toJson(QJsonDocument::Compact)));
+    s.save();
+}
+
+void SpectrumWidget::resetDisplay3DSettings()
+{
+    m_dssGain = 70;
+    m_dssRowSpanPct = 100;
+    saveDisplay3DSettings();
+#ifdef AETHER_GPU_SPECTRUM
+    m_dssLutToken = ~0ull;
+#endif
+    m_dss.invalidate();
+    update();
 }
 
 QString SpectrumWidget::displaySourceTraceSettingsKey() const
@@ -4517,14 +4612,25 @@ void SpectrumWidget::setDssGain(int pct) {
     pct = std::clamp(pct, 0, 100);
     if (pct != m_dssGain) {
         m_dssGain = pct;
-        auto& s = AppSettings::instance();
-        s.setValue(settingsKey("Display3DGain"), QString::number(pct));
-        s.save();
+        saveDisplay3DSettings();
 #ifdef AETHER_GPU_SPECTRUM
         m_dssLutToken = ~0ull;  // force the GPU palette LUT to re-bake next frame
 #endif
         m_dss.invalidate();     // CPU fallback surface re-colours too
     }
+    update();
+}
+
+void SpectrumWidget::setDssRowSpan(int pct) {
+    pct = std::clamp(pct, 0, 100);
+    if (pct == m_dssRowSpanPct) {
+        return;
+    }
+    m_dssRowSpanPct = pct;
+    saveDisplay3DSettings();
+    // Geometry only: the mesh reads it as a uniform and the row store is
+    // untouched, so nothing needs re-uploading. The eased approach in
+    // renderGpuFrame carries the change over the next few frames.
     update();
 }
 
@@ -12494,6 +12600,49 @@ void SpectrumWidget::uploadDssPaletteLut(QRhiResourceUpdateBatch* batch,
     m_dssLutToken = token;
 }
 
+float SpectrumWidget::dssRowSpanTarget(double targetBandwidthMhz) const
+{
+    // A/B override, read once: this sits in the per-frame render path, and the
+    // environment cannot change under a running process. AETHER_DSS_ROW_SPAN=1
+    // pins the classic clipped trapezoid, 1.667 forces the widest useful
+    // frustum. Negative means "unset or unparseable", so the slider decides.
+    //
+    // Unlike the slider it can demand more span than the source can fill, which
+    // is what exercises the coverage feather in dss_mesh.vert.
+    static const float kForcedSpan = [] {
+        if (!qEnvironmentVariableIsSet("AETHER_DSS_ROW_SPAN")) {
+            return -1.0f;
+        }
+        bool ok = false;
+        const float forced =
+            qEnvironmentVariable("AETHER_DSS_ROW_SPAN").toFloat(&ok);
+        return ok ? std::clamp(forced, 1.0f, DssRenderer::kMaxRowSpanFactor)
+                  : -1.0f;
+    }();
+    if (kForcedSpan > 0.0f) {
+        return kForcedSpan;
+    }
+
+    // Age 0 is NOT authoritative. pushWaterfallRow() -- the FFT-derived producer
+    // that paces rows during TX and during the RX stale-native fallback --
+    // appends with no supplemental at all, so keying up drops age 0's overhang
+    // to zero and would walk the whole surface back to the clipped trapezoid
+    // over ~30 frames, then back out on unkey, on every single over.
+    //
+    // Take the newest row that actually carries a tile instead. dss_mesh.vert
+    // already feathers the rows that genuinely have none, so the host does not
+    // need the front row to be the one with data -- that split is the whole
+    // point of the per-vertex coverage test. Once the last such row scrolls out
+    // of the visible ring there really is no overhang left on screen, and
+    // relaxing to the trapezoid is then the correct answer rather than a
+    // flicker. Also covers Kiwi and anything rebuilt from retained history,
+    // which drop supplemental the same way.
+    return DssRenderer::rowSpanFactorFor(
+        m_dss.newestSupplementalBandwidthMhz(targetBandwidthMhz),
+        targetBandwidthMhz,
+        m_dssRowSpanPct);
+}
+
 void SpectrumWidget::initDssMeshPipeline()
 {
     QRhi* r = rhi();
@@ -12540,8 +12689,11 @@ void SpectrumWidget::initDssMeshPipeline()
         return;
     }
 
-    // Height sampled in the vertex stage; Nearest is enough (the grid is as dense
-    // as the texture). Palette is Linear for a smooth floor->peak gradient.
+    // Height sampled in the vertex stage; Nearest is enough because the mesh grid
+    // is never sparser than the texture — kMeshCols is sized so that even at the
+    // widest rowSpanFactor the on-screen columns still cover every texel, so no
+    // bin can fall between two samples. Palette is Linear for a smooth
+    // floor->peak gradient.
     m_dssHeightSampler = r->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest,
         QRhiSampler::None, QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
     m_dssPaletteSampler = r->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
@@ -12822,6 +12974,13 @@ void SpectrumWidget::initialize(QRhiCommandBuffer* cb)
     initOverlayPipeline();
     initSpectrumPipeline();
     initDssMeshPipeline();
+    if (m_overlayMenu) {
+        // m_dssMeshReady is only final once every pipeline, texture and sampler
+        // in initDssMeshPipeline() has succeeded, so ask after it returns
+        // rather than from inside it.
+        m_overlayMenu->setDssRowSpanSupported(
+            AetherSDR::dssRowSpanSupported(kGpuSpectrumBuild, m_dssMeshReady));
+    }
     // initDssDepthPipeline() is deliberately NOT called here — its ~458 KB VBO
     // and pipeline are only used on the CPU-image fallback, which most GPU
     // systems never hit. Built lazily on first fallback use in renderGpuFrame.
@@ -12836,7 +12995,9 @@ void SpectrumWidget::initialize(QRhiCommandBuffer* cb)
     // 3DSS mesh: build the static perspective grid once (geometry never changes —
     // height comes from the ring-buffered texture sampled per-vertex).
     if (m_dssMeshReady) {
-        const int cols = m_dss.cols();
+        // Mesh columns, NOT texture columns: the mesh is wider than the
+        // viewport so a widened row keeps texel density on screen.
+        const int cols = DssRenderer::kMeshCols;
         const int rows = DssRenderer::kVisibleRows;
         QVector<float> fill;
         QVector<float> line;
@@ -13853,7 +14014,27 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb,
             // UBO would swallow a short initializer list (breaking e.g. preview
             // zoom/pan) without complaint; the shadow descriptors are filled
             // separately below.
-            constexpr int kDssMeshScalarFields = 24;  // through the bgFill vec4
+            // Overhang the near rows past the plot edges by as much as the
+            // offscreen spectrum supports, easing so a zoom or a stream switch
+            // can't snap the silhouette. See dss_mesh.vert's rowSpanFactor.
+            {
+                const float target =
+                    dssRowSpanTarget(dssTargetBandwidthMhz);
+                constexpr float kRowSpanAlpha = 0.12f;
+                m_dssRowSpanFactor += kRowSpanAlpha
+                    * (target - m_dssRowSpanFactor);
+                if (std::abs(target - m_dssRowSpanFactor) < 0.002f) {
+                    m_dssRowSpanFactor = target;
+                } else {
+                    // The ease advances one step per PRESENTED frame, so it has
+                    // to keep its own frames coming. Without this it stalls
+                    // wherever the last repaint left it whenever nothing else is
+                    // driving the pane — an idle or disconnected stream leaves
+                    // the slider reading 100 over a half-widened surface.
+                    coalescedUpdate();
+                }
+            }
+            constexpr int kDssMeshScalarFields = 28;  // through the bgFill vec4
             const float uboScalars[] = {
                 rowOffset,
                 floorDbm, rangeDb, m_dssZCurve,
@@ -13869,6 +14050,11 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb,
                 static_cast<float>(DssRenderer::kVisibleRows),
                 static_cast<float>(specContentW * dpr),
                 static_cast<float>(specRect.height() * dpr),
+                m_dssRowSpanFactor,
+                static_cast<float>(DssRenderer::kMeshCols),
+                // std140 rounds the 22-float scalar run up to bgFill's vec4
+                // alignment. These two are the hole, not fields.
+                0.0f, 0.0f,
                 static_cast<float>(m_bgFillColor.redF()),
                 static_cast<float>(m_bgFillColor.greenF()),
                 static_cast<float>(m_bgFillColor.blueF()),
@@ -13883,7 +14069,7 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb,
             // Slice shadows are decals evaluated by the DSS shader itself.
             // Because the mask modifies the existing curtain/ridge fragments,
             // it cannot hover above or cut through the rendered surface.
-            constexpr int kShadowBandsOffset = 24;
+            constexpr int kShadowBandsOffset = 28;
             static_assert(kShadowBandsOffset == kDssMeshScalarFields,
                 "shadow descriptors must begin right after the scalar prefix");
             constexpr int kShadowStylesOffset =
@@ -13897,6 +14083,14 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb,
             const double shadowEndMhz =
                 shadowCenterMhz + shadowBandwidthMhz * 0.5;
             int shadowCount = 0;
+            // A widened row covers frequencies outside the on-screen viewport,
+            // so slice decals now live on [-margin, 1+margin] in target-frame
+            // units rather than [0,1]. margin is 0 at span 1.0, which restores
+            // the old clamps exactly.
+            const float shadowUnitMargin =
+                (m_dssRowSpanFactor - 1.0f) * 0.5f;
+            const float shadowUnitLow = -shadowUnitMargin;
+            const float shadowUnitHigh = 1.0f + shadowUnitMargin;
             const auto unitForShadowMhz = [&](double mhz) {
                 return static_cast<float>(
                     (mhz - shadowStartMhz) / shadowBandwidthMhz);
@@ -13912,9 +14106,12 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb,
                     return false;
                 }
                 const int bandBase = kShadowBandsOffset + shadowCount * 4;
-                ubo.at(bandBase) = std::clamp(low, 0.0f, 1.0f);
-                ubo.at(bandBase + 1) = std::clamp(high, 0.0f, 1.0f);
-                ubo.at(bandBase + 2) = std::clamp(cueCenter, 0.0f, 1.0f);
+                ubo.at(bandBase) =
+                    std::clamp(low, shadowUnitLow, shadowUnitHigh);
+                ubo.at(bandBase + 1) =
+                    std::clamp(high, shadowUnitLow, shadowUnitHigh);
+                ubo.at(bandBase + 2) =
+                    std::clamp(cueCenter, shadowUnitLow, shadowUnitHigh);
                 ubo.at(bandBase + 3) =
                     bandVisible ? (active ? 0.42f : 0.17f) : 0.0f;
                 const int styleBase = kShadowStylesOffset + shadowCount * 4;
@@ -13932,11 +14129,13 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb,
             // mark+space pair rather than a carrier cue; markerWidth == 0 draws
             // the passband with no cue at all.
             const auto appendShadow = [&](const SliceOverlay& so) {
+                const double shadowMarginMhz =
+                    static_cast<double>(shadowUnitMargin) * shadowBandwidthMhz;
                 if (shadowCount >= kDssMeshShadowSlices
                     || !std::isfinite(shadowBandwidthMhz)
                     || shadowBandwidthMhz <= 0.0
-                    || so.freqMhz < shadowStartMhz
-                    || so.freqMhz > shadowEndMhz) {
+                    || so.freqMhz < shadowStartMhz - shadowMarginMhz
+                    || so.freqMhz > shadowEndMhz + shadowMarginMhz) {
                     return;
                 }
                 float low = unitForShadowMhz(
@@ -13946,7 +14145,8 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb,
                 if (low > high) {
                     std::swap(low, high);
                 }
-                const bool bandVisible = !(high < 0.0f || low > 1.0f);
+                const bool bandVisible =
+                    !(high < shadowUnitLow || low > shadowUnitHigh);
 
                 struct ShadowCue { float center; QColor color; };
                 std::array<ShadowCue, 2> cues;
@@ -13974,7 +14174,8 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb,
                 std::array<ShadowCue, 2> visible;
                 int visibleCount = 0;
                 for (int i = 0; i < cueCount; ++i) {
-                    if (cues[i].center >= 0.0f && cues[i].center <= 1.0f) {
+                    if (cues[i].center >= shadowUnitLow
+                        && cues[i].center <= shadowUnitHigh) {
                         visible[visibleCount++] = cues[i];
                     }
                 }

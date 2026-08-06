@@ -517,6 +517,16 @@ public:
     // strong signals only (gamma-shapes the palette lookup). Persisted per-pan.
     void setDssGain(int pct);
     int  dssGain() const { return m_dssGain; }
+    // 3DSS row span (0-100): how far the nearest traces may overhang the plot
+    // edges to close the empty wedges beside the surface, as a fraction of the
+    // widest useful span. Capped by the offscreen spectrum the source provides.
+    void setDssRowSpan(int pct);
+    int  dssRowSpan() const { return m_dssRowSpanPct; }
+    // Re-read the owned 3D config object (profile recall re-applies it per pan).
+    // legacyGain seeds 3D Gain when no object has been written yet.
+    void loadDisplay3DSettings(int legacyGain = 70);
+    // Restore both 3D controls to defaults and persist the object as a unit.
+    void resetDisplay3DSettings();
     void resetWfTimeScale();
     int   wfColorGain() const          { return m_wfColorGain; }
     int   wfBlackLevel() const         { return m_wfBlackLevel; }
@@ -1170,6 +1180,13 @@ private:
     // can persist; startup/enable/layout refreshes only rebuild transient state.
     void refreshNoiseFloorTarget(bool captureCurrentScale = false, bool persistCapture = false);
     bool captureNoiseFloorTargetFromCurrentScale(bool notify, bool persist);
+    // ── Display3DSettings — the 3D view's owned configuration object ───────
+    // Principle V: one self-contained, versioned, atomically-written object
+    // rather than loose flat keys. Holds the 3D Gain and 3D Span controls.
+    // (3D Floor is per-source and already owned by DisplaySourceTraceSettings.)
+    QString display3DSettingsKey() const;
+    void saveDisplay3DSettings();
+
     QString displaySourceTraceSettingsKey() const;
     void loadDisplaySourceTraceSettings(int legacyNoiseFloorPosition,
                                         int legacyDssFloorDepth);
@@ -1448,6 +1465,15 @@ private:
     float m_flexDssFloorDepth{6.0f};
     float m_kiwiDssFloorDepth{6.0f};
     int   m_dssGain{70};   // 3DSS colour floor 0-100 (gamma of palette lookup)
+    // 3DSS wedge close-in 0-100 (see setDssRowSpan). Defaults to 100 -- fully
+    // ON -- by deliberate product decision, not by omission: three reviewers
+    // read 0 as the safer default since it is the reference rendering. The
+    // control is buried in the Display overlay's 3D VIEW section, so shipping
+    // it off would mean most operators never discover the feature exists.
+    // Anyone who wants the classic trapezoid has a labelled slider; anyone who
+    // does not know to look gets the intended view. Do not flip this to 0
+    // without also solving the discoverability side.
+    int   m_dssRowSpanPct{100};
     float m_dssFloorAnchorDbm{-1000.0f};
     bool  m_dssFloorAnchorValid{false};
     DssZoomFloorSyncGate m_dssZoomFloorSync;
@@ -1958,11 +1984,11 @@ private:
     QRhiBuffer* m_dssMeshLineVbo{nullptr};   // batched ridge ribbons, static
     QRhiBuffer* m_dssMeshUbo{nullptr};       // dynamic uniforms
     // std140 UBO float count — must match dss_mesh.{vert,frag}'s U block AND the
-    // ubo writer in renderGpuFrame(): five scalar vec4 groups + bgFill, eight
-    // slice band descriptors, eight slice styles, shadow metadata, and one
-    // frequency-frame vec4 for every live-ring age.
+    // ubo writer in renderGpuFrame(): 21 scalars padded out to a vec4 boundary,
+    // bgFill, eight slice band descriptors, eight slice styles, shadow metadata,
+    // and one frequency-frame vec4 for every live-ring age.
     static constexpr int kDssMeshUboFloats =
-        92 + DssRenderer::kRows * 4;
+        96 + DssRenderer::kRows * 4;
     static_assert(
         DssRenderer::kRows == 104,
         "dss_mesh.{vert,frag} declare rowFrames[104] and clamp frame ages "
@@ -1980,8 +2006,14 @@ private:
     quint64 m_dssLutToken{~0ull};            // token of the palette LUT last baked
     QByteArray m_dssRowScratch;              // reused qfloat16 row buffer (mesh upload)
     QByteArray m_dssTextureScratch;          // reused qfloat16 full texture buffer
+    // Smoothed dss_mesh rowSpanFactor. 1.0 keeps the classic clipped trapezoid,
+    // so a backend shipping no supplemental overhang renders exactly as before.
+    float m_dssRowSpanFactor{1.0f};
 
     void initDssMeshPipeline();
+    // Frequency span each mesh row should cover, as a multiple of the on-screen
+    // bandwidth. See dss_mesh.vert's rowSpanFactor.
+    float dssRowSpanTarget(double targetBandwidthMhz) const;
     void uploadDssPaletteLut(QRhiResourceUpdateBatch* batch, float floorDbm, float rangeDb);
 
     // Distance-faded slice/passband shadows painted across the completed DSS

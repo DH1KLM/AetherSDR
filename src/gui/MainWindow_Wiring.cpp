@@ -3882,6 +3882,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             menu, &SpectrumOverlayMenu::syncDssFloorDepth);
     connect(menu, &SpectrumOverlayMenu::dssGainChanged,
             sw, &SpectrumWidget::setDssGain);
+    connect(menu, &SpectrumOverlayMenu::dssRowSpanChanged,
+            sw, &SpectrumWidget::setDssRowSpan);
     connect(menu, &SpectrumOverlayMenu::wfColorGainChanged,
             this, [this, applet, sw](int v) {
         if (kiwiSdrPanDisplaysKiwi(applet->panId())) {
@@ -4181,19 +4183,22 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                        "\"version\":1}"));
         s.setValue(sw->settingsKey("DisplaySpectrumRenderMode"),  "0");
         s.setValue(sw->settingsKey("Display3DFloorDepth"),        "6");
-        s.setValue(sw->settingsKey("Display3DGain"),        "70");
         s.save();
 
         // Apply the render-mode + 3D-floor reset to the widget too (the keys
         // above only update settings, not the live SpectrumWidget).
         sw->setSpectrumRenderMode(0);
         sw->setDssFloorDepth(6);
-        sw->setDssGain(70);
+        // Writes the whole 3D object once, and unconditionally — the setters
+        // early-return when a value already matches, which would otherwise
+        // leave a stale object behind on a partial reset.
+        sw->resetDisplay3DSettings();
 
         // Sync all Display panel UI controls (incl. the 2D/3D combo + 3D Floor).
         menu->syncDisplaySettings(0, 25, 70, false, QColor(0x00, 0xe5, 0xff),
                                   50, 15, true, 50, 100, 75, false, true, 0,
-                                  true, 2.0f, false, 0, 6);
+                                  true, 2.0f, false, 0, 6, 70,
+                                  QColor(0x00, 0xe5, 0xff), 100);
         menu->syncExtraDisplaySettings(false, 1.15f, 80, 0,
                                        QColor(0x0a, 0x0a, 0x14));
     });
