@@ -8,6 +8,9 @@
 #include "core/backends/flex/FlexBackend.h"   // aetherd RFC 2.2 radio-facing seam
 #include "core/backends/sim/SimBackend.h"     // RFC #4288 demo-mode backend (Route A)
 #include "core/backends/hl2/Hl2Backend.h"      // aetherd Gap A — HL2 backend (family "hl2")
+#include "core/backends/icom/IcomCivBackend.h"  // Icom networked radios (family "icom")
+#include "core/backends/icom/IcomCredentials.h"  // password: keychain, never settings
+#include "core/backends/icom/IcomSettings.h"     // host/user/ports (Principle V)
 #include "core/AppSettings.h"
 #include "core/RadioStateMemory.h"  // RFC #4603 typed restore handoff
 #include "core/CwTrace.h"
@@ -416,7 +419,8 @@ QJsonObject clientInfoToJson(quint32 handle,
 // aetherd Gap A (HL2 Phase 1c): the minimal backend-selection seam. Maps a radio
 // family string to its IRadioBackend. "flex" (the default, and any unrecognized
 // value) preserves the historical hard-wired FlexBackend; "hl2" selects the
-// Hermes-Lite 2 backend. A fuller step-3 registry supersedes this later.
+// Hermes-Lite 2 backend and "icom" the Icom networked-radio backend. A fuller
+// step-3 registry supersedes this later.
 
 // RFC #4603 proposal B: hand the remembered operating state to a backend
 // whose declared ClientSettingsDomains make the client its memory. Called
@@ -479,10 +483,43 @@ void RadioModel::handRestoredStateToBackend(const QString& serial)
     m_backend->applyRestoredState(state);
 }
 
+
+// Family-specific connect parameters.
+//
+// The neutral RadioConnectRequest carries host/port/serial; anything a family
+// needs beyond that rides in `params`, namespaced by family. Icom is the first
+// family that cannot connect without a credential, so this is where the
+// username (settings) and password (keychain session cache) are attached.
+//
+// SYNCHRONOUS by necessity: this runs on the connect path, including from the
+// auto-reconnect timer, and a keychain read is async. IcomCredentials keeps a
+// process-lifetime session cache primed by the connect dialog precisely so this
+// call cannot block on the keyring — see its header.
+static void populateFamilyParams(RadioConnectRequest& req, const QString& family)
+{
+    if (family.compare(QLatin1String("icom"), Qt::CaseInsensitive) != 0)
+        return;
+    req.params.insert(QStringLiteral("icom.username"), IcomSettings::username());
+    req.params.insert(QStringLiteral("icom.password"), IcomCredentials::sessionPassword());
+    req.params.insert(QStringLiteral("icom.serialPort"), IcomSettings::serialPort());
+    req.params.insert(QStringLiteral("icom.audioPort"), IcomSettings::audioPort());
+    req.params.insert(QStringLiteral("icom.civAddress"), IcomSettings::civAddress());
+}
+
 std::unique_ptr<IRadioBackend> RadioModel::makeBackend(const QString& family)
 {
     if (family.compare(QLatin1String("hl2"), Qt::CaseInsensitive) == 0)
         return std::make_unique<hl2::Hl2Backend>();
+    // Icom networked radios (IC-705, IC-7300MK2, …). Like HL2 this is a pure
+    // seam backend — it owns no RadioConnection and no PanadapterStream, so the
+    // dynamic_cast chain in setupBackend() correctly skips it and every model
+    // update arrives as a normalized delta.
+    //
+    // The radio here is authoritative about its own operating state, so unlike
+    // HL2 it declares NO ClientSettingsDomains and must never be pushed a
+    // restored state (Constitution II/III).
+    if (family.compare(QLatin1String("icom"), Qt::CaseInsensitive) == 0)
+        return std::make_unique<icom::IcomCivBackend>();
     // RFC #4288 demo mode: the synthetic radio is selected here like any other
     // family, which is what completes the "wire it through the real SimBackend
     // factory" ask. Unlike HL2 it is a Route A hybrid — it owns a RadioConnection
@@ -583,6 +620,17 @@ void RadioModel::setupBackend(const QString& family)
     // so this connect is harmless for Flex and load-bearing for HL2.
     connect(m_backend.get(), &IRadioBackend::spectrumFrameReady,
             this, &RadioModel::onBackendSpectrumFrame);
+    // Liveness stamps, on the arrival edge rather than anywhere downstream: a
+    // frame that arrives and is then discarded still proves the link is alive,
+    // and that is the question these answer.
+    connect(m_backend.get(), &IRadioBackend::spectrumFrameReady, this,
+            [this](int, const QByteArray&) {
+        m_lastSpectrumMs = QDateTime::currentMSecsSinceEpoch();
+    });
+    connect(m_backend.get(), &IRadioBackend::audioFrameReady, this,
+            [this](const QByteArray&) {
+        m_lastAudioMs = QDateTime::currentMSecsSinceEpoch();
+    });
 
     // Demodulated RX audio from backends that produce it in-process (HL2).
     // Signal-to-signal: the payload is already the engine's native format.
@@ -814,10 +862,34 @@ void RadioModel::setupBackend(const QString& family)
     // only, exactly as the old inline handleMeterStatus parse did) and drives the
     // MeterModel. Meter *values* stay on the VITA-49 data plane (below).
     // #4070: the backend now emits a typed MeterDef — no key-string reconstruction.
+    // THE METER LIST ARRIVES AFTER THE CONNECT EDGE, and one capability gate
+    // reads it — so that gate has to be re-evaluated when it changes.
+    //
+    // MainWindow's mic-level gauge follows hasMicPeakMeter() rather than a
+    // capability flag, which is right: a Flex forbids mic-input selection too
+    // and still publishes MICPEAK, so only the meter's absence means the face
+    // can never move. But applyCapabilitiesToUi() runs on capabilitiesChanged,
+    // and FlexBackend never emits it — grep says the only backend that does is
+    // Sim. So on a Flex the gate ran exactly once, at connect, while
+    // m_micPeakIdx was still -1, and hid a gauge that was about to start
+    // working. Its visibility then depended on whether an unrelated oscillator
+    // or GPS status message happened to land afterwards.
     connect(m_backend.get(), &IRadioBackend::meterDefined, this,
-            [this](const MeterDef& def) { m_meterModel.defineMeter(def); });
+            [this](const MeterDef& def) {
+        const bool hadMicPeak = m_meterModel.hasMicPeakMeter();
+        m_meterModel.defineMeter(def);
+        if (hadMicPeak != m_meterModel.hasMicPeakMeter())
+            publishCapabilities(isConnected());
+    });
     connect(m_backend.get(), &IRadioBackend::meterRemoved, this,
-            [this](int index) { m_meterModel.removeMeter(index); });
+            [this](int index) {
+        const bool hadMicPeak = m_meterModel.hasMicPeakMeter();
+        m_meterModel.removeMeter(index);
+        // Symmetric on purpose: a meter that goes away must hide the face
+        // again, or a radio swap leaves a dead gauge on screen.
+        if (hadMicPeak != m_meterModel.hasMicPeakMeter())
+            publishCapabilities(isConnected());
+    });
 
     // A backend may revise its own capabilities mid-session (SimBackend does so
     // on connect; a Flex refines its seeded table as touchpoints convert), and
@@ -931,6 +1003,41 @@ void RadioModel::setupBackend(const QString& family)
                     [this, s](const QString& mode, int thresholdDb) {
                 if (m_backend) m_backend->setSliceAgc(s->sliceId(), mode, thresholdDb);
             });
+            // Receive DSP the radio runs. Same reasoning as AGC above: the
+            // applet toggles drive SliceModel, whose Flex wire text a non-Flex
+            // backend never sees, so without these the controls move and the
+            // radio's own NR/NB/notch/squelch keep whatever state they had.
+            connect(s, &SliceModel::noiseReductionCommandIssued, this,
+                    [this, s](bool on, int level) {
+                if (m_backend) m_backend->setSliceNoiseReduction(s->sliceId(), on, level);
+            });
+            connect(s, &SliceModel::noiseBlankerCommandIssued, this,
+                    [this, s](bool on, int level) {
+                if (m_backend) m_backend->setSliceNoiseBlanker(s->sliceId(), on, level);
+            });
+            connect(s, &SliceModel::autoNotchCommandIssued, this, [this, s](bool on) {
+                if (m_backend) m_backend->setSliceAutoNotch(s->sliceId(), on);
+            });
+            connect(s, &SliceModel::squelchCommandIssued, this,
+                    [this, s](bool on, int level) {
+                if (m_backend) m_backend->setSliceSquelch(s->sliceId(), on, level);
+            });
+            // RIT / XIT. The control already existed in VfoWidget and drove
+            // SliceModel; only the last hop to the seam was missing.
+            connect(s, &SliceModel::ritCommandIssued, this, [this](bool on, int hz) {
+                if (!m_backend) return;
+                m_backend->setRitEnabled(on);
+                m_backend->setRitOffset(hz);
+            });
+            connect(s, &SliceModel::xitCommandIssued, this, [this](bool on, int hz) {
+                if (!m_backend) return;
+                m_backend->setXitEnabled(on);
+                // The TRANSMIT offset verb, which defaults to the receive one
+                // for a radio with a single shared register (Icom) and is
+                // overridable by a radio with two (Flex).
+                m_backend->setXitOffset(hz);
+            });
+
             wireSliceAudioIntentsToBackend(s);
             m_slices.append(s);
             s->applyChanges(mapped);
@@ -1500,6 +1607,25 @@ RadioModel::RadioModel(QObject* parent)
             m_backend->setTxPower(percent);
     });
 
+    // The speech processor to a backend that owns its own compressor.
+    //
+    // HERE, not in setupBackend(): m_transmitModel is a RadioModel value member,
+    // so this connection outlives every backend and installing it in the
+    // rerunnable path would accumulate one live copy per family switch — the
+    // exact defect #4599 fixed, where N switches turn one operator press into N
+    // commands.
+    //
+    // OPERATOR INTENT ONLY — speechProcessorCommandIssued, never micStateChanged.
+    // The distinction is the one TransmitModel documents at the declaration: a
+    // state-mirroring signal would hand the radio's own echo back as a fresh
+    // command. Flex takes this as text and ignores the seam; a host-modulating
+    // backend runs the compressor in our DSP and also ignores it.
+    connect(&m_transmitModel, &TransmitModel::speechProcessorCommandIssued, this,
+            [this](bool on, int level) {
+        if (m_backend && !m_flexBackend)
+            m_backend->setSpeechProcessor(on, level);
+    });
+
     // Keying and tune from the GUI.
     //
     // These paths never reached a non-Flex backend: the MOX button goes through
@@ -1847,6 +1973,10 @@ RadioModel::RadioModel(QObject* parent)
                 req.host   = m_lastInfo.address.toString();
                 req.port   = m_lastInfo.port;
                 req.serial = m_lastInfo.serial;
+                // The RECONNECT path needs these too. Populating only the
+                // initial connect gives a session that authenticates once and
+                // then fails every automatic retry.
+                populateFamilyParams(req, m_family);
                 handRestoredStateToBackend(req.serial);
                 m_backend->connectRadio(req);
             }
@@ -2856,6 +2986,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         req.host   = info.address.toString();
         req.port   = info.port;
         req.serial = info.serial;
+        populateFamilyParams(req, info.family);
         handRestoredStateToBackend(req.serial);
         m_backend->connectRadio(req);
     }
@@ -4192,6 +4323,18 @@ bool RadioModel::requestPanCenter(const QString& panId,
         m_pendingProfileLoadPanWrites.supersedeBandwidth(panId);
     }
     return dispatchPanCenterBandwidth(panId, centerMhz, bandwidthMhz);
+}
+
+RadioModel::DataLiveness RadioModel::dataLiveness() const
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    DataLiveness l;
+    if (m_lastSpectrumMs > 0)
+        l.spectrumMs = now - m_lastSpectrumMs;
+    if (m_lastAudioMs > 0)
+        l.audioMs = now - m_lastAudioMs;
+    l.meterMs = m_meterModel.newestValueAgeMs();
+    return l;
 }
 
 bool RadioModel::requestPanBandwidth(const QString& panId, double bandwidthMhz)
@@ -6952,6 +7095,17 @@ void RadioModel::onMessageReceived(const ParsedMessage& msg)
 //   "panadapter 0"    → panadapter (spectrum)
 //   "meter 1"         → meter reading (handled by onMessageReceived)
 //   "removed=True"    → object was removed
+
+bool RadioModel::backendCanTransmit() const
+{
+    return m_backend && m_backend->capabilities().canTransmit;
+}
+
+void RadioModel::setTxAudioMonitor(bool on)
+{
+    if (m_backend)
+        m_backend->setTxAudioMonitor(on);
+}
 
 void RadioModel::submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz)
 {
@@ -9840,6 +9994,23 @@ void RadioModel::createAudioStream()
 
 bool RadioModel::ensureDaxTxStream(DaxTxRequestReason reason)
 {
+    // A BACKEND THAT TAKES TX AUDIO OVER THE SEAM NEEDS NO DAX STREAM, and
+    // asking for one is how TCI transmit died on an Icom: `stream create` went
+    // to a radio with no Flex command plane, failed with 0x50000063, and every
+    // caller read that as "transmit cannot proceed".
+    //
+    // TRUE, not false. The contract of this function is "is there a route for
+    // transmit audio", and there is — AudioEngine's final-monitor tap into
+    // IRadioBackend::submitTxAudio. False would be the same outage with a
+    // tidier log.
+    if (backendCapabilities().takesTxAudioOverSeam) {
+        qCDebug(lcDax).noquote()
+            << "RadioModel: DAX TX not needed — this backend takes transmit audio"
+            << "over the seam"
+            << QStringLiteral("reason=%1").arg(daxTxRequestReasonName(reason));
+        return true;
+    }
+
     const DaxTxPolicyContext policyContext = currentDaxTxPolicyContext(reason);
     const DaxTxPolicyDecision decision = evaluateDaxTxPolicy(policyContext);
     const quint32 ourHandle = clientHandle();
@@ -9943,7 +10114,9 @@ bool RadioModel::prepareWsprTransmit()
     // would put shack ambience on the WSPR frame — but AudioEngine::
     // startWsprPump() already does that with setDaxTxMode(true), which gates
     // onTxAudioReady() locally on every family.
-    if (backendCapabilities().hostModulates) {
+    // Any backend whose transmit audio leaves through the seam, not only one
+    // that modulates locally — the beacon reaches submitTxAudio either way.
+    if (backendCapabilities().takesTxAudioOverSeam) {
         m_wsprTxHostModulated = true;
         return true;
     }

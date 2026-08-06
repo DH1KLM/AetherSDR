@@ -619,6 +619,17 @@ set(CORE_SOURCES
     src/core/backends/hl2/Hl2Backend.cpp     # aetherd HL2 Phase 1b (IRadioBackend impl)
     src/core/backends/hl2/Hl2Discovery.cpp   # aetherd HL2 Phase 1c (HPSDR discovery -> picker)
     src/core/backends/hl2/Hl2Settings.cpp    # owned config object, "Hl2" root key (Principle V)
+    src/core/backends/icom/IcomProtocol.cpp  # IcomCIV Phase 0 (RS-BA1 UDP transport)
+    src/core/backends/icom/CivCodec.cpp      # IcomCIV Phase 1 (CI-V command plane, transport-free)
+    src/core/backends/icom/IcomStream.cpp    # IcomCIV Phase 0 (one UDP stream + ARQ)
+    src/core/backends/icom/IcomSession.cpp   # IcomCIV Phase 0 (handshake orchestration)
+    src/core/backends/icom/IcomScope.cpp     # IcomCIV Phase 2 (0x27 waveform -> panadapter)
+    src/core/backends/icom/IcomAudio.cpp     # IcomCIV Phase 3 (codecs + the 1364/556 split)
+    src/core/backends/icom/IcomMeters.cpp    # IcomCIV Phase 4 (calibration + poll scheduler)
+    src/core/backends/icom/IcomModels.cpp    # IcomCIV Phase 5 (per-model capability table)
+    src/core/backends/icom/IcomCivBackend.cpp # IcomCIV (IRadioBackend impl)
+    src/core/backends/icom/IcomSettings.cpp  # owned config, "Icom" root key (Principle V)
+    src/core/backends/icom/IcomCredentials.cpp # password -> keychain, NEVER settings
     src/core/dsp/WdspChannel.cpp
     ${AETHER_SETTINGS_SOURCES}
     src/core/RadioStateMemory.cpp   # RFC #4603 client-side radio memory
@@ -704,6 +715,7 @@ set(CORE_SOURCES
     src/core/TciServer.cpp
     src/core/TciProtocol.cpp
     src/core/TciRoutingState.cpp
+    src/core/RadioCertification.cpp
     src/core/TciTrxMap.cpp
     src/core/AutomationServer.cpp
     src/core/MqttClient.cpp
@@ -3020,6 +3032,84 @@ add_executable(hl2_metis_protocol_test
 target_include_directories(hl2_metis_protocol_test PRIVATE src)
 add_test(NAME hl2_metis_protocol_test COMMAND hl2_metis_protocol_test)
 
+# IcomCIV wire layers — pure encode/decode, standalone (no Qt / aethercore).
+# An Icom networked radio is two protocols stacked: CI-V is the command plane
+# and RS-BA1 is the UDP transport it travels inside. Both halves unit-test
+# without a socket, and CivCodec is deliberately transport-free so a future
+# USB / local-serial mode reuses it unchanged.
+add_executable(icom_protocol_test
+    tests/icom_protocol_test.cpp
+    src/core/backends/icom/IcomProtocol.cpp)
+target_include_directories(icom_protocol_test PRIVATE src)
+add_test(NAME icom_protocol_test COMMAND icom_protocol_test)
+
+add_executable(icom_civ_test
+    tests/icom_civ_test.cpp
+    src/core/backends/icom/CivCodec.cpp)
+target_include_directories(icom_civ_test PRIVATE src)
+add_test(NAME icom_civ_test COMMAND icom_civ_test)
+
+add_executable(icom_scope_test
+    tests/icom_scope_test.cpp
+    src/core/backends/icom/IcomScope.cpp
+    src/core/backends/icom/CivCodec.cpp)
+target_include_directories(icom_scope_test PRIVATE src)
+add_test(NAME icom_scope_test COMMAND icom_scope_test)
+
+add_executable(icom_audio_test
+    tests/icom_audio_test.cpp
+    src/core/backends/icom/IcomAudio.cpp
+    src/core/backends/icom/IcomProtocol.cpp)
+target_include_directories(icom_audio_test PRIVATE src)
+add_test(NAME icom_audio_test COMMAND icom_audio_test)
+
+# IcomCIV phases 4-5 — meter calibration curves, the poll scheduler (driven by
+# a synthetic clock), and the per-model capability table.
+add_executable(icom_meters_test
+    tests/icom_meters_test.cpp
+    src/core/backends/icom/IcomMeters.cpp
+    src/core/backends/icom/IcomModels.cpp
+    src/core/backends/icom/CivCodec.cpp)
+target_include_directories(icom_meters_test PRIVATE src)
+add_test(NAME icom_meters_test COMMAND icom_meters_test)
+
+# IcomCIV phases 0-3 end to end — the session against a fake IC-705 on
+# localhost. This is what proves the ORDER of the RS-BA1 handshake, which is the
+# part of the protocol Icom documents nowhere.
+add_executable(icom_session_test
+    tests/icom_session_test.cpp
+    src/core/backends/icom/IcomSession.cpp
+    src/core/backends/icom/IcomStream.cpp
+    src/core/backends/icom/IcomProtocol.cpp
+    src/core/backends/icom/CivCodec.cpp
+    src/core/backends/icom/IcomScope.cpp
+    src/core/backends/icom/IcomAudio.cpp)
+target_include_directories(icom_session_test PRIVATE src tests)
+target_link_libraries(icom_session_test PRIVATE Qt6::Core Qt6::Network)
+add_test(NAME icom_session_test COMMAND icom_session_test)
+
+# IcomCIV backend seam test — the IRadioBackend implementor against the fake
+# IC-705, with the TCI/WSJT-X audio contract as the load-bearing assertion.
+add_executable(icom_backend_test tests/icom_backend_test.cpp)
+target_include_directories(icom_backend_test PRIVATE src tests)
+target_link_libraries(icom_backend_test PRIVATE aethercore Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME icom_backend_test COMMAND icom_backend_test)
+
+# IcomCIV live probe — REQUIRES A REAL RADIO, so deliberately NOT registered
+# with add_test(). Receive-only: it never sends a PTT command.
+#   cmake --build build --target icom_live_probe
+#   ./build/icom_live_probe ic-705.local <user> <password>
+add_executable(icom_live_probe EXCLUDE_FROM_ALL
+    tests/icom_live_probe.cpp
+    src/core/backends/icom/IcomSession.cpp
+    src/core/backends/icom/IcomStream.cpp
+    src/core/backends/icom/IcomProtocol.cpp
+    src/core/backends/icom/CivCodec.cpp
+    src/core/backends/icom/IcomScope.cpp
+    src/core/backends/icom/IcomAudio.cpp)
+target_include_directories(icom_live_probe PRIVATE src)
+target_link_libraries(icom_live_probe PRIVATE Qt6::Core Qt6::Network)
+
 # HL2 live band-filter probe — REQUIRES REAL HARDWARE, so deliberately NOT
 # registered with add_test(). Build it and run it by hand against a radio:
 #   cmake --build build --target hl2_live_band_filter_probe
@@ -4927,6 +5017,13 @@ target_include_directories(hl2_txdsp_test PRIVATE src)
 target_link_libraries(hl2_txdsp_test PRIVATE aethercore Qt6::Core)
 add_test(NAME hl2_txdsp_test COMMAND hl2_txdsp_test)
 
+# radiocert's measurement primitives. Header-only by design so this needs no
+# Qt and no link against aethercore — see the test's header comment for why it
+# exists at all (both shipped bugs in the diagnostic were in this arithmetic).
+add_executable(radio_certification_math_test tests/radio_certification_math_test.cpp)
+target_include_directories(radio_certification_math_test PRIVATE src)
+add_test(NAME radio_certification_math_test COMMAND radio_certification_math_test)
+
 add_executable(hl2_tx_loopback_test tests/hl2_tx_loopback_test.cpp)
 target_include_directories(hl2_tx_loopback_test PRIVATE src)
 target_link_libraries(hl2_tx_loopback_test PRIVATE aethercore Qt6::Core Qt6::Network)
@@ -4965,6 +5062,22 @@ target_link_libraries(demo_applet_tooltip_test PRIVATE aethercore Qt6::Core Qt6:
 add_test(NAME demo_applet_tooltip_test COMMAND demo_applet_tooltip_test)
 set_tests_properties(demo_applet_tooltip_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# IcomCIV backend selection — proves family="icom" reaches IcomCivBackend
+# through RadioModel's real swap path. Without this, every layer below can be
+# green while nothing in the application can construct it.
+# IcomCIV settings + credentials. The load-bearing check is the SECURITY one:
+# the Icom network password must never reach the settings database. Own process
+# because AppSettings is a process-wide singleton.
+add_executable(icom_settings_test tests/icom_settings_test.cpp)
+target_include_directories(icom_settings_test PRIVATE src tests)
+target_link_libraries(icom_settings_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME icom_settings_test COMMAND icom_settings_test)
+
+add_executable(icom_family_test tests/icom_family_test.cpp)
+target_include_directories(icom_family_test PRIVATE src)
+target_link_libraries(icom_family_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME icom_family_test COMMAND icom_family_test)
 
 add_executable(hl2_family_transition_test tests/hl2_family_transition_test.cpp)
 target_include_directories(hl2_family_transition_test PRIVATE src)
@@ -5594,6 +5707,17 @@ set_target_properties(titlebar_headphone_mute_test PROPERTIES AUTOMOC ON)
 add_test(NAME titlebar_headphone_mute_test COMMAND titlebar_headphone_mute_test)
 set_tests_properties(titlebar_headphone_mute_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Pure index arithmetic lifted out of RxApplet — no GUI, no radio.
+add_executable(icom_replay_test tests/icom_replay_test.cpp)
+target_include_directories(icom_replay_test PRIVATE src)
+target_link_libraries(icom_replay_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME icom_replay_test COMMAND icom_replay_test)
+
+add_executable(rx_filter_step_test tests/rx_filter_step_test.cpp)
+target_include_directories(rx_filter_step_test PRIVATE src)
+target_link_libraries(rx_filter_step_test PRIVATE Qt6::Core)
+add_test(NAME rx_filter_step_test COMMAND rx_filter_step_test)
 
 add_executable(amp_applet_test
     tests/amp_applet_test.cpp

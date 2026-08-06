@@ -6540,6 +6540,22 @@ void MainWindow::applyCapabilitiesToUi(bool connected, const RadioCapabilities& 
     // See the header for why every flag is `!connected || caps.x` and why each
     // surface gets exactly one owning call.
 
+    // ── Mic sources: MIC / BAL / LINE / ACC are Flex connectors ────────────
+    // A radio that cannot have its input chosen by a client collapses to PC.
+    if (m_appletPanel) {
+        m_appletPanel->setSelectableMicInputs(!connected || caps.hasSelectableMicInputs);
+        // The mic-level gauge follows the METER, not the capability: a Flex
+        // does not let a client pick its input either and still publishes
+        // MICPEAK. Absence of the meter is the only thing that means the face
+        // can never move.
+        // Empty on disconnect, which RESTORES the operator's own list rather
+        // than stranding them on the last radio's three filters.
+        m_appletPanel->setRadioFilterWidths(connected ? caps.rxFilterWidthsHz
+                                                      : QList<int>{});
+        m_appletPanel->setMicLevelMeterAvailable(
+            !connected || m_radioModel.meterModel().hasMicPeakMeter());
+    }
+
     // ── Profiles: the PROF applet, the Profiles menu, and both dialogs ──────
     const bool profiles = !connected || caps.hasProfiles;
     if (m_appletPanel) {

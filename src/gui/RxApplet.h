@@ -171,6 +171,19 @@ private:
     void refreshFilterWidth();   // "AUTO" while adaptive is live, else the width
     void updateModeSettings(const QString& mode);
     void rebuildFilterButtons();
+public:
+    // Narrow the filter buttons to the widths a radio can actually reach.
+    // An EMPTY list restores the operator's own configurable set, so this is
+    // reversible on disconnect rather than a one-way edit of their settings.
+    void setRadioFilterWidths(const QList<int>& widthsHz);
+private:
+    // The list actually in force: the radio's when it declared one, else the
+    // operator's configurable set. Every site that indexes filter buttons must
+    // go through this, or the custom-edge arrays desynchronise from the buttons.
+    const QVector<int>& effectiveFilterWidths() const
+    {
+        return m_radioFilterWidths.isEmpty() ? m_filterWidths : m_radioFilterWidths;
+    }
     void saveFilterPresets();
     void rebuildStepSizes();
     void updateAgcCombo();
@@ -230,6 +243,10 @@ private:
 
     // Filter presets (Hz widths) — per-mode, swapped on mode change
     QVector<int>            m_filterWidths{1800, 2100, 2400, 2700, 3300, 6000};
+    // Non-empty while a radio has declared a fixed filter set. Held separately
+    // so the settings-driven list is not overwritten — reconnecting to a radio
+    // with continuous filters must give the operator their own list back.
+    QVector<int>            m_radioFilterWidths;
     // Parallel "custom edges" — INT_MIN sentinel = use mode rules. (#2259)
     QVector<int>            m_filterCustomLo;
     QVector<int>            m_filterCustomHi;

@@ -90,6 +90,7 @@ public:
     // so repeating the base's is how the two quietly diverge later. The sole
     // call site passes it explicitly.
     void setTune(bool on, int tunePowerPercent) override;
+    void setTxAudioMonitor(bool on) override;
     void setTxFrequency(double hz);
     void setTxDriveLevel(int level);
     // Baseband TX test tone, offsetHz from the carrier, amplitude 0..1.
@@ -488,6 +489,7 @@ private:
     bool m_adcOverload = false;
     bool m_keyed = false;
     bool m_tuning = false;
+    bool m_txMonitor = false;
     bool m_toneFromTune = false;
     // Last drive the operator asked for through setTxPower(), so TUNE can drop to
     // tune power and put it back on release. Seeded to the same value

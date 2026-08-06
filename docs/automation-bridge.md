@@ -2973,7 +2973,7 @@ lands.
 The complete registry, generated from the `add(...)` table in `AutomationServer.cpp` by `tools/gen_bridge_docs.py`. CI fails if this drifts from the code.
 
 <!-- BEGIN GENERATED VERB TABLE (tools/gen_bridge_docs.py) -->
-<!-- Do not edit by hand — run tools/gen_bridge_docs.py. 58 verbs. -->
+<!-- Do not edit by hand — run tools/gen_bridge_docs.py. 61 verbs. -->
 
 | Verb | Aliases | Description |
 |---|---|---|
@@ -3023,6 +3023,9 @@ The complete registry, generated from the `add(...)` table in `AutomationServer.
 | `tci` | — | tci start\|status\|stop\|send\|trace\|routes [@id] [rx=N] — TCI simulator (multi-client: @id names a client, rx=N its audio_start receiver) and protocol diagnostics |
 | `audioCapture` | — | audioCapture <start\|stop\|status\|read\|probeNr2Stereo\|probeDspStereo> [args] |
 | `txwaterfall` | — | txwaterfall <on\|off> — show keyed TX in the waterfall |
+| `liveness` | — | liveness — per-class data ages and the producer->consumer meter join |
+| `civ` | — | civ <send <hex>\|trace [all]> — raw CI-V inject and frame trace (Icom; send is TX-gated) |
+| `radiocert` | — | radiocert <tune\|rx\|tx\|meters\|all> [freqMhz] — radio bring-up diagnostic, in dependency order (tx/meters key) |
 | `key` | — | key <ptt on\|off \| mox> — semantic keying (TX-gated) |
 | `station` | — | station <name> — set the GUI-client station name |
 | `resize` | — | resize <w> <h> [target] — resize a window |

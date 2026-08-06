@@ -1046,7 +1046,15 @@ void Hl2Backend::mixReceiverAudio(int ddc, const std::vector<float>& pcm)
     // already in flight when the key went down; Hl2RxDsp::setAudioMuted stops
     // the pipeline FILLING with our own transmission, which is what stopped the
     // tail draining out afterwards.
-    if (m_keyed)
+    //
+    // THE MONITOR EXCEPTION HAS TO BE HERE, not only at the demodulator mute.
+    // audioFrameReady() is emitted from this function and nowhere else, and it is
+    // what feeds the engine's "output" capture — so an early return here silences
+    // the capture no matter what the DSP is doing. Porting setTxAudioMonitor as a
+    // demodulator-mute change alone would leave it a no-op on this backend, and a
+    // diagnostic that reads silence draws a confident wrong conclusion from it
+    // (#4487 review, finding 1). Off by default; only a measurement turns it on.
+    if (m_keyed && !m_txMonitor)
         return;
     const Receiver* r = rx(ddc);
     if (!r || r->audioMuted)
@@ -1319,7 +1327,9 @@ RadioCapabilities Hl2Backend::capabilities() const
     // Reported from the gate, not hardcoded: the engine's TX guard keys off this,
     // so a build with transmit disabled must look RX-only from above the seam.
     c.canTransmit = m_txAllowed;
-    c.hostModulates = true;             // PC runs the modulator; no on-radio mic jacks
+    c.hostModulates = true;
+    // Same tap, same seam — see RadioCapabilities::takesTxAudioOverSeam.
+    c.takesTxAudioOverSeam = true;             // PC runs the modulator; no on-radio mic jacks
     c.txPowerMaxWatts = 0.0;            // uncalibrated; see the oracle on power counts
     c.hasTuner = false;
     c.hasAmplifier = false;
@@ -1328,6 +1338,10 @@ RadioCapabilities Hl2Backend::capabilities() const
     // connection beyond its registers — everything the operator can change
     // lives in this application, so there is nothing for a profile to name.
     c.hasProfiles = false;
+    c.hasSelectableMicInputs = false;
+
+    // EMPTY: the HL2's receive filters are the host DSP's, and continuous.
+    c.rxFilterWidthsHz = {};
     // No per-slice audio or per-pan IQ stream plane: the HL2 sends one raw IQ
     // feed and this host demodulates it.
     c.hasDaxStreams = false;
@@ -2569,10 +2583,19 @@ void Hl2Backend::setKeying(bool key)
     // EVERY receiver, not just the transmitting one. All four are behind the same
     // antenna and hear the transmission equally, so muting only the TX receiver
     // would leave three others playing our own carrier back.
+    //
+    // ...unless the TX audio monitor is on, which is the one case that wants the
+    // opposite. radiocert's sideband stage demodulates our OWN transmission —
+    // that is the only self-contained way to check the sideband convention,
+    // because the panadapter reads raw wire order and therefore agrees with the
+    // transmitter by construction. The monitor is off by default and only a
+    // measurement turns it on. Applied to every receiver for the same reason the
+    // mute is: whichever one the capture is taken from must not be silenced.
+    const bool muteWhileKeyed = key && !m_txMonitor;
     for (Receiver& r : m_rx) {
         if (r.dsp)
             QMetaObject::invokeMethod(r.dsp, "setAudioMuted", Qt::QueuedConnection,
-                Q_ARG(bool, key));
+                Q_ARG(bool, muteWhileKeyed));
     }
     // Drop whatever was already queued for the mix. On unkey these would be the
     // stalest blocks in the buffer and would play out ahead of live audio.
@@ -2704,6 +2727,23 @@ void Hl2Backend::setTxTestTone(double offsetHz, double amplitude)
     }
     QMetaObject::invokeMethod(m_metis, "setTxTestTone", Qt::QueuedConnection,
         Q_ARG(double, offsetHz), Q_ARG(double, amplitude));
+}
+
+void Hl2Backend::setTxAudioMonitor(bool on)
+{
+    m_txMonitor = on;
+    // Apply immediately if we are already keyed, so a diagnostic can enable the
+    // monitor mid-transmission rather than having to unkey and start again.
+    //
+    // EVERY receiver, matching setKeying(): the capture is taken from the mixed
+    // output, so whichever receiver contributes to it must not be silenced. The
+    // mixer's own keyed-drop honours m_txMonitor as well — see mixReceiverAudio(),
+    // which is the site that actually gates audioFrameReady().
+    for (Receiver& r : m_rx) {
+        if (r.dsp)
+            QMetaObject::invokeMethod(r.dsp, "setAudioMuted", Qt::QueuedConnection,
+                Q_ARG(bool, m_keyed && !on));
+    }
 }
 
 void Hl2Backend::setTune(bool on, int tunePowerPercent)
