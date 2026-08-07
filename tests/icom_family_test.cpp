@@ -12,6 +12,7 @@
 #include "models/RadioModel.h"
 #include "core/RadioDiscovery.h"
 #include "core/backends/icom/IcomCivBackend.h"
+#include "core/backends/icom/IcomModels.h"
 
 #include <QCoreApplication>
 
@@ -61,6 +62,67 @@ int main(int argc, char** argv)
           "no IQ on any networked Icom — a true here offers a DAX-IQ path that cannot exist");
     check(caps.clientSettingsDomains == RadioCapabilities::ClientSettingsDomains{},
           "an Icom remembers its own state, so the client restores NOTHING");
+    // The MOD Input warning demands a WLAN modulation source. Only a radio with
+    // Wi-Fi has one -- and in kModels exactly ONE model does (the IC-705, whose
+    // 0xA4 is also the default CI-V address, which is almost certainly the radio
+    // the check was written against). On every other networked Icom the warning
+    // asked for a setting the radio cannot offer: an IC-9700 set correctly to
+    // LAN on the front panel reports 0x01 and was warned at it on every single
+    // session. Pin the discriminator so the gate cannot quietly come back.
+    check(!AetherSDR::icom::modelForCivAddress(0xA2)->hasWifi,
+          "the IC-9700 has no Wi-Fi — so no WLAN MOD Input to demand");
+    check(AetherSDR::icom::modelForCivAddress(0xA4)->hasWifi,
+          "the IC-705 does — the one model the WLAN check is legitimate for");
+
+    check(!caps.radioOwnsDbmScale,
+          "the scope scale is FIXED (ScopeCalibration), not the radio's to set — "
+          "true here re-arms the noise-floor auto-adjust against a radio that "
+          "never echoes a range back, and it ratchets 24 dB/s off the scale");
+
+    // ---- the published dBm axis tracks the reference level, WITH THE RIGHT SIGN ----
+    //
+    // toDbm() maps a sample to `floorDbm + (v/max)*spanDb - referenceDb`, so
+    // raising the radio's reference level moves the decoded trace DOWN. The axis
+    // the display draws has to move the same way, or trace and scale disagree by
+    // twice the reference — invisible at the default 0, and a growing error the
+    // further the operator moves it. The first version of this emit ADDED
+    // referenceDb where toDbm subtracts it.
+    //
+    // Driven through invokeExtension("scope.reference"), which is the real
+    // operator path AND the place the range must be re-published: before this,
+    // the range was emitted once at connect and never updated, so the trace slid
+    // and the scale stayed put.
+    {
+        auto* icomBackend = dynamic_cast<icom::IcomCivBackend*>(model.backend());
+        check(icomBackend != nullptr, "an Icom backend to drive");
+        if (icomBackend) {
+            double gotMin = 0.0, gotMax = 0.0;
+            int emits = 0;
+            QObject::connect(icomBackend, &IRadioBackend::panRangeChanged,
+                             [&](const QString&, double lo, double hi) {
+                                 gotMin = lo; gotMax = hi; ++emits;
+                             });
+
+            // An UNIDENTIFIED radio falls back to kUnknown, which has no scope,
+            // so this must publish NOTHING. Pinning the quiet case matters: the
+            // emit is on the connect path, and a version that published a range
+            // for a radio with no scope would put an axis on a pane that never
+            // gets a trace.
+            icomBackend->invokeExtension(QStringLiteral("icom"),
+                                         QStringLiteral("scope.reference"), 0, 10.0);
+            check(emits == 0,
+                  "a radio with no scope publishes no dBm range");
+
+            // The SIGN itself is pinned in icom_scope_test against toDbm(),
+            // which is the relationship that matters and can be asserted
+            // without a live radio. Reaching a scope-capable m_model needs the
+            // 0x19 0x00 reply over a real serial stream, so the emitted VALUE
+            // is exercised on hardware rather than faked here — recorded as a
+            // gap rather than papered over with a mock that proves nothing.
+            (void)gotMin;
+            (void)gotMax;
+        }
+    }
 
     // A pure seam backend owns no RadioConnection and no PanadapterStream, so
     // setupBackend()'s dynamic_cast chain must SKIP it — the same shape as HL2.

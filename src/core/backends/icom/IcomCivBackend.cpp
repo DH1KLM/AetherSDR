@@ -95,6 +95,13 @@ RadioCapabilities IcomCivBackend::capabilities() const
     c.canTransmit = m.hasTransmit;
     c.txPowerMaxWatts = m.txPowerMaxWatts;
 
+    // The scope scale is OURS, not the radio's: it comes from ScopeCalibration
+    // (floor/span, shifted by the radio's own reference level), and there is no
+    // CI-V command to set a display dBm range — this backend has no consumer for
+    // one. Leaving this true made the noise-floor auto-adjust chase an echo that
+    // can never arrive; see RadioCapabilities::radioOwnsDbmScale.
+    c.radioOwnsDbmScale = false;
+
     // The RADIO modulates. Contrast the HL2, where the host does — this drives
     // the mic-source list and the PC-audio lock, so getting it wrong opens the
     // host microphone on a radio that will never use it.
@@ -154,6 +161,31 @@ RadioCapabilities IcomCivBackend::capabilities() const
 }
 
 void IcomCivBackend::publishCapabilities() { emit capabilitiesChanged(); }
+
+void IcomCivBackend::publishScopeDbmRange()
+{
+    // kUnknown has hasScope=false, so this is a quiet no-op on a backend whose
+    // radio has not identified itself yet — which is correct: there is no scope
+    // to draw an axis for, and the connect path publishes once the model is
+    // known. (m_model is never null; the constructor seeds it with
+    // unknownModel().)
+    if (!m_model->hasScope)
+        return;
+
+    // THE AXIS MUST MATCH THE DECODER, INCLUDING THE SIGN.
+    //
+    // toDbm() maps a sample to `floorDbm + (v/max)*spanDb - referenceDb`, so
+    // raising the radio's reference level moves the decoded trace DOWN in dBm.
+    // The axis has to move the same way. An earlier version of this added
+    // referenceDb here while toDbm subtracted it, which left the scale wrong by
+    // 2x the reference whenever it was non-zero — invisible at the default 0,
+    // and a growing error the further the operator moved it.
+    //
+    // Derived from the same ScopeCalibration toDbm() uses rather than repeating
+    // the arithmetic, so the two cannot drift apart again.
+    const double floorDbm = m_scopeCal.floorDbm - m_scopeCal.referenceDb;
+    emit panRangeChanged(panId(), floorDbm, floorDbm + m_scopeCal.spanDb);
+}
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -370,6 +402,35 @@ void IcomCivBackend::checkModInput()
     if (m_dataOffModInput < 0 || m_dataModInput < 0)
         return;
 
+    // ONLY a radio with Wi-Fi has a WLAN modulation source to select.
+    //
+    // The 1A 05 item numbers (118/119) and the value table below are read from
+    // ONE model's CI-V Reference Guide and sent to every Icom, but each model
+    // numbers its own SET menu and its own enum. On an IC-9700 — LAN only, no
+    // Wi-Fi — both items were set correctly on the front panel and the radio
+    // answered 0x01, which this table calls "USB". So either 118/119 are not
+    // MOD Input on that model, or 0x01 IS its network source; either way
+    // demanding 0x03 asks for a setting the radio cannot offer, and the warning
+    // could never be satisfied by any front-panel action.
+    //
+    // Reported by an operator with the radio in front of them (2026-08-05): set
+    // to LAN on both, warned anyway, every session. A check that fires on a
+    // correctly configured radio is worse than no check — it is the one the
+    // operator learns to scroll past, and it trains them past the real ones.
+    //
+    // Staying silent here loses nothing that was working: the warning was
+    // WRONG on this radio, not merely noisy. Re-enable per model once the
+    // mapping is confirmed against that model's own guide (the same bar
+    // IcomModel::verified sets for the rest of the table).
+    // Note this also silences the check on an UNIDENTIFIED radio, since
+    // kUnknown carries hasWifi=false. That is the right outcome, though for a
+    // second reason: kUnknown is also hasTransmit=false, and a radio this
+    // client will not let key has no modulation path to warn about. Warning
+    // there would be advice about a transmission that cannot happen, decoded
+    // through a value table not known to apply to that model.
+    if (!m_model->hasWifi)
+        return;
+
     const bool voiceOk = m_dataOffModInput == setting::kModWlan;
     const bool dataOk  = m_dataModInput == setting::kModWlan;
     if (voiceOk && dataOk)
@@ -393,10 +454,16 @@ void IcomCivBackend::checkModInput()
         wrong << QStringLiteral("data modes take modulation from %1")
                      .arg(name(m_dataModInput));
 
-    // A connectionError rather than a log line: this silently costs the
-    // operator every transmission, and it is fixable in about ten seconds once
-    // they know which menu to open.
-    emit connectionError(
+    // A configurationWarning, NOT a connectionError: this is advice about a
+    // radio that is otherwise working perfectly. connectionError is fatal to
+    // every consumer — RadioModel starts its reconnect timer on it — so raising
+    // it here dropped the session ~4 ms after the CI-V stream came live and
+    // reconnected into the same check forever. The operator saw a radio that
+    // would not stay connected and a message about a menu setting, with no way
+    // to tell that the message WAS the disconnect.
+    //
+    // It still reaches the operator; it just no longer costs them the session.
+    emit configurationWarning(
         QStringLiteral("The radio is not listening to network audio — %1. "
                        "AetherSDR's transmit audio will be ignored and the radio "
                        "will key at zero output. On the radio: MENU > SET > "
@@ -468,6 +535,28 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
                 if (!widths.empty() && m_model->hasScope)
                     emit panBandwidthLimitsChanged(panId(), widths.front() / 1e6,
                                                    widths.back() / 1e6);
+
+                // ⛔ Publish the Y axis too, or the display invents one and
+                // never stops. Without a range from the backend the pan
+                // auto-ranges from its own noise-floor estimate, and because
+                // MainWindow refuses anything below -180 dBm
+                // (dbmRangeLooksPlausible) the radio never adopts the value —
+                // so the estimate is never corrected and drifts further every
+                // cycle. Observed on a live IC-9700 2026-08-05: a linear
+                // runaway of -24 dB/s, 84 rejected `display pan set` commands
+                // in 90 s, min falling -202 -> -898 dBm and still going. The
+                // operator sees the waterfall reset each time the drift crosses
+                // the guard, and the radio menu stops responding behind the
+                // command flood.
+                //
+                // The numbers are m_scopeCal's own — ESTIMATES, as its header
+                // says at length, not a measurement. Publishing an estimate is
+                // right here: the axis is anchored and stable, and the estimate
+                // is already the one toDbm() decodes with, so the display and
+                // the decoder agree. An uncalibrated-but-consistent axis beats
+                // a self-referential one.
+                publishScopeDbmRange();
+
                 publishMeterDefs();
                 publishCapabilities();
             }
@@ -1243,6 +1332,12 @@ void IcomCivBackend::invokeExtension(const QString& ns, const QString& verb, qui
         sendUserCommand(cmdScopeReference(m_session ? m_session->civAddress() : 0xA4,
                                           arg.toDouble()));
         m_scopeCal.referenceDb = arg.toDouble();
+        // The reference level shifts the whole trace, so the AXIS has to move
+        // with it. Without this the range published at connect goes stale the
+        // moment the operator changes the reference — the trace slides and the
+        // scale it is drawn against does not, which reads as a calibration
+        // error rather than a missing update.
+        publishScopeDbmRange();
         emit extensionResult(requestId, true);
         return;
     }
@@ -1412,8 +1507,14 @@ IRadioBackend::HealthSnapshot IcomCivBackend::healthSnapshot() const
             default:                  return QStringLiteral("?");
             }
         };
-        const bool ok = m_dataOffModInput == setting::kModWlan
-                        && m_dataModInput == setting::kModWlan;
+        // The verdict, like the warning in checkModInput(), is only meaningful
+        // on a radio that HAS a WLAN source. Elsewhere show the raw values and
+        // pass no judgement: an IC-9700 set correctly to LAN reads back 0x01
+        // here, and appending "NOT WLAN" to that is telling the operator their
+        // working radio is misconfigured.
+        const bool ok = !m_model->hasWifi
+                        || (m_dataOffModInput == setting::kModWlan
+                            && m_dataModInput == setting::kModWlan);
         h.values.insert(QStringLiteral("modinput"),
                         QStringLiteral("%1 voice / %2 data%3")
                             .arg(name(m_dataOffModInput), name(m_dataModInput),
