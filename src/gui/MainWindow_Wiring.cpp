@@ -4610,6 +4610,22 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     // ── Slice marker clicks ──────────────────────────────────────────────
     connect(sw, &SpectrumWidget::sliceClicked,
             this, &MainWindow::setActiveSlice);
+    connect(sw, &SpectrumWidget::offScreenSliceCenterRequested,
+            this, [this](int sliceId) {
+        SliceModel* slice = m_radioModel.slice(sliceId);
+        if (!slice) {
+            return;
+        }
+        const QString panId = slice->panId();
+        const int lockedSliceId = centerLockSliceForPan(panId);
+        const double targetMhz = slice->frequency();
+        setActiveSliceInternal(sliceId, false);
+        if (lockedSliceId < 0) {
+            centerActiveSliceInPanadapter(true, targetMhz);
+        } else if (lockedSliceId == sliceId) {
+            recenterCenterLockForPan(panId);
+        }
+    });
     connect(sw, &SpectrumWidget::sliceTxRequested,
             this, [this](int sliceId) {
         if (auto* s = m_radioModel.slice(sliceId))
