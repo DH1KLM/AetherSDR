@@ -21,6 +21,7 @@
 
 #include "AetherDspWidget.h"
 #include "BandRecallSliceSelectionPolicy.h"
+#include "models/BandPlanManager.h"
 #include "DisplayStatusGate.h"       // #4261 adaptive-throttle echo gate
 #include "Ax25HfPacketDecodeDialog.h"
 #include "AppletPanel.h"
@@ -4304,6 +4305,35 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         const QString panId = resolveClickedPanId();
         if (!panId.isEmpty())
             m_radioModel.addSliceOnPan(panId, mhz);
+    });
+    connect(sw, &SpectrumWidget::kiwiSpotClicked,
+            this, [this, resolveSpectrumTuneTarget, resolveClickedPanId](double mhz, const QString& mode, int loHz, int hiHz) {
+        SliceModel* target = resolveSpectrumTuneTarget();
+        if (!target) {
+            // Empty pan → spawn a slice on it at the spot frequency, matching
+            // the frequencyClicked path. Do NOT fall back to activeSlice():
+            // that slice lives on a different pan (#3086). slice create is
+            // async, so the mode/filter below cannot target the new slice.
+            const QString panId = resolveClickedPanId();
+            if (!panId.isEmpty())
+                m_radioModel.addSliceOnPan(panId, mhz);
+            return;
+        }
+        queueActiveSliceForSpectrumTarget(target->sliceId());
+        applyTuneRequest(target, mhz, TuneIntent::AbsoluteJump, "kiwi-spot-click");
+
+        const bool autoSwitchMode =
+            AppSettings::instance().value("SpotAutoSwitchMode", "True").toString() == "True";
+        if (autoSwitchMode) {
+            const QString mappedMode = BandPlanManager::normalizeSpotMode(mode);
+            if (!mappedMode.isEmpty()) {
+                target->setMode(mappedMode);
+            }
+        }
+
+        if (loHz != 0 || hiHz != 0) {
+            target->setFilterWidth(loHz, hiHz);
+        }
     });
     connect(sw, &SpectrumWidget::incrementalTuneRequested,
             this, [this, resolveSpectrumTuneTarget](double mhz) {

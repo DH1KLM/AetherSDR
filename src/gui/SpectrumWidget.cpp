@@ -2446,6 +2446,7 @@ void SpectrumWidget::loadSettings()
         m_bandPlanFontSize = s.value("BandPlanFontSize", "6").toInt();
     }
     m_bandPlanShowSpots = s.value("BandPlanShowSpots", "True").toString() == "True";
+    m_showKiwiDxSpots = s.value("ShowKiwiDxSpots", "False").toString() == "True";
     m_fftHeatMap     = s.value(settingsKey("DisplayFftHeatMap"), "True").toString() == "True";
     m_showGrid       = s.value(settingsKey("DisplayShowGrid"), "True").toString() == "True";
     m_freqGridSpacingKhz = s.value(settingsKey("DisplayFreqGridSpacing"), "0").toInt();
@@ -2679,8 +2680,13 @@ void SpectrumWidget::applyActiveVfoZOrder()
 
 void SpectrumWidget::setBandPlanManager(BandPlanManager* mgr) {
     m_bandPlanMgr = mgr;
-    if (mgr)
+    if (mgr) {
         connect(mgr, &BandPlanManager::planChanged, this, QOverload<>::of(&QWidget::update));
+        connect(mgr, &BandPlanManager::kiwiDxSpotsChanged, this, [this]() {
+            markOverlayDirty();
+            update();
+        });
+    }
 }
 
 void SpectrumWidget::setFftAverage(int frames) {
@@ -9382,6 +9388,24 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         }
     }
 
+    // Click on KiwiSDR DX Community spot marker
+    const int bandH = m_bandPlanFontSize + 4;
+    const int bandY = specH - bandH + 1;
+    if (m_showKiwiDxSpots && m_bandPlanFontSize > 0 && ev->button() == Qt::LeftButton && y >= bandY && y <= specH) {
+        const int mx = static_cast<int>(ev->position().x());
+        const auto& kiwiSpots = m_bandPlanMgr ? m_bandPlanMgr->kiwiDxSpots()
+                                               : QVector<BandPlanManager::KiwiDxSpot>{};
+        for (const auto& spot : kiwiSpots) {
+            const int sx = mhzToX(spot.freqMhz);
+            if (std::abs(mx - sx) <= 5) {
+                emit kiwiSpotClicked(spot.freqMhz, spot.mode, spot.loOffsetHz, spot.hiOffsetHz);
+                m_spotClickConsumed = true;
+                ev->accept();
+                return;
+            }
+        }
+    }
+
     // Click on a spot label → tune to that frequency
     if (m_showSpots && ev->button() == Qt::LeftButton) {
         const QPoint pos(static_cast<int>(ev->position().x()), y);
@@ -10813,6 +10837,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
     }
     if (y >= bandBarTop && y <= specH2) {
         const int mx2 = static_cast<int>(ev->position().x());
+        // Check standard band plan spots first (DX Cluster / Memories)
         const auto& spots = m_bandPlanMgr ? m_bandPlanMgr->spots() : QVector<BandPlanManager::Spot>{};
         for (const auto& spot : spots) {
             const int sx = mhzToX(spot.freqMhz);
@@ -10824,6 +10849,33 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
                     this,
                     QRect(sx - 5, bandBarTop, 11, specH2 - bandBarTop));
                 return;
+            }
+        }
+        // Fall back to KiwiSDR DX spots if no standard spot matched
+        if (m_showKiwiDxSpots && m_bandPlanFontSize > 0 && m_bandPlanMgr) {
+            for (const auto& spot : m_bandPlanMgr->kiwiDxSpots()) {
+                const int sx = mhzToX(spot.freqMhz);
+                if (std::abs(mx2 - sx) <= 5) {
+                    QString tip = QString("<b>%1 kHz — %2</b>")
+                        .arg(spot.freqMhz * 1000.0, 0, 'f', 2)
+                        .arg(spot.name.toHtmlEscaped());
+                    if (!spot.mode.isEmpty()) {
+                        tip += QString("<br><b>Mode:</b> %1").arg(spot.mode.toHtmlEscaped());
+                    }
+                    if (spot.loOffsetHz != 0 || spot.hiOffsetHz != 0) {
+                        const int bw = std::abs(spot.hiOffsetHz - spot.loOffsetHz);
+                        tip += QString("<br><b>Passband:</b> %1 .. %2 Hz (BW: %3 Hz)")
+                            .arg(spot.loOffsetHz).arg(spot.hiOffsetHz).arg(bw);
+                    }
+                    if (!spot.notes.isEmpty()) {
+                        QString notesHtml = spot.notes.toHtmlEscaped();
+                        notesHtml.replace("\n", "<br>");
+                        tip += QString("<br><b>Notes:</b> %1").arg(notesHtml);
+                    }
+                    QToolTip::showText(ev->globalPosition().toPoint() + QPoint(0, 20),
+                        tip, this, QRect(sx - 5, bandBarTop, 11, specH2 - bandBarTop));
+                    return;
+                }
             }
         }
         QToolTip::hideText();
@@ -15491,6 +15543,31 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
             if (spot.freqMhz < startMhz || spot.freqMhz > endMhz) continue;
             const int sx = mhzToX(spot.freqMhz);
             p.drawEllipse(QPoint(sx, bandY + bandH / 2), 4, 4);
+        }
+        p.setRenderHint(QPainter::Antialiasing, false);
+    }
+
+    // Draw KiwiSDR DX Community spots (cyan diamonds)
+    if (m_showKiwiDxSpots) {
+        const auto& kiwiSpots = m_bandPlanMgr ? m_bandPlanMgr->kiwiDxSpots()
+                                               : QVector<BandPlanManager::KiwiDxSpot>{};
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const QColor kiwiColor = AetherSDR::ThemeManager::instance().color("color.accent.bright");
+        p.setPen(QPen(kiwiColor, 1));
+        QColor fill = kiwiColor;
+        fill.setAlpha(220);
+        p.setBrush(fill);
+        const int cy = bandY + bandH / 2;
+        for (const auto& spot : kiwiSpots) {
+            if (spot.freqMhz < startMhz || spot.freqMhz > endMhz) continue;
+            const int sx = mhzToX(spot.freqMhz);
+            const QPoint points[4] = {
+                QPoint(sx, cy - 4),
+                QPoint(sx + 4, cy),
+                QPoint(sx, cy + 4),
+                QPoint(sx - 4, cy)
+            };
+            p.drawPolygon(points, 4);
         }
         p.setRenderHint(QPainter::Antialiasing, false);
     }
