@@ -3018,7 +3018,7 @@ lands.
 The complete registry, generated from the `add(...)` table in `AutomationServer.cpp` by `tools/gen_bridge_docs.py`. CI fails if this drifts from the code.
 
 <!-- BEGIN GENERATED VERB TABLE (tools/gen_bridge_docs.py) -->
-<!-- Do not edit by hand — run tools/gen_bridge_docs.py. 61 verbs. -->
+<!-- Do not edit by hand — run tools/gen_bridge_docs.py. 62 verbs. -->
 
 | Verb | Aliases | Description |
 |---|---|---|
@@ -3041,7 +3041,7 @@ The complete registry, generated from the `add(...)` table in `AutomationServer.
 | `hitTest` | `hittest` | hitTest <target> [x y] — read-only widget-owner probe |
 | `clickAt` | `clickat` | clickAt <x> <y> \| clickAt <target> <x> <y> — TX-guarded coordinate click |
 | `invoke` | — | invoke <target> <action> [value…] — drive a control (TX-guarded) |
-| `get` | — | get <model> [selector] [property] — live model snapshot |
+| `get` | — | get <model> [selector] [property] — live model snapshot; get eqstats [selector] [reset] reports Client EQ paint/cache counters |
 | `connect` | — | connect <list\|show\|hide\|local\|ip\|wait> [args] |
 | `disconnect` | — | disconnect from the radio |
 | `txtest` | — | txtest <twotone\|off> — TX-gated test signal |
@@ -3050,6 +3050,7 @@ The complete registry, generated from the `add(...)` table in `AutomationServer.
 | `gps` | — | gps <fixture\|clearfixture> [6000\|8000] — disconnected GPS test data |
 | `waveform` | — | waveform <start\|stop\|unregister\|resync> [args] — digital-voice service |
 | `tune` | — | tune <mhz> [sliceId] — set a slice frequency (default: the active slice) |
+| `freqcal` | — | freqcal [get\|set <ppb>\|from_vfo <reference_mhz>\|reset] — manual frequency calibration (radios that cannot calibrate themselves) |
 | `targettune` | — | targettune <mhz> — absolute tune through band-stack preselection |
 | `memory` | — | memory activate <index> [panId] — recall a radio memory |
 | `cwx` | — | cwx <send\|speed\|stop> [args] — CWX keyer (send is TX-gated) |
