@@ -123,6 +123,7 @@ class SpectrumWidget;
 class SpectrumOverlayMenu;
 class IRadioBackend;
 class PanadapterApplet;
+class MiniPanApplet;
 class PanadapterStack;
 class AdaptiveFilterEngine;
 class AppletPanel;
@@ -444,6 +445,17 @@ private:
         RadioSliceSelectionSource source);
     void queueActiveSliceForSpectrumTarget(int sliceId);
     void updateFilterLimitsForMode(const QString& mode);
+
+    // Mini-pan glue. The applet is a VIEW: it creates no radio objects, it just
+    // re-slices the active slice's pan down to a +/-5 or +/-10 kHz window. The
+    // applet's own visibility drives m_miniPanFeedWanted — see the
+    // MiniPanApplet::feedWanted wiring in MainWindow_Session.cpp.
+    MiniPanApplet* miniPanApplet() const;   // null until the applet panel is built
+    void refreshMiniPanFollow();   // rebind readout/passband to the active slice
+    void teardownMiniPanFeed();    // unbind + blank the trace
+    // Re-slice one main-pan FFT frame into the mini-pan's window.
+    void feedMiniPanFromPanFrame(const PanadapterModel* pan,
+                                 const QVector<float>& bins);
     void centerActiveSliceInPanadapter(bool forceRadioCenter, double centerMhz = -1.0);
     void pushSliceOverlay(SliceModel* s);
     bool reattachSliceVisualsToPanadapter(SliceModel* s);
@@ -1205,6 +1217,9 @@ private:
     ::QSizeGrip*      m_sizeGrip{nullptr};
     QSplitter*        m_splitter{nullptr};
     PanadapterStack*  m_panStack{nullptr};
+    QMetaObject::Connection m_miniPanFreqConn;    // active-slice freq → mini-pan centre
+    QMetaObject::Connection m_miniPanFiltConn;    // active-slice filter → mini-pan passband
+    bool m_miniPanFeedWanted{false};              // applet visible → consume frames
     QPointer<PanadapterApplet> m_panApplet;  // backward compat alias to active applet
     QPointer<PanadapterApplet> m_cwDecoderApplet;
     QPointer<PanadapterApplet> m_rttyDecoderApplet;

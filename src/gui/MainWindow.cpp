@@ -32,6 +32,9 @@
 #include "CopyAssistController.h"
 #endif
 #include "PanadapterStack.h"
+#include "gui/MiniPanApplet.h"
+#include "gui/MiniPanScope.h"
+#include "gui/MiniPanReslice.h"
 #include "PanLayoutDialog.h"
 #include "core/RadioMessageTypes.h"   // MessageSeverity for onRadioMessage
 #include "core/LogManager.h"
@@ -7461,6 +7464,9 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
     const int prevId = m_activeSliceId;
     m_activeSliceId = sliceId;
 
+    // Keep the mini-pan centred on the active VFO (rebind to the new slice).
+    refreshMiniPanFollow();
+
     // Send "slice set N active=1" only when switching to a different slice
     // (matches SmartSDR pcap — sent on VFO flag click, not on every tune).
     // Guard: don't send if triggered by the radio's own activeChanged echo
@@ -7662,6 +7668,118 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
 #endif
 
     qDebug() << "MainWindow: active slice set to" << sliceId;
+}
+
+// ── Mini-pan glue ─────────────────────────────────────────────────────────────
+// The mini-pan applet is pure presentation, and it is a VIEW — it creates no
+// radio objects at all. It re-slices the FFT bins of the pan the active slice
+// already lives on down to a +/-5 or +/-10 kHz window around that slice.
+//
+// That is the whole architecture: no dedicated pan (no slot consumed, nothing
+// to leak on quit, no reconnect zombie, no active-pan hijack) and no slice
+// (the FLEX auto-creates one on every pan create, which is where the phantom
+// slice came from). Resolution is the main pan's bin width, so it tracks
+// whatever the operator has the main pan zoomed to. (#4562)
+
+MiniPanApplet* MainWindow::miniPanApplet() const
+{
+    return m_appletPanel ? m_appletPanel->miniPanApplet() : nullptr;
+}
+
+void MainWindow::refreshMiniPanFollow()
+{
+    disconnect(m_miniPanFreqConn);
+    disconnect(m_miniPanFiltConn);
+    auto* applet = miniPanApplet();
+    if (!applet || !m_miniPanFeedWanted) return;
+
+    auto* s = activeSlice();
+    if (!s) {
+        applet->setCenterMhz(0.0);
+        applet->setPassbandHz(0, 0);
+        applet->scope()->updateSpectrum(QVector<float>{});
+        return;
+    }
+    // Everything here is local: the readout and the passband shading are drawn
+    // from model state, and the trace is re-sliced from bins the main pan is
+    // already streaming. Nothing is sent to the radio, so tuning needs no
+    // debounce -- the old "display pan set ... center=" push is gone with the
+    // dedicated pan.
+    m_miniPanFreqConn = connect(s, &SliceModel::frequencyChanged, this,
+                                [this](double mhz) {
+        if (auto* a = miniPanApplet()) a->setCenterMhz(mhz);
+    });
+    m_miniPanFiltConn = connect(s, &SliceModel::filterChanged, this,
+                                [this]() {
+        if (auto* cur = activeSlice(); cur)
+            if (auto* a = miniPanApplet())
+                a->setPassbandHz(cur->filterLow(), cur->filterHigh());
+    });
+    applet->setCenterMhz(s->frequency());
+    applet->setPassbandHz(s->filterLow(), s->filterHigh());
+}
+
+void MainWindow::teardownMiniPanFeed()
+{
+    disconnect(m_miniPanFreqConn);
+    disconnect(m_miniPanFiltConn);
+    if (auto* a = miniPanApplet())
+        a->scope()->updateSpectrum(QVector<float>{});
+}
+
+// Re-slice one main-pan FFT frame down to the mini-pan's window. The mapping
+// itself lives in MiniPanReslice.h so it can be unit-tested without a radio.
+void MainWindow::feedMiniPanFromPanFrame(const PanadapterModel* pan,
+                                         const QVector<float>& bins)
+{
+    auto* applet = miniPanApplet();
+    if (!applet || !pan || bins.size() < 2) return;
+    auto* s = activeSlice();
+    if (!s) return;
+
+    const double panBw = pan->bandwidthMhz();
+    if (panBw <= 0.0) return;
+
+    const double span = applet->spanMhz();
+    // Floor for samples outside the pan: the frame's own minimum, so the gap
+    // sits at the bottom of the view instead of inventing a level.
+    const float floorDbm = *std::min_element(bins.cbegin(), bins.cend());
+
+    // Mirror the source pan's display settings so the mini-pan reads as a
+    // magnifier on the main trace rather than a differently-styled second
+    // opinion. Pulled per frame rather than wired signal-by-signal: the values
+    // are plain member reads, the setters are change-gated, and pulling cannot
+    // drift out of sync or miss a control we forgot to connect.
+    //
+    // FFT AVG and FFT FPS need nothing here — both are radio-side pan
+    // properties ("display pan set … average=", requestPanDisplayRates), so
+    // re-slicing this pan's frames already carries them.
+    auto* scope = applet->scope();
+    if (auto* sw = m_panStack ? m_panStack->spectrum(pan->panId()) : nullptr) {
+        // The vertical window is the WIDGET's refLevel/dynamicRange, not the
+        // pan's min_dbm/max_dbm. FFT Floor slides refLevel client-side
+        // (applyNoiseFloorAutoAdjust) and only pushes a damped, thresholded
+        // min_dbm/max_dbm to the radio afterwards — so mirroring the model
+        // tracked the radio's lagging echo instead of the scale the main pan is
+        // actually drawing with, and the floor slider appeared to do nothing
+        // here. refLevel is the top of the display; the range hangs below it.
+        scope->setDbmRange(sw->refLevel() - sw->dynamicRange(), sw->refLevel());
+        scope->setTraceAppearance(sw->fftLineColor(), sw->fftFillColor(),
+                                  sw->fftFillAlpha(), sw->fftLineWidth());
+        scope->setHeatMap(sw->fftHeatMap());
+        scope->setShowGrid(sw->showGrid());
+    } else {
+        // No applet for this pan (it is not in the main stack): fall back to the
+        // radio-reported range, which is the best available answer.
+        scope->setDbmRange(pan->minDbm(), pan->maxDbm());
+    }
+
+    scope->updateSpectrum(
+        AetherSDR::MiniPan::resliceWindow(
+            bins,
+            pan->centerMhz() - panBw / 2.0, panBw,
+            s->frequency() - span / 2.0, span,
+            AetherSDR::MiniPan::kResliceOutputBins, floorDbm));
 }
 
 void MainWindow::updateFilterLimitsForMode(const QString& mode)

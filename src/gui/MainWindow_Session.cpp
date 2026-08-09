@@ -50,6 +50,9 @@
 #include "DaxIqApplet.h"
 #include "TciApplet.h"
 #include "PanadapterStack.h"
+#include "gui/MiniPanApplet.h"
+#include "gui/MiniPanScope.h"
+#include "models/PanadapterModel.h"
 #include "SMeterWidget.h"
 #include "core/ThemeManager.h"
 #include "SpectrumWidget.h"
@@ -1271,6 +1274,62 @@ void MainWindow::wirePanLifecycle()
     // ── Adaptive RX filter — drive the fit engine off the same FFT frames (RFC #3878)
     connect(&m_radioModel, &RadioModel::panFeedSpectrumReady,
             this, &MainWindow::onSpectrumReadyForAdaptiveFilter);
+
+    // ── Mini-pan — a VIEW of the pan the active slice already lives on ───────
+    // No dedicated pan, no slice: the applet re-slices this frame down to its
+    // +/-5 or +/-10 kHz window. Gated on the applet being visible so a hidden
+    // tile costs nothing per frame.
+    connect(&m_radioModel, &RadioModel::panFeedSpectrumReady, this,
+            [this](quint32 streamId, const QVector<float>& bins, qint64) {
+        // Same guard the other consumers of this signal open with:
+        // preparePanadapterUiForShutdown() only disconnects the raw
+        // PanadapterStream, so RadioModel-re-emitted frames still arrive after
+        // the widgets have been prepared for teardown.
+        if (m_shuttingDown || !m_panStack) return;
+        if (!m_miniPanFeedWanted || !miniPanApplet()) return;
+        auto* s = activeSlice();
+        if (!s) return;
+        // The slice's OWN pan, not the active pan -- with several pans open the
+        // followed slice may not live on the one the main stack has focused,
+        // and re-slicing the wrong pan would show a window at the right offset
+        // in the wrong part of the band.
+        auto* pan = m_radioModel.panadapter(s->panId());
+        if (!pan || pan->panStreamId() != streamId) return;
+        feedMiniPanFromPanFrame(pan, bins);
+    });
+
+    // ── Mini-pan applet intents ──────────────────────────────────────────────
+    // The applet's visibility is the feature's on/off switch: shown by the tray
+    // button (the only entry point that exists in Minimal Mode), by a float, or
+    // by a layout apply; hidden by the tray button or the container's close.
+    // Nothing radio-side is created or freed -- it only starts and stops
+    // consuming frames the main pan is already sending.
+    if (auto* mini = miniPanApplet()) {
+        connect(mini, &MiniPanApplet::feedWanted, this, [this](bool wanted) {
+            if (wanted == m_miniPanFeedWanted) return;
+            m_miniPanFeedWanted = wanted;
+            if (wanted) refreshMiniPanFollow();   // bind readout/passband to the VFO
+            else        teardownMiniPanFeed();    // unbind + blank the trace
+        });
+        // Span change is purely a display decision now -- the next frame is
+        // re-sliced to the new window. Repaint the labels immediately rather
+        // than waiting for it.
+        connect(mini, &MiniPanApplet::spanChanged, this,
+                [this](double) { refreshMiniPanFollow(); });
+
+        // The show edge may ALREADY have been spent. A mini-pan restored as
+        // FLOATING is shown by ContainerManager::restoreState() during
+        // buildUI(), which runs before this wiring: measured on an offscreen
+        // restore, showEvent fired with receivers=0 and this connect ran 17 ms
+        // later with the applet already visible — so no further showEvent was
+        // ever coming, and the float sat on a blank trace for the whole
+        // session. That is the feature's headline use case. Seed from the
+        // current state rather than waiting for an edge that has passed.
+        if (mini->isVisible() && !m_miniPanFeedWanted) {
+            m_miniPanFeedWanted = true;
+            refreshMiniPanFollow();
+        }
+    }
 
     connect(&m_radioModel, &RadioModel::panFeedWaterfallRowReady,
             this, [this, profileLoadFrameReady](quint32 streamId,

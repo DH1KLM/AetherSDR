@@ -684,6 +684,7 @@ set(CORE_SOURCES
     src/core/WwvbDecoder.cpp
     src/core/AetherClockEngine.cpp
     src/core/AetherClockSettings.cpp
+    src/core/MiniPanSettings.cpp
     src/core/PacketLossConcealment.cpp
     src/core/PerfTelemetry.cpp
     src/core/MemoryTelemetry.cpp
@@ -948,6 +949,8 @@ set(GUI_SOURCES
     src/gui/ProfileImportExportDialog.cpp
     src/gui/TxBandDialog.cpp
     src/gui/PanadapterApplet.cpp
+    src/gui/MiniPanScope.cpp
+    src/gui/MiniPanApplet.cpp
     src/gui/RangeSlider.cpp
     src/gui/PanadapterStack.cpp
     src/gui/PanLayoutDialog.cpp
@@ -5782,6 +5785,33 @@ add_test(NAME container_widget_test COMMAND container_widget_test)
 set_tests_properties(container_widget_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Mini-pan applet: scope render API, feed lifecycle driven by show/hide, and
+# the Principle V single-object span persistence.  Offscreen.
+add_executable(mini_pan_widget_test
+    tests/mini_pan_widget_test.cpp
+    src/gui/MiniPanScope.cpp
+    src/gui/MiniPanApplet.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+    ${AETHER_SETTINGS_SOURCES}
+    src/core/MiniPanSettings.cpp
+    src/core/ThemeManager.cpp
+    # ThemeManager.cpp calls seedGeneratedDefaults(), which lives ONLY in the
+    # generated seed TU — every other ThemeManager consumer in this file pairs
+    # the two, and omitting it is a link error, not a compile one.
+    src/core/ThemeSeedGenerated.cpp
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
+)
+target_include_directories(mini_pan_widget_test PRIVATE src)
+target_link_libraries(mini_pan_widget_test PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
+)
+set_target_properties(mini_pan_widget_test PROPERTIES AUTOMOC ON)
+add_test(NAME mini_pan_widget_test COMMAND mini_pan_widget_test)
+set_tests_properties(mini_pan_widget_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # PC-audio lock contract for host-modulating backends (HL2) — needs
 # QApplication + Widgets.
 add_executable(hl2_pc_audio_lock_test
@@ -6060,6 +6090,7 @@ set(AETHER_SETTINGS_CONSUMERS
     amp_applet_test
     container_manager_test
     container_nesting_test
+    mini_pan_widget_test
     log_manager_filter_rules_test
     bandplan_voice_labels_test
 )
