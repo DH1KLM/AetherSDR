@@ -362,7 +362,7 @@ Currently in flight:
   coverage, panadapter parity with the Flex path, and hardening the raw-IQ DSP
   chain.
 - **Networked Icom** — an **early** CI-V/RS-BA1 backend on the same seam,
-  brought up on the IC-705 and IC-9700. Remaining work is transmit confirmation
+  brought up on the IC-705 and IC-7300. Remaining work is transmit confirmation
   beyond the 705, per-model SET-menu mapping, and the rest of the control
   surface.
 - **AppSettings nested-JSON refactor** — the storage layer moved to SQLite with
