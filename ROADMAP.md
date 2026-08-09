@@ -29,7 +29,7 @@ For *what shipped*, see [`CHANGELOG.md`](CHANGELOG.md).
 - **Icom networked radios — early** — `IcomCIV` speaks CI-V inside the RS-BA1
   UDP transport, brought up in v26.8.2 against a live **IC-705** (RX, scope,
   transmit, and FT8 both decoding and spotting on PSK Reporter) and an
-  **IC-9700** (RX, scope and stability; transmit unverified). Only the IC-705
+  **IC-7300** (RX, scope and stability; transmit unverified). Only the IC-705
   and IC-7300MK2 are `verified` against their own CI-V guides; an unknown model
   gets no scope and no transmit rather than optimistic defaults. Remaining:
   transmit confirmation beyond the 705, the per-model SET-menu item numbers the
