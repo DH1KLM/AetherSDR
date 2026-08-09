@@ -30,6 +30,7 @@
 #include "core/TgxlConnection.h"
 #include "core/PgxlConnection.h"
 #include "core/AcomConnection.h"
+#include "core/SpeConnection.h"
 #include "core/WanConnection.h"   // PinnedCertInfo + WanCertCache (#2951)
 #include "core/CallsignLookupService.h"
 #include "core/QrzLookupSettings.h"
@@ -634,12 +635,13 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
                                    AntennaGeniusModel* ag,
                                    KiwiSdrManager* kiwiSdrManager,
                                    AcomConnection* acom,
+                                   SpeConnection* spe,
                                    QWidget* parent)
     : PersistentDialog(QStringLiteral("Radio Setup"),
                        QStringLiteral("RadioSetupDialogGeometry"), parent),
       m_model(model), m_audio(audio),
       m_tgxl(tgxl), m_pgxl(pgxl), m_ag(ag),
-      m_kiwiSdrManager(kiwiSdrManager), m_acom(acom)
+      m_kiwiSdrManager(kiwiSdrManager), m_acom(acom), m_spe(spe)
 {
     theme::setContainer(this, QStringLiteral("dialog/radioSetup"));
     setMinimumSize(960, 680);
@@ -7551,6 +7553,218 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
         });
     }
 
+    // Row 6: SPE Expert amplifier — serial OR ser2net network, structurally
+    // identical to the ACOM row above. See
+    // docs/architecture/spe-expert-amplifier-design.md for the design note.
+    if (m_spe) {
+        const int row = 6;
+        auto& speTheme = AetherSDR::ThemeManager::instance();
+        // Themed (token) styles rather than the ACOM row's raw-hex ones —
+        // the hardcoded-colour ratchet gates new hex references, and the
+        // tokens re-resolve on theme change for free.
+        static const QString kComboStyle =
+            "QComboBox { background: {{color.background.1}}; border: 1px solid {{color.background.2}}; "
+            "border-radius: 3px; color: {{color.text.primary}}; font-size: 12px; padding: 2px 4px; }"
+            "QComboBox::drop-down { border: none; }";
+        static const QString kStatusOkStyle =
+            "QLabel { color: {{color.accent.success}}; font-size: 11px; }";
+        static const QString kStatusIdleStyle =
+            "QLabel { color: {{color.text.secondary}}; font-size: 11px; }";
+
+        auto* devWidget = new QWidget;
+        auto* devLay = new QVBoxLayout(devWidget);
+        devLay->setContentsMargins(0, 0, 0, 0);
+        devLay->setSpacing(2);
+        auto* devLbl = new QLabel("SPE Expert Amplifier");
+        speTheme.applyStyleSheet(devLbl, kLabelStyle);
+        devLay->addWidget(devLbl);
+        auto* modeCombo = new QComboBox;
+        speTheme.applyStyleSheet(modeCombo, kComboStyle);
+#ifdef HAVE_SERIALPORT
+        modeCombo->addItem("Serial", "Serial");
+#endif
+        modeCombo->addItem("Network", "Network");
+        devLay->addWidget(modeCombo);
+        // Network mode = ser2net proxy. Raw and telnet modes both work for
+        // monitoring/control, but powering the amplifier ON over the network
+        // drives the proxy's DTR/RTS lines via RFC 2217 COM-port control, so
+        // that one feature needs `telnet(rfc2217=true)` specifically — plain
+        // telnet answers DONT and a raw port never answers at all. Surface
+        // the reference config where the user is already looking.
+        const QString speSer2netTip = QStringLiteral(
+            "Network mode connects through a ser2net serial-to-TCP proxy.\n"
+            "Monitoring and control work with the port in raw or telnet mode.\n"
+            "Powering the amplifier ON over the network additionally needs\n"
+            "RFC 2217 COM-port control, i.e. an rfc2217-enabled telnet port:\n"
+            "\n"
+            "connection: &spe\n"
+            "    accepter: telnet(rfc2217=true),64002\n"
+            "    enable: on\n"
+            "    options:\n"
+            "      kickolduser: true\n"
+            "    connector: serialdev,\n"
+            "              /dev/ttyUSB0");
+        devWidget->setToolTip(speSer2netTip);
+        modeCombo->setToolTip(speSer2netTip);
+        grid->addWidget(devWidget, row, 0);
+
+        auto* addrStack = new QStackedWidget;
+        int serialPageIdx = -1;
+        QComboBox* serialCombo = nullptr;
+        QLineEdit* serialCustomEdit = nullptr;
+#ifdef HAVE_SERIALPORT
+        {
+            auto* serialPage = new QWidget;
+            auto* lay = new QHBoxLayout(serialPage);
+            lay->setContentsMargins(0, 0, 0, 0);
+            serialCombo = new QComboBox;
+            speTheme.applyStyleSheet(serialCombo, kComboStyle);
+            serialCustomEdit = new QLineEdit;
+            serialCustomEdit->setPlaceholderText("/dev/ttyUSB0");
+            speTheme.applyStyleSheet(serialCustomEdit, kEditStyle);
+            const QString savedSerialPort = PeripheralSettings::deviceString("SpeExpert", "SerialPort");
+            populateSerialPortCombo(serialCombo, serialCustomEdit, savedSerialPort);
+            serialCustomEdit->setVisible(serialCombo->currentData().toString() == "__custom__");
+            connect(serialCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                    [serialCombo, serialCustomEdit](int idx) {
+                serialCustomEdit->setVisible(serialCombo->itemData(idx).toString() == "__custom__");
+            });
+            lay->addWidget(serialCombo, 1);
+            lay->addWidget(serialCustomEdit, 1);
+            serialPageIdx = addrStack->addWidget(serialPage);
+        }
+#endif
+        auto* netPage = new QWidget;
+        auto* netLay = new QHBoxLayout(netPage);
+        netLay->setContentsMargins(0, 0, 0, 0);
+        auto* netIpEdit = new QLineEdit;
+        netIpEdit->setPlaceholderText("ser2net host — e.g. 192.168.1.52");
+        speTheme.applyStyleSheet(netIpEdit, kEditStyle);
+        netIpEdit->setToolTip(speSer2netTip);
+        netIpEdit->setText(PeripheralSettings::deviceString("SpeExpert", "ManualIp"));
+        netLay->addWidget(netIpEdit);
+        const int netPageIdx = addrStack->addWidget(netPage);
+        grid->addWidget(addrStack, row, 1);
+
+        // Fixed "115200 8N1" for serial (the spec's documented maximum, the
+        // amp auto-adapts — nothing to configure) OR a port spin box for
+        // network mode.
+        auto* portStack = new QStackedWidget;
+        int serialBaudIdx = -1;
+#ifdef HAVE_SERIALPORT
+        {
+            auto* fixedLbl = new QLabel("115200 8N1");
+            speTheme.applyStyleSheet(fixedLbl, kStatusIdleStyle);
+            serialBaudIdx = portStack->addWidget(fixedLbl);
+        }
+#endif
+        auto* netPortSpin = new QSpinBox;
+        netPortSpin->setRange(1, 65535);
+        netPortSpin->setValue(PeripheralSettings::deviceInt("SpeExpert", "ManualPort", 7000));
+        AetherSDR::ThemeManager::instance().applyStyleSheet(netPortSpin,
+            "QSpinBox { background: {{color.background.1}}; border: 1px solid {{color.background.2}}; "
+            "border-radius: 3px; color: {{color.text.primary}}; font-size: 12px; padding: 2px; }");
+        const int netPortIdx = portStack->addWidget(netPortSpin);
+        grid->addWidget(portStack, row, 2);
+
+        auto applyMode = [=](const QString& mode) {
+#ifdef HAVE_SERIALPORT
+            if (mode == "Serial" && serialPageIdx >= 0) {
+                addrStack->setCurrentIndex(serialPageIdx);
+                portStack->setCurrentIndex(serialBaudIdx);
+                return;
+            }
+#endif
+            addrStack->setCurrentIndex(netPageIdx);
+            portStack->setCurrentIndex(netPortIdx);
+        };
+        const QString savedMode = PeripheralSettings::deviceString("SpeExpert", "ConnectionMode",
+#ifdef HAVE_SERIALPORT
+            "Serial"
+#else
+            "Network"
+#endif
+        );
+        {
+            const int idx = modeCombo->findData(savedMode);
+            modeCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+        }
+        applyMode(modeCombo->currentData().toString());
+        connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [=](int idx) {
+            const QString mode = modeCombo->itemData(idx).toString();
+            PeripheralSettings::setDeviceString("SpeExpert", "ConnectionMode", mode);
+            applyMode(mode);
+        });
+
+        auto* statusLbl = new QLabel(m_spe->isConnected() ? "Connected" : "Not connected");
+        speTheme.applyStyleSheet(statusLbl,
+            m_spe->isConnected() ? kStatusOkStyle : kStatusIdleStyle);
+        grid->addWidget(statusLbl, row, 4);
+
+        auto* speBtn = new QPushButton(m_spe->isConnected() ? "Disconnect" : "Connect");
+        speTheme.applyStyleSheet(speBtn, kBtnStyle);
+        grid->addWidget(speBtn, row, 3);
+
+        auto updateSpeState = [this, speBtn, statusLbl]() {
+            const bool conn = m_spe->isConnected();
+            speBtn->setText(conn ? "Disconnect" : "Connect");
+            statusLbl->setText(conn ? "Connected" : "Not connected");
+            AetherSDR::ThemeManager::instance().applyStyleSheet(statusLbl,
+                conn ? kStatusOkStyle : kStatusIdleStyle);
+        };
+        connect(m_spe, &SpeConnection::connected, this, updateSpeState);
+        connect(m_spe, &SpeConnection::disconnected, this, updateSpeState);
+        connect(m_spe, &SpeConnection::connectionFailed, this,
+                [statusLbl](const QString& err) {
+            statusLbl->setText("Error: " + err);
+            AetherSDR::ThemeManager::instance().applyStyleSheet(statusLbl,
+                "QLabel { color: {{color.accent.danger}}; font-size: 11px; }");
+        });
+
+        connect(speBtn, &QPushButton::clicked, this, [=, this]() {
+            if (m_spe->isConnected()) {
+                m_spe->disconnect();
+                return;
+            }
+            const QString mode = modeCombo->currentData().toString();
+            if (mode == "Network") {
+                const QString ip = netIpEdit->text().trimmed();
+                if (ip.isEmpty()) return;
+                const int port = netPortSpin->value();
+                PeripheralSettings::setDeviceString("SpeExpert", "ManualIp", ip);
+                PeripheralSettings::setDeviceInt("SpeExpert", "ManualPort", port);
+                m_spe->connectNetwork(ip, static_cast<quint16>(port));
+            }
+#ifdef HAVE_SERIALPORT
+            else {
+                QString port = serialCombo->currentData().toString();
+                if (port == "__custom__")
+                    port = serialCustomEdit->text().trimmed();
+                if (port.isEmpty()) return;
+                PeripheralSettings::setDeviceString("SpeExpert", "SerialPort", port);
+                m_spe->connectSerial(port);
+            }
+#endif
+        });
+
+        // Save-on-close: same cleared-field handling as the ACOM row — wipe
+        // the saved manual network target when the user clears the field and
+        // closes without clicking Connect/Disconnect.
+        m_peripheralRowSavers.append([netIpEdit, this]() {
+            if (!netIpEdit) return;
+            const QString ip = netIpEdit->text().trimmed();
+            if (!ip.isEmpty()) return;
+            const QString savedIp = PeripheralSettings::deviceString("SpeExpert", "ManualIp");
+            if (savedIp.isEmpty()) return;
+            PeripheralSettings::clearDeviceField("SpeExpert", "ManualIp");
+            PeripheralSettings::clearDeviceField("SpeExpert", "ManualPort");
+            if (m_spe->isConnected() && m_spe->description().startsWith(savedIp + ":")) {
+                m_spe->disconnect();
+            }
+        });
+    }
+
     for (auto* lbl : group->findChildren<QLabel*>())
         if (lbl->styleSheet().isEmpty()) lbl->setStyleSheet(kLabelStyle);
 
@@ -7577,6 +7791,9 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
         }
         if (m_acom) {
             m_acom->setAutoReconnect(on);
+        }
+        if (m_spe) {
+            m_spe->setAutoReconnect(on);
         }
     });
     vbox->addWidget(reconnectCheck);
