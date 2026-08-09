@@ -3225,6 +3225,16 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                 return s.doCiv(a.action, a.value);
             });
 
+        add("controls", {},
+            "controls <map|meters|scrub [id|plane]> — the CI-V control and meter "
+            "registry joined "
+            "against what is actually wired, and a linkage check that drives every "
+            "settable control without moving any of them (Icom)",
+            parseActionRest,
+            [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
+                return s.doControls(a.action, a.value);
+            });
+
         add("radiocert", {},
             "radiocert <tune|rx|tx|meters|all> [freqMhz] — radio bring-up diagnostic, in dependency order (tx/meters key)",
             parseActionValue,
@@ -6908,6 +6918,89 @@ QJsonObject AutomationServer::doLiveness()
         out.insert(QStringLiteral("publishedButRenderedNowhere"),
                    QJsonArray::fromStringList(publishedNowhere));
     }
+    return out;
+}
+
+// `controls map` / `controls scrub` — the CI-V control registry.
+//
+// WHY THIS IS A VERB AND NOT A DOCUMENT. A hand-written table of "what is wired"
+// is wrong the moment someone edits a switch statement, and the bring-up proved
+// nobody notices: an RF-gain slider drove the preamp for weeks with a doc that
+// said otherwise. This reads the registry the backend compiles against and joins
+// it with what that backend has actually seen on the wire this session, so the
+// answer cannot drift from the code.
+//
+// `map` is read-only and works with no radio attached. `scrub` needs a radio and
+// re-asserts each control at its current value — nothing on the radio moves, and
+// PTT, the antenna tuner and power-off are excluded outright.
+QJsonObject AutomationServer::doControls(const QString& action, const QString& arg)
+{
+    if (!m_radioModel)
+        return err(QStringLiteral("no radio model available"));
+    IRadioBackend* backend = m_radioModel->backend();
+    if (!backend)
+        return err(QStringLiteral("no backend available"));
+
+    const QString a = action.trimmed().toLower();
+    if (a != QLatin1String("map") && a != QLatin1String("scrub")
+        && a != QLatin1String("meters"))
+        return err(QStringLiteral("controls requires an action (map|meters|scrub)"));
+
+    // NOT TX-GATED, and that is deliberate rather than an oversight — worth
+    // saying because `civ send` a few dozen lines down IS gated on m_txAllowed,
+    // and the next person to read the two side by side will otherwise assume
+    // one of them is wrong.
+    //
+    // `civ send` is gated because it is a raw frame: it can carry 1C 00 and key
+    // the transmitter, and nothing here can tell that from a tuning command.
+    // `scrub` cannot, by construction. It never sends a raw frame — it drives
+    // named seam verbs — and ptt, tuner and power are excluded from the walk
+    // outright (see controlScrub's kNeverScrub). Everything it does send is the
+    // control's CURRENT value, so the transmit-plane rows it does touch
+    // (tx.power, mic.gain, monitor, vox, comp) re-assert what the radio is
+    // already set to without keying anything.
+    //
+    // `map` and `meters` are read-only and would be fine under any rule.
+    //
+    // Same synchronous-extension contract doCiv documents: a backend that does
+    // not answer leaves `answered` false and is reported as unsupported rather
+    // than as an empty success.
+    bool answered = false;
+    bool failed = false;
+    QVariant payload;
+    QString failure;
+    const quint64 rid = ++m_extensionRequestId;
+    auto okConn = connect(backend, &IRadioBackend::extensionResult, this,
+                          [&](quint64 id, const QVariant& v) {
+        if (id != rid) return;
+        answered = true;
+        payload = v;
+    }, Qt::DirectConnection);
+    auto errConn = connect(backend, &IRadioBackend::extensionError, this,
+                           [&](quint64 id, const QString& msg) {
+        if (id != rid) return;
+        answered = true;
+        failed = true;
+        failure = msg;
+    }, Qt::DirectConnection);
+
+    backend->invokeExtension(QStringLiteral("icom"),
+                             a == QLatin1String("map")    ? QStringLiteral("controls.map")
+                             : a == QLatin1String("meters") ? QStringLiteral("controls.meters")
+                                                            : QStringLiteral("controls.scrub"),
+                             rid, arg.trimmed());
+    disconnect(okConn);
+    disconnect(errConn);
+
+    if (!answered) {
+        return err(QStringLiteral(
+            "this backend has no control registry — `controls` is Icom-only today"));
+    }
+    if (failed)
+        return err(failure);
+
+    QJsonObject out{{QStringLiteral("ok"), true}, {QStringLiteral("controls"), a}};
+    out.insert(QStringLiteral("result"), QJsonValue::fromVariant(payload));
     return out;
 }
 

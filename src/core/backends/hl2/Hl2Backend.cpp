@@ -1298,6 +1298,7 @@ RadioCapabilities Hl2Backend::capabilities() const
 {
     RadioCapabilities c;
     c.family = QStringLiteral("hl2");
+    c.manufacturer = QStringLiteral("Hermes-Lite");
     c.model = QStringLiteral("Hermes-Lite 2");
     // The CEILING, not the running count. A capability answers "what can this
     // radio do", and receivers are now added on demand — so reporting the
@@ -1335,6 +1336,11 @@ RadioCapabilities Hl2Backend::capabilities() const
     c.hasTuner = false;
     c.hasAmplifier = false;
     c.hasExtendedDsp = false;
+    // Both moot while hasRadioSideDsp is false — the host runs every filter
+    // this radio has — but stated rather than defaulted, per the struct's
+    // "a backend that omits one silently declares it absent" rule.
+    c.hasLmsNoiseFilters = false;
+    c.hasManualNotch = false;
     // The 76.8 MHz NCO scale is a localparam in the bitstream and nothing in the
     // HPSDR map can be told the crystal's real error — so the correction is ours
     // or it does not happen. See Hl2FreqCal for the derivation.
@@ -2278,7 +2284,8 @@ void Hl2Backend::setTxSlice(int sliceId)
     emitSliceState(ddc);
 }
 
-void Hl2Backend::setPanCenter(const QString& panId, double hz)
+// Intent ignored — the HL2's DDC window is independent of any slice.
+void Hl2Backend::setPanCenter(const QString& panId, double hz, PanCenterIntent)
 {
     // Moving the window means moving the DDC. The slice does NOT move with it —
     // that is the point of keeping the two separate — so its offset from the new
