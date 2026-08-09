@@ -249,8 +249,14 @@ to satisfy by accident: a blocker whose corner has crept up into the audio band
 removes the pedestal just as thoroughly while eating the bass out of every mode,
 and every DC measurement stays green through it. So it checks a 60 Hz vs 400 Hz
 modulation ratio through the real chain, the closed-form `|H(f)|` at three audio
-rates, and the unconfigured bypass. It is one of the few HL2 tests in the
-per-PR CI gate; the rest of the suite runs weekly under the sanitizers job.
+rates, and the unconfigured bypass. Six 4 s bursts through the real chain cost
+2.5 s, so it is a cheap test — but only with a warm FFTW wisdom cache. Cold, the
+same binary takes 178 s, because WDSP's first `OpenChannel` measures FFTW
+`PATIENT` plans (see `WdspChannel::open()`, cached at
+`$XDG_CACHE_HOME/aethersdr/wdsp-fftw-wisdom`). A CI container starts cold every
+run, which is why this sat at 188-190 s on the per-PR gate and now runs weekly
+under the sanitizers job instead. Cache that file in CI and it belongs back on
+the gate.
 
 **Why on `Hl2RxDsp` and not on `WdspChannel`.** The root cause is `amd`'s
 envelope detector, which belongs to WDSP, so a blocker on `WdspChannel`'s own RX
