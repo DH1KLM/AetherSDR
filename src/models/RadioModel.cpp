@@ -844,6 +844,19 @@ void RadioModel::setupBackend(const QString& family)
     // The backend confirms a pan is GONE. Only now is the pane dropped: the
     // backend can refuse a close (the last receiver on an HL2), and tearing the
     // model down optimistically would leave a receiver streaming into nothing.
+    // Notch state reported BY the backend. Only a backend whose notches live in
+    // this process emits these — a Flex reports TNFs as `tnf <id> …` status on
+    // its command plane, which handleStatus() already decodes into the same
+    // model. Both routes end at TnfModel, so the panadapter overlay is drawn
+    // from one place regardless of where the notch physically is.
+    connect(m_backend.get(), &IRadioBackend::notchChanged, this,
+            [this](int notchId, const NotchDelta& delta) {
+        m_tnfModel.applyNotchDelta(notchId, delta);
+    });
+    connect(m_backend.get(), &IRadioBackend::notchRemoved, this, [this](int notchId) {
+        m_tnfModel.removeTnf(notchId);
+    });
+
     connect(m_backend.get(), &IRadioBackend::panRemoved, this,
             [this](const QString& backendPanId) {
         auto* pan = resolveBackendPan(backendPanId);
@@ -1941,9 +1954,36 @@ RadioModel::RadioModel(QObject* parent)
         sendCmd(cmd);
     });
 
-    // Forward TNF model commands to the radio
-    connect(&m_tnfModel, &TnfModel::commandReady, this, [this](const QString& cmd){
-        sendCmd(cmd);
+    // Forward TNF intents to the backend, which decides whether a notch is a
+    // radio feature (Flex: `tnf …` on the command plane) or host DSP (HL2:
+    // WDSP's notched bandpass). Previously this forwarded SmartSDR text
+    // straight to sendCmd, which is why the notch controls did nothing at all
+    // on any non-Flex radio while still being offered.
+    connect(&m_tnfModel, &TnfModel::notchCreateRequested, this,
+            [this](double centerHz, double widthHz){
+        // Connected only, and create is the one that needs saying so. The notch
+        // controls stay live while disconnected (a capability is a fact about
+        // the radio, not about the link), but the BACKEND survives a disconnect
+        // — so on a host-DSP backend a create here would mint an id and report a
+        // marker the operator can see, against a receiver set that no longer
+        // exists. The next connect then wipes the backend's record and leaves
+        // that marker on the panadapter with nothing behind it: the mirror image
+        // of the state-outliving-the-session bug, arriving from the other side.
+        if (m_backend && isConnected())
+            m_backend->createNotch(centerHz, widthHz);
+    });
+    connect(&m_tnfModel, &TnfModel::notchChangeRequested, this,
+            [this](int id, const NotchDelta& delta){
+        if (m_backend)
+            m_backend->setNotch(id, delta);
+    });
+    connect(&m_tnfModel, &TnfModel::notchRemoveRequested, this, [this](int id){
+        if (m_backend)
+            m_backend->removeNotch(id);
+    });
+    connect(&m_tnfModel, &TnfModel::notchesEnabledRequested, this, [this](bool on){
+        if (m_backend)
+            m_backend->setNotchesEnabled(on);
     });
     connect(&m_cwxModel, &CwxModel::commandReady, this, [this](const QString& cmd){
         // Track CWX send state so the interlock handler recognises local

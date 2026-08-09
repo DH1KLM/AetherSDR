@@ -3203,6 +3203,11 @@ target_include_directories(hl2_shift_test PRIVATE src)
 target_link_libraries(hl2_shift_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME hl2_shift_test COMMAND hl2_shift_test)
 
+add_executable(hl2_notch_seed_test tests/hl2_notch_seed_test.cpp)
+target_include_directories(hl2_notch_seed_test PRIVATE src)
+target_link_libraries(hl2_notch_seed_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME hl2_notch_seed_test COMMAND hl2_notch_seed_test)
+
 # HL2 manual frequency calibration — simulates the gateware's own NCO arithmetic
 # (radio.v freqcomp/M2/M3) on a deliberately wrong master clock, so the
 # correction is checked against the hardware's behaviour rather than against its
