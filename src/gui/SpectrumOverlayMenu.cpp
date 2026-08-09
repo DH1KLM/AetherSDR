@@ -205,9 +205,23 @@ static bool isLoopSelectableRxAntenna(const QString& token)
 static constexpr int BAND_BTN_W = 48;
 static constexpr int BAND_BTN_H = 26;
 
-static const QString kPanelStyle =
-    "QWidget { background: rgba(15, 15, 26, 220); "
-    "border: 1px solid #304050; border-radius: 3px; }";
+// Scoped to the widget's own objectName rather than a bare "QWidget { … }"
+// selector — an unscoped type selector cascades into Qt's tooltip QLabel for
+// any descendant of the styled widget, stripping the tooltip's frame (#4440,
+// #4444). Takes the widget and sets both the object name and the style in one
+// call so the two can't drift apart (a typo in one used to silently un-style
+// the panel with no compile error). Routed through ThemeManager so the border
+// stays theme-aware, matching the band and display panels rather than the
+// literal #304050 the un-scoped rule inherited.
+static void applyPanelStyle(QWidget* panel, const QString& objectName)
+{
+    panel->setObjectName(objectName);
+    AetherSDR::ThemeManager::instance().applyStyleSheet(
+        panel,
+        QStringLiteral("QWidget#%1 { background: rgba(15, 15, 26, 220); "
+                       "border: 1px solid {{color.background.2}}; border-radius: 3px; }")
+            .arg(objectName));
+}
 
 static const QString kLabelStyle =
     "QLabel { background: transparent; border: none; "
@@ -404,8 +418,7 @@ void SpectrumOverlayMenu::setMemories(const QMap<int, MemoryEntry>& memories)
 void SpectrumOverlayMenu::buildBandPanel()
 {
     m_bandPanel = new QWidget(parentWidget());
-    AetherSDR::ThemeManager::instance().applyStyleSheet(m_bandPanel, "QWidget { background: rgba(15, 15, 26, 220); "
-                                "border: 1px solid {{color.background.2}}; border-radius: 3px; }");
+    applyPanelStyle(m_bandPanel, QStringLiteral("bandPanel"));
     m_bandPanel->hide();
 
     auto* grid = new QGridLayout(m_bandPanel);
@@ -469,7 +482,7 @@ void SpectrumOverlayMenu::buildBandPanel()
 void SpectrumOverlayMenu::buildAntPanel()
 {
     m_antPanel = new QWidget(parentWidget());
-    m_antPanel->setStyleSheet(kPanelStyle);
+    applyPanelStyle(m_antPanel, QStringLiteral("antPanel"));
     m_antPanel->hide();
 
     auto* vbox = new QVBoxLayout(m_antPanel);
@@ -533,7 +546,8 @@ void SpectrumOverlayMenu::buildAntPanel()
         "border: 1px solid #0090e0; }"
         "QPushButton:hover { border: 1px solid #0090e0; }";
     m_loopRow = new QWidget(m_antPanel);
-    m_loopRow->setStyleSheet("QWidget { background: transparent; border: none; }");
+    m_loopRow->setObjectName(QStringLiteral("loopRow"));
+    m_loopRow->setStyleSheet("QWidget#loopRow { background: transparent; border: none; }");
     auto* loopRow = new QHBoxLayout(m_loopRow);
     loopRow->setContentsMargins(0, 0, 0, 0);
     loopRow->setSpacing(4);
@@ -1138,7 +1152,7 @@ void SpectrumOverlayMenu::syncAntPanel()
 void SpectrumOverlayMenu::buildDaxPanel()
 {
     m_daxPanel = new QWidget(parentWidget());
-    m_daxPanel->setStyleSheet(kPanelStyle);
+    applyPanelStyle(m_daxPanel, QStringLiteral("daxPanel"));
     m_daxPanel->hide();
 
     auto* vb = new QVBoxLayout(m_daxPanel);
@@ -2901,8 +2915,7 @@ void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
     }
 
     m_bandPanel = new QWidget(parentWidget());
-    AetherSDR::ThemeManager::instance().applyStyleSheet(m_bandPanel, "QWidget { background: rgba(15, 15, 26, 220); "
-                                "border: 1px solid {{color.background.2}}; border-radius: 3px; }");
+    applyPanelStyle(m_bandPanel, QStringLiteral("bandPanel"));
     m_bandPanel->hide();
     m_bandPanel->installEventFilter(this);
 
@@ -3069,8 +3082,7 @@ void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
     }
 
     m_xvtrPanel = new QWidget(parentWidget());
-    AetherSDR::ThemeManager::instance().applyStyleSheet(m_xvtrPanel, "QWidget { background: rgba(15, 15, 26, 220); "
-                                "border: 1px solid {{color.background.2}}; border-radius: 3px; }");
+    applyPanelStyle(m_xvtrPanel, QStringLiteral("xvtrPanel"));
     m_xvtrPanel->hide();
     m_xvtrPanel->installEventFilter(this);
     m_xvtrPanelVisible = false;
