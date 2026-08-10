@@ -1953,7 +1953,8 @@ MainWindow::MainWindow(QWidget* parent)
     // ── Title bar: PC Audio, master volume, headphone volume ────────────────
     // The remote_audio_rx stream controls the radio's audio routing:
     // stream exists → audio to PC; stream removed → audio to radio speakers.
-    // Keep the stream alive when TCI clients need it (#1014).
+    // TCI clients get RX audio via DAX (#1331), not this stream, so PC Audio
+    // is free to toggle the stream purely on its own local-sink needs.
     connect(m_titleBar, &TitleBar::pcAudioToggled, this, [this](bool on) {
         if (on) {
             // Restart the local audio sink to recover from stale WASAPI sessions
@@ -1964,9 +1965,10 @@ MainWindow::MainWindow(QWidget* parent)
             });
             m_radioModel.createRxAudioStream();
         } else {
-            // Stop the local sink so audio isn't played locally even when
-            // the remote_audio_rx stream is still alive for a TCI client
-            // (#1571 follow-up).
+            // Stop the local sink so audio isn't played locally, then drop
+            // the remote_audio_rx stream. TCI clients get RX audio via DAX
+            // (#1331), not this stream, so there's no client to keep it
+            // alive for.
             QMetaObject::invokeMethod(m_audio, [this]() {
                 m_audio->stopRxStream();
             });
@@ -5686,10 +5688,10 @@ void MainWindow::onConnectionStateChanged(bool connected)
             }
         }
         // Only start the local RX audio sink if the user wants audio routed
-        // to the PC. When PC Audio is off we may still request a
-        // remote_audio_rx stream for TCI clients; the sink should stay
-        // silent in that case. The PC Audio toggle handler starts/stops
-        // the sink when the user flips it.
+        // to the PC. TCI clients get RX audio via DAX (#1331), not
+        // remote_audio_rx, so PC Audio off means no stream and no sink.
+        // The PC Audio toggle handler starts/stops the sink when the user
+        // flips it.
         // Always sync the button to the setting here so any divergence
         // (e.g. from a profile load before connect) is corrected (#1536).
         {
