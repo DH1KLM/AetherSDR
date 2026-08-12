@@ -51,6 +51,7 @@
 #include "DaxIqApplet.h"
 #include "TciApplet.h"
 #include "PanadapterStack.h"
+#include "workspace/WorkspaceController.h"
 #include "gui/MiniPanApplet.h"
 #include "gui/MiniPanScope.h"
 #include "models/PanadapterModel.h"
@@ -61,6 +62,8 @@
 #include "core/AppSettings.h"
 #include "core/AutomationBridgeSettings.h"
 #include "core/AutomationServer.h"
+
+#include <QStatusBar>
 #include "core/LogManager.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
@@ -1719,7 +1722,20 @@ void MainWindow::wirePanLifecycle()
 
                 // Restore floating-pan state saved from the previous session.
                 // Runs for any pan count so a single floated pan is also restored.
-                m_panStack->restoreFloatingState();
+                //
+                // NOT while the workspace canvas is on (RFC #4887, maintainer
+                // ruling 2026-08-12): canvas mode owns placement, and replaying
+                // window-persistence floats under it hands the operator an
+                // uncontrollable always-above window that looks exactly like a
+                // broken canvas pan — stale FloatingPanIds from the pre-canvas
+                // era cost a full day of field debugging to identify. The
+                // restored pans have already arrived as canvas items at their
+                // slots by this point; popping out MANUALLY is untouched
+                // (decision 1 — pop-out stays), and the saved key is left
+                // alone so a canvas-off session still restores it.
+                if (!(m_workspaceController && m_workspaceController->isEnabled())) {
+                    m_panStack->restoreFloatingState();
+                }
             });
         }
         const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
@@ -2304,6 +2320,23 @@ bool MainWindow::startAutomationBridge(const QString& sockName)
 
     if (!m_automation)
         m_automation = std::make_unique<AutomationServer>();
+
+    // dumpTree reports the status-bar message (#4864) by reading a generic
+    // dynamic property — core/ must not know the QStatusBar type
+    // (engine-boundary EB2).  The gui side owns the widget, and the mirror
+    // lives HERE, with the rest of the bridge wiring it serves (review m13:
+    // it was previously wired inside the workspace-canvas mount, which has
+    // no structural link to it).  Idempotent across re-wires: the property
+    // write is safe to connect once per server start.
+    if (!m_statusMessageMirrorWired) {
+        m_statusMessageMirrorWired = true;
+        connect(statusBar(), &QStatusBar::messageChanged, this,
+                [this](const QString& m) {
+                    statusBar()->setProperty("currentMessage", m);
+                });
+        statusBar()->setProperty("currentMessage",
+                                 statusBar()->currentMessage());
+    }
 
     m_automation->setRadioModel(&radioModel());  // for the get() verb
     m_automation->setAudioEngine(audioEngine());

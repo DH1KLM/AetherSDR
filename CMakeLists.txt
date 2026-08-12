@@ -605,6 +605,7 @@ set(CORE_SOURCES
     src/core/backends/MemoryWireCodec.cpp    # memory kv-set decode, shared by Flex + local bank
     src/core/backends/flex/FlexBackend.cpp   # aetherd RFC step 2.2 (§5.5)
     src/core/backends/sim/SimBackend.cpp     # demo mode — 2nd IRadioBackend (RFC #4288)
+    src/core/backends/sim/SimSignalSource.cpp  # demo RX engine, worker thread (#4878)
     src/core/backends/sim/SpectrumPatternGenerator.cpp  # demo mode — signal engine (RFC #4288 Phase 2)
     src/core/backends/sim/NoiseMixer.cpp                 # demo mode — audio engine (RFC #4288 Phase 2b)
     src/core/backends/hl2/MetisProtocol.cpp  # aetherd HL2 Phase 1a (HPSDR Protocol 1)
@@ -872,6 +873,7 @@ set(GUI_SOURCES
     src/gui/MainWindow_SwrSweep.cpp
     src/gui/MainWindow_AetherClock.cpp
     src/gui/MainWindow_Wiring.cpp
+    src/gui/MainWindow_Workspace.cpp
     src/gui/MainWindow_Nets.cpp
     src/gui/MainWindow_Callsign.cpp
     src/gui/MainWindow_ReceiveSync.cpp
@@ -1001,9 +1003,12 @@ set(GUI_SOURCES
     src/gui/containers/ContainerTitleBar.cpp
     src/gui/containers/ContainerWidget.cpp
     src/gui/containers/FloatingContainerWindow.cpp
+    src/gui/workspace/CanvasInteraction.cpp
+    src/gui/workspace/CanvasItemFrame.cpp
     src/gui/workspace/CanvasLayout.cpp
     src/gui/workspace/ClassicLayout.cpp
     src/gui/workspace/WorkspaceCanvas.cpp
+    src/gui/workspace/WorkspaceController.cpp
     src/gui/workspace/WorkspaceDocument.cpp
     src/gui/workspace/WorkspaceGeometry.cpp
     src/gui/workspace/WorkspaceMigration.cpp
@@ -3486,9 +3491,16 @@ add_test(NAME workspace_layout_test COMMAND workspace_layout_test)
 # ownership contract phase 3 depends on.
 add_executable(workspace_canvas_widget_test
     tests/workspace_canvas_widget_test.cpp
-    src/gui/workspace/WorkspaceCanvas.cpp
+    src/gui/workspace/CanvasInteraction.cpp
+    src/gui/workspace/CanvasItemFrame.cpp
     src/gui/workspace/CanvasLayout.cpp
+    src/gui/workspace/WorkspaceCanvas.cpp
     src/gui/workspace/WorkspaceGeometry.cpp
+    ${AETHER_SETTINGS_SOURCES}
+    src/core/ThemeManager.cpp
+    src/core/ThemeSeedGenerated.cpp
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
 )
 target_include_directories(workspace_canvas_widget_test PRIVATE src)
 target_link_libraries(workspace_canvas_widget_test PRIVATE Qt6::Widgets Qt6::Test)
@@ -3540,6 +3552,93 @@ target_include_directories(workspace_store_test PRIVATE src tests)
 target_link_libraries(workspace_store_test PRIVATE aethercore Qt6::Core Qt6::Test)
 set_target_properties(workspace_store_test PROPERTIES AUTOMOC ON)
 add_test(NAME workspace_store_test COMMAND workspace_store_test)
+
+# Workspace canvas (RFC #4887) phase 5 — the pure interaction core: hit
+# zones, anchored resize (the anchored edge must never move), and the snap
+# solver (snaps only the gripped edges, never below the minimum).
+add_executable(workspace_interaction_test
+    tests/workspace_interaction_test.cpp
+    src/gui/workspace/CanvasInteraction.cpp
+    src/gui/workspace/WorkspaceGeometry.cpp
+)
+target_include_directories(workspace_interaction_test PRIVATE src)
+target_link_libraries(workspace_interaction_test PRIVATE Qt6::Core Qt6::Gui)
+add_test(NAME workspace_interaction_test COMMAND workspace_interaction_test)
+
+# Workspace canvas (RFC #4887) phase 3 — DockMode::Canvas at the manager
+# level: slot-preserving detach/return, float-docks-first, the evictor
+# routing, width-cap lift (#3451 on canvas), and a stored "canvas" mode
+# restoring panel-docked.
+add_executable(workspace_container_mode_test
+    tests/workspace_container_mode_test.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/containers/ContainerManager.cpp
+    src/gui/containers/ContainerTitleBar.cpp
+    src/gui/containers/ContainerWidget.cpp
+    src/gui/containers/FloatingContainerWindow.cpp
+    ${AETHER_SETTINGS_SOURCES}
+    src/core/ThemeManager.cpp
+    src/core/ThemeSeedGenerated.cpp
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
+)
+target_include_directories(workspace_container_mode_test PRIVATE src tests)
+target_link_libraries(workspace_container_mode_test PRIVATE
+    Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(workspace_container_mode_test PROPERTIES AUTOMOC ON)
+add_test(NAME workspace_container_mode_test COMMAND workspace_container_mode_test)
+set_tests_properties(workspace_container_mode_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Workspace canvas (RFC #4887) phase 3 — the controller end to end: first
+# enable migrates and places, explicit returns forget the canvas home while
+# closes keep it, drops move/place through the canvas's real event path, and
+# an unusable store fails the enable without moving a widget.
+add_executable(workspace_controller_test
+    tests/workspace_controller_test.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/containers/ContainerManager.cpp
+    src/gui/containers/ContainerTitleBar.cpp
+    src/gui/containers/ContainerWidget.cpp
+    src/gui/containers/FloatingContainerWindow.cpp
+    src/gui/workspace/CanvasInteraction.cpp
+    src/gui/workspace/CanvasItemFrame.cpp
+    src/gui/workspace/CanvasLayout.cpp
+    src/gui/workspace/ClassicLayout.cpp
+    src/gui/workspace/WorkspaceCanvas.cpp
+    src/gui/workspace/WorkspaceController.cpp
+    src/gui/workspace/WorkspaceDocument.cpp
+    src/gui/workspace/WorkspaceGeometry.cpp
+    src/gui/workspace/WorkspaceMigration.cpp
+    src/gui/workspace/WorkspaceStore.cpp
+    ${AETHER_SETTINGS_SOURCES}
+    src/core/ThemeManager.cpp
+    src/core/ThemeSeedGenerated.cpp
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
+)
+target_include_directories(workspace_controller_test PRIVATE src tests)
+target_link_libraries(workspace_controller_test PRIVATE
+    Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(workspace_controller_test PROPERTIES AUTOMOC ON)
+add_test(NAME workspace_controller_test COMMAND workspace_controller_test)
+set_tests_properties(workspace_controller_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Demo RX engine on a worker thread (#4878) — the generator's thread affinity,
+# 24 kHz long-run pacing on a coarse timer, keyed-mute, stallscope, and queued
+# controls. Pure QObject + event loop; no widgets, no radio.
+add_executable(sim_signal_source_test
+    tests/sim_signal_source_test.cpp
+    src/core/backends/sim/SimSignalSource.cpp
+    src/core/backends/sim/NoiseMixer.cpp
+)
+target_include_directories(sim_signal_source_test PRIVATE src)
+target_link_libraries(sim_signal_source_test PRIVATE Qt6::Core Qt6::Test)
+set_target_properties(sim_signal_source_test PROPERTIES AUTOMOC ON)
+add_test(NAME sim_signal_source_test COMMAND sim_signal_source_test)
 
 # KiwiSDR band-recall re-bind policy (#4158) — header-only, pure logic.
 add_executable(kiwi_rebind_tracker_test tests/kiwi_rebind_tracker_test.cpp)
@@ -6100,6 +6199,9 @@ set(AETHER_SETTINGS_CONSUMERS
     amp_applet_test
     container_manager_test
     container_nesting_test
+    workspace_canvas_widget_test
+    workspace_container_mode_test
+    workspace_controller_test
     mini_pan_widget_test
     log_manager_filter_rules_test
     bandplan_voice_labels_test

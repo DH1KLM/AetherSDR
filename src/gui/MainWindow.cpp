@@ -2049,6 +2049,7 @@ MainWindow::MainWindow(QWidget* parent)
     // PUDU monitor, RX chain edit) → wireDspApplets()
     // (MainWindow_DspApplets.cpp, #3351 Phase 2d).
     wireDspApplets();
+    wireWorkspaceCanvas();   // RFC #4887 phase 3 — MainWindow_Workspace.cpp
 
     // PROC / NOR / DX / DX+ -> the client compressor, on a radio that modulates
     // on this host. After wireDspApplets(), which is what gives the applet panel
@@ -2483,8 +2484,8 @@ MainWindow::MainWindow(QWidget* parent)
         QList<int> sizes(m_splitter->count(), 0);
         for (int i = 0; i < m_splitter->count(); ++i) {
             QWidget* w = m_splitter->widget(i);
-            if (w == m_panStack)         sizes[i] = centerW;
-            else if (w == m_appletPanel) sizes[i] = appletW;
+            if (w == centralPanWidget())  sizes[i] = centerW;
+            else if (w == m_appletPanel)  sizes[i] = appletW;
         }
         m_splitter->setSizes(sizes);
     });
@@ -5981,7 +5982,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
         if (m_bsAutoSaveTimer && m_bsAutoSaveTimer->isActive())
             m_bsAutoSaveTimer->stop();
         if (m_panStack) {
-            m_panStack->setBandStackVisible(false);
+            setBandStackPanelVisible(false);
         }
         refreshMemoryBrowsePanel();
         updateBandStackIndicator();
@@ -8594,7 +8595,7 @@ void MainWindow::setAppletPanelDockedLeft(bool left)
     // (right dock).  insertWidget()/addWidget() on an already-attached child
     // reparents it to the new index without destroy/recreate.
     if (left) {
-        const int panIdx = m_splitter->indexOf(m_panStack);
+        const int panIdx = m_splitter->indexOf(centralPanWidget());
         if (panIdx < 0) return;
         m_splitter->insertWidget(panIdx, m_appletPanel);
     } else {
@@ -8604,7 +8605,7 @@ void MainWindow::setAppletPanelDockedLeft(bool left)
     // Re-apply stretch/collapse rules by widget identity (indices shifted).
     for (int i = 0; i < m_splitter->count(); ++i) {
         QWidget* w = m_splitter->widget(i);
-        m_splitter->setStretchFactor(i, w == m_panStack ? 1 : 0);
+        m_splitter->setStretchFactor(i, w == centralPanWidget() ? 1 : 0);
         m_splitter->setCollapsible(i, false);
     }
 
@@ -8628,8 +8629,8 @@ void MainWindow::setAppletPanelDockedLeft(bool left)
         QList<int> newSizes(m_splitter->count(), 0);
         for (int i = 0; i < m_splitter->count(); ++i) {
             QWidget* w = m_splitter->widget(i);
-            if (w == m_panStack)         newSizes[i] = centerW;
-            else if (w == m_appletPanel) newSizes[i] = appletW;
+            if (w == centralPanWidget())  newSizes[i] = centerW;
+            else if (w == m_appletPanel)  newSizes[i] = appletW;
         }
         m_splitter->setSizes(newSizes);
     }
@@ -9584,37 +9585,53 @@ void MainWindow::createPansSequentially(const QString& layoutId, int total,
     // pan is new is found by DIFFING rather than parsing a create reply: the
     // backend numbers its own pans and skips retired numbers after a close.
     if (!m_radioModel.usesFlexCommandPlane()) {
-        QSet<QString> before;
+        auto before = std::make_shared<QSet<QString>>();
         for (auto* p : m_panStack->allApplets())
-            before.insert(p->panId());
+            before->insert(p->panId());
         for (auto* p : m_radioModel.panadapters())
-            if (p) before.insert(p->panId());
+            if (p) before->insert(p->panId());
 
         m_radioModel.createPanadapter();
 
-        QString createdId;
-        for (auto* p : m_radioModel.panadapters()) {
-            if (p && !before.contains(p->panId())) {
-                createdId = p->panId();
-                break;
+        // The seam create is NOT synchronous for every backend (red-team
+        // M4): HL2's is, but the demo mints its pan over the synthetic wire
+        // — two queued thread hops — so an immediate diff found nothing,
+        // declared "capacity full", and aborted the recursion while the pan
+        // materialised a moment later.  Diff after the create has settled;
+        // 300 ms covers both wire hops with margin and is indistinguishable
+        // from the existing 200 ms inter-create pacing for a synchronous
+        // backend.
+        QTimer::singleShot(300, this,
+                           [this, layoutId, total, panIds, created, before]() {
+            if (m_shuttingDown || !m_panStack) {
+                return;
             }
-        }
-        if (createdId.isEmpty()) {
-            // The backend refused — receiver count, or the link budget at this
-            // span. It has already logged which; surface it and stop rather than
-            // recursing against a limit that will refuse every remaining pan.
-            qWarning() << "applyPanLayout: backend declined pan"
-                       << (created + 1) << "of" << total;
-            showPanadapterSliceCapacityMessage();
-            return;
-        }
-        panIds->append(createdId);
-        qDebug() << "applyPanLayout: created pan" << (created + 1) << "of" << total
-                 << "id:" << createdId;
-        // Same inter-create delay as the Flex path. Adding a receiver restarts
-        // the EP6 stream, so back-to-back creates would stack restarts.
-        QTimer::singleShot(200, this, [this, layoutId, total, panIds, created]() {
-            createPansSequentially(layoutId, total, panIds, created + 1);
+            QString createdId;
+            for (auto* p : m_radioModel.panadapters()) {
+                if (p && !before->contains(p->panId())) {
+                    createdId = p->panId();
+                    break;
+                }
+            }
+            if (createdId.isEmpty()) {
+                // The backend refused — receiver count, or the link budget
+                // at this span. It has already logged which; surface it and
+                // stop rather than recursing against a limit that will
+                // refuse every remaining pan.
+                qWarning() << "applyPanLayout: backend declined pan"
+                           << (created + 1) << "of" << total;
+                showPanadapterSliceCapacityMessage();
+                return;
+            }
+            panIds->append(createdId);
+            qDebug() << "applyPanLayout: created pan" << (created + 1)
+                     << "of" << total << "id:" << createdId;
+            // Same inter-create pacing rationale as the Flex path: adding a
+            // receiver restarts the EP6 stream, so creates stay spaced.
+            QTimer::singleShot(200, this,
+                               [this, layoutId, total, panIds, created]() {
+                createPansSequentially(layoutId, total, panIds, created + 1);
+            });
         });
         return;
     }

@@ -236,6 +236,12 @@ protected:
         }
         if (srcIdx < 0) return;
 
+        // No canvas-return branch here (review m10): phase 5 replaced the
+        // canvas title-bar QDrag with the live gesture stream, so a canvas
+        // item can no longer arrive as a QDrag drop — returns flow through
+        // WorkspaceCanvas::itemDraggedOut and the controller's return
+        // target instead.
+
         // Adjust drop index if moving down (after removing source)
         if (dropIdx > srcIdx) dropIdx--;
         if (dropIdx == srcIdx) return;
@@ -1214,13 +1220,26 @@ void AppletPanel::rebuildStackOrder()
         auto* item = m_stack->takeAt(0);
         delete item;  // deletes the layout item, NOT the widget
     }
-    // Re-add in current order (skip floating containers to avoid stealing them)
+    // Re-add in current order.  Skip containers the panel does not currently
+    // own: floating ones live in their own window, and canvas ones are
+    // children of a WorkspaceCanvas (RFC #4887 phase 3).  Adding either here
+    // would steal it back out of its placement mid-rebuild.
     for (const auto& entry : m_appletOrder) {
-        if (auto* cw = qobject_cast<ContainerWidget*>(entry.widget); cw && cw->isFloating())
+        auto* cw = qobject_cast<ContainerWidget*>(entry.widget);
+        if (cw && (cw->isFloating() || cw->isOnCanvas()))
             continue;
         m_stack->addWidget(entry.widget);
     }
     m_stack->addStretch(1);  // factor 1: absorb all surplus, pin tiles to sizeHint (#3461)
+}
+
+QStringList AppletPanel::appletIds() const
+{
+    QStringList ids;
+    ids.reserve(m_appletOrder.size());
+    for (const auto& entry : m_appletOrder)
+        ids.append(entry.id);
+    return ids;
 }
 
 void AppletPanel::saveOrder()
