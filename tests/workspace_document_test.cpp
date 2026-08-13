@@ -381,6 +381,102 @@ int main()
                doc.boundWorkspace(QStringLiteral("Never Seen")).isEmpty());
     }
 
+    // ── Phase 6: the closed flag (full-recall ruling) ────────────────────
+    {
+        WorkspaceDocument doc = sample();
+        for (Workspace& w : doc.workspaces) {
+            for (WorkspaceSurface& sf : w.surfaces) {
+                if (!sf.items.isEmpty()) sf.items[0].closed = true;
+            }
+        }
+        WorkspaceDocument parsed;
+        WorkspaceDocument::fromStoredJson(doc.toStoredJson(), &parsed);
+        bool survived = false;
+        for (const Workspace& w : parsed.workspaces) {
+            for (const WorkspaceSurface& sf : w.surfaces) {
+                if (!sf.items.isEmpty() && sf.items.first().closed) survived = true;
+            }
+        }
+        report("the closed flag survives a round trip", survived);
+        report("...and stays absent-when-false in the stored form",
+               !QString::fromUtf8(sample().toStoredJson())
+                    .contains(QStringLiteral("\"closed\"")));
+    }
+
+    // ── K6OZY: duplicate labels are repaired at parse, with a warning ────
+    {
+        WorkspaceDocument doc = sample();
+        for (Workspace& w : doc.workspaces) {
+            w.label = QStringLiteral("Same");
+        }
+        WorkspaceDocument parsed;
+        WorkspaceDocument::fromStoredJson(doc.toStoredJson(), &parsed);
+        QSet<QString> labels;
+        bool unique = true;
+        for (const Workspace& w : parsed.workspaces) {
+            if (labels.contains(w.label)) unique = false;
+            labels.insert(w.label);
+        }
+        report("duplicate labels are de-duplicated at parse", unique);
+    }
+
+    // ── Phase 6: workspace CRUD invariants ───────────────────────────────
+    {
+        WorkspaceDocument doc = sample();
+        const int before = doc.workspaces.size();
+
+        const QString dup =
+            doc.addDuplicateOf(doc.activeWorkspace, QStringLiteral("Copy"));
+        report("duplicate clones the whole arrangement",
+               !dup.isEmpty()
+                   && doc.workspace(dup)->surface(WorkspaceSurface::kMainId)
+                              ->items.size()
+                          == doc.workspace(doc.activeWorkspace)
+                                 ->surface(WorkspaceSurface::kMainId)
+                                 ->items.size());
+        report("duplicate of nothing returns empty",
+               doc.addDuplicateOf(QStringLiteral("nope"), {}).isEmpty());
+
+        const QString blank = doc.addBlank(QStringLiteral("Copy"));
+        report("labels never collide",
+               doc.workspace(blank)->label != doc.workspace(dup)->label);
+        report("blank has a main surface and no items",
+               doc.workspace(blank)->surface(WorkspaceSurface::kMainId) != nullptr
+                   && doc.workspace(blank)
+                          ->surface(WorkspaceSurface::kMainId)
+                          ->items.isEmpty());
+
+        report("rename to the SAME name is stable (review M4)",
+               doc.renameWorkspace(blank, doc.workspace(blank)->label)
+                   && !doc.workspace(blank)->label.contains(
+                          QStringLiteral("(2)")));
+        {
+            // Not vacuous (review, K6OZY: the old form passed with a no-op
+            // rename): assert the VALUE is the dedup form.
+            const QString target = doc.workspace(dup)->label;
+            report("rename de-duplicates too",
+                   doc.renameWorkspace(blank, target)
+                       && doc.workspace(blank)->label
+                              == QStringLiteral("%1 (2)").arg(target));
+        }
+
+        // Deleting: bindings drop, active falls back, the last one refuses.
+        doc.bindings.insert(QStringLiteral("SomeProfile"), dup);
+        doc.activeWorkspace = dup;
+        report("delete removes, unbinds, and re-actives",
+               doc.removeWorkspace(dup)
+                   && !doc.contains(dup)
+                   && doc.boundWorkspace(QStringLiteral("SomeProfile")).isEmpty()
+                   && doc.activeWorkspace == doc.workspaces.first().id);
+        while (doc.workspaces.size() > 1) {
+            doc.removeWorkspace(doc.workspaces.last().id);
+        }
+        report("the last workspace cannot be deleted",
+               !doc.removeWorkspace(doc.workspaces.first().id)
+                   && doc.workspaces.size() == 1);
+        Q_UNUSED(before);
+    }
+
     std::printf("\n%s\n", g_failures == 0 ? "All checks passed." : "FAILURES present.");
     return g_failures == 0 ? 0 : 1;
 }

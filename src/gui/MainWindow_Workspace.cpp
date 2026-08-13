@@ -16,12 +16,16 @@
 #include "BandStackPanel.h"
 #include "PanadapterApplet.h"
 #include "PanadapterStack.h"
+#include "TitleBar.h"
 #include "containers/ContainerManager.h"
 #include "core/AppSettings.h"
 #include "workspace/WorkspaceCanvas.h"
 #include "workspace/WorkspaceController.h"
 
 #include <QAction>
+#include <QInputDialog>
+#include <QMenu>
+#include <QMessageBox>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QSplitter>
@@ -82,7 +86,48 @@ void MainWindow::wireWorkspaceCanvas()
     hooks.reclaimBandStack = [this](QWidget*) {
         m_panStack->reclaimBandStackPanel();
     };
+    hooks.floatingPanGlobalRect = [this](const QString& id) -> QRect {
+        if (auto* a = m_panStack->panadapter(id)) {
+            if (QWidget* win = a->window(); win && win != this) {
+                return win->geometry();
+            }
+        }
+        return QRect();
+    };
+    hooks.requestDock = [this](const QString& id) {
+        m_panStack->dockPanadapter(id);
+    };
+    hooks.recallGuard = [this](bool on) {
+        m_appletPanel->setRecallInProgress(on);
+    };
     m_workspaceController->setPanHost(hooks);
+
+    // The widget palette (Add widget ▸): AppletPanel owns the applet
+    // universe and the category taxonomy; the controller only renders it.
+    {
+        QList<WorkspaceController::WidgetCatalogEntry> catalog;
+        for (const auto& e : m_appletPanel->appletCatalog()) {
+            catalog.append({e.id, e.title, e.category});
+        }
+        m_workspaceController->setWidgetCatalog(catalog);
+    }
+
+    // Profile-bound recall (phase 6, decisions 6/8): a bound GLOBAL
+    // profile switches the workspace; the status bar says so, because the
+    // whole surface just changed and the operator deserves the why.
+    connect(&m_radioModel, &RadioModel::profileLoadCompleted,
+            m_workspaceController, &WorkspaceController::onRadioProfileLoaded);
+    // Switches hide/recall the band stack; keep its indicator honest
+    // (review M1).
+    connect(m_workspaceController, &WorkspaceController::workspacesChanged,
+            this, [this] { updateBandStackIndicator(); });
+    connect(m_workspaceController,
+            &WorkspaceController::workspaceSwitchedByProfile, this,
+            [this](const QString& profile, const QString& wsLabel) {
+                statusBar()->showMessage(
+                    tr("Workspace \"%1\" (profile %2)").arg(wsLabel, profile),
+                    6000);
+            });
 
     connect(m_panStack, &PanadapterStack::panAdded,
             m_workspaceController, &WorkspaceController::onPanAdded);
@@ -141,6 +186,11 @@ void MainWindow::wireWorkspaceCanvas()
                 // Edit Layout is meaningful only while the canvas is up.
                 if (m_workspaceEditAction) {
                     m_workspaceEditAction->setEnabled(on);
+                }
+                // The panel's title-bar controls hide with the panel's role:
+                // canvas mode owns arrangement (8600 field request).
+                if (m_titleBar) {
+                    m_titleBar->setAppletPanelControlsVisible(!on);
                 }
             });
 
@@ -241,6 +291,13 @@ void MainWindow::toggleWorkspaceCanvas(bool on)
             m_workspaceCanvas->setParent(this);
             m_workspaceCanvas->hide();
             m_panStack->show();
+            if (m_appletPanel) {
+                m_appletPanel->setVisible(
+                    AppSettings::instance()
+                        .value(QStringLiteral("AppletPanelVisible"),
+                               QStringLiteral("True"))
+                        .toString() == QLatin1String("True"));
+            }
             if (m_workspaceCanvasAction) {
                 QSignalBlocker blocker(m_workspaceCanvasAction);
                 m_workspaceCanvasAction->setChecked(false);
@@ -252,6 +309,30 @@ void MainWindow::toggleWorkspaceCanvas(bool on)
 
         if (bandStackWasVisible) {
             m_workspaceController->setBandStackVisible(true);
+        }
+
+        // The panel hides with its controls (8600 field request): the
+        // widget palette owns adding in canvas mode, and full recall owns
+        // open/closed — a visible panel column is dead space.  VISUAL only:
+        // the persisted AppletPanelVisible preference is untouched, so
+        // classic mode returns exactly as the operator had it.  A floating
+        // panel docks first via the canonical path (#2584's black-box
+        // lesson).
+        const bool panelWasFloating = (m_appletPanelFloatWindow != nullptr);
+        if (panelWasFloating) {
+            toggleAppletPanelFloating(false);
+            // The dock above persisted AppletPanelFloating=False; the
+            // operator didn't ask for that (review M2 — "visual only"
+            // must cover the pop-out too).  Restore the preference AND
+            // persist it — the toggle's own save already ran, so a bare
+            // setValue sat cache-only and a crash lost the pop-out (found
+            // by the 8600 bridge pass: the crash below made it real).
+            AppSettings::instance().setValue(
+                QStringLiteral("AppletPanelFloating"), QStringLiteral("True"));
+            AppSettings::instance().save();
+        }
+        if (m_appletPanel) {
+            m_appletPanel->hide();
         }
 
         for (int i = 0; i < m_splitter->count(); ++i) {
@@ -286,11 +367,170 @@ void MainWindow::toggleWorkspaceCanvas(bool on)
     m_workspaceCanvas->setParent(this);
     m_workspaceCanvas->hide();
     m_panStack->show();
+    // Restore the panel per the operator's persisted preferences — not
+    // unconditionally: someone who kept it hidden before the canvas keeps
+    // it hidden after, and someone who had it POPPED OUT gets the float
+    // back (review M2).
+    if (m_appletPanel) {
+        m_appletPanel->setVisible(
+            AppSettings::instance()
+                .value(QStringLiteral("AppletPanelVisible"),
+                       QStringLiteral("True"))
+                .toString() == QLatin1String("True"));
+        if (AppSettings::instance()
+                .value(QStringLiteral("AppletPanelFloating"),
+                       QStringLiteral("False"))
+                .toString() == QLatin1String("True")
+            && !m_appletPanelFloatWindow) {
+            // DEFERRED a turn: re-floating synchronously inside the same
+            // event-loop turn as the shell swap created the float window
+            // against surfaces mid-teardown — on Wayland that is a
+            // wl_subsurface "no parent" protocol error and the compositor
+            // KILLS the client (found live on the 8600 bridge pass).  One
+            // turn lets Qt commit the reparented tree first — the same
+            // deferral discipline the boot mount uses.
+            QTimer::singleShot(0, this, [this] {
+                if (m_workspaceController
+                    && !m_workspaceController->isEnabled()
+                    && !m_appletPanelFloatWindow) {
+                    toggleAppletPanelFloating(true);
+                }
+            });
+        }
+    }
     if (m_panStack->count() > 1) {
         m_panStack->rearrangeLayout(
             AppSettings::instance()
                 .value(QStringLiteral("PanadapterLayout"), QStringLiteral("1"))
                 .toString());
+    }
+}
+
+void MainWindow::rebuildWorkspaceSwitcherMenu(QMenu* menu)
+{
+    menu->clear();
+    // clear() deletes actions but ORPHANS submenus (each owns its own
+    // menuAction) — the bind submenu accumulated one QMenu per open
+    // (review m5).
+    qDeleteAll(menu->findChildren<QMenu*>(QString(), Qt::FindDirectChildrenOnly));
+    if (!m_workspaceController) {
+        return;
+    }
+    const QList<QPair<QString, QString>> list =
+        m_workspaceController->workspaceList();
+    const QString active = m_workspaceController->activeWorkspaceId();
+
+    if (list.isEmpty()) {
+        QAction* none = menu->addAction(tr("Enable the canvas to create workspaces"));
+        none->setEnabled(false);
+        return;
+    }
+
+    // Menu text is mnemonic text: double the ampersands in anything
+    // data-driven (workspace labels, profile names) or Qt renders "&" as an
+    // accelerator underline.
+    auto menuText = [](const QString& t) {
+        return QString(t).replace(QLatin1Char('&'), QStringLiteral("&&"));
+    };
+    for (const auto& [id, label] : list) {
+        QAction* a = menu->addAction(menuText(label));
+        a->setCheckable(true);
+        a->setChecked(id == active);
+        connect(a, &QAction::triggered, this, [this, id] {
+            m_workspaceController->switchWorkspace(id);
+        });
+    }
+
+    menu->addSeparator();
+    auto askLabel = [this](const QString& title) {
+        return QInputDialog::getText(this, title, tr("Name:"));
+    };
+    menu->addAction(tr("New from current layout…"), this, [this, askLabel] {
+        const QString l = askLabel(tr("New workspace"));
+        if (!l.isEmpty())
+            m_workspaceController->createWorkspace(
+                WorkspaceController::NewWorkspaceSource::Current, l);
+    });
+    menu->addAction(tr("New from Classic…"), this, [this, askLabel] {
+        const QString l = askLabel(tr("New workspace"));
+        if (!l.isEmpty())
+            m_workspaceController->createWorkspace(
+                WorkspaceController::NewWorkspaceSource::Classic, l);
+    });
+    menu->addAction(tr("New blank…"), this, [this, askLabel] {
+        const QString l = askLabel(tr("New workspace"));
+        if (!l.isEmpty())
+            m_workspaceController->createWorkspace(
+                WorkspaceController::NewWorkspaceSource::Blank, l);
+    });
+
+    menu->addSeparator();
+    // "Active" is resolved AT TRIGGER TIME, not menu-build time (review,
+    // K6OZY): a bound-profile recall arriving under an open menu used to
+    // make "Delete active…" delete a different workspace than the dialog
+    // named.
+    menu->addAction(tr("Rename active…"), this, [this] {
+        const QString now = m_workspaceController->activeWorkspaceId();
+        QString nowLabel;
+        for (const auto& [wid, wlabel] : m_workspaceController->workspaceList()) {
+            if (wid == now) { nowLabel = wlabel; break; }
+        }
+        // Prefilled with the current name (review M4): an empty field made
+        // retyping the same name the easy path, and that used to mangle it.
+        const QString l = QInputDialog::getText(
+            this, tr("Rename workspace"), tr("Name:"), QLineEdit::Normal,
+            nowLabel);
+        if (!l.isEmpty() && l != nowLabel)
+            m_workspaceController->renameWorkspace(now, l);
+    });
+    QAction* del = menu->addAction(tr("Delete active…"), this, [this] {
+        const QString now = m_workspaceController->activeWorkspaceId();
+        QString nowLabel;
+        for (const auto& [wid, wlabel] : m_workspaceController->workspaceList()) {
+            if (wid == now) { nowLabel = wlabel; break; }
+        }
+        if (QMessageBox::question(
+                this, tr("Delete workspace"),
+                tr("Delete workspace \"%1\"? Its arrangement is lost.")
+                    .arg(nowLabel))
+            == QMessageBox::Yes) {
+            m_workspaceController->deleteWorkspace(now);
+        }
+    });
+    del->setEnabled(list.size() > 1);
+
+    menu->addSeparator();
+    menu->addAction(tr("Import pop-outs onto canvas"), this, [this] {
+        const int n = m_workspaceController->importFloatingOntoCanvas();
+        statusBar()->showMessage(
+            n > 0 ? tr("%n pop-out(s) imported onto the canvas", nullptr, n)
+                  : tr("No pop-outs to import"),
+            5000);
+    });
+
+    // Bindings: which GLOBAL radio profiles recall the ACTIVE workspace.
+    // Toggling binds/unbinds profile → active (decisions 5/6/8).
+    menu->addSeparator();
+    QMenu* bindMenu = menu->addMenu(tr("Bind to radio profile"));
+    const QStringList profiles = m_radioModel.globalProfiles();
+    if (profiles.isEmpty()) {
+        QAction* none = bindMenu->addAction(tr("(no radio profiles)"));
+        none->setEnabled(false);
+    } else {
+        for (const QString& prof : profiles) {
+            QAction* b = bindMenu->addAction(menuText(prof));
+            b->setCheckable(true);
+            b->setChecked(m_workspaceController->boundWorkspaceFor(prof)
+                          == active);
+            connect(b, &QAction::toggled, this, [this, prof](bool on) {
+                if (on) {
+                    m_workspaceController->bindProfile(
+                        prof, m_workspaceController->activeWorkspaceId());
+                } else {
+                    m_workspaceController->unbindProfile(prof);
+                }
+            });
+        }
     }
 }
 
@@ -306,6 +546,12 @@ QVariantMap MainWindow::automationWorkspace(const QString& action,
 
     if (action == QLatin1String("status") || action == QLatin1String("query")) {
         out[QStringLiteral("enabled")]  = enabled;
+        // The active workspace, so two workspaces holding identical layouts
+        // no longer give byte-identical status replies (review, K6OZY: a
+        // harness diffing status to verify a switch passed when the switch
+        // did nothing).
+        out[QStringLiteral("activeWorkspace")] =
+            m_workspaceController->activeWorkspaceId();
         out[QStringLiteral("edit")]     = m_workspaceCanvas->isEditMode();
         out[QStringLiteral("gridSnap")] = m_workspaceCanvas->isGridSnapEnabled();
         out[QStringLiteral("selected")] = m_workspaceCanvas->selectedItem();
@@ -346,6 +592,129 @@ QVariantMap MainWindow::automationWorkspace(const QString& action,
             out[QStringLiteral("error")] =
                 QStringLiteral("enable refused — see statusMessage");
         }
+        return out;
+    }
+
+    if (action == QLatin1String("list")) {
+        QVariantList wsList;
+        for (const auto& [id, label] : m_workspaceController->workspaceList()) {
+            QVariantMap w;
+            w[QStringLiteral("id")]     = id;
+            w[QStringLiteral("label")]  = label;
+            w[QStringLiteral("active")] =
+                (id == m_workspaceController->activeWorkspaceId());
+            wsList.append(w);
+        }
+        out[QStringLiteral("workspaces")] = wsList;
+        out[QStringLiteral("active")] = m_workspaceController->activeWorkspaceId();
+        return out;
+    }
+
+    if (action == QLatin1String("switch")) {
+        const QString target = args.trimmed();
+        // An EXACT ID wins over a label match (review, K6OZY: labels are
+        // operator text, and a workspace *labelled* "ws-1" used to hijack
+        // `switch ws-1` away from the workspace whose id that is).
+        QString id = target;
+        bool exactId = false;
+        for (const auto& [wsId, wsLabel] : m_workspaceController->workspaceList()) {
+            if (wsId == target) { exactId = true; break; }
+        }
+        if (!exactId) {
+            for (const auto& [wsId, wsLabel] :
+                 m_workspaceController->workspaceList()) {
+                if (wsLabel == target) { id = wsId; break; }
+            }
+        }
+        if (!m_workspaceController->switchWorkspace(id)) {
+            out[QStringLiteral("error")] =
+                QStringLiteral("no such workspace: %1").arg(target);
+            return out;
+        }
+        out[QStringLiteral("active")] = m_workspaceController->activeWorkspaceId();
+        return out;
+    }
+
+    if (action == QLatin1String("create")) {
+        const QStringList parts = args.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        if (parts.isEmpty()) {
+            out[QStringLiteral("error")] = QStringLiteral(
+                "create wants <current|classic|blank> [label]");
+            return out;
+        }
+        WorkspaceController::NewWorkspaceSource src;
+        if (parts.first() == QLatin1String("current"))
+            src = WorkspaceController::NewWorkspaceSource::Current;
+        else if (parts.first() == QLatin1String("classic"))
+            src = WorkspaceController::NewWorkspaceSource::Classic;
+        else if (parts.first() == QLatin1String("blank"))
+            src = WorkspaceController::NewWorkspaceSource::Blank;
+        else {
+            out[QStringLiteral("error")] = QStringLiteral(
+                "create wants <current|classic|blank> [label]");
+            return out;
+        }
+        const QString label = parts.mid(1).join(QLatin1Char(' '));
+        const QString id = m_workspaceController->createWorkspace(src, label);
+        if (id.isEmpty()) {
+            out[QStringLiteral("error")] = QStringLiteral("create failed");
+            return out;
+        }
+        out[QStringLiteral("id")] = id;
+        // The ACTUAL label (deduplication may have suffixed it) and the
+        // posture change — both script-observable state the reply used to
+        // omit (review, K6OZY: a collision silently yielded "X (2)" and a
+        // script binding by label touched the wrong workspace).
+        for (const auto& [wsId, wsLabel] : m_workspaceController->workspaceList()) {
+            if (wsId == id) { out[QStringLiteral("label")] = wsLabel; break; }
+        }
+        out[QStringLiteral("edit")]   = m_workspaceCanvas->isEditMode();
+        out[QStringLiteral("active")] = m_workspaceController->activeWorkspaceId();
+        return out;
+    }
+
+    if (action == QLatin1String("bind")) {
+        // bind <workspaceId|-> <profile name with spaces>
+        const QString a = args.trimmed();
+        const int sp = a.indexOf(QLatin1Char(' '));
+        if (sp <= 0) {
+            out[QStringLiteral("error")] = QStringLiteral(
+                "bind wants <workspaceId|-> <global profile name>");
+            return out;
+        }
+        const QString wsId    = a.left(sp);
+        const QString profile = a.mid(sp + 1).trimmed();
+        if (wsId == QLatin1String("-")) {
+            m_workspaceController->unbindProfile(profile);
+        } else {
+            m_workspaceController->bindProfile(profile, wsId);
+            if (m_workspaceController->boundWorkspaceFor(profile) != wsId) {
+                // The controller refused silently (unknown workspace); a
+                // script must be able to tell "bound" from "ignored"
+                // (review m4).
+                out[QStringLiteral("error")] =
+                    QStringLiteral("no such workspace: %1").arg(wsId);
+                return out;
+            }
+        }
+        out[QStringLiteral("bound")] =
+            m_workspaceController->boundWorkspaceFor(profile);
+        // Whether the radio currently REPORTS this profile.  Not an error —
+        // binding before the radio connects is a legitimate workflow — but
+        // a script can now catch the typo the Bind submenu cannot show
+        // (review, K6OZY).
+        out[QStringLiteral("knownProfile")] =
+            m_radioModel.globalProfiles().contains(profile);
+        return out;
+    }
+
+    if (action == QLatin1String("import-floats")) {
+        if (!enabled) {
+            out[QStringLiteral("error")] = QStringLiteral("canvas mode is off");
+            return out;   // "imported: 0" must mean "nothing was floating"
+        }
+        out[QStringLiteral("imported")] =
+            m_workspaceController->importFloatingOntoCanvas();
         return out;
     }
 
@@ -417,8 +786,9 @@ QVariantMap MainWindow::automationWorkspace(const QString& action,
     }
 
     out[QStringLiteral("error")] =
-        QStringLiteral("unknown workspace action: %1 "
-                       "(status|enable|disable|edit|place)").arg(action);
+        QStringLiteral("unknown workspace action: %1 (status|enable|disable|"
+                       "edit|place|list|switch|create|bind|import-floats)")
+            .arg(action);
     return out;
 }
 

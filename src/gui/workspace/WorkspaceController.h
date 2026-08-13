@@ -101,6 +101,13 @@ public:
         std::function<void(const QString&)> requestFloat;       // pop out
         std::function<QWidget*()> bandStack;                    // the panel
         std::function<void(QWidget*)> reclaimBandStack;         // re-home it
+        // Import pop-outs (phase 6): where a floating pan's window sits on
+        // screen, and the way to dock it.
+        std::function<QRect(const QString&)> floatingPanGlobalRect;
+        std::function<void(const QString&)> requestDock;
+        // Bracket recall-driven bulk visibility changes (red-team B2): the
+        // panel suppresses its Applet_<ID> preference writes inside.
+        std::function<void(bool)> recallGuard;
     };
     void setPanHost(const PanHostHooks& hooks);
 
@@ -125,6 +132,65 @@ public:
     // Flush the debounced document write now — the automation bridge's
     // gesture boundary (a `workspace place` is one discrete edit).
     void commitPlacement() { m_store.flush(); }
+
+    // ── Workspaces (RFC #4887 phase 6) ───────────────────────────────────
+    //
+    // FULL RECALL (maintainer ruling 2026-08-12): a workspace remembers
+    // which applets are OPEN as well as where everything sits.  Switching
+    // opens the target's applets, closes non-members, and places everything
+    // — pans at the target's slot rects, applets at their homes.  The
+    // per-item `closed` flag makes close-keeps-home work WITHIN a
+    // workspace; an operator opening an applet always clears it (the click
+    // outranks the document).  Edit posture is session state and survives
+    // a switch; the single-slot undo does not (whole-surface change).
+    enum class NewWorkspaceSource { Current, Classic, Blank };
+
+    // Create (and, while enabled, switch to) a new workspace.  Returns its
+    // id, empty on failure.  Current duplicates the active arrangement;
+    // Classic composes from the live legacy keys; Blank starts empty (live
+    // pans land at cascade defaults on first placement).
+    QString createWorkspace(NewWorkspaceSource source, const QString& label);
+    bool renameWorkspace(const QString& id, const QString& label);
+    // Deleting the active workspace switches to the document's fallback.
+    bool deleteWorkspace(const QString& id);
+    bool switchWorkspace(const QString& id);
+    QString activeWorkspaceId() const;
+    // (id, label) pairs in the operator's order.
+    QList<QPair<QString, QString>> workspaceList() const;
+
+    // Radio-profile bindings (decisions 5/6/8): client-side map in the
+    // document.  Recall of a bound global profile switches; unbound leaves
+    // the workspace alone.
+    void bindProfile(const QString& profileName, const QString& workspaceId);
+    void unbindProfile(const QString& profileName);
+    QString boundWorkspaceFor(const QString& profileName) const;
+
+    // The widget palette (phase 6 field request): the context menu's
+    // "Add widget" submenu, fed by MainWindow from AppletPanel's catalog.
+    struct WidgetCatalogEntry {
+        QString id;
+        QString title;
+        QString category;
+    };
+    void setWidgetCatalog(const QList<WidgetCatalogEntry>& catalog);
+
+    // Add one applet from the palette at a canvas position (fractions).
+    // Opens a closed applet, docks a floating one, places an open one —
+    // and refuses an applet already on the canvas.
+    bool addAppletFromPalette(const QString& appletId, const QPointF& canvasPos);
+
+    // Import every pop-out — floating applet containers and floating pans —
+    // onto the canvas at rects mapped from their window geometry (the RFC's
+    // opt-in for pre-canvas float arrangements; migration deliberately
+    // never did this).  Returns how many landed.
+    int importFloatingOntoCanvas();
+
+public slots:
+    // Wired to RadioModel::profileLoadCompleted by MainWindow_Workspace.
+    void onRadioProfileLoaded(const QString& profileType,
+                              const QString& profileName);
+
+public:
 
     // Band-stack hosting while the mode is on: the panel becomes the
     // "bandstack" canvas item (its spot persists; visibility stays the
@@ -175,10 +241,19 @@ public:
     // Where a live drag out of the canvas may land (the applet panel).
     // Releasing a move over this widget returns the applet to it; anywhere
     // else the drag is an abort (the canvas has already restored the rect).
+    // Since the panel hides in canvas mode this fires only when something
+    // re-shows it; the per-item "Return to panel" action and the palette
+    // are the ordinary paths now (review m2).
     void setReturnTarget(QWidget* target);
 
 signals:
     void enabledChanged(bool enabled);
+    // Anything the switcher menu shows changed: the list, a label, the
+    // active workspace, or a binding.
+    void workspacesChanged();
+    // A bound profile recall performed the switch (for the status-bar note).
+    void workspaceSwitchedByProfile(const QString& profileName,
+                                    const QString& workspaceLabel);
 
 private:
     ContainerWidget* containerForApplet(const QString& appletId) const;
@@ -193,6 +268,12 @@ private:
     // Document edits.  Each takes the current document, applies one change,
     // and hands it back to the store; `flushNow` marks the end of a gesture.
     void writeItemRect(const QString& itemId, const NormRect& rect, bool flushNow);
+    void writeItemClosed(const QString& itemId, bool closed, bool flushNow);
+    // The release-everything half of disable() and switchWorkspace():
+    // applets to the panel (homes kept), the band stack reclaimed; pans
+    // either restore to the stack (disable) or stay parented for immediate
+    // re-placement (switch).  Callers hold m_applying.
+    void releaseAllItems(bool returnPansToStack, bool hideBandStack);
     void writeItemPresence(const QString& itemId, const QString& contentType,
                            const NormRect& rect, bool present, bool flushNow);
     void writeStackingFromCanvas();
@@ -213,6 +294,13 @@ private:
 
     // Slot bookkeeping (phase 4).
     int slotForPan(const QString& panId);          // assigns on first sight
+    // enable()'s applet-id snapshot, else the widget catalog's universe —
+    // Classic composition must never run against an empty world.
+    QStringList effectiveKnownAppletIds() const;
+    // The real switch: `force` re-places even when `id` is already active
+    // (deleteWorkspace retargets the document first, so the ordinary
+    // no-change early-return would skip the release/recall).
+    bool switchWorkspaceInternal(const QString& id, bool force);
     QString panIdForItem(const QString& itemId) const;
     // The slot-id list migration/reset feed composeClassic ("0", "1", …):
     // as many as the operator's saved pan layout has cells, or the live pan
@@ -223,6 +311,7 @@ private:
     WorkspaceCanvas*  m_canvas{nullptr};
     WorkspaceStore    m_store;
     PanHostHooks m_panHost;
+    QList<WidgetCatalogEntry> m_widgetCatalog;
     QHash<QString, int> m_panSlots;   // live panId → document slot
     QPointer<QWidget> m_returnTarget;
     QStringList m_knownAppletIds;   // from enable(), for resetToClassic()

@@ -614,12 +614,17 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         // button on the ContainerTitleBar) back to the tray toggle
         // and settings so everything stays in sync.
         connect(c, &ContainerWidget::visibilityChanged, this,
-                [btn, key](bool visible) {
+                [this, btn, key](bool visible) {
             if (btn) {
                 QSignalBlocker b(btn);
                 btn->setChecked(visible);
             }
-            AppSettings::instance().setValue(key, visible ? "True" : "False");
+            // Recall-driven changes are workspace state, not preference
+            // changes (red-team B2) — the button sync above still runs so
+            // the bar stays honest either way.
+            if (!m_recallInProgress) {
+                AppSettings::instance().setValue(key, visible ? "True" : "False");
+            }
         });
 
         return {id, c, c->titleBar(), btn};
@@ -728,7 +733,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // starts hidden (defaultOn = false).
     m_tunerApplet = new TunerApplet;
     {
-        auto entry = makeEntry("TUN", "Tuner", m_tunerApplet, false,
+        auto entry = makeEntry("TUN", "TGXL", m_tunerApplet, false,
                                m_drawer, m_drawerLayout);
         m_tuneBtn = entry.btn;
         markHardwareConditional("TUN");
@@ -737,7 +742,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     m_ampApplet = new AmpApplet;
     {
-        auto entry = makeEntry("AMP", "Amplifier", m_ampApplet, false,
+        auto entry = makeEntry("AMP", "PGXL", m_ampApplet, false,
                                m_drawer, m_drawerLayout);
         m_ampBtn = entry.btn;
         markHardwareConditional("AMP");
@@ -888,7 +893,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // marketing name for the whole TX-DSP composite.  Settings ID
     // stays TXDSP for persistence.
     {
-        auto entry = makeEntry("TXDSP", "VUDU", txDsp, false,
+        auto entry = makeEntry("TXDSP", "Channel Strip", txDsp, false,
                                m_drawer, m_drawerLayout, "VUDU");
         // Make the composite's drag MIME match its owning AppletEntry.id
         // so the drop handler's fast lookup hits directly.  Container
@@ -922,7 +927,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_appletOrder.append(makeEntry("IQ", "DAX IQ", m_daxIqApplet, false, m_drawer, m_drawerLayout));
 
     m_meterApplet = new MeterApplet;
-    m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false, m_drawer, m_drawerLayout));
+    m_appletOrder.append(makeEntry("MTR", "Radio Vitals", m_meterApplet, false, m_drawer, m_drawerLayout));
 
     m_profApplet = new ProfileSwitcherApplet;
     m_appletOrder.append(makeEntry("PROF", "Profile Switcher", m_profApplet, false, m_drawer, m_drawerLayout));
@@ -1231,6 +1236,85 @@ void AppletPanel::rebuildStackOrder()
         m_stack->addWidget(entry.widget);
     }
     m_stack->addStretch(1);  // factor 1: absorb all surplus, pin tiles to sizeHint (#3461)
+}
+
+QList<AppletPanel::AppletCatalogEntry> AppletPanel::appletCatalog() const
+{
+    // THE category taxonomy — a starting point, deliberately one flat table
+    // so re-homing an applet is a one-line edit.  Order here is category
+    // FIRST-SEEN order and becomes the palette's menu order; applets within
+    // a category keep panel order.
+    static const QMap<QString, QString> kCategory = {
+        {QStringLiteral("RX"),    QStringLiteral("Receive")},
+        {QStringLiteral("MPAN"),  QStringLiteral("Receive")},
+        {QStringLiteral("KSDR"),  QStringLiteral("Receive")},
+        {QStringLiteral("DEMO"),  QStringLiteral("Receive")},
+        {QStringLiteral("TX"),    QStringLiteral("Transmit")},
+        {QStringLiteral("PHNE"),  QStringLiteral("Transmit")},
+        {QStringLiteral("P/CW"),  QStringLiteral("Transmit")},
+        {QStringLiteral("TUN"),   QStringLiteral("Transmit")},
+        {QStringLiteral("AMP"),   QStringLiteral("Amplifiers")},
+        {QStringLiteral("ACOM"),  QStringLiteral("Amplifiers")},
+        {QStringLiteral("SPE"),   QStringLiteral("Amplifiers")},
+        {QStringLiteral("EQ"),    QStringLiteral("Audio & DSP")},
+        {QStringLiteral("TXDSP"), QStringLiteral("Audio & DSP")},
+        {QStringLiteral("WAVE"),  QStringLiteral("Audio & DSP")},
+        {QStringLiteral("PWR"),   QStringLiteral("Metering")},
+        {QStringLiteral("MTR"),   QStringLiteral("Metering")},
+        {QStringLiteral("HLTH"),  QStringLiteral("Antennas & Switching")},
+        {QStringLiteral("AG"),    QStringLiteral("Antennas & Switching")},
+        {QStringLiteral("SS"),    QStringLiteral("Antennas & Switching")},
+        {QStringLiteral("CAT"),   QStringLiteral("Integration")},
+        {QStringLiteral("DAX"),   QStringLiteral("Integration")},
+        {QStringLiteral("IQ"),    QStringLiteral("Integration")},
+        {QStringLiteral("TCI"),   QStringLiteral("Integration")},
+        {QStringLiteral("MQTT"),  QStringLiteral("Integration")},
+        {QStringLiteral("RADE"),  QStringLiteral("Integration")},
+        {QStringLiteral("CLOCK"), QStringLiteral("Station")},
+        {QStringLiteral("PROF"),  QStringLiteral("Station")},
+    };
+
+    // Hardware-conditional applets (TGXL/PGXL/ACOM/SPE…) hide from the BAR
+    // when their hardware is absent; the palette must not offer them
+    // either (review M3): on the demo it listed live entries that placed
+    // dead amplifier applets.  The bar's own record — BarButton::
+    // hardwareAvailable, driven by markHardwareConditional()/
+    // updateHardwareAvailability() — is the single source of that truth.
+    auto hardwareHidden = [this](const QString& id) {
+        for (const auto& bb : m_barButtons) {
+            if (bb.id == id) {
+                return !bb.hardwareAvailable;
+            }
+        }
+        return false;   // no bar record: not hardware-conditional
+    };
+
+    QList<AppletCatalogEntry> out;
+    out.reserve(m_appletOrder.size() + 1);
+    // The VU/S-Meter container is created directly on the manager rather
+    // than through makeEntry (it predates the m_appletOrder plumbing), so
+    // the iteration below never sees it — the one applet that needs an
+    // explicit row (8600 field report: "where is the VU meter?").
+    if (m_sMeterContainer) {
+        out.append({QStringLiteral("VU"), m_sMeterContainer->title(),
+                    QStringLiteral("Metering")});
+    }
+    for (const auto& entry : m_appletOrder) {
+        if (hardwareHidden(entry.id)) {
+            continue;
+        }
+        AppletCatalogEntry e;
+        e.id = entry.id;
+        if (auto* c = qobject_cast<ContainerWidget*>(entry.widget)) {
+            e.title = c->title();
+        }
+        if (e.title.isEmpty()) {
+            e.title = entry.id;
+        }
+        e.category = kCategory.value(entry.id, QStringLiteral("Other"));
+        out.append(e);
+    }
+    return out;
 }
 
 QStringList AppletPanel::appletIds() const

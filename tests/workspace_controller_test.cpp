@@ -155,6 +155,12 @@ int main(int argc, char** argv)
         return floatingPans.contains(id);
     };
     ctl.setPanHost(hooks);
+    // The recall close-loop is scoped to the widget catalog (red-team B1),
+    // so the switch matrix needs it from the start.
+    ctl.setWidgetCatalog({{QStringLiteral("RX"), QStringLiteral("RX Controls"),
+                           QStringLiteral("Receive")},
+                          {QStringLiteral("TX"), QStringLiteral("TX Controls"),
+                           QStringLiteral("Transmit")}});
 
     // ── Boot before any document exists ──────────────────────────────────
     report("boot with nothing stored asks for nothing", !ctl.boot());
@@ -478,6 +484,12 @@ int main(int argc, char** argv)
                !canvas.contains(WorkspaceController::kBandStackItemId)
                    && bandStack.parentWidget() == &panOwner
                    && !bandStack.isVisible());
+        // The hooks hold a pointer to this block-local panel, and the M1
+        // band-stack recall invokes them on every later switch — detach
+        // before the widget dies (the same lifetime rule as the guard).
+        hooks.bandStack        = {};
+        hooks.reclaimBandStack = {};
+        ctl.setPanHost(hooks);
 
         // A reclaimed widget cannot hide behind a healthy model: steal the
         // pan back to its owner behind the canvas's back (what the stack's
@@ -511,6 +523,367 @@ int main(int argc, char** argv)
         ctl.onPanRemoved(QStringLiteral("0x40000002"));
         pans.remove(QStringLiteral("0x40000002"));
         ctl.disable();
+    }
+
+    // ── Phase 6: workspaces — CRUD, full-recall switching, bindings ──────
+    {
+        report("re-enable for the phase 6 block",
+               ctl.enable({"RX", "TX"}) && canvas.contains("pan:0"));
+        canvas.setEditMode(true);
+        rx->setContainerVisible(true);
+        tx->setContainerVisible(true);
+        if (!rx->isOnCanvas()) ctl.sendAppletToCanvas("RX");
+        if (!tx->isOnCanvas()) ctl.sendAppletToCanvas("TX");
+        const QString wsA = ctl.activeWorkspaceId();
+
+        // Create-from-current duplicates and switches to the copy.
+        const QString wsB = ctl.createWorkspace(
+            WorkspaceController::NewWorkspaceSource::Current,
+            QStringLiteral("Contest"));
+        report("create-from-current switches to the copy",
+               !wsB.isEmpty() && ctl.activeWorkspaceId() == wsB
+                   && canvas.contains("applet:RX") && canvas.contains("applet:TX"));
+        report("...and a fresh canvas opens EDITING (field request)",
+               canvas.isEditMode());
+        canvas.setEditMode(false);
+        report("...while a plain switch keeps the posture",
+               ctl.switchWorkspace(wsA) && !canvas.isEditMode()
+                   && ctl.switchWorkspace(wsB));
+        canvas.setEditMode(true);
+        report("...and the switcher lists both",
+               ctl.workspaceList().size() >= 2);
+
+        // Close TX here: the workspace remembers it as closed.
+        tx->setContainerVisible(false);
+        report("closing writes the closed flag to the active workspace",
+               storedDocument().contains(QStringLiteral("closed")));
+
+        // Switch back to A: FULL RECALL reopens TX (open there).
+        report("switching restores the other workspace's open set",
+               ctl.switchWorkspace(wsA)
+                   && tx->isContainerVisible() && tx->isOnCanvas()
+                   && rx->isOnCanvas());
+
+        // Switch to B again: TX closes (closed there), RX stays.
+        report("...and the closed set on the way back",
+               ctl.switchWorkspace(wsB)
+                   && !tx->isContainerVisible()
+                   && rx->isOnCanvas());
+        report("a switch is a whole-surface change: undo is cleared",
+               !ctl.canUndo());
+
+        // Pans: rects are per-workspace.
+        const NormRect inB = canvas.itemRect("pan:0");
+        ctl.switchWorkspace(wsA);
+        canvas.setItemRect("pan:0", NormRect{0.05, 0.05, 0.4, 0.4});
+        ctl.switchWorkspace(wsB);
+        report("pan rects are per-workspace",
+               canvas.itemRect("pan:0") == inB);
+        ctl.switchWorkspace(wsA);
+        report("...both ways",
+               canvas.itemRect("pan:0") == NormRect{0.05, 0.05, 0.4, 0.4});
+
+        // Blank starts empty; live pans land at cascade defaults.
+        const QString wsC = ctl.createWorkspace(
+            WorkspaceController::NewWorkspaceSource::Blank,
+            QStringLiteral("Bare"));
+        report("blank workspace: pans placed, no applets",
+               ctl.activeWorkspaceId() == wsC
+                   && canvas.contains("pan:0")
+                   && !canvas.contains("applet:RX")
+                   && !rx->isContainerVisible());
+
+        // Bindings: a bound global profile recall switches; tx-type and
+        // unbound recalls do not (decisions 6/8).
+        ctl.bindProfile(QStringLiteral("CW Heavy"), wsB);
+        ctl.onRadioProfileLoaded(QStringLiteral("tx"), QStringLiteral("CW Heavy"));
+        report("a tx-profile recall never switches",
+               ctl.activeWorkspaceId() == wsC);
+        ctl.onRadioProfileLoaded(QStringLiteral("global"),
+                                 QStringLiteral("CW Heavy"));
+        report("a bound global recall switches",
+               ctl.activeWorkspaceId() == wsB);
+        ctl.onRadioProfileLoaded(QStringLiteral("global"),
+                                 QStringLiteral("Unbound Profile"));
+        report("an unbound recall leaves the workspace alone (decision 8)",
+               ctl.activeWorkspaceId() == wsB);
+
+        // Delete the active workspace: real switch to the fallback.
+        report("deleting the active workspace falls back and re-places",
+               ctl.deleteWorkspace(wsB)
+                   && ctl.activeWorkspaceId() != wsB
+                   && canvas.contains("pan:0"));
+        report("rename reflects in the list",
+               ctl.renameWorkspace(wsC, QStringLiteral("Renamed"))
+                   && [&] {
+                          for (const auto& p : ctl.workspaceList())
+                              if (p.second == QStringLiteral("Renamed"))
+                                  return true;
+                          return false;
+                      }());
+
+        // Red-team B1: a container OUTSIDE the catalog (composite children,
+        // the sidebar) is never the recall's business — switches must not
+        // touch it.
+        {
+            auto* inner = mgr.createContainer("gate", "Gate (composite child)");
+            inner->setContent(new QLabel("g"));
+            inner->setContainerVisible(true);
+            ctl.switchWorkspace(wsA);
+            ctl.switchWorkspace(ctl.createWorkspace(
+                WorkspaceController::NewWorkspaceSource::Current,
+                QStringLiteral("B1Probe")));
+            report("a non-catalog container survives switches (B1)",
+                   inner->isContainerVisible());
+            ctl.switchWorkspace(wsA);
+            report("...both ways", inner->isContainerVisible());
+        }
+
+        // Red-team B2: recall-driven bulk visibility runs inside the
+        // recall guard, so the panel can suppress preference writes.
+        {
+            int on = 0, off = 0;
+            bool balanced = true, inOrder = true;
+            hooks.recallGuard = [&](bool g) {
+                if (g) { ++on; if (on != off + 1) inOrder = false; }
+                else   { ++off; if (off != on) balanced = false; }
+            };
+            ctl.setPanHost(hooks);
+            const QString probe = ctl.createWorkspace(
+                WorkspaceController::NewWorkspaceSource::Blank,
+                QStringLiteral("B2Probe"));
+            ctl.switchWorkspace(wsA);
+            report("recall brackets the guard, balanced and ordered (B2)",
+                   on >= 2 && balanced && inOrder);
+            ctl.deleteWorkspace(probe);
+            // The guard captured this block's locals by reference and the
+            // controller keeps the hooks copy — detach it before they die.
+            hooks.recallGuard = {};
+            ctl.setPanHost(hooks);
+        }
+
+        // Blank workspaces cascade multiple pans (agent review): two live
+        // pans with no slot items must land at distinct rects.
+        {
+            auto* panB2 = new QWidget(&panOwner);
+            pans.insert(QStringLiteral("0x40000020"), panB2);
+            ctl.onPanAdded(QStringLiteral("0x40000020"));
+            const QString blank2 = ctl.createWorkspace(
+                WorkspaceController::NewWorkspaceSource::Blank,
+                QStringLiteral("TwoPanBlank"));
+            const QString id0 = ctl.panItemIdFor(QStringLiteral("0x40000000"));
+            const QString id1 = ctl.panItemIdFor(QStringLiteral("0x40000020"));
+            report("a blank workspace cascades multiple pans",
+                   canvas.contains(id0) && canvas.contains(id1)
+                       && canvas.itemRect(id0).x != canvas.itemRect(id1).x);
+            ctl.deleteWorkspace(blank2);
+            ctl.onPanRemoved(QStringLiteral("0x40000020"));
+            pans.remove(QStringLiteral("0x40000020"));
+            ctl.switchWorkspace(wsA);
+        }
+
+        // m9: the store NEVER holds a dangling activeWorkspace, even
+        // mid-delete of the active one.
+        {
+            const QString doomed = ctl.createWorkspace(
+                WorkspaceController::NewWorkspaceSource::Current,
+                QStringLiteral("Doomed"));
+            report("delete-active keeps the stored active valid (m9)",
+                   ctl.deleteWorkspace(doomed)
+                       && !storedDocument().contains(QStringLiteral("Doomed"))
+                       && storedDocument().contains(ctl.activeWorkspaceId()));
+        }
+
+        // m8: a closed pop-out must not desert workspaces that list it —
+        // a hidden float participates in recall (reopens as a float).
+        {
+            ctl.switchWorkspace(wsA);
+            canvas.setEditMode(true);
+            rx->setContainerVisible(true);
+            if (!rx->isOnCanvas()) ctl.sendAppletToCanvas("RX");
+            const QString twin = ctl.createWorkspace(
+                WorkspaceController::NewWorkspaceSource::Current,
+                QStringLiteral("M8Twin"));   // lists RX open
+            ctl.switchWorkspace(wsA);
+            mgr.floatContainer("RX");        // wsA forgets; the twin keeps it
+            rx->setContainerVisible(false);  // operator closes the pop-out
+            report("m8 precondition: hidden float",
+                   rx->isFloating() && !rx->isContainerVisible());
+            ctl.switchWorkspace(twin);
+            report("a workspace that lists a closed pop-out reopens it (m8)",
+                   rx->isContainerVisible());
+            ctl.deleteWorkspace(twin);
+            if (rx->isFloating()) mgr.dockContainer("RX");
+            rx->setContainerVisible(true);
+            ctl.switchWorkspace(wsA);
+            ctl.sendAppletToCanvas("RX");
+        }
+
+        // K6OZY: the boot/replay closed-flag paths — a closed flag skips a
+        // shut applet, and an applet reopened while the mode was OFF beats
+        // its stale flag (cleared and placed on the next enable).
+        {
+            ctl.switchWorkspace(wsA);
+            canvas.setEditMode(true);
+            tx->setContainerVisible(true);
+            if (!tx->isOnCanvas()) ctl.sendAppletToCanvas("TX");
+            tx->setContainerVisible(false);   // closed -> flag written
+            ctl.disable();
+            report("closed flag survives disable",
+                   storedDocument().contains(QStringLiteral("closed")));
+
+            // Case A: still closed -> enable skips it.
+            ctl.enable({"RX", "TX"});
+            report("a closed-flagged applet is not placed at enable",
+                   !canvas.contains("applet:TX") && !tx->isContainerVisible());
+
+            // Case B: reopened while the mode was OFF -> the click wins.
+            ctl.disable();
+            tx->setContainerVisible(true);    // hook is inert while disabled
+            ctl.enable({"RX", "TX"});
+            report("an applet reopened while disabled beats its stale flag",
+                   canvas.contains("applet:TX") && tx->isOnCanvas());
+            canvas.setEditMode(true);
+        }
+
+        // K6OZY: reset composes Classic on the ACTUAL sparse slots — no
+        // global renumber orphaning other workspaces' pan items.
+        {
+            auto* panS = new QWidget(&panOwner);
+            pans.insert(QStringLiteral("0x40000030"), panS);
+            ctl.onPanAdded(QStringLiteral("0x40000030"));   // slot 1
+            const QString twin = ctl.createWorkspace(
+                WorkspaceController::NewWorkspaceSource::Current,
+                QStringLiteral("SlotTwin"));
+            const QString slot1 = ctl.panItemIdFor(QStringLiteral("0x40000030"));
+            canvas.setEditMode(true);
+            canvas.setItemRect(slot1, NormRect{0.61, 0.11, 0.35, 0.35});
+            ctl.commitPlacement();
+            ctl.switchWorkspace(wsA);
+            // Free slot 0: the map goes sparse {1}.
+            ctl.onPanRemoved(QStringLiteral("0x40000000"));
+            pans.remove(QStringLiteral("0x40000000"));
+            ctl.resetToClassic();
+            ctl.switchWorkspace(twin);
+            report("reset does not renumber slots under other workspaces",
+                   canvas.itemRect(slot1) == NormRect{0.61, 0.11, 0.35, 0.35});
+            // restore the world
+            ctl.switchWorkspace(wsA);
+            ctl.deleteWorkspace(twin);
+            ctl.onPanRemoved(QStringLiteral("0x40000030"));
+            pans.remove(QStringLiteral("0x40000030"));
+            auto* panA2 = new QWidget(&panOwner);
+            pans.insert(QStringLiteral("0x40000000"), panA2);
+            ctl.onPanAdded(QStringLiteral("0x40000000"));
+        }
+
+        // Import pop-outs (phase 6): a floated applet and a floated pan
+        // land on the canvas at rects mapped from their window geometry.
+        {
+            ctl.switchWorkspace(wsA);
+            canvas.setEditMode(true);
+            mgr.floatContainer("RX");
+            report("import precondition: RX floats", rx->isFloating());
+
+            floatingPans.insert(QStringLiteral("0x40000000"));
+            ctl.onPanFloated(QStringLiteral("0x40000000"));
+            QRect fakePanWin(canvas.mapToGlobal(QPoint(100, 100)),
+                             QSize(400, 300));
+            hooks.floatingPanGlobalRect = [fakePanWin](const QString&) {
+                return fakePanWin;
+            };
+            hooks.requestDock = [&](const QString& id) {
+                floatingPans.remove(id);
+                ctl.onPanDocked(id);
+            };
+            ctl.setPanHost(hooks);
+
+            const int n = ctl.importFloatingOntoCanvas();
+            report("import lands both pop-outs",
+                   n == 2 && rx->isOnCanvas() && !rx->isFloating()
+                       && canvas.contains(ctl.panItemIdFor(
+                              QStringLiteral("0x40000000"))));
+            const NormRect panRect = canvas.itemRect(
+                ctl.panItemIdFor(QStringLiteral("0x40000000")));
+            // Canvas is 1000x800: 100px -> 0.1/0.125, 400x300 -> 0.4/0.375.
+            report("...the pan at its window's mapped rect",
+                   nearly(panRect.x, 0.1) && nearly(panRect.y, 0.125)
+                       && nearly(panRect.w, 0.4) && nearly(panRect.h, 0.375));
+            report("...and nothing left floating to import",
+                   ctl.importFloatingOntoCanvas() == 0);
+
+            // m7: an oversized float (maximized on a bigger monitor) must
+            // not bury the canvas as a full-surface item.
+            floatingPans.insert(QStringLiteral("0x40000000"));
+            ctl.onPanFloated(QStringLiteral("0x40000000"));
+            hooks.floatingPanGlobalRect = [&](const QString&) {
+                return QRect(canvas.mapToGlobal(QPoint(-200, -200)),
+                             QSize(4000, 3000));
+            };
+            ctl.setPanHost(hooks);
+            report("an oversized float imports capped below full-surface (m7)",
+                   ctl.importFloatingOntoCanvas() == 1
+                       && canvas.itemRect(ctl.panItemIdFor(
+                              QStringLiteral("0x40000000"))).w <= 0.9 + 1e-9);
+        }
+
+        // The widget palette (Add widget ▸ engine).
+        {
+            ctl.switchWorkspace(wsA);
+            canvas.setEditMode(true);
+            ctl.setWidgetCatalog({{QStringLiteral("RX"), QStringLiteral("RX Controls"),
+                                   QStringLiteral("Receive")},
+                                  {QStringLiteral("TX"), QStringLiteral("TX Controls"),
+                                   QStringLiteral("Transmit")}});
+
+            // Already on canvas -> refused.
+            rx->setContainerVisible(true);
+            if (!rx->isOnCanvas()) ctl.sendAppletToCanvas("RX");
+            report("palette refuses an applet already on the canvas",
+                   !ctl.addAppletFromPalette(QStringLiteral("RX"),
+                                             QPointF(0.5, 0.5)));
+
+            // Closed applet -> opened and placed at the click point.
+            tx->setContainerVisible(false);
+            report("palette opens a closed applet onto the canvas",
+                   ctl.addAppletFromPalette(QStringLiteral("TX"),
+                                            QPointF(0.25, 0.25))
+                       && tx->isContainerVisible() && tx->isOnCanvas());
+            const NormRect placed = canvas.itemRect("applet:TX");
+            report("...centred on the click point",
+                   qAbs((placed.x + placed.w / 2.0) - 0.25) < 0.05
+                       && qAbs((placed.y + placed.h / 2.0) - 0.25) < 0.05);
+
+            // Floating applet -> docked onto the canvas.
+            mgr.floatContainer("TX");
+            report("palette precondition: TX floats", tx->isFloating());
+            report("palette docks a floating applet onto the canvas",
+                   ctl.addAppletFromPalette(QStringLiteral("TX"),
+                                            QPointF(0.7, 0.7))
+                       && !tx->isFloating() && tx->isOnCanvas());
+
+            // Locked canvas -> the palette still ADDS (review m3): with
+            // the panel hidden it is the only mouse path to open an
+            // applet, and opening a tool is operating.
+            canvas.setEditMode(false);
+            ctl.returnAppletToPanel("TX");
+            report("palette adds while locked (m3)",
+                   ctl.addAppletFromPalette(QStringLiteral("TX"),
+                                            QPointF(0.5, 0.5))
+                       && tx->isOnCanvas());
+            canvas.setEditMode(true);
+        }
+
+        // Mode-off switch only retargets.
+        ctl.switchWorkspace(wsA);
+        rx->setContainerVisible(true);
+        tx->setContainerVisible(true);
+        ctl.disable();
+        report("a mode-off switch retargets without touching widgets",
+               ctl.switchWorkspace(wsC)
+                   && ctl.activeWorkspaceId() == wsC
+                   && rx->isContainerVisible());
+        ctl.switchWorkspace(wsA);
     }
 
     // ── The field report: boot replay against a pre-layout canvas ────────

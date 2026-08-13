@@ -9,6 +9,8 @@
 
 #include "MainWindow.h"
 
+#include "workspace/WorkspaceController.h"
+
 #ifdef AETHER_ASR_ENABLED
 #include "CopyAssistController.h"
 #include "CopyAssistPanel.h"
@@ -836,12 +838,25 @@ void MainWindow::buildMenuBar()
     m_workspaceEditAction->setCheckable(true);
     m_workspaceEditAction->setEnabled(false);   // armed by enabledChanged
 
+    // The workspace switcher (phase 6): rebuilt on every open so the list,
+    // check states and bindings are never stale.
+    wsMenu->addSeparator();
+    QMenu* switcher = wsMenu->addMenu("&Workspaces");
+    connect(switcher, &QMenu::aboutToShow, this,
+            [this, switcher] { rebuildWorkspaceSwitcherMenu(switcher); });
+
     // Applet-panel show/hide and pop-out are now driven entirely from the
     // title-bar dock icons (#1713 Phase 6).  Ctrl+Shift+S retained here as
     // a window-scoped QShortcut so the keystroke survives the View-menu
     // entries being removed.
     auto* popOutShortcut = new QShortcut(QKeySequence("Ctrl+Shift+S"), this);
     connect(popOutShortcut, &QShortcut::activated, this, [this]() {
+        // Not in canvas mode (review m1): the panel is hidden there and its
+        // shell controls are gone — the shortcut popping an invisible panel
+        // out (and persisting the float) bypassed both.
+        if (m_workspaceController && m_workspaceController->isEnabled()) {
+            return;
+        }
         toggleAppletPanelFloating(m_appletPanelFloatWindow == nullptr);
     });
 
