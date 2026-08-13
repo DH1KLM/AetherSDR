@@ -5715,6 +5715,34 @@ add_test(NAME connection_panel_size_test COMMAND connection_panel_size_test)
 set_tests_properties(connection_panel_size_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# FramelessResizer's clampManualResize()/windowOwnsChain() pure-logic
+# helpers (#4827/#4829 review). offscreen never exercises the real manual
+# resize path end-to-end (see FramelessResizer.h), so this is coverage for
+# the arithmetic and parent-chain matching in isolation, not a replacement
+# for the PR's own real-X11-input proof.
+#
+# Compiled and linked by the Linux build job, but not currently in any of
+# ci.yml's named ctest -R filters for the per-PR gate — CI building it
+# without running it (per-PR) is the only thing exercising it today; the
+# weekly sanitizers job is the sole scheduled `ctest` run that includes it
+# by not filtering, and per ci.yml that job has failed every run since
+# 2026-06-08. Pure arithmetic and four bare QWindows, no widgets/sockets/
+# wall clock, milliseconds to run — a reasonable candidate for one of the
+# per-PR filters, but that's a maintainer call on the gate's scope, not
+# this PR's to make unilaterally.
+add_executable(frameless_resizer_test
+    tests/frameless_resizer_test.cpp
+    src/gui/FramelessResizer.cpp
+)
+target_include_directories(frameless_resizer_test PRIVATE src tests)
+target_link_libraries(frameless_resizer_test PRIVATE
+    aethercore Qt6::Core Qt6::Network Qt6::Widgets Qt6::Test
+)
+set_target_properties(frameless_resizer_test PROPERTIES AUTOMOC ON)
+add_test(NAME frameless_resizer_test COMMAND frameless_resizer_test)
+set_tests_properties(frameless_resizer_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # FlexControl port-loss recovery (#4574). Guarded on SERIALPORT for the same
 # reason FlexControlManager itself is: the whole class is inside
 # #ifdef HAVE_SERIALPORT, so without Qt SerialPort there is nothing to test.
