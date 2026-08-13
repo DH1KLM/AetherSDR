@@ -13,6 +13,12 @@ Design + decision record: RFC **#4333** (accepted). Engine: **whisper.cpp**
   which shows/hides the panel. The toggle is the inverse of `CWX`:
   **enabled in voice modes** (USB/LSB/AM/SAM/FM/NFM/DFM), **dimmed in CW and
   DIGx/RTTY**.
+- That mode test reads the **slice you have selected**, not the transmit slice —
+  Copy Assist is a receive-side feature, so it is available with **TX off** and
+  on a receive-only setup (#4825). Its two neighbours in the status bar behave
+  the opposite way on purpose: `CWX` and `DVK` are transmit keyers and follow the
+  TX slice, so the three indicators can legitimately disagree — with a CW
+  transmit slice and a USB slice selected, `CWX` and `ASR` are both live.
 - Tick **Enable**. On first enable the selected model is downloaded (see below),
   verified, and loaded; a loading indicator shows progress. Then transcription
   of the audio you're hearing streams into the panel.
@@ -27,7 +33,20 @@ Design + decision record: RFC **#4333** (accepted). Engine: **whisper.cpp**
   Whisper-only — greyed out on the sherpa-onnx and remote backends, which don't
   implement it.
 - Hiding the panel (the status-bar **ASR** toggle / leaving voice mode) turns
-  ASR off.
+  ASR off. "Leaving voice mode" includes **selecting a slice that is not in a
+  voice mode** — clicking to a CW slice while Copy Assist is running closes the
+  panel and stops transcription, even if the voice slice you were transcribing is
+  still audible. To resume, re-select the voice slice, re-open the panel and
+  tick **Enable** again — closing the panel unticks it.
+- A **band-stack recall is not** leaving voice mode, and neither is a disconnect.
+  A recall drops the slice and re-creates it on the new band a moment later, and
+  a disconnect clears every slice, so an open panel is left alone in both states
+  rather than torn down — transcription survives a band change. That holds
+  whether or not another slice survives the recall: with a second slice on the
+  pan the client re-selects it while the radio rebuilds, and a surviving CW or
+  DIGx slice does not count as you leaving voice mode either.
+- Whenever the panel is open the `ASR` toggle is **lit and clickable**, in every
+  one of those states, so you can always close it by hand.
 - The status line shows a **`Queue: N s`** backlog — seconds of received audio not
   yet transcribed. It stays near 0 when the engine keeps up and climbs
   (amber→red) when it can't (e.g. whisper on a Raspberry Pi), so you can see ASR

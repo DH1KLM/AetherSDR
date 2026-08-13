@@ -112,6 +112,7 @@
 #include "FlexControlDialog.h"
 #include "CwxPanel.h"
 #include "DvkAvailabilityGate.h"
+#include "VoiceModeGate.h"
 #include "DvkPanel.h"
 #include "core/DvkWavTransfer.h"
 #include "AmpApplet.h"
@@ -7592,7 +7593,10 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
     routeRttyDecoderOutput();
     refreshRttyDecodeState();
 
-    // Update CWX/DVK indicator availability (follows the TX slice, #4173)
+    // Update CWX/DVK indicator availability (follows the TX slice, #4173) and
+    // the ASR indicator's (follows the ACTIVE slice, #4825) — this call is what
+    // covers an active-slice SWITCH for ASR; the mode-change edge on a non-TX
+    // active slice is handled in the modeChanged wiring.
     updateKeyerAvailability();
 
     // Detect band from frequency
@@ -9131,10 +9135,10 @@ void MainWindow::updateKeyerAvailability()
 
     const bool txIsCw  = hasCwKeyer
                          && (txMode == "CW" || txMode == "CWL");
-    const bool txIsSsb = (txMode == "USB" || txMode == "LSB"
-                          || txMode == "AM" || txMode == "SAM"
-                          || txMode == "FM" || txMode == "NFM"
-                          || txMode == "DFM");
+    // Voice-mode test through the shared predicate: the ASR block below asks
+    // the same question of a DIFFERENT slice, and one list keeps the two from
+    // drifting on which modes count (VoiceModeGate.h).
+    const bool txIsSsb = isVoiceMode(txMode);
 
     // DVK carries a second, mode-independent gate: the radio's own DVK
     // entitlement. Unlike the mode gate it survives every mode change, so it is
@@ -9145,10 +9149,10 @@ void MainWindow::updateKeyerAvailability()
         txIsSsb,
         m_radioModel.licenseFeatureSeen(kDvkLicenseFeature),
         m_radioModel.licenseFeatureEnabled(kDvkLicenseFeature));
-    // hasVoiceKeyer is ANDed in HERE rather than into txIsSsb, because txIsSsb
-    // also drives the ASR indicator further down and Copy Assist is host-side —
-    // folding a voice-keyer capability into the shared mode test would take a
-    // working transcription feature down with the keyer.
+    // hasVoiceKeyer is ANDed in HERE rather than into the mode test, because
+    // isVoiceMode() is shared with the ASR indicator below and Copy Assist is
+    // host-side — folding a radio-side voice-keyer capability into the shared
+    // predicate would take a working transcription feature down with the keyer.
     const bool dvkAvailable = hasVoiceKeyer
                               && (dvkBlocker == DvkIndicatorBlocker::None);
     const bool dvkUnlicensed = (dvkBlocker == DvkIndicatorBlocker::NotLicensed);
@@ -9194,22 +9198,114 @@ void MainWindow::updateKeyerAvailability()
     m_dvkIndicator->setToolTip(dvkIndicatorTooltip(dvkBlocker));
 
 #ifdef AETHER_ASR_ENABLED
-    // ASR (Copy Assist): the inverse of CWX — available in voice modes only,
-    // dimmed/disabled in CW and DIGx/RTTY. A receive-side decode, but gated on
-    // the same slice's mode as the other indicators for a consistent row.
+    // ASR (Copy Assist): the inverse of CWX on mode — available in voice modes
+    // only, dimmed in CW and DIGx/RTTY — but NOT on slice. It follows the slice
+    // the operator has SELECTED, which is also the slice the rest of Copy Assist
+    // tracks: setActiveSliceInternal() rebinds m_copyAssistFreqConn to that
+    // slice's frequencyChanged and calls onRetune() on a switch. The CW decoder,
+    // this feature's CW-mode counterpart, gates on the same slice
+    // (refreshCwDecodeState()).
+    //
+    // The selected slice is a PROXY, not the audio source, and the difference
+    // matters to anyone changing this: the tap subscribes to
+    // AudioEngine::receivePresentationPostDspAudioReady and AsrTapPolicy locks
+    // onto a RECEIVER (the Flex, the applet Kiwi, an external Kiwi) on a
+    // first-block-wins rule with a 2 s release window — never onto a slice. On a
+    // Flex that stream is every audible slice already mixed together. So this
+    // gate answers "is the operator listening to something transcribable",
+    // which is a heuristic; it does not and cannot name the audio being decoded.
+    //
+    // It was gated on the TX slice for a visually consistent indicator row, and
+    // that cost the feature entirely with TX off: no slice carries isTxSlice(),
+    // so txMode is empty and a receive-only or antenna-disconnected operator
+    // could not open Copy Assist at all (#4825). Row consistency is the weaker
+    // constraint — CWX and DVK key the TX slice and genuinely belong to it, so
+    // the three indicators may now disagree, which is correct.
+    //
+    // NOTE the auto-hide below now has teeth it did not have on the TX gate:
+    // hiding the panel calls setAsrEnabled(false) (PanadapterApplet), which
+    // disables the tap and drops the receiver lock. Selecting a CW slice
+    // therefore STOPS a running transcription, where before only a TX-slice mode
+    // change could. Deliberate — the indicator must track the selected slice to
+    // be worth anything — but it is the sharp edge of this change.
+    SliceModel* asrSlice = activeSlice();
+    const bool asrIsVoice = asrSlice && isVoiceMode(asrSlice->mode());
     if (m_asrIndicator) {
-        m_asrIndicator->setEnabled(txIsSsb);
+        // The keyers' shape, and for the keyers' reason: only a slice that
+        // EXISTS and is in the wrong mode closes an open panel. A slice that is
+        // momentarily ABSENT is not a mode change, and on this radio it is
+        // routinely not even a removal — with band_persistence a FLEX band
+        // recall DROPS the slice and RE-CREATES it under the same id a moment
+        // later (KiwiRebindTracker.h, #4158). On the ordinary single-slice
+        // setup that empties slices(), so a null-slice auto-hide would stop
+        // transcription on every band change and never restore it: this
+        // function only ever hides, showing is user-driven.
+        //
+        // Disconnect also lands here with a null slice (RadioModel clears
+        // m_slices and capabilitiesChanged drives applyCapabilitiesToUi ->
+        // this function). Leaving the panel up there is the right outcome too —
+        // the last transcript stays readable, and the enabled-while-visible
+        // rule below means it can be closed by hand.
+        //
+        // A non-null slice is NOT enough on its own, because a band recall does
+        // not have to empty slices() to reach here. With a second slice on the
+        // pan, onSliceRemoved() re-selects it (slices.first(), TopologyFallback)
+        // instead of taking the empty branch — so recalling a band on the
+        // transcribed slice hands the gate a surviving CW/DIGx slice, and a
+        // slice-exists guard alone sees a live slice in the wrong mode and
+        // tears the panel down. Same #4158 rebuild, one slice further along.
+        // m_bandRecallSelection is the window that already answers "this pan is
+        // mid-rebuild, treat radio-driven selection as synchronization-only"
+        // (BandRecallSelectionGuard.h, armed on the band write and refreshed by
+        // onSliceRemoved()), which is exactly the question being asked here.
+        //
+        // The decision itself lives in VoiceModeGate.h so a test can pin it —
+        // this function is not reachable from the gating-test target — and the
+        // reason each clause is there is stated with it (#4932 review).
+        const bool bandRecallInFlight =
+            asrSlice
+            && m_bandRecallSelection.isActive(asrSlice->panId(),
+                                              QDateTime::currentMSecsSinceEpoch());
+        if (shouldAutoHideCopyAssist(
+                m_copyAssistApplet && m_copyAssistApplet->isCopyAssistVisible(),
+                asrSlice != nullptr,
+                asrSlice ? asrSlice->mode() : QString(),
+                bandRecallInFlight)) {
+            m_copyAssistApplet->setCopyAssistVisible(false);
+        }
+
+        // Read visibility AFTER the auto-hide, not before. The enabled state
+        // and the cursor both key off it, and computing them from the pre-hide
+        // value left the indicator enabled with a pointing hand over a panel
+        // that had just been closed: the click passed the isEnabled() guard in
+        // MainWindow_Shortcuts.cpp, showCopyAssist() re-opened the panel, and
+        // this function closed it again in the same handler — an affordance
+        // that promised something and did nothing, until some unrelated
+        // refresh happened along (PR #4932 review).
         const bool asrVisible =
             m_copyAssistApplet && m_copyAssistApplet->isCopyAssistVisible();
-        if (txSlice && !txIsSsb && asrVisible) {
-            m_copyAssistApplet->setCopyAssistVisible(false);
-            setIndicatorStyle(m_asrIndicator, kDisabled);
-        } else if (asrVisible) {
-            setIndicatorStyle(m_asrIndicator, kActive);
-        } else {
-            setIndicatorStyle(m_asrIndicator, txIsSsb ? kAvail : kDisabled);
-        }
-        m_asrIndicator->setCursor(txIsSsb ? Qt::PointingHandCursor : Qt::ArrowCursor);
+
+        // Enabled when the mode allows OPENING it, or whenever the panel is
+        // already open so it can always be CLOSED. The second half exists
+        // because a disabled QLabel swallows its own clicks
+        // (MainWindow_Shortcuts.cpp) and CopyAssistPanel has no close button of
+        // its own — without it, any state that leaves the panel open while the
+        // gate says no strands a panel the operator cannot dismiss. Fixing that
+        // here, in the panel's own affordance, is what lets the auto-hide above
+        // keep the conservative shape (PR #4932 review).
+        m_asrIndicator->setEnabled(asrIsVoice || asrVisible);
+        // An open panel reads kActive whatever the mode says — including the
+        // band-recall and disconnect cases the auto-hide deliberately skips,
+        // where ASR is genuinely still running.
+        setIndicatorStyle(m_asrIndicator,
+                          asrVisible ? kActive
+                                     : (asrIsVoice ? kAvail : kDisabled));
+        // Cursor tracks the ENABLED state, not the mode, so the hand appears on
+        // exactly the clicks that do something — including the close-an-open-
+        // panel case where the mode gate says no.
+        m_asrIndicator->setCursor((asrIsVoice || asrVisible)
+                                      ? Qt::PointingHandCursor
+                                      : Qt::ArrowCursor);
     }
 #endif
 }
