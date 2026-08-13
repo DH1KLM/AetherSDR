@@ -872,6 +872,65 @@ int main(int argc, char** argv)
                                             QPointF(0.5, 0.5))
                        && tx->isOnCanvas());
             canvas.setEditMode(true);
+
+            // Hardware availability is a LIVE question, never a catalog
+            // filter (the 8600 amplifier regression: TGXL/PGXL detection
+            // is post-connect, but the catalog snapshot is taken at
+            // construction — filtering there erased the Amplifiers
+            // category, and the amps' recall membership, permanently).
+            // The engine refuses while the hook says unavailable and
+            // recovers the instant it flips — no re-snapshot needed.
+            bool ampDetected = false;
+            ctl.setWidgetAvailabilityHook(
+                [&ampDetected](const QString& id) {
+                    return id != QStringLiteral("TX") || ampDetected;
+                });
+            ctl.returnAppletToPanel("TX");
+            tx->setContainerVisible(false);
+            report("palette refuses undetected hardware (live hook)",
+                   !ctl.addAppletFromPalette(QStringLiteral("TX"),
+                                             QPointF(0.5, 0.5))
+                       && !tx->isOnCanvas());
+            ampDetected = true;
+            report("palette recovers when detection flips, no re-wire",
+                   ctl.addAppletFromPalette(QStringLiteral("TX"),
+                                            QPointF(0.5, 0.5))
+                       && tx->isOnCanvas());
+            // paletteState() is the exact classification the Add-widget
+            // menu renders (#4968 red-team M1: the menu is a stack-local
+            // QMenu nothing can reach, so the logic lives where the suite
+            // and the `workspace palette` verb can pin it).
+            using PE = WorkspaceController::PaletteEntry;
+            ctl.setWidgetCatalog(
+                {{QStringLiteral("RX"), QStringLiteral("RX Controls"),
+                  QStringLiteral("Receive")},
+                 {QStringLiteral("TX"), QStringLiteral("TX Controls"),
+                  QStringLiteral("Transmit")},
+                 {QStringLiteral("GHOST"), QStringLiteral("Not Built"),
+                  QStringLiteral("Receive")}});
+            ctl.setWidgetAvailabilityHook(
+                [](const QString& id) { return id != QStringLiteral("TX"); });
+            auto stateOf = [&ctl](const QString& id) {
+                for (const PE& e : ctl.paletteState())
+                    if (e.id == id) return e.state;
+                return PE::State::Absent;
+            };
+            // TX is undetected AND on the canvas: on-canvas must win
+            // (#4968 M2 ordering — recall outranks availability, so a
+            // placed applet shows "placed", never "unavailable").
+            report("palette: on-canvas outranks not-detected",
+                   tx->isOnCanvas()
+                       && stateOf(QStringLiteral("TX")) == PE::State::OnCanvas);
+            ctl.returnAppletToPanel("TX");
+            tx->setContainerVisible(false);
+            report("palette: undetected hardware classifies not-detected",
+                   stateOf(QStringLiteral("TX")) == PE::State::NotDetected);
+            report("palette: unconstructed applet classifies absent",
+                   stateOf(QStringLiteral("GHOST")) == PE::State::Absent);
+            if (rx->isOnCanvas()) ctl.returnAppletToPanel("RX");
+            report("palette: available applet classifies addable",
+                   stateOf(QStringLiteral("RX")) == PE::State::Addable);
+            ctl.setWidgetAvailabilityHook({});
         }
 
         // Mode-off switch only retargets.
