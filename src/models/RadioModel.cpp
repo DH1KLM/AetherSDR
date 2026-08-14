@@ -6208,7 +6208,11 @@ void RadioModel::onDisconnected()
     // as enabled. Default-true would silently bypass the conflict check if
     // the status burst hadn't been processed yet (#3391 review).
     m_multiFlexEnabled = false;
-    m_maxSlices = 4;
+    // Keep m_maxSlices at the last radio's capacity across disconnect. The DAX
+    // combo and the DAX/TCI applet rows follow maxSlices() on
+    // connectionStateChanged, and resetting to 4 here shrank a 6700's DAX 5-8
+    // to "Off" while disconnected. The next connect re-derives the real value
+    // from maxSlicesForModel() (RadioModel.cpp connect path). (#4854 review)
     m_model.clear();
     m_version.clear();
     m_oscState.clear();
@@ -8383,7 +8387,7 @@ void RadioModel::handleDaxRxStreamRegistry(const QString& object,
         return;
     }
     const int ch = kvs.value(QStringLiteral("dax_channel")).toInt();
-    if (ch >= 1 && ch <= 4) {
+    if (ch >= 1 && ch <= 8) {
         m_panStream->registerDaxStream(stream.streamId, ch);
         // #1439 client-registration re-assert — LEGACY FALLBACK ONLY, decided
         // here (not in the create reply) because this status is the moment the
