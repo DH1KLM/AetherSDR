@@ -53,6 +53,19 @@ applied.** That is what `Hl2Backend::defineMeters` publishes and what
 asked for a quantity this radio never produced — and would have been recorded as
 a failure by anyone who ran it, on a meter that turns out to be exact.
 
+`TX:FWDPWR` and `TX:REFPWR` are published in dBm through the reference curve in
+`Hl2Backend::directionalWatts()`, which is **uncalibrated** — the value is an
+estimate, not a measurement, and the meter descriptions say so. Uncalibrated is
+not the same as absent, and this table said "counts only" long after they were
+being published; a stale not-fed claim is what switches off the check that
+would notice the meter regressing (CERTIFICATION.md 1.32).
+
+Both of the changed stimulus cells above are measurements, not preferences —
+`TX:FWDPWR`'s nibble step replaces a halving the hardware refutes, and
+`TX:ALC`'s no-movement sweep replaces envelope tracking that would fail a
+correct meter by ~17 dB. The numbers are under *Certified by effect,
+2026-08-10* below.
+
 ### Radio / hardware
 
 | source:name | unit | HL2 | Expectation | Certification stimulus | Tolerance |
@@ -310,8 +323,8 @@ this table, which is the same rule the report itself follows.
 | `TransmitModel::setRfPower(0)` | — | disables the PA | forward power to the floor | — | **yes — 0 % reads the 0.001 W floor** |
 | `AudioEngine::setPcMicGain` | 0–100 | host-side, pre-modulator | halve → `TX:MICPEAK` drops ≈6 dB | ±1 dB | **yes — 6.023 dB measured** |
 | `SliceModel::setAgcThreshold` | 0–100 | WDSP `SetRXAAGCTop` | raise → audio floor rises | ±3 dB | no |
+| `IRadioBackend::setPanRfGain` | −8…+32 dB | AD9866 LNA `0x0a[5:0]`, at runtime | step the gain → the pan echoes the value the hardware took | echo must equal the request | **yes — `control-effect` phase** |
 | `SliceModel::setRfGain` | dB | **dead — Flex wire text** | none; nothing on a non-Flex backend receives it | — | n/a — the operator's slider does not use it |
-| `IRadioBackend::setPanRfGain` | −8…+32 dB | AD9866 LNA `0x0a[5:0]`, at runtime | LNA gain changes; echoed to every pan | — | no — needs an S-meter delta check |
 | `TransmitModel::setTunePower` | 0–100 | **NOT WIRED** | tune uses full drive | — | n/a |
 | `SliceModel::setSquelch` | on/off | **NOT WIRED** | — | — | n/a |
 | `setFilter(low, high)` | Hz | WDSP passband | tone outside the passband is rejected | ≥30 dB | no |
@@ -320,49 +333,45 @@ this table, which is the same rule the report itself follows.
 ### Gaps this table makes visible
 
 - **The RF power rows are runnable but not conclusive.** They were listed as
-  unrunnable because `TX:FWDPWR` was defined-but-never-fed. It is fed, and the
-  sweep runs — but neither of its two premises holds on this radio (the control
-  is 16-step, the instrument is a different board's calibration), so the ≈6 dB
-  criterion cannot separate a control fault from a curve error. `radiocert`
-  still reports `rfPowerExercised: false`, which remains the right answer: the
-  verb does not drive the slider, and the sweep above was manual.
-- **`SliceModel::setRfGain` has no runtime path — and that no longer means the
-  RF gain control is dead.** The symbol really is a dead end: its whole body is
-  `sendCommand("slice set N rfgain=X")`, raw Flex wire text, which no non-Flex
-  backend can receive. But the operator's RF Gain slider **does not use it.**
-  `SpectrumOverlayMenu` emits `rfGainChanged` unconditionally and only falls back
-  to the slice setter when there is no radio model or no pan id; on the HL2 both
-  exist, so the slider routes `rfGainChanged` → `RadioModel::setPanRfGainFor` →
-  `Hl2Backend::setPanRfGain` → `applyLnaGainDb` → `MetisClient::setLnaGainDb`,
-  which writes the AD9866 LNA register **at runtime**, remembers the value per
-  band, and echoes it to every pan.
-
-  `RadioModel::setPanRfGainFor` says so in its own comment: *"Without this the
-  HL2's RF Gain slider moved, persisted, and changed nothing: lnaGainDb was
-  applied once at connect and never again."* That is the defect this bullet used
-  to describe, and it was fixed.
-
-  **`radiocert` still reports it on every HL2 run**, because
-  `stageControlEffect` hardcodes `rfGainRuntimePath: false` behind a family
-  check. So it is a stale finding, not an open defect — the second one this
-  document's own tool emits on healthy hardware, alongside the `TX:ALC` unit
-  mismatch. See `CERTIFICATION.md` 1.35.
-
-  What is genuinely **uncertified** is the pan-level control's *effect*: nothing
-  has measured that changing the LNA gain moves the noise floor by the amount
-  asked for. That is a real gap and a runnable one — an 8 dB step should move
-  `SLC:LEVEL` by 8 dB, which is a known answer needing no calibration and no
-  transmission.
-- **`TX:FWDPWR`, `TX:REFPWR`, `TX:ALC` and `TX:COMPPEAK` are all fed** as of
-  2026-08-10, and were described here as unpublished, computed-and-discarded or
-  unwired long after they were wired. Directional power is published through the
-  §17.5 reference curve and labelled uncalibrated in its own `MeterDef`; the ALC
-  meter carries the post-ALC peak and the Phone/CW gauges read it.
-  `kMeterTable` in `RadioCertification.cpp` still carries all four of the stale
-  notes **and** marks all four `expectedOnHl2 = false`, which means the
-  inventory's `expectedButMissing` check can never notice if one of them
-  regresses. That table is the executable copy of this one; fixing this section
-  without fixing it leaves the tool disagreeing with the document.
+  unrunnable because `TX:FWDPWR` was defined-but-never-fed. It is fed, and a
+  sweep runs — but neither premise of the ≈6 dB criterion holds on this radio
+  (the control is 16-step, the instrument is another board's calibration), so a
+  failing delta cannot separate a control fault from a curve error. See the note
+  under the transmit table. `radiocert` still reports `rfPowerExercised: false`,
+  which remains the right answer: the verb does not drive the slider, and the
+  sweep that produced these numbers was manual.
+- **`SliceModel::setRfGain` is a dead end, and the RF Gain slider does not use
+  it.** The setter's whole body is `slice set N rfgain=X`, Flex wire text no
+  seam backend can receive — but `SpectrumOverlayMenu` emits `rfGainChanged`
+  unconditionally and only falls back to the slice setter when there is no
+  radio model or no pan id. On the HL2 the slider therefore routes
+  `rfGainChanged` → `RadioModel::setPanRfGainFor` → `Hl2Backend::setPanRfGain`
+  → `applyLnaGainDb` → `MetisClient::setLnaGainDb`, writing AD9866
+  `0x0a[5:0]` at runtime. `radiocert` used to assert the opposite as a
+  hardcoded, family-gated finding on every HL2 run; it now MEASURES the
+  control instead, which is what let the gate go (CERTIFICATION.md 1.14, 1.35).
+- **The RF gain check's verdict rests on the echo, and its S-meter delta is
+  evidence only.** The tempting expectation — an 8 dB LNA step must move
+  `SLC:LEVEL` by 8 dB — is wrong twice over. `Hl2DbReference` is moved in the
+  same call as the gain and both the spectrum and the S-meter render through it,
+  precisely so a gain change does **not** slide the display (`HERMES.md` 17.4),
+  so the expected delta is **0 dB**, not the step size. And a reading near
+  −step has two causes this measurement cannot separate: the register never took
+  the value, or the reading is dominated by converter noise that does not rise
+  with the gain. Measured on a quiet 20 m, an 8 dB step moved `SLC:LEVEL` by
+  −6.3 dB — within 2 dB of the defect signature — while the raw dBFS behind it
+  *rose* 1.74 dB, proving the register **had** been written. So the stage
+  publishes both hypotheses (`sLevelExpectedDeltaDb`,
+  `sLevelDeltaIfRegisterNotWrittenDb`), marks the delta
+  `sLevelDeltaIsConclusive: false`, and raises its one concern on a missing
+  echo. Closing the effect half needs the raw pre-reference dBFS, which the seam
+  does not expose (CERTIFICATION.md 2.4).
+- **`TX:FWDPWR` and `TX:REFPWR` are published and uncalibrated**, not absent.
+  They read in dBm through a reference curve for a different board. The gap is
+  a per-unit calibration, not a missing meter.
+- **`TX:ALC` is consumed.** `MeterModel::swAlc()` carries it to the Phone/CW
+  applet's ALC gauges. It was computed and discarded for a while, and the note
+  saying so outlived the wiring.
 - **Tune power is not separable from transmit power.** TUNE keys at whatever
   drive is set, which on a fresh connect is the operator's full RF power.
 
