@@ -1413,6 +1413,7 @@ void VfoWidget::buildUI()
     tabLayout->setSpacing(0);
 
     const QStringList tabLabels = {"\xF0\x9F\x94\x8A", "DSP", "USB", "X/RIT", "DAX"};
+    m_daxTabIndex = tabLabels.indexOf(QLatin1String("DAX"));
     for (int i = 0; i < tabLabels.size(); ++i) {
         if (i > 0) {
             auto* sep = new QLabel("|");
@@ -1421,6 +1422,7 @@ void VfoWidget::buildUI()
             sep->setFixedWidth(6);
             sep->setAlignment(Qt::AlignCenter);
             tabLayout->addWidget(sep);
+            m_tabSeparators.append(sep);
         }
         auto* btn = new QPushButton(tabLabels[i]);
         btn->setFlat(true);
@@ -2823,6 +2825,19 @@ void VfoWidget::showTab(int index)
         }
     }
     relayoutToCurrentContent();
+}
+
+void VfoWidget::setDaxVisible(bool visible)
+{
+    if (m_daxTabIndex < 0 || m_tabBtns.size() <= m_daxTabIndex)
+        return;
+    if (!visible && m_activeTab == m_daxTabIndex)
+        closeActiveTab();
+    m_tabBtns[m_daxTabIndex]->setVisible(visible);
+    // Separator i sits immediately before tab i+1; hide the DAX separator too
+    // so an Icom VFO does not retain an orphan trailing bar.
+    if (m_daxTabIndex > 0 && m_tabSeparators.size() >= m_daxTabIndex)
+        m_tabSeparators[m_daxTabIndex - 1]->setVisible(visible);
 }
 
 void VfoWidget::updateDspTabAccent()

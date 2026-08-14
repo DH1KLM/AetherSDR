@@ -6,7 +6,7 @@ after the fact — which is the point of the tool, and a useful check on it: som
 of what follows is a defect radiocert found, and some is a gap in radiocert
 itself that only a second radio could expose.
 
-**1.32–1.35 came from returning to the Hermes-Lite 2** on 2026-08-10 and running
+**1.37–1.40 came from returning to the Hermes-Lite 2** on 2026-08-10 and running
 `radiocert meters` against it after the Icom work had reshaped the tool. All
 four are defects in the *tool*, not the radio, and all four are shapes this
 document already warns about, aimed back at the instrument: a negative finding
@@ -550,7 +550,100 @@ that matters. And a certification stage should assert the SEQUENCE a control
 produces, not the set: correct commands in the wrong order are a defect that
 set-membership cannot see.
 
-### 1.32 A stage that transmits must check that it transmitted
+### 1.32 Match the radio's display quantisation, not mathematical nearest
+
+Icom `14 xx` controls store 0000–0255 but show integer percentages on the front
+panel. Decoding with nearest rounding made RF Power, Mic Gain, Monitor Level,
+and every sibling percentage appear one point ahead for roughly half the range.
+The implementation and its round-trip test agreed; the radio did not.
+
+The display contract is asymmetric:
+
+```
+radio raw -> ASDR percent : floor(raw * 100 / 255)
+ASDR percent -> radio raw : ceil(percent * 255 / 100)
+```
+
+The ceiling on write chooses the first raw value in the radio's requested
+display bucket; the floor on read reproduces the number the radio shows. Keep
+this conversion central and test all 0–100 values. Do not apply it to `15 xx`
+meters merely because their payload can also reach 255: meter breakpoints are
+physical, non-linear, and often model-specific.
+
+**Consequence.** For a scaled control, certify three values independently: the
+requested UI value, the exact wire value computed from the official guide, and
+the value shown by the radio after its reply. A shared encode/decode round trip
+cannot catch a convention both sides share incorrectly.
+
+### 1.33 Transceive is a hint, not a subscription contract
+
+CI-V Transceive did not reliably announce NR and NB changes on the
+IC-7300MK2. It also cannot be assumed to cover RF gain, RF power, mic gain,
+monitor, VOX, notches, preamp, attenuator, or tuner state on another model.
+Connect-time reads made the UI correct at launch and then allowed it to drift.
+
+Reliable convergence needs all three paths:
+
+1. take a complete model-supported snapshot at connect;
+2. consume unsolicited frames for low-latency updates; and
+3. periodically poll every readable state that matters to the visible UI.
+
+The radio reply is authority. Adopt it into the model without reflecting a new
+setter command, and do not replay client defaults over it on reconnect. For a
+register whose documented read does not work on the bench, mark the control
+send-only and keep any optimistic state session-local rather than pretending it
+is subscribed or replaying it at reconnect.
+
+**Consequence.** Test an external change, not only an AetherSDR setter: change
+the radio from its panel or a TX-gated raw protocol command, wait at least two
+poll periods, and verify the model and the actual widget both follow.
+
+### 1.34 A transmit meter value expires at unkey
+
+The backend can legitimately retain the last forward-power sample for logs, but
+the operator's gauge answers a different question: "what is the transmitter
+doing now?" A non-zero value at startup or after unkey is wrong even when its
+wire value was once correct. A response already in flight at the unkey edge can
+otherwise repaint the stale value after the UI clears it.
+
+**Consequence.** Gate the visible TX meter on radio-authoritative transmit
+state, clear it synchronously on unkey, and ignore late replies for presentation.
+Certify startup idle, active key, immediate unkey, and one full response timeout
+after unkey. Inspect the live gauge as well as the backend/model value.
+
+### 1.35 A percentage ceiling is not a watt ceiling
+
+`AETHER_AUTOMATION_TX_MAX_POWER=10` limits an RF/Tune Power control to ten
+percent. It does not promise ten watts. On the IC-7300MK2, a ten-percent Tune
+Power setting produced a CI-V forward-power indication of 16 W. Two-tone uses
+Tune Power rather than RF Power, and an ATU cycle may choose its own tune drive,
+so clamping the RF Power slider alone is not a physical safety limit.
+
+**Consequence.** Require both an explicit control-percentage ceiling and an
+explicit physical-watt ceiling. Start at a conservative percentage, require a
+fresh calibrated forward-power meter, and unkey on the first sample over the
+watt limit or when fresh telemetry does not arrive promptly. This measured
+watchdog is reactive and cannot prevent the first transient; where exceeding
+the limit even briefly is unacceptable, use an external wattmeter/interlock or
+do not run unattended. Never start an ATU cycle under a watt-limited test unless
+its tune-drive behaviour is separately authorized.
+
+### 1.36 Restart is a distinct certification phase
+
+A set/readback in one process proves neither reconnect authority nor periodic
+subscription. The IC-7300MK2 controls were therefore tested across two complete
+AetherSDR launches: set a distinctive safe value, close the application,
+restart and reconnect, then verify the radio-reported value in both the model
+and the visible widget. The periodic external-change test ran again after the
+restart.
+
+**Consequence.** Every stateful control gets a four-part record: set path,
+same-session radio reply, post-restart adoption, and later external-change
+convergence. Mark a control partial if any one is missing. Restore the
+operator's original state at the end; if restoration itself would transmit,
+leave the radio in the safer state and say so.
+
+### 1.37 A stage that transmits must check that it transmitted
 
 `radiocert meters` was run twice against the same Hermes-Lite 2, minutes apart,
 with one difference: the operator's RF power slider sat at **0** for the first
@@ -583,7 +676,7 @@ band limit or a PA that never enabled produce the same silence at any slider
 setting. `NOT-TESTED` is already a first-class outcome in the control scrub
 (§1.29); the meters phase needs it too.
 
-### 1.33 A lesson learned in one table is not learned in its sibling
+### 1.38 A lesson learned in one table is not learned in its sibling
 
 Every HL2 meters run reports
 
@@ -615,7 +708,7 @@ treated as a defect in the checker with the same urgency as a missed
 detection: §1.28 warns that a concern which never goes away stops being read,
 and this one is loud enough to take the real findings with it.
 
-### 1.34 The "is it rendered" probe needs the same guards as the gauge
+### 1.39 The "is it rendered" probe needs the same guards as the gauge
 
 §1.27 added `asRendered` so a stage could report what the operator's gauge will
 actually show, rather than only what crossed the seam. On the HL2 it reports:
@@ -646,7 +739,7 @@ alongside the seam and the gauge, and §1.1 applies to it as much as to anything
 else: it will agree with nothing and be believed anyway. Where the model already
 exposes a liveness predicate, the probe's failure to call it is the bug.
 
-### 1.35 A hardcoded finding outlives the bug it describes
+### 1.40 A hardcoded finding outlives the bug it describes
 
 `stageControlEffect` emits, on every Hermes-Lite 2 run:
 
@@ -676,7 +769,7 @@ from a live result, which is the same complaint §1.28 makes about a concern tha
 never clears.
 
 It is also the **second** permanent false positive `radiocert` emits on healthy
-HL2 hardware, next to §1.33's unit mismatch. Two of the concerns in a clean run
+HL2 hardware, next to §1.38's unit mismatch. Two of the concerns in a clean run
 are wrong, which is the ratio at which an operator stops reading them.
 
 **Consequence.** A hardcoded finding needs an expiry mechanism, and the cheapest
@@ -794,25 +887,25 @@ useless at the same time.
 **Confirmed on hardware, 2026-08-10.** The 2026-08-10 Hermes-Lite 2 run turned
 three of the items above from anticipated into observed, and the "forward power
 must be non-zero while keyed" check is now the highest-priority one: it is the
-single check that would have caught §1.32. Four concrete changes fall out, all
+single check that would have caught §1.37. Four concrete changes fall out, all
 small and all in `RadioCertification.cpp`:
 
 1. **A keyed-RF precondition on the meters phase.** If no keyed stage produced
    forward power, every transmit-meter verdict in that run is `INCONCLUSIVE`,
-   not `NEVER FED` (§1.32). This must not be a drive floor alone — an interlock
+   not `NEVER FED` (§1.37). This must not be a drive floor alone — an interlock
    or a disabled PA is silent at any slider setting.
 2. **`acceptedUnits` as a set in `kMeterTable`,** matching `kMeterSurfaces`,
-   which ends a permanent false positive on healthy hardware (§1.33).
+   which ends a permanent false positive on healthy hardware (§1.38).
 3. **`asRendered` through the liveness gates and sampled while keyed** —
-   `swrSampleLive()` already exists and two other consumers call it (§1.34).
+   `swrSampleLive()` already exists and two other consumers call it (§1.39).
 4. **Refresh `kMeterTable`'s notes and `expectedOnHl2` column.** Four HL2 meters
    are marked not-expected while being defined and fed, so a regression in any
    of them cannot be reported by `expectedButMissing`.
 
 **All four are implemented in #4917**, which lands directly on top of this
-document. Naming it here is not bookkeeping — it is §1.35's rule applied to this
+document. Naming it here is not bookkeeping — it is §1.40's rule applied to this
 file: a list of open work is a finding like any other, and one that outlives its
-fix is exactly the failure §1.32–1.35 exist to record. If a fifth item is ever
+fix is exactly the failure §1.37–1.40 exist to record. If a fifth item is ever
 added here, it needs the same treatment when it closes.
 
 ### 2.4 What the bridge needs for any of this to be automatable
@@ -843,6 +936,16 @@ a verb.
   the span command that loop ran twice. `civ send 27 15 00 00 00 25 00 00`
   against a live session would have answered it in one call — and the FB/NG
   reply is the ground truth that no internal test can produce (§1.1).
+* **A measured-watt transmit rail.** `AETHER_AUTOMATION_TX_MAX_POWER` is a
+  percentage clamp, not a physical limit (§1.35). A TX harness needs a fresh,
+  calibrated forward-power ceiling that force-unkeys on over-limit or missing
+  telemetry and reports which control actually supplied drive (RF Power, Tune
+  Power, ATU, or a backend-specific path).
+* **A presentation snapshot for gauges.** A retained backend value and a
+  correctly cleared visible gauge are intentionally different after unkey
+  (§1.34). Expose the rendered/consumer value directly so the certification
+  stage can assert startup, keyed, and idle presentation without inferring it
+  from producer state.
 
 ### 2.5 A control-certification phase
 
@@ -892,14 +995,30 @@ need:
 
 ## 3. Using this on a new radio
 
-1. **`radiocert tune`** — no permission needed. Dial goes where told; every mode
+1. **Build a model command table from its official guide.** Separate controls
+   from meters even when both use byte-sized values; select model-specific
+   curves and capabilities before touching hardware.
+2. **Connect twice without transmitting.** On each launch, capture `liveness`,
+   `controls map`, `controls meters`, and the visible widgets. A connect snapshot
+   is not a subscription test.
+3. **`radiocert tune`** — no permission needed. Dial goes where told; every mode
    the app can emit survives a round trip.
-2. **`radiocert rx`** — no permission needed. Establish wire handedness at
+4. **`radiocert rx`** — no permission needed. Establish wire handedness at
    **zero shift**, off-centre, in all four SSB modes, against a known carrier.
    WWV is the default reference: free, always on, exactly known, and not us.
-3. **`radiocert tx`** — keys. Modulation, sideband, lifecycle.
-4. **`radiocert meters`** — keys. The instruments, against stimuli with known
-   answers.
+5. **Certify every control in both directions.** Drive UI → wire → radio → UI,
+   then make an external radio-side change and allow two poll periods for
+   wire → model → widget convergence. Repeat representative values after a full
+   application restart.
+6. **Establish the TX safety envelope before keying.** Assert the exact live
+   dummy-load port, tuner bypass, frequency/mode, Tune Power and RF Power, a
+   percentage ceiling, a physical-watt ceiling, fresh calibrated telemetry,
+   and an unconditional unkey watchdog.
+7. **`radiocert tx`** — keys. Modulation, sideband, lifecycle. Begin at the
+   lowest authorized drive and stop on the first safety exception.
+8. **`radiocert meters`** — keys. Check the instruments against known stimuli,
+   including the actual gauge at startup, while keyed, immediately after unkey,
+   and after late replies could arrive.
 
 Read the `concern` fields first, then the measurements. The tool does not pass
 or fail: thresholds meaningful for one radio are guesses for the next, and a

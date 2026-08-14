@@ -4730,6 +4730,9 @@ if(PYTHON3_EXECUTABLE)
     add_test(NAME automation_probe_field_mapping
              COMMAND ${PYTHON3_EXECUTABLE}
                      ${CMAKE_CURRENT_SOURCE_DIR}/tools/test_automation_probe.py)
+    add_test(NAME tx_meter_safety
+             COMMAND ${PYTHON3_EXECUTABLE}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/test_tx_meter_test.py)
     # Argument parsing for the logwatch helper (#4912) — blind rest[0]/rest[1]
     # indexing turned a typo into an IndexError traceback.
     add_test(NAME automation_logwatch_arguments
@@ -6096,6 +6099,21 @@ set_target_properties(tx_applet_power_reconciliation_test PROPERTIES AUTOMOC ON)
 add_test(NAME tx_applet_power_reconciliation_test
          COMMAND tx_applet_power_reconciliation_test)
 set_tests_properties(tx_applet_power_reconciliation_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(phone_cw_mic_gain_authority_test
+    tests/phone_cw_mic_gain_authority_test.cpp
+    src/gui/PhoneCwApplet.cpp
+    src/gui/DragValuePopup.cpp
+)
+target_include_directories(phone_cw_mic_gain_authority_test PRIVATE src)
+target_link_libraries(phone_cw_mic_gain_authority_test PRIVATE
+    aethercore Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(phone_cw_mic_gain_authority_test PROPERTIES AUTOMOC ON)
+add_test(NAME phone_cw_mic_gain_authority_test
+         COMMAND phone_cw_mic_gain_authority_test)
+set_tests_properties(phone_cw_mic_gain_authority_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(container_manager_test

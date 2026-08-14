@@ -1491,13 +1491,21 @@ void MainWindow::wirePanLifecycle()
             // profile. The only correct rule is not to write at all.
             const QString rfGainKey = rfGainSettingsKey(sw);
             const bool haveSavedRfGain = s.contains(rfGainKey);
+            const bool clientOwnsRfGain =
+                m_radioModel.backendCapabilities().clientSettingsDomains.testFlag(
+                    RadioCapabilities::ClientSettingsDomain::RfGain);
+            // Flex deliberately declares no client-owned RF-gain domain: the
+            // radio persists and reports its pan gain. Sim likewise regenerates
+            // its scene. Only a backend that explicitly delegates this domain
+            // (currently HL2) may receive a saved client replay.
+            const bool restoreSavedRfGain = clientOwnsRfGain && haveSavedRfGain;
             PanadapterModel* activePan = m_radioModel.activePanadapter();
-            const int rfGain = haveSavedRfGain
+            const int rfGain = restoreSavedRfGain
                 ? s.value(rfGainKey).toInt()
                 : (activePan ? activePan->rfGain() : 0);
             m_radioModel.setPanWnb(wnbOn);
             m_radioModel.setPanWnbLevel(wnbLevel);
-            if (haveSavedRfGain)
+            if (restoreSavedRfGain)
                 m_radioModel.setPanRfGain(rfGain);
             sw->setWnbActive(wnbOn);
             sw->setRfGain(rfGain);

@@ -1159,7 +1159,14 @@ void RadioModel::setupBackend(const QString& family)
     // synchronously from the matching decode*Status() calls in the status
     // handlers (main-thread AutoConnection → DirectConnection).
     connect(m_backend.get(), &IRadioBackend::transmitChanged, this,
-            [this](const TransmitDelta& delta) { m_transmitModel.applyChanges(delta); });
+            [this](const TransmitDelta& delta) {
+                // A backend-reported MOX edge is radio state, not local intent.
+                // Keep it out of TransmitModel::moxChanged, whose consumers
+                // own this client's audio, DAX, recorder and serial PTT.
+                if (delta.mox)
+                    publishBackendTransmitEdge(*delta.mox);
+                m_transmitModel.applyChanges(delta);
+            });
 
     // aetherd 2.4 (#4094): power-amp status decoded in the backend drives AmpModel.
     connect(m_backend.get(), &IRadioBackend::amplifierChanged, this,
@@ -1678,21 +1685,20 @@ RadioModel::RadioModel(QObject* parent)
     connect(this, &RadioModel::connectionStateChanged, this,
             [this](bool connected) { publishCapabilities(connected); });
 
-    // Push the CURRENT power on connect, not only on change. rfPowerChanged
-    // fires on edges, so a session that never touches the control left the
-    // radio at whatever its own default was — on the HL2 that is drive 0, which
-    // also leaves the PA disabled, so a perfectly correct keyed transmission
-    // produced no RF at all. Measured: forward-power counts stuck at zero.
+    // A host-modulating backend owns a local drive register and must receive
+    // the cached value when it is constructed. A radio-authoritative backend
+    // such as Icom must first read its per-band setting; pushing the model's
+    // stale pre-connect value here overwrote the radio before its readback.
     connect(this, &RadioModel::connectionStateChanged, this,
             [this](bool connected) {
-        if (connected && m_backend) {
+        if (connected && m_backend && backendCapabilities().hostModulates) {
             m_backend->setTxPower(m_transmitModel.rfPower());
         }
     });
 
     // RF power to a backend that owns a drive register. Flex takes it as a text
     // command from TransmitModel and ignores this.
-    connect(&m_transmitModel, &TransmitModel::rfPowerChanged, this,
+    connect(&m_transmitModel, &TransmitModel::rfPowerCommandIssued, this,
             [this](int percent) {
         if (m_backend)
             m_backend->setTxPower(percent);
@@ -1749,6 +1755,11 @@ RadioModel::RadioModel(QObject* parent)
     connect(&m_transmitModel, &TransmitModel::voxCommandIssued, this,
             [this](bool on, int level, int delayMs) {
         if (m_backend) m_backend->setVox(on, level, delayMs);
+    });
+    connect(&m_transmitModel, &TransmitModel::monitorCommandIssued, this,
+            [this](bool on, int level) {
+        if (m_backend && !usesFlexCommandPlane())
+            m_backend->setTxMonitor(on, level);
     });
     connect(&m_transmitModel, &TransmitModel::atuCommandIssued, this,
             [this](bool start) {
@@ -7880,6 +7891,11 @@ void RadioModel::wireSliceAudioIntentsToBackend(SliceModel* s)
     connect(s, &SliceModel::audioPanCommandIssued, this,
             [this, s](int panPercent) {
         if (m_backend) m_backend->setSliceAudioPan(s->sliceId(), panPercent);
+    });
+    connect(s, &SliceModel::rxAntennaCommandIssued, this,
+            [this, s](const QString& antenna) {
+        if (m_backend && !usesFlexCommandPlane())
+            m_backend->setSliceRxAntenna(s->sliceId(), antenna);
     });
     // "Make this the transmit slice." On a radio with one transmitter the
     // backend MOVES transmit rather than setting a flag, and republishes both

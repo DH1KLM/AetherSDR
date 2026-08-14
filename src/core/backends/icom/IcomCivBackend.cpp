@@ -12,6 +12,7 @@
 #include <optional>
 
 #include "core/backends/icom/IcomControls.h"
+#include "core/backends/icom/IcomSettings.h"
 #include "core/Resampler.h"
 
 namespace AetherSDR::icom {
@@ -45,9 +46,6 @@ QByteArray floatBytes(const std::vector<float>& v)
     return {reinterpret_cast<const char*>(v.data()),
             static_cast<qsizetype>(v.size() * sizeof(float))};
 }
-
-// AetherSDR's slider is 0..100; the radio's register is 0..255.
-int percentToRaw(int percent) { return std::clamp(percent, 0, 100) * 255 / 100; }
 
 }  // namespace
 
@@ -280,6 +278,12 @@ void IcomCivBackend::connectRadio(const RadioConnectRequest& request)
 
 void IcomCivBackend::disconnectRadio()
 {
+    // TUNE temporarily replaces the ordinary RF-power setpoint. Restore it
+    // while the command path still exists; clearing the sentinel first left
+    // the physical radio at tune power after an operator disconnect.
+    if (m_tuning && m_session && m_connected)
+        setTune(false, m_preTuneTxPowerPercent);
+
     for (QTimer** t : {&m_meterTimer, &m_linkTimer}) {
         if (*t) {
             (*t)->stop();
@@ -309,6 +313,7 @@ void IcomCivBackend::disconnectRadio()
     m_controlsSent.clear();
     m_framesObserved = 0;
     m_tuning = false;
+    m_preTuneTxPowerPercent = -1;
     if (m_connected) {
         m_connected = false;
         emit disconnected();
@@ -373,7 +378,7 @@ void IcomCivBackend::onSessionConnected(const QString& deviceName)
     // Read-only. Nothing here writes; each answer is decoded in onCivFrame and
     // published as a delta, exactly as an unsolicited change would be.
     for (std::uint8_t which : {level::kRfPower, level::kAf, level::kSquelch,
-                               level::kMicGain, level::kCompLevel,
+                               level::kMicGain, level::kCompLevel, level::kMonitor,
                                level::kNrLevel, level::kNbLevel,
                                level::kNotchPos, level::kRf, level::kVoxGain})
         m_session->sendCiv(cmdReadLevel(m_session->civAddress(), which));
@@ -389,7 +394,6 @@ void IcomCivBackend::onSessionConnected(const QString& deviceName)
     // The attenuator is NOT sub-addressed, so it needs its own read rather than
     // a slot in the loop above.
     m_session->sendCiv(cmdReadAttenuator(m_session->civAddress()));
-
     // RIT / XIT and the antenna tuner. All four were write-only: the controls
     // opened at OUR defaults, so an operator who set RIT on the radio and
     // reconnected saw zero on a rig that was still offset.
@@ -433,6 +437,15 @@ void IcomCivBackend::onSessionConnected(const QString& deviceName)
     s.inUse = true;
     s.active = true;
     s.txSlice = true;   // one receiver IS the transmitter
+    if (m_model && m_model->civAddress == 0xB6) {
+        s.rxAntennaList = QStringList{QStringLiteral("ANT1"),
+                                      QStringLiteral("RX-ANT")};
+        s.txAntennaList = QStringList{QStringLiteral("ANT1")};
+        s.txAntenna = QStringLiteral("ANT1");
+        // The documented read form returns only FB on live B6 firmware, so no
+        // current selection is claimed here. A user selection is optimistic
+        // for this session; reconnect never replays client-owned state.
+    }
     emit sliceChanged(sliceId(), s);
 
     publishMeterDefs();
@@ -704,6 +717,13 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
             SliceDelta s;
             s.frequency = static_cast<double>(*hz) / 1e6;
             emit sliceChanged(sliceId(), s);
+            // TxApplet's ATU toggle is deliberately frequency-aware: a second
+            // click bypasses only the match made at the current TX frequency.
+            // Icom has one VFO here, so publish that same authoritative dial
+            // frequency on the transmit model instead of leaving it at 0 MHz.
+            TransmitDelta t;
+            t.transmitFreq = s.frequency;
+            emit transmitChanged(t);
         }
         return;
     }
@@ -764,8 +784,10 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
         const auto raw = decodeLevel(frame.data);
         if (!raw)
             return;
-        // 0..255 back to the 0..100 every AetherSDR control uses.
-        const int pct = std::clamp((*raw * 100 + 127) / 255, 0, 100);
+        // Match the radio's own integer display buckets. Nearest rounding made
+        // RF power, mic gain, monitor level, and every sibling percentage read
+        // one point ahead of the front panel for roughly half their range.
+        const int pct = levelRawToPercent(*raw);
         switch (frame.sub) {
         case level::kRfPower: {
             m_txPowerPercent = pct;
@@ -829,6 +851,12 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
         case level::kVoxGain: {
             m_voxLevelPercent = pct;
             TransmitDelta t; t.voxLevel = pct;
+            emit transmitChanged(t);
+            return;
+        }
+        case level::kMonitor: {
+            m_monitorLevelPercent = pct;
+            TransmitDelta t; t.monGainSb = pct;
             emit transmitChanged(t);
             return;
         }
@@ -979,7 +1007,9 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
             return;
 
         m_meters.markAnswered(spec->id, QDateTime::currentMSecsSinceEpoch());
-        const double value = meterValue(spec->id, *raw, s9ReferenceFor(m_frequencyHz));
+        const double value = meterValue(spec->id, *raw,
+                                        s9ReferenceFor(m_frequencyHz),
+                                        m_model ? m_model->civAddress : 0xA4);
 
         if (spec->id == MeterId::Overflow) {
             m_overflow = value > 0.5;
@@ -1029,10 +1059,15 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame)
             // our own guess about how long a cycle takes.
             const int v = frame.data[0];
             TransmitDelta t;
+            // Apply frequency and tuner status in ONE delta. That makes the
+            // successful-state callback capture the right frequency even if a
+            // tuner reply overtakes the separate connect-time frequency read.
+            if (m_frequencyHz > 0)
+                t.transmitFreq = static_cast<double>(m_frequencyHz) / 1e6;
             t.atuEnabled = (v != 0);
-            t.atuStatusRaw = v == 0x02 ? QStringLiteral("TUNING")
-                           : v == 0x01 ? QStringLiteral("SUCCESSFUL")
-                                       : QStringLiteral("NONE");
+            t.atuStatusRaw = v == 0x02 ? QStringLiteral("TUNE_IN_PROGRESS")
+                           : v == 0x01 ? QStringLiteral("TUNE_SUCCESSFUL")
+                                       : QStringLiteral("TUNE_BYPASS");
             emit transmitChanged(t);
         }
         return;
@@ -1217,7 +1252,9 @@ void IcomCivBackend::sendUserCommand(const std::vector<std::uint8_t>& frame)
         return;
     // Tell the scheduler a real command just went out, so metering yields and
     // the command is not stuck behind a queue of polls.
-    m_meters.noteUserCommand(QDateTime::currentMSecsSinceEpoch());
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    m_meters.noteUserCommand(now);
+    m_controlPollQuietUntilMs = now + kControlPollQuietMs;
     traceCiv(/*outbound=*/true, frame);
     // Record WHICH registry row this frame belongs to. Byte 4 is the command and
     // byte 5 the subcommand when the row has one — the same layout buildFrame
@@ -1469,7 +1506,7 @@ void IcomCivBackend::setPanRfGain(const QString&, int gainDb)
 {
     m_rfGainPercent = std::clamp(gainDb, 0, 100);
     sendUserCommand(cmdSetLevel(m_session ? m_session->civAddress() : 0xA4,
-                                level::kRf, percentToRaw(std::clamp(gainDb, 0, 100))));
+                                level::kRf, percentToLevelRaw(std::clamp(gainDb, 0, 100))));
 }
 
 // ADOPT THE REQUESTED STEP, do not wait for an echo.
@@ -1515,6 +1552,17 @@ void IcomCivBackend::setPanAttenuator(const QString&, int step)
     emit panAttenuatorChanged(panId(), wanted);
 }
 
+void IcomCivBackend::setSliceRxAntenna(int, const QString& antenna)
+{
+    if (!m_model || m_model->civAddress != 0xB6)
+        return;
+    const bool external = antenna.compare(QStringLiteral("RX-ANT"),
+                                          Qt::CaseInsensitive) == 0;
+    m_rxAntennaExternal = external;
+    sendUserCommand(cmdSetRxAntenna(m_session ? m_session->civAddress() : 0xB6,
+                                    external));
+}
+
 void IcomCivBackend::setSpeechProcessor(bool on, int level)
 {
     m_compEnable = on;
@@ -1544,7 +1592,7 @@ void IcomCivBackend::setMicGain(int gainPercent)
 {
     m_micGainPercent = gainPercent;
     sendUserCommand(cmdSetLevel(m_session ? m_session->civAddress() : 0xA4,
-                                level::kMicGain, percentToRaw(gainPercent)));
+                                level::kMicGain, percentToLevelRaw(gainPercent)));
 }
 
 void IcomCivBackend::setTxAudioMonitor(bool on)
@@ -1556,6 +1604,19 @@ void IcomCivBackend::setTxAudioMonitor(bool on)
     // leaving their own setting alone and toggling what was actually asked for.
     sendUserCommand(cmdSetFunction(m_session ? m_session->civAddress() : 0xA4,
                                    func::kMonitorFn, on ? 1 : 0));
+}
+
+void IcomCivBackend::setTxMonitor(bool on, int levelPercent)
+{
+    const std::uint8_t addr = m_session ? m_session->civAddress() : 0xA4;
+    m_monitorOn = on;
+    m_monitorLevelPercent = std::clamp(levelPercent, 0, 100);
+    if (m_monitorSent != (on ? 1 : 0)) {
+        m_monitorSent = on ? 1 : 0;
+        sendUserCommand(cmdSetFunction(addr, func::kMonitorFn, on ? 1 : 0));
+    }
+    sendUserCommand(cmdSetLevel(addr, level::kMonitor,
+                                percentToLevelRaw(m_monitorLevelPercent)));
 }
 
 void IcomCivBackend::setSliceNoiseReduction(int, bool on, int level)
@@ -1570,7 +1631,7 @@ void IcomCivBackend::setSliceNoiseReduction(int, bool on, int level)
     // it while disabled would silently change what the operator gets back when
     // they re-enable. Only touch it when it can take effect.
     if (on)
-        sendUserCommand(cmdSetLevel(addr, level::kNrLevel, percentToRaw(level)));
+        sendUserCommand(cmdSetLevel(addr, level::kNrLevel, percentToLevelRaw(level)));
 }
 
 void IcomCivBackend::setSliceNoiseBlanker(int, bool on, int level)
@@ -1582,7 +1643,7 @@ void IcomCivBackend::setSliceNoiseBlanker(int, bool on, int level)
         sendUserCommand(cmdSetFunction(addr, func::kNoiseBlanker, on ? 1 : 0));
     }
     if (on)
-        sendUserCommand(cmdSetLevel(addr, level::kNbLevel, percentToRaw(level)));
+        sendUserCommand(cmdSetLevel(addr, level::kNbLevel, percentToLevelRaw(level)));
 }
 
 void IcomCivBackend::setSliceAutoNotch(int, bool on)
@@ -1612,7 +1673,7 @@ void IcomCivBackend::setSliceManualNotch(int, bool on, int position)
     // notch will appear, the operator sets it by dragging a marker they can
     // see, and refusing the write would leave the marker and the notch in
     // different places until the next drag after enabling.
-    sendUserCommand(cmdSetLevel(addr, level::kNotchPos, percentToRaw(position)));
+    sendUserCommand(cmdSetLevel(addr, level::kNotchPos, percentToLevelRaw(position)));
 }
 
 // AF GAIN. Read and decoded since the first bring-up, and until now never
@@ -1624,7 +1685,7 @@ void IcomCivBackend::setSliceAudioGain(int, int gainPercent)
 {
     m_afGainPercent = std::clamp(gainPercent, 0, 100);
     sendUserCommand(cmdSetLevel(m_session ? m_session->civAddress() : 0xA4,
-                                level::kAf, percentToRaw(m_afGainPercent)));
+                                level::kAf, percentToLevelRaw(m_afGainPercent)));
 }
 
 // VOX. The enable is a function (16 46) and the trigger threshold a level
@@ -1646,11 +1707,9 @@ void IcomCivBackend::setVox(bool on, int level, int delayMs)
         m_voxEnableSent = on ? 1 : 0;
         sendUserCommand(cmdSetFunction(addr, func::kVox, on ? 1 : 0));
     }
-    // Same rule as NR and NB: the threshold register survives the function
-    // being switched off, so pushing it while disabled changes what the
-    // operator gets back when they re-enable.
-    if (on)
-        sendUserCommand(cmdSetLevel(addr, level::kVoxGain, percentToRaw(level)));
+    // The level slider is an explicit operator intent even while VOX is off:
+    // the register survives disable and determines the next enable threshold.
+    sendUserCommand(cmdSetLevel(addr, level::kVoxGain, percentToLevelRaw(level)));
 }
 
 // THE ANTENNA TUNER, and it keys.
@@ -1678,7 +1737,7 @@ void IcomCivBackend::setSliceSquelch(int, bool on, int level)
     // the threshold is the only honest translation available; the alternative
     // is a switch that does nothing.
     sendUserCommand(cmdSetLevel(m_session ? m_session->civAddress() : 0xA4,
-                                level::kSquelch, on ? percentToRaw(level) : 0));
+                                level::kSquelch, on ? percentToLevelRaw(level) : 0));
 }
 
 void IcomCivBackend::setRitEnabled(bool on)
@@ -1732,22 +1791,35 @@ void IcomCivBackend::setTune(bool on, int tunePowerPercent)
     // is COMPOSED: set the drive, then key. The mode save/restore that a full
     // implementation needs is deliberately absent here rather than half-done —
     // see the design note.
-    if (on && tunePowerPercent >= 0)
-        setTxPower(tunePowerPercent);
-    // Raise the tone BEFORE keying and drop it after, so no part of the keyed
-    // window is silent — a tuner that samples during a silent leading edge
-    // reads infinite SWR and some will refuse to start.
-    m_tuning = on;
-    if (on)
+    if (on) {
+        if (!m_tuning)
+            m_preTuneTxPowerPercent = m_txPowerPercent;
+        if (tunePowerPercent >= 0)
+            setTxPower(tunePowerPercent);
+        // Raise the tone BEFORE keying, so no part of the keyed window is
+        // silent — a tuner sampling that edge can otherwise read infinite SWR.
+        m_tuning = true;
         m_tunePhase = 0.0;
-    setKeying(on);
+        setKeying(true);
+        return;
+    }
+
+    // Unkey BEFORE restoring ordinary RF power. The tune setpoint is temporary
+    // and must not become the radio's new operating drive after the carrier.
+    setKeying(false);
+    m_tuning = false;
+    if (m_preTuneTxPowerPercent >= 0) {
+        const int restore = m_preTuneTxPowerPercent;
+        m_preTuneTxPowerPercent = -1;
+        setTxPower(restore);
+    }
 }
 
 void IcomCivBackend::setTxPower(int percent)
 {
     m_txPowerPercent = std::clamp(percent, 0, 100);
     sendUserCommand(cmdSetLevel(m_session ? m_session->civAddress() : 0xA4,
-                                level::kRfPower, percentToRaw(m_txPowerPercent)));
+                                level::kRfPower, percentToLevelRaw(m_txPowerPercent)));
 }
 
 // EVERY registry row a frame belongs to, not the first.
@@ -1801,7 +1873,8 @@ void IcomCivBackend::noteControlSeen(std::uint8_t cmd, std::uint8_t sub, bool ha
         // this control is set to" — the half that does not require the operator
         // to have touched it. Only sendCiv-issued connect reads reach here;
         // they are the reads whose answers populate the mirrors.
-        m_controlsValueKnown.insert(id);
+        if (c.wiring != icom::Wiring::SendOnly)
+            m_controlsValueKnown.insert(id);
     });
 }
 
@@ -2048,18 +2121,24 @@ bool IcomCivBackend::scrubDrive(const icom::ControlSpec& c)
     if (id == QLatin1String("rf.gain"))  { setPanRfGain(pan, m_rfGainPercent); return true; }
     if (id == QLatin1String("preamp"))   { setPanPreamp(pan, m_preampStep); return true; }
     if (id == QLatin1String("atten"))    { setPanAttenuator(pan, m_attenStep); return true; }
+    if (id == QLatin1String("rx.antenna")) {
+        setSliceRxAntenna(slice, m_rxAntennaExternal
+                                   ? QStringLiteral("RX-ANT")
+                                   : QStringLiteral("ANT1"));
+        return true;
+    }
     if (id == QLatin1String("squelch"))  { setSliceSquelch(slice, m_squelchPercent > 0, m_squelchPercent); return true; }
     if (id == QLatin1String("agc"))      { setSliceAgc(slice, m_agcMode, 0); return true; }
     if (id == QLatin1String("tx.power")) { setTxPower(m_txPowerPercent); return true; }
     if (id == QLatin1String("mic.gain")) { setMicGain(m_micGainPercent); return true; }
-    if (id == QLatin1String("monitor"))  { setTxAudioMonitor(m_monitorOn); return true; }
+    if (id == QLatin1String("monitor") || id == QLatin1String("monitor.level")) {
+        m_monitorSent = -1;
+        setTxMonitor(m_monitorOn, m_monitorLevelPercent);
+        return true;
+    }
     if (id == QLatin1String("af.gain"))  { setSliceAudioGain(slice, m_afGainPercent); return true; }
 
     if (id == QLatin1String("vox") || id == QLatin1String("vox.gain")) {
-        // The gain register only goes out while VOX is enabled, same rule as
-        // NR and NB.
-        if (id == QLatin1String("vox.gain") && m_voxEnableSent != 1)
-            return false;
         m_voxEnableSent = -1;   // defeat the dedupe; the value is unchanged
         setVox(m_voxOn, m_voxLevelPercent, 0);
         return true;
@@ -2370,6 +2449,8 @@ void IcomCivBackend::publishMeterDefs()
             } else {
                 d.high = curve.back().value;
             }
+        } else if (s.id == MeterId::Id && m_model->civAddress == 0xB6) {
+            d.high = 25.0;
         }
         emit meterDefined(d);
     }
@@ -2445,6 +2526,45 @@ void IcomCivBackend::onLinkTick()
     if (!m_connected)
         return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
+
+    // CI-V transceive does not announce most knob/switch changes. Poll small,
+    // rotating groups so front-panel state reaches the UI without a ten-frame
+    // burst, and yield briefly after operator writes so reconciliation cannot
+    // immediately overtake intent. RFC #4983 centralizes this policy later.
+    const std::uint8_t addr = m_session->civAddress();
+    if (now >= m_controlPollQuietUntilMs) {
+        switch (m_controlPollPhase++ % 6) {
+        case 0:
+            m_session->sendCiv(cmdReadLevel(addr, level::kRf));
+            if (!m_tuning)
+                m_session->sendCiv(cmdReadLevel(addr, level::kRfPower));
+            m_session->sendCiv(cmdReadLevel(addr, level::kMicGain));
+            break;
+        case 1:
+            for (std::uint8_t which : {level::kMonitor, level::kVoxGain,
+                                       level::kNotchPos})
+                m_session->sendCiv(cmdReadLevel(addr, which));
+            break;
+        case 2:
+            for (std::uint8_t which : {level::kNrLevel, level::kNbLevel})
+                m_session->sendCiv(cmdReadLevel(addr, which));
+            for (std::uint8_t fn : {func::kMonitorFn, func::kVox})
+                m_session->sendCiv(cmdReadFunction(addr, fn));
+            break;
+        case 3:
+            for (std::uint8_t fn : {func::kAutoNotch, func::kManualNotch,
+                                    func::kNoiseReduce, func::kNoiseBlanker})
+                m_session->sendCiv(cmdReadFunction(addr, fn));
+            break;
+        case 4:
+            m_session->sendCiv(cmdReadFunction(addr, func::kPreamp));
+            m_session->sendCiv(cmdReadAttenuator(addr));
+            break;
+        default:
+            m_session->sendCiv(cmdReadTuner(addr));
+            break;
+        }
+    }
     if (m_lastInboundCivAtMs <= 0) {
         m_lastInboundCivAtMs = now;   // start the clock at the first tick
         return;
