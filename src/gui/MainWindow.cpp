@@ -239,6 +239,8 @@
 #include "core/backends/IRadioBackend.h"   // seam: SimBackend::audioFrameReady wiring
 #include "core/backends/hl2/Hl2Backend.h"  // dynamic_cast for WDSP setup progress
 #include "core/backends/sim/SimBackend.h"  // dynamic_cast for demo noise controls
+#include "workspace/WorkspaceController.h"  // prepareShutdown (phase 7 canvas windows)
+#include "workspace/WorkspaceWindow.h"      // shutdown sweep of hidden windows (M1)
 #if defined(Q_OS_MAC)
 #include "core/VirtualAudioBridge.h"
 #include <QFileInfo>
@@ -2727,6 +2729,29 @@ void MainWindow::preparePanadapterUiForShutdown()
     if (auto* stream = m_radioModel.panStream()) {
         QObject::disconnect(stream, nullptr, this, nullptr);
     }
+
+    // Canvas windows first (phase 7): persist their geometry hints, flush
+    // the workspace document, evict their widgets back to the stack/panel
+    // — which still own them — and delete the windows explicitly (the
+    // #2495 lesson: a floating top-level left to ~QWidget cleanup crashed
+    // at exit).  Must precede the stack/container teardown below, which
+    // assumes it can reach every applet.
+    if (m_workspaceController) {
+        m_workspaceController->prepareShutdown();
+    }
+    // The controller only knows OPEN windows; hidden ones (hide-and-keep)
+    // and windows orphaned by disable() live solely in this map — sweep it
+    // whole (red-team #4971 M1: disable-then-quit left every canvas window
+    // to ~QWidget, the #2495 crash shape).  Their widgets were evicted
+    // when they were hidden, so deletion here orphans nothing.
+    for (auto it = m_workspaceWindows.begin(); it != m_workspaceWindows.end();
+         ++it) {
+        if (it.value()) {
+            it.value()->prepareShutdown();
+            delete it.value();
+        }
+    }
+    m_workspaceWindows.clear();
 
     const QList<SpectrumWidget*> spectra = findChildren<SpectrumWidget*>();
     for (SpectrumWidget* spectrum : spectra) {

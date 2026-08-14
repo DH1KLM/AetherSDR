@@ -26,6 +26,9 @@
 #include <QApplication>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QMap>
 #include <QSet>
@@ -46,6 +49,7 @@ using AetherSDR::WorkspaceCanvas;
 using AetherSDR::WorkspaceController;
 using AetherSDR::WorkspaceDocument;
 using AetherSDR::WorkspaceStore;
+using AetherSDR::WorkspaceSurface;
 
 namespace {
 
@@ -931,6 +935,326 @@ int main(int argc, char** argv)
             report("palette: available applet classifies addable",
                    stateOf(QStringLiteral("RX")) == PE::State::Addable);
             ctl.setWidgetAvailabilityHook({});
+        }
+
+        // ── Additional canvas windows (RFC #4887 phase 7) ────────────
+        {
+            ctl.switchWorkspace(wsA);
+            ctl.setWidgetCatalog(
+                {{QStringLiteral("RX"), QStringLiteral("RX Controls"),
+                  QStringLiteral("Receive")},
+                 {QStringLiteral("TX"), QStringLiteral("TX Controls"),
+                  QStringLiteral("Transmit")}});
+            rx->setContainerVisible(true);
+            tx->setContainerVisible(true);
+            if (!rx->isOnCanvas()) ctl.sendAppletToCanvas("RX");
+            if (!tx->isOnCanvas()) ctl.sendAppletToCanvas("TX");
+            // The LIVE widget for this pan id — an earlier block replaced
+            // the original (slot reuse test), so never assert against the
+            // stale panA pointer.
+            QWidget* livePan = pans.value(QStringLiteral("0x40000000"));
+
+            // The window host provides bare canvases — the controller
+            // must never construct a real window; headless testability is
+            // the seam's whole point (the PanHostHooks rule again).
+            QMap<QString, WorkspaceCanvas*> wins;
+            QStringList closedWins, destroyedWins;
+            WorkspaceController::WindowHostHooks wh;
+            wh.openWindow = [&](const QString& sid, const QString&,
+                                const QByteArray&) -> WorkspaceCanvas* {
+                if (!wins.contains(sid)) {
+                    auto* c = new WorkspaceCanvas;
+                    c->resize(1000, 800);
+                    c->show();
+                    wins.insert(sid, c);
+                }
+                return wins.value(sid);
+            };
+            wh.closeWindow = [&](const QString& sid) {
+                closedWins.append(sid);   // hide — the canvas object stays
+            };
+            wh.destroyWindow = [&](const QString& sid) {
+                delete wins.take(sid);
+                destroyedWins.append(sid);
+            };
+            wh.geometryHint = [](const QString&) {
+                return QByteArrayLiteral("HINT");
+            };
+            ctl.setWindowHost(wh);
+
+            auto itemClosedInDoc = [&](const QString& itemId) {
+                const QJsonDocument d =
+                    QJsonDocument::fromJson(storedDocument().toUtf8());
+                for (const QJsonValue& w :
+                     d.object().value(QStringLiteral("workspaces")).toArray()) {
+                    for (const QJsonValue& sv :
+                         w.toObject().value(QStringLiteral("surfaces")).toArray()) {
+                        for (const QJsonValue& iv :
+                             sv.toObject().value(QStringLiteral("items")).toArray()) {
+                            if (iv.toObject().value(QStringLiteral("id"))
+                                    .toString() == itemId) {
+                                return iv.toObject()
+                                    .value(QStringLiteral("closed"))
+                                    .toBool(false);
+                            }
+                        }
+                    }
+                }
+                return false;
+            };
+
+            const QString sid =
+                ctl.addCanvasWindow(QStringLiteral("Right monitor"));
+            report("addCanvasWindow opens a window surface",
+                   !sid.isEmpty() && wins.contains(sid));
+            {
+                bool listed = false, open = false;
+                for (const auto& info : ctl.canvasWindowList())
+                    if (info.id == sid) { listed = true; open = info.open; }
+                report("...listed and open", listed && open);
+            }
+            report("...and persisted", storedDocument().contains(sid));
+
+            // Cross-surface move: document first, widget follows.
+            report("moveItemToSurface moves an applet's widget",
+                   ctl.moveItemToSurface(QStringLiteral("applet:RX"), sid)
+                       && rx->parentWidget() == wins.value(sid)
+                       && wins.value(sid)->contains("applet:RX")
+                       && !canvas.contains("applet:RX"));
+            report("...surfaceHosting agrees",
+                   ctl.surfaceHosting(QStringLiteral("applet:RX")) == sid);
+            const QString panItem =
+                ctl.panItemIdFor(QStringLiteral("0x40000000"));
+            report("moveItemToSurface moves a pan's widget",
+                   ctl.moveItemToSurface(panItem, sid)
+                       && livePan->parentWidget() == wins.value(sid));
+            report("...pans stay below applets on the new surface",
+                   wins.value(sid)->layout().zOf(panItem) == 0);
+
+            // A rect edit on the window canvas persists like any other.
+            wins.value(sid)->setItemRect("applet:RX",
+                                         NormRect{0.6, 0.6, 0.3, 0.3});
+            ctl.commitPlacement();
+
+            // HIDE-AND-KEEP (maintainer ruling): closing evicts
+            // transiently — the applet shuts with NO closed flag recorded,
+            // the pan returns to the stack — and reopening restores both.
+            report("closing the window hides and keeps",
+                   ctl.setCanvasWindowOpen(sid, false)
+                       && closedWins.contains(sid)
+                       && !rx->isContainerVisible()
+                       && livePan->parentWidget() != wins.value(sid));
+            report("...items stay recorded, closed flag ABSENT",
+                   storedDocument().contains(QStringLiteral("applet:RX"))
+                       && !itemClosedInDoc(QStringLiteral("applet:RX")));
+            report("reopening re-places applet and pan",
+                   ctl.setCanvasWindowOpen(sid, true)
+                       && rx->isContainerVisible()
+                       && rx->parentWidget() == wins.value(sid)
+                       && livePan->parentWidget() == wins.value(sid));
+            report("...at the edited rect",
+                   nearly(wins.value(sid)->itemRect("applet:RX").x, 0.6,
+                          0.05));
+
+            // A switch closes windows the target lacks and reopens them on
+            // the way back — with the arrangement intact.
+            const int closesBefore = closedWins.size();
+            const QString plain = ctl.createWorkspace(
+                WorkspaceController::NewWorkspaceSource::Blank,
+                QStringLiteral("NoWindows"));
+            report("switching away closes the window (hide, not destroy)",
+                   closedWins.size() > closesBefore
+                       && destroyedWins.isEmpty()
+                       && ctl.canvasWindowList().isEmpty());
+            ctl.switchWorkspace(wsA);
+            report("switching back reopens and re-places",
+                   rx->parentWidget() == wins.value(sid)
+                       && livePan->parentWidget() == wins.value(sid));
+            ctl.deleteWorkspace(plain);
+
+            // Removing the window moves its items home to main.
+            report("removeCanvasWindow destroys and re-homes",
+                   ctl.removeCanvasWindow(sid)
+                       && destroyedWins.contains(sid)
+                       && rx->isOnCanvas()
+                       && rx->parentWidget() == &canvas
+                       && livePan->parentWidget() == &canvas
+                       && ctl.canvasWindowList().isEmpty());
+
+            // Reset to Classic collapses extra surfaces: the stock shell
+            // is one window.
+            const QString sid2 =
+                ctl.addCanvasWindow(QStringLiteral("Doomed"));
+            ctl.moveItemToSurface(QStringLiteral("applet:TX"), sid2);
+            ctl.resetToClassic();
+            report("resetToClassic collapses extra windows",
+                   destroyedWins.contains(sid2)
+                       && ctl.canvasWindowList().isEmpty()
+                       && !storedDocument().contains(sid2)
+                       && tx->parentWidget() == &canvas);
+
+            // A window created AFTER a destroy must come up FULLY WIRED.
+            // The wire-once set keyed the deleted canvas by raw address; a
+            // fresh allocation reusing it was silently skipped by
+            // wireCanvas() and came up dead — no drops, no context menu,
+            // no gesture persistence (e85f9c81).  Two cycles: the
+            // allocator hands the SECOND fresh canvas the freed address
+            // (red-team #4971 M6, patch adopted verbatim).  Edit-mode
+            // mirroring is the cheapest observable only a live connection
+            // can produce.
+            {
+                bool wired = true;
+                for (int cycle = 0; cycle < 2; ++cycle) {
+                    const QString sidN =
+                        ctl.addCanvasWindow(QStringLiteral("Recycled"));
+                    WorkspaceCanvas* fresh = wins.value(sidN);
+                    if (!fresh) { wired = false; break; }
+                    fresh->setEditMode(!canvas.isEditMode());
+                    if (fresh->isEditMode() != canvas.isEditMode()) {
+                        wired = false;   // its signal never reached us
+                    }
+                    ctl.removeCanvasWindow(sidN);
+                }
+                report("...and a canvas allocated after one is wired", wired);
+            }
+
+            // The GPU recipe brackets EVERY cross-top-level pan move
+            // (red-team #4971 M5: nothing pinned it — deleting the hooks
+            // from all five call sites left the suite green).  prepare
+            // must precede the landing, finish must follow, and the
+            // counts must balance across move, hide, reopen and remove.
+            // Ordering is PER PAN, not global (red-team #4971 N1): the
+            // replay paths deliberately BATCH — prepare(A) prepare(B) …
+            // restoreItems … finish(A) finish(B) — so a global
+            // alternation rule failed a correct implementation the
+            // moment a window held two pans, and the batched multi-pan
+            // shape (the realistic one) went unpinned.  Two live pans
+            // exercise it; the invariants are per-id bracketing and
+            // global balance.
+            {
+                QHash<QString, int> pending;   // panId -> open prepares
+                int prep = 0, fin = 0;
+                bool ordered = true;
+                hooks.prepareTopLevelMove = [&](const QString& id) {
+                    if (pending.value(id) != 0) ordered = false;
+                    pending[id] += 1;
+                    ++prep;
+                };
+                hooks.finishTopLevelMove = [&](const QString& id) {
+                    if (pending.value(id) <= 0) ordered = false;
+                    pending[id] -= 1;
+                    ++fin;
+                };
+                ctl.setPanHost(hooks);
+
+                auto* panG2 = new QWidget(&panOwner);
+                pans.insert(QStringLiteral("0x40000050"), panG2);
+                ctl.onPanAdded(QStringLiteral("0x40000050"));
+
+                const QString sidG =
+                    ctl.addCanvasWindow(QStringLiteral("GpuProbe"));
+                const QString panItemG =
+                    ctl.panItemIdFor(QStringLiteral("0x40000000"));
+                const QString panItemH =
+                    ctl.panItemIdFor(QStringLiteral("0x40000050"));
+                ctl.moveItemToSurface(panItemG, sidG);
+                ctl.moveItemToSurface(panItemH, sidG);
+                const int afterMove = prep;
+                ctl.setCanvasWindowOpen(sidG, false);   // batched evict
+                ctl.setCanvasWindowOpen(sidG, true);    // batched re-place
+                ctl.removeCanvasWindow(sidG);           // evict + re-home
+                bool allClosed = true;
+                for (int v : pending) {
+                    if (v != 0) allClosed = false;
+                }
+                report("cross-top-level pan moves are GPU-bracketed, "
+                       "batches included (M5/N1)",
+                       afterMove >= 2 && prep >= 8 && prep == fin && ordered
+                           && allClosed);
+
+                ctl.onPanRemoved(QStringLiteral("0x40000050"));
+                pans.remove(QStringLiteral("0x40000050"));
+                hooks.prepareTopLevelMove = {};
+                hooks.finishTopLevelMove  = {};
+                ctl.setPanHost(hooks);   // detach before the locals die
+            }
+
+            // B1: an explicit palette surface RELOCATES a stale home.  TX
+            // recorded closed on MAIN; adding it from a window's palette
+            // must land it on THAT window, not resurrect it on main.
+            {
+                if (!tx->isContainerVisible()) tx->setContainerVisible(true);
+                if (!tx->isOnCanvas()) ctl.sendAppletToCanvas("TX");
+                tx->setContainerVisible(false);   // closed; home kept on main
+                const QString sidB =
+                    ctl.addCanvasWindow(QStringLiteral("B1Probe"));
+                report("palette add onto a window relocates the home (B1)",
+                       ctl.addAppletFromPalette(QStringLiteral("TX"),
+                                                QPointF(0.5, 0.5), sidB)
+                           && ctl.surfaceHosting(QStringLiteral("applet:TX"))
+                                  == sidB
+                           && tx->parentWidget() == wins.value(sidB)
+                           && !canvas.contains("applet:TX"));
+
+                // B2: a REFUSED add is a genuine no-op — hide the window,
+                // then try an implicit add: the home is hidden, so it must
+                // refuse BEFORE any write, leaving the document identical.
+                ctl.setCanvasWindowOpen(sidB, false);
+                const QString before = storedDocument();
+                report("a refused add writes NOTHING (B2)",
+                       !ctl.addAppletFromPalette(QStringLiteral("TX"),
+                                                 QPointF(0.5, 0.5))
+                           && storedDocument() == before);
+
+                // M2: disable() must hand hide-and-keep's transient closes
+                // back to the Classic shell — TX is recorded open on the
+                // hidden window and currently shut.
+                ctl.disable();
+                report("disable reopens a hidden window's applets (M2)",
+                       tx->isContainerVisible());
+                ctl.enable({"RX", "TX"});
+                canvas.setEditMode(true);
+
+                // M4: moving an item OFF a hidden window is an operator
+                // asking to SEE it — reopen and place, not a document-only
+                // edit that resurrects later.
+                report("move off a hidden window reopens and places (M4)",
+                       ctl.moveItemToSurface(QStringLiteral("applet:TX"),
+                                             WorkspaceSurface::kMainId)
+                           && tx->isContainerVisible()
+                           && tx->parentWidget() == &canvas
+                           && ctl.surfaceHosting(QStringLiteral("applet:TX"))
+                                  == WorkspaceSurface::kMainId);
+
+                // N4: sibling verbs agree.  An unknown target surface is
+                // an ERROR (not a silent landing on main), and an
+                // EXPLICIT hidden target un-hides — the moveItemToSurface
+                // rule, applied to the palette engine.
+                report("add to an unknown surface refuses (N4)",
+                       !ctl.addAppletFromPalette(QStringLiteral("TX"),
+                                                 QPointF(0.5, 0.5),
+                                                 QStringLiteral("nosuch"))
+                           && ctl.surfaceHosting(QStringLiteral("applet:TX"))
+                                  == WorkspaceSurface::kMainId);
+                ctl.setCanvasWindowOpen(sidB, false);
+                ctl.returnAppletToPanel("TX");
+                tx->setContainerVisible(true);
+                report("add to an explicitly-named hidden window un-hides "
+                       "it (N4)",
+                       ctl.addAppletFromPalette(QStringLiteral("TX"),
+                                                QPointF(0.5, 0.5), sidB)
+                           && tx->parentWidget() == wins.value(sidB)
+                           && [&] {
+                                  for (const auto& info :
+                                       ctl.canvasWindowList()) {
+                                      if (info.id == sidB) return info.open;
+                                  }
+                                  return false;
+                              }());
+                ctl.removeCanvasWindow(sidB);
+            }
+
+            ctl.setWindowHost({});
         }
 
         // Mode-off switch only retargets.

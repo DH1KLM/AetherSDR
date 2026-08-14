@@ -829,7 +829,7 @@ void MainWindow::buildMenuBar()
     // drops/nudges/dots).  Enabled-but-locked is the OPERATING posture —
     // interacting with an applet just uses it.  Edit state is session-
     // transient by design; wireWorkspaceCanvas() syncs both directions.
-    QMenu* wsMenu = viewMenu->addMenu("Workspace &Canvas (experimental)");
+    QMenu* wsMenu = viewMenu->addMenu("Workspace &Canvas");
     m_workspaceCanvasAction = wsMenu->addAction("&Enabled");
     m_workspaceCanvasAction->setCheckable(true);
     connect(m_workspaceCanvasAction, &QAction::toggled, this,
@@ -844,6 +844,12 @@ void MainWindow::buildMenuBar()
     QMenu* switcher = wsMenu->addMenu("&Workspaces");
     connect(switcher, &QMenu::aboutToShow, this,
             [this, switcher] { rebuildWorkspaceSwitcherMenu(switcher); });
+
+    // Additional canvas windows (phase 7): rebuilt on every open, same
+    // staleness rule as the switcher.
+    QMenu* canvasWindows = wsMenu->addMenu("Canvas Wi&ndows");
+    connect(canvasWindows, &QMenu::aboutToShow, this,
+            [this, canvasWindows] { rebuildCanvasWindowsMenu(canvasWindows); });
 
     // Applet-panel show/hide and pop-out are now driven entirely from the
     // title-bar dock icons (#1713 Phase 6).  Ctrl+Shift+S retained here as

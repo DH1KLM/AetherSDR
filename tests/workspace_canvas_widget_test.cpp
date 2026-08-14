@@ -339,6 +339,98 @@ int main(int argc, char** argv)
         // Pressing it again is now a no-op.
         press(under);
         report("pressing it again emits nothing", stackSpy.count() == 1);
+
+        // A press on a DESCENDANT selects too (8600 field report: applet
+        // content consumes presses before the item widget sees them, so
+        // the resize frame only appeared on right-clicks — the one press
+        // nothing swallowed).  The app-wide filter walks up from wherever
+        // the press landed; left and right buttons alike.  The child
+        // ACCEPTS its presses, like the pan title strip does — a plain
+        // QWidget ignores them and Qt re-delivers to the parent, which
+        // let the pre-fix direct-match pass this test while the field
+        // stayed broken (the second 8600 report).
+        class PressEater : public QWidget {
+        public:
+            using QWidget::QWidget;
+        protected:
+            void mousePressEvent(QMouseEvent* e) override { e->accept(); }
+        };
+        {
+            auto* child = new PressEater(over);
+            child->setGeometry(2, 2, 20, 20);
+            child->show();
+            canvas.clearSelection();
+            QMouseEvent ev(QEvent::MouseButtonPress, QPointF(3, 3),
+                           child->mapToGlobal(QPointF(3, 3)),
+                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(child, &ev);
+            report("a press on an item's descendant selects it",
+                   canvas.selectedItem() == QStringLiteral("over"));
+
+            canvas.clearSelection();
+            QMouseEvent right(QEvent::MouseButtonPress, QPointF(3, 3),
+                              child->mapToGlobal(QPointF(3, 3)),
+                              Qt::RightButton, Qt::RightButton,
+                              Qt::NoModifier);
+            QCoreApplication::sendEvent(child, &right);
+            report("...right-press selects the same way",
+                   canvas.selectedItem() == QStringLiteral("over"));
+
+            // Locked canvas: descendant presses select NOTHING — the
+            // app-wide filter leaves with edit mode.
+            canvas.setEditMode(false);
+            canvas.clearSelection();
+            QMouseEvent lockedEv(QEvent::MouseButtonPress, QPointF(3, 3),
+                                 child->mapToGlobal(QPointF(3, 3)),
+                                 Qt::LeftButton, Qt::LeftButton,
+                                 Qt::NoModifier);
+            QCoreApplication::sendEvent(child, &lockedEv);
+            report("...but never while locked",
+                   canvas.selectedItem().isEmpty());
+            canvas.setEditMode(true);
+        }
+
+        // A pan item selects on descendant press but is NOT raised: pans
+        // are the surface the station sits on (phase-4 stacking rule),
+        // and click-raising one over the applets would undo it until the
+        // next replay.
+        {
+            auto* pan = new QWidget;
+            canvas.addItem("pan:9", pan, NormRect{0.2, 0.2, 0.5, 0.5},
+                           QStringLiteral("panadapter"));
+            canvas.sendItemToBack("pan:9");
+            auto* strip = new PressEater(pan);
+            strip->setGeometry(2, 2, 30, 10);
+            strip->show();
+            canvas.clearSelection();
+            const int zBefore = canvas.layout().zOf("pan:9");
+            QMouseEvent ev(QEvent::MouseButtonPress, QPointF(3, 3),
+                           strip->mapToGlobal(QPointF(3, 3)),
+                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(strip, &ev);
+            report("a pan's descendant press selects it",
+                   canvas.selectedItem() == QStringLiteral("pan:9"));
+            report("...without raising it over the applets",
+                   canvas.layout().zOf("pan:9") == zBefore);
+        }
+
+        // The walk never crosses a top-level boundary (red-team #4971
+        // N5): a popup or dialog opened FROM a canvas applet is parented
+        // to it, and selecting — possibly raising, a whole-document
+        // write — on a click inside one is not what the click meant.
+        {
+            auto* dlg = new QWidget(over, Qt::Window);
+            dlg->resize(60, 40);
+            dlg->show();
+            canvas.clearSelection();
+            QMouseEvent ev(QEvent::MouseButtonPress, QPointF(5, 5),
+                           dlg->mapToGlobal(QPointF(5, 5)),
+                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(dlg, &ev);
+            report("a press inside an item's popup/dialog selects nothing",
+                   canvas.selectedItem().isEmpty());
+            dlg->hide();
+        }
     }
 
     // ── Restoring a saved surface through the widget ─────────────────────
