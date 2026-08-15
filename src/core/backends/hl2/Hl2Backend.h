@@ -194,6 +194,12 @@ private:
     void emitAllSliceState();
     void emitAllPanState();
     void pushInitialState();
+    // Put every receiver's AGC pair where this session should come up: the
+    // remembered mode/threshold if this radio has a memory of them, the
+    // construction defaults if it does not (#4909). Called from connectRadio()
+    // ONLY, and conditionally — see the call site for which connects seed and
+    // why a reconnect must not.
+    void seedReceiverAgc();
     void defineMeters();
     void publishTelemetry(const Hl2Telemetry& t);
     // Clamp 0..100, map onto the drive register, honour the transmit gate.
@@ -345,6 +351,12 @@ private:
     // GUI THREAD ONLY. Nothing below the seam may touch this — see m_ioDsps for
     // what the sample path reads instead, and publishIoDsps() for why.
     std::vector<Receiver> m_rx;
+    // Whether the LAST buildReceivers() had previous receiver state to carry
+    // across. Distinguishes a rebuild (auto-reconnect: mode, passband and AGC
+    // survived) from a build (first connect, or a rebuild after
+    // tearDownReceivers() cleared m_rx) — indistinguishable by serial, and the
+    // AGC seeding at connect has to tell them apart. See connectRadio().
+    bool m_rxCarriedState = false;
 
     // ── Manual notches ────────────────────────────────────────────────────
     //
@@ -406,6 +418,21 @@ private:
     // has one transmitter however many receivers it runs, so this is a CHOICE
     // among the receivers rather than a property each of them has.
     int m_txDdc = 0;
+
+    // The AGC pair the operator last set, on whichever receiver — what
+    // currentOperatingState() persists. The runtime control is per-receiver and
+    // the restore is deliberately flat (seedReceiverAgc writes every receiver),
+    // so the capture side needs one authoritative value; reading the transmit
+    // receiver instead meant a change on RX2 triggered a capture that recorded
+    // RX1. Empty mode = the operator has not touched it this session.
+    QString m_agcMode;
+    int     m_agcThresholdDb = 0;
+    // The serial seedReceiverAgc() last ran for. A DIFFERENT radio must be
+    // seeded (or radio A's AGC keeps running under radio B's identity); the
+    // SAME radio reconnecting must not be, because buildReceivers() preserved
+    // its live per-receiver AGC and flattening that mid-session is a loss, not
+    // a restore. Empty until the first connect.
+    QString m_agcSeededSerial;
 
     // The receiver the operator is working on. Separate from m_txDdc: you listen
     // on one slice while transmitting on another all the time, and conflating
