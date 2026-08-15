@@ -282,6 +282,25 @@ jobs:
       - name: Test TCI protocol parsing and malformed-input rejection
         run: ctest --test-dir build -R "^tci_protocol_test$" --output-on-failure
 
+      # THE CI-V MODE MAP IS INVISIBLE FROM THE UI. A missing arm in
+      # modeFromNeutral() does not throw, does not log, and does not fail to
+      # build — setSliceMode() takes the "no equivalent" path and re-asserts the
+      # radio's current mode, so the control appears to do nothing. That is what
+      # hid the DFM hole: selecting FM-D simply reverted, and the on-air cost was
+      # a radio transmitting from the MICROPHONE instead of the modulator.
+      #
+      # These are table assertions — no radio, no sockets, no event loop, ~0.1 s
+      # against a target the Build step already linked.
+      #
+      # icom_meters_test rides along because it owns the model table's
+      # invariants, and this PR proved they were unguarded: setting the
+      # IC-9700's hasVfoModeCommand tripped "no model silently inherits a DATA
+      # command shape" and all four checks stayed green, because nothing in this
+      # file ran that target either. A capability flag that gates which frame
+      # reaches the radio is exactly the kind of claim worth failing a merge on.
+      - name: Test Icom CI-V codec and model table
+        run: ctest --test-dir build -R "^icom_(civ|meters)_test$" --output-on-failure
+
       # Mirrors check-windows' "sccache stats" step, and exists for the same
       # reason: #1963 disabled the Windows compiler cache for three months
       # without anyone noticing, because nothing made the hit rate visible.
