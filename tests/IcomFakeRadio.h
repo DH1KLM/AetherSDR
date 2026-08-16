@@ -573,6 +573,18 @@ private:
                 return;
             }
         }
+        if (frame->cmd == cmd::kLevel && frame->hasSub && !frame->data.empty()) {
+            if (const std::optional<int> value = decodeLevel(frame->data)) {
+                m_levels[frame->sub] = *value;
+            }
+            pushCiv({0xFE, 0xFE, kControllerAddress, kIc705Addr, kCivOk, kCivEom});
+            return;
+        }
+        if (frame->cmd == cmd::kFunction && frame->hasSub && !frame->data.empty()) {
+            m_functions[frame->sub] = frame->data.front();
+            pushCiv({0xFE, 0xFE, kControllerAddress, kIc705Addr, kCivOk, kCivEom});
+            return;
+        }
         if (frame->cmd == cmd::kTuneOffset && frame->hasSub && frame->data.empty()) {
             if (frame->sub == tuneOffset::kFrequency) {
                 // Two BCD bytes little-endian, then a sign byte.
@@ -642,6 +654,32 @@ private:
                      control::kTuner, m_tunerState, kCivEom});
             return;
         }
+        if (frame->cmd == cmd::kControl && frame->hasSub
+            && frame->sub == control::kTuner && !frame->data.empty()) {
+            m_tunerState = frame->data.front() == 0x00 ? 0x00 : 0x01;
+            pushCiv({0xFE, 0xFE, kControllerAddress, kIc705Addr, kCivOk, kCivEom});
+            return;
+        }
+        if (frame->cmd == cmd::kControl && frame->hasSub
+            && frame->sub == control::kPtt) {
+            if (frame->data.empty()) {
+                const bool report = m_pttOverride ? *m_pttOverride : m_ptt;
+                pushCiv({0xFE, 0xFE, kControllerAddress, kIc705Addr, cmd::kControl,
+                         control::kPtt, static_cast<std::uint8_t>(report ? 1 : 0), kCivEom});
+                return;
+            }
+            // A radio that ACKs a PTT write and does not act on it is not
+            // hypothetical: the write can be lost on the bus, refused (band
+            // edge, SWR fold-back), or immediately overridden at the front
+            // panel. `FB` means "understood", never "applied" — see
+            // docs/radio-certification.md. Without a fake that can disagree
+            // with the client's intent there is no way to test what the
+            // backend does when radio truth contradicts a pending request.
+            if (!m_pttOverride)
+                m_ptt = frame->data.front() != 0;
+            pushCiv({0xFE, 0xFE, kControllerAddress, kIc705Addr, kCivOk, kCivEom});
+            return;
+        }
 
         // Everything else is acknowledged.
         pushCiv({0xFE, 0xFE, kControllerAddress, kIc705Addr, kCivOk, kCivEom});
@@ -700,6 +738,11 @@ public:
     bool m_ritOn = true;
     bool m_xitOn = false;
     std::uint8_t m_tunerState = 0x01;   // matched
+    bool m_ptt = false;
+    // Force what 1C 00 REPORTS, regardless of what it is told. While set, PTT
+    // writes are still acknowledged but do not move m_ptt — the radio insists
+    // on this state. Clear it (std::nullopt) to go back to an obedient radio.
+    std::optional<bool> m_pttOverride;
 
 private:
 
