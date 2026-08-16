@@ -55,6 +55,12 @@
 
 namespace AetherSDR {
 
+inline bool wsprSeamAudioRouteReady(bool armed, const RadioCapabilities& capabilities)
+{
+    return armed && capabilities.canTransmit
+        && capabilities.takesTxAudioOverSeam;
+}
+
 class IRadioBackend;   // aetherd RFC §5.5 radio-facing seam (owned via unique_ptr below)
 class FlexBackend;     // transitional concrete alias for 2.3 status-decode driving
 
@@ -555,13 +561,22 @@ public:
     // operator-issue setters so the change routes through the backend seam.
     void recallLocalMemory(int index);
     void createAudioStream();
+    // An operator CLICK on the PC Audio button. On an Icom this asks the radio
+    // to switch its voice-mode modulation input, which Principle II permits
+    // because a user action is a request. Nothing else may call it — see
+    // notePcAudioEnabled() for the connect edge.
+    void setPcAudioEnabled(bool on);
+    // The client's PC Audio state, published so the backend can ADVISE on a
+    // mismatch. Writes nothing: Principle III owns DATA OFF MOD to the radio,
+    // so a connect must never replay this client-persisted flag onto it.
+    void notePcAudioEnabled(bool on);
     bool ensureDaxTxStream(DaxTxRequestReason reason);
     bool prepareWsprTransmit();
     void releaseWsprTransmit();
     void restoreWsprTransmitDax();
     // "The WSPR beacon's transmit-audio route is ready." On a Flex that is
-    // literally a `dax_tx` stream; on a host-modulating backend (HL2) there is
-    // no stream to own — the modulator is ours and the pump feeds it through
+    // literally a `dax_tx` stream; on a seam-audio backend (HL2 or Icom) there
+    // is no stream to own — the pump feeds the backend through
     // txFinalMonitorPcmReady → submitTxAudio, which needs nothing created.
     //
     // The dialog polls this every 50 ms while transmitting and aborts the frame
@@ -582,7 +597,8 @@ public:
         // teardownBackend() now clears the latch as well; this is the backstop
         // that makes a missed clear harmless rather than dangerous, which is the
         // right split for anything guarding a transmitter.
-        if (m_wsprTxHostModulated && backendCapabilities().hostModulates)
+        if (wsprSeamAudioRouteReady(m_wsprTxSeamAudioArmed,
+                                    backendCapabilities()))
             return true;
         return m_daxTxStreamId != 0 && m_daxTxActive;
     }
@@ -1839,10 +1855,10 @@ private:
     bool        m_wsprTxReleaseWhenReady{false};
     bool        m_wsprTxPreviousDax{false};   // `transmit dax` before the beacon armed
     bool        m_wsprTxRestoreDax{false};    // beacon changed it and owes a restore
-    // The beacon armed against a host-modulating backend, so it borrowed no DAX
+    // The beacon armed against a seam-audio backend, so it borrowed no Flex DAX
     // stream and no `transmit dax`. Latched by prepareWsprTransmit() and the
     // only thing releaseWsprTransmit() has to undo on that path.
-    bool        m_wsprTxHostModulated{false};
+    bool        m_wsprTxSeamAudioArmed{false};
     quint32     m_daxTxClientHandle{0};  // Tracked for diagnostics only — not consulted in routing.
     bool        m_daxTxCreatePending{false};
     QSet<quint32> m_deadDaxRxSeen;
