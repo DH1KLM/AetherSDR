@@ -655,6 +655,7 @@ set(CORE_SOURCES
     src/core/AudioEngine.cpp
     src/core/TxCaptureBuffer.cpp
     src/core/TxMicChannelNormalizer.cpp
+    src/core/TxVoiceProcessor.cpp
     src/core/ChannelStripPresets.cpp
     src/core/Biquad.cpp
     src/core/StereoBiquad.cpp

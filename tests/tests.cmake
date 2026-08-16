@@ -1152,6 +1152,13 @@ target_include_directories(tx_mic_channel_normalizer_test PRIVATE
 target_link_libraries(tx_mic_channel_normalizer_test PRIVATE Qt6::Core)
 add_test(NAME tx_mic_channel_normalizer_test COMMAND tx_mic_channel_normalizer_test)
 
+add_executable(tx_voice_processor_test
+    tests/tx_voice_processor_test.cpp
+)
+target_include_directories(tx_voice_processor_test PRIVATE src)
+target_link_libraries(tx_voice_processor_test PRIVATE aethercore Qt6::Core)
+add_test(NAME tx_voice_processor_test COMMAND tx_voice_processor_test)
+
 # Pins the SkyRoof-parity WFM DSP chain: NCO offset correction removes the
 # discriminator DC term (fixed pan + Doppler-stepped slice), twin linear-phase
 # resamplers deliver exactly 48 kHz from any native DAX IQ rate, and streaming
@@ -3274,6 +3281,7 @@ add_executable(device_diagnostics_test
 )
 target_include_directories(device_diagnostics_test PRIVATE src)
 target_link_libraries(device_diagnostics_test PRIVATE Qt6::Core)
+add_test(NAME device_diagnostics_test COMMAND device_diagnostics_test)
 
 add_executable(midi_settings_test
     tests/midi_settings_test.cpp
