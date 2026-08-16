@@ -196,6 +196,21 @@ TitleBar::TitleBar(QWidget* parent)
     markDragHandle(m_appNameLabel);
     m_hbox->addWidget(m_appNameLabel);
 
+    m_experimentalRadioLabel = new QLabel(QStringLiteral("EXPERIMENTAL"));
+    m_experimentalRadioLabel->setObjectName(QStringLiteral("experimentalRadioBadge"));
+    m_experimentalRadioLabel->setFixedHeight(20);
+    m_experimentalRadioLabel->setAlignment(Qt::AlignCenter);
+    AetherSDR::ThemeManager::instance().applyStyleSheet(
+        m_experimentalRadioLabel,
+        "QLabel { color: {{color.accent.warning}}; border: 1px solid "
+        "{{color.accent.warning}}; border-radius: 3px; background: transparent; "
+        "font-size: 9px; font-weight: bold; padding: 0px 5px; }");
+    m_experimentalRadioLabel->setAccessibleName(
+        QStringLiteral("Experimental radio support"));
+    markDragHandle(m_experimentalRadioLabel);
+    m_experimentalRadioLabel->hide();
+    m_hbox->addWidget(m_experimentalRadioLabel);
+
     m_mfBtn = new QPushButton("multiFLEX");
     m_mfBtn->setFlat(true);
     m_mfBtn->setStyleSheet(
@@ -929,6 +944,27 @@ void TitleBar::setOtherClientTx(bool transmitting, const QString& station)
     } else {
         m_otherTxLabel->setVisible(false);
     }
+}
+
+void TitleBar::setExperimentalRadioFamily(const QString& familyName)
+{
+    if (!m_experimentalRadioLabel) {
+        return;
+    }
+
+    const QString trimmed = familyName.trimmed();
+    const bool experimental = !trimmed.isEmpty();
+    m_experimentalRadioLabel->setToolTip(
+        experimental
+            ? QStringLiteral("%1 radio support is experimental").arg(trimmed)
+            : QString());
+    m_experimentalRadioLabel->setAccessibleDescription(
+        experimental
+            ? QStringLiteral("Connected to %1; some controls, meters, and features may be "
+                             "incomplete")
+                  .arg(trimmed)
+            : QString());
+    m_experimentalRadioLabel->setVisible(experimental);
 }
 
 QString TitleBar::formatTxElapsed(qint64 ms) const

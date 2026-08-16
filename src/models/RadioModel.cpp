@@ -514,7 +514,28 @@ static void populateFamilyParams(RadioConnectRequest& req, const QString& family
     req.params.insert(QStringLiteral("icom.password"), IcomCredentials::sessionPassword());
     req.params.insert(QStringLiteral("icom.serialPort"), IcomSettings::serialPort());
     req.params.insert(QStringLiteral("icom.audioPort"), IcomSettings::audioPort());
-    req.params.insert(QStringLiteral("icom.civAddress"), IcomSettings::civAddress());
+    // THE CI-V ADDRESS IS OMITTED WHEN NOBODY CHOSE ONE, and the omission is the
+    // signal. Before this, a blank field was written back as kDefaultCivAddress
+    // and arrived here indistinguishable from a deliberate IC-705 pick, so the
+    // backend had nothing to branch on and every unconfigured radio was
+    // addressed at 0xA4 — correct for one model in the table and silently
+    // ignored by all the others. IcomSettings::kDefaultCivAddress exists to make
+    // exactly this distinction; it had no way to reach the backend.
+    //
+    // Pinned says whether the wire may correct it: a picked MODEL is a shortcut
+    // for an address and may be corrected, a typed CUSTOM address is a device
+    // selection on a possibly-shared bus and may not. See IcomSettings.h.
+    switch (IcomSettings::civSelection()) {
+    case IcomSettings::CivSelection::Auto:
+        break;
+    case IcomSettings::CivSelection::Model:
+        req.params.insert(QStringLiteral("icom.civAddress"), IcomSettings::civAddress());
+        break;
+    case IcomSettings::CivSelection::Custom:
+        req.params.insert(QStringLiteral("icom.civAddress"), IcomSettings::civAddress());
+        req.params.insert(QStringLiteral("icom.civAddressPinned"), true);
+        break;
+    }
 
     // LOW BANDWIDTH MODE REACHES THIS FAMILY NOW.
     //

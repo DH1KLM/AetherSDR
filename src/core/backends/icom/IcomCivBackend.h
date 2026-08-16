@@ -167,11 +167,57 @@ private:
     void publishMeterDefs();
     void sendUserCommand(const std::vector<std::uint8_t>& frame);
     void applyScopeStartup();
+    // The connect-edge read burst, lifted out of onSessionConnected UNCHANGED.
+    //
+    // It is a function only so the rare unknown-model path can defer it until
+    // the address is known, and so a retarget can re-issue it — those reads went
+    // to an address nobody was listening on, so they returned nothing and
+    // re-sending them is both correct and the only way to recover the session.
+    //
+    // NOT a place to re-pace or re-order anything. RFC #4983 names this burst's
+    // bunching as a suspected cause of an unrecoverable CI-V stall; restructuring
+    // it belongs to that scheduler work, not here.
+    void sendConnectReadBurst();
+    // Adopt (or refuse) the address the radio reported in its 0x19 0x00 reply.
+    void adoptReportedCivAddress(std::uint8_t reported);
     [[nodiscard]] int sliceId() const noexcept { return 0; }
     [[nodiscard]] QString panId() const { return QStringLiteral("0"); }
 
     std::unique_ptr<IcomSession> m_session;
     const IcomModel* m_model = nullptr;
+
+    // ---- CI-V address resolution (see IcomSettings::CivSelection) ------------
+    //
+    // The operator's choice sets WHO WE TALK TO. The 0x19 0x00 reply says WHAT
+    // IT IS. Keeping those apart is what lets a typed address select a device on
+    // a shared bus while the radio stays authoritative about its own identity.
+
+    // A typed hex address: a device selection, so the wire must not retarget it.
+    // A picked model is NOT pinned — it is a shortcut for an address.
+    bool m_civAddressPinned = false;
+    // The address the session opened with, before any wire adoption. What a
+    // two-responder bus falls back TO.
+    std::uint8_t m_civSeedAddress = 0;
+    // The address adopted from a 0x19 0x00 reply this session, 0 if none yet.
+    std::uint8_t m_civReported = 0;
+    // Two DIFFERENT addresses answered. Adopt neither — on a bus fronted by
+    // Icom's own RS-BA1 server the second responder may be a rotator or an amp,
+    // and picking either at random mis-decodes the rest of the session.
+    bool m_civAmbiguous = false;
+    // Whether sendConnectReadBurst() has already run this session.
+    bool m_connectBurstSent = false;
+    // The model the RS-BA1 handshake NAMED. Kept separately from m_model because
+    // it is the third signal that separates "right radio, changed address" from
+    // "wrong radio entirely" — see adoptReportedCivAddress().
+    const IcomModel* m_modelByName = nullptr;
+    // Bounded, single-shot, never a poll: the unknown-model path waits this long
+    // for a broadcast reply before giving up and bursting at the fallback
+    // address, so a radio that answers nothing still connects.
+    QTimer* m_civDetectTimer = nullptr;
+    static constexpr int kCivDetectTimeoutMs = 1000;
+    // applyScopeStartup() now has two callers — the connect edge and a late
+    // model resolution — and the radio only needs telling once.
+    bool m_scopeStarted = false;
 
     ScopeDecoder m_scope;
     ScopeCalibration m_scopeCal;

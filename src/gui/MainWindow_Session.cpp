@@ -25,7 +25,9 @@
 #include "AppletPanel.h"
 #include "ConnectedStationsDialog.h"
 #include "ConnectionPanel.h"
+#include "ExperimentalRadioSupport.h"
 #include "FloatingRestorePolicy.h"
+#include "FramelessMessageBox.h"
 #include "PhoneCwApplet.h"
 #include "SpectrumOverlayMenu.h"
 #include "core/backends/sim/SimBackend.h"   // demo owns its audio — see wirePanStreamRxAudioSinks
@@ -69,6 +71,8 @@
 #include "models/SliceModel.h"
 
 #include <QMessageBox>
+#include <QAbstractButton>
+#include <QCheckBox>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QPointer>
@@ -540,6 +544,111 @@ void MainWindow::noteAutoConnectFinished(bool ok)
     } else {
         ++m_autoConnectAttempts[serial];
     }
+}
+
+void MainWindow::updateExperimentalRadioSupport(bool connected)
+{
+    const auto descriptor = connected
+        ? experimentalRadioDescriptor(m_radioModel.family())
+        : std::optional<ExperimentalRadioDescriptor>{};
+
+    if (m_titleBar) {
+        m_titleBar->setExperimentalRadioFamily(
+            descriptor ? descriptor->displayName : QString());
+    }
+
+    if (!descriptor) {
+        if (m_experimentalRadioNotice) {
+            m_experimentalRadioNotice->close();
+        }
+        return;
+    }
+
+    const bool showNotice = AppSettings::instance()
+        .value(descriptor->noticeSettingKey, QStringLiteral("True"))
+        .toString() == QLatin1String("True");
+    if (!showNotice) {
+        return;
+    }
+
+    const QString connectedFamily = m_radioModel.family();
+    const ExperimentalRadioDescriptor noticeDescriptor = *descriptor;
+    QTimer::singleShot(0, this, [this, connectedFamily, noticeDescriptor]() {
+        if (!m_radioModel.isConnected()
+            || m_radioModel.family() != connectedFamily) {
+            return;
+        }
+
+        if (m_experimentalRadioNotice) {
+            m_experimentalRadioNotice->raise();
+            m_experimentalRadioNotice->activateWindow();
+            return;
+        }
+
+        auto* box = new FramelessMessageBox(this);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        box->setIcon(QMessageBox::Information);
+        box->setWindowTitle(QStringLiteral("Experimental radio support"));
+        box->setText(experimentalRadioNoticeText(noticeDescriptor.displayName));
+        box->setStandardButtons(QMessageBox::Ok);
+        box->setDefaultButton(QMessageBox::Ok);
+        if (QAbstractButton* continueButton = box->button(QMessageBox::Ok)) {
+            continueButton->setText(QStringLiteral("Continue"));
+        }
+
+        auto* suppress = new QCheckBox(
+            QStringLiteral("Don't show again for %1 radios")
+                .arg(noticeDescriptor.displayName),
+            box);
+        suppress->setAccessibleName(
+            QStringLiteral("Don't show this experimental support notice again for %1 radios")
+                .arg(noticeDescriptor.displayName));
+        AetherSDR::ThemeManager::instance().applyStyleSheet(
+            suppress,
+            "QCheckBox { color: {{color.text.primary}}; spacing: 7px; }"
+            "QCheckBox::indicator { width: 16px; height: 16px; "
+            "border: 1px solid {{color.text.secondary}}; border-radius: 2px; "
+            "background: {{color.background.0}}; }"
+            "QCheckBox::indicator:hover { border: 2px solid {{color.accent}}; "
+            "background: {{color.background.1}}; }"
+            "QCheckBox::indicator:checked { border: 2px solid {{color.accent}}; "
+            "background: {{color.accent}}; }"
+            "QCheckBox::indicator:focus { border: 2px solid {{color.accent.bright}}; }");
+        box->setCheckBox(suppress);
+
+        m_experimentalRadioNotice = box;
+        connect(box, &QDialog::finished, this,
+                [this, box, suppress, noticeDescriptor](int) {
+            if (suppress->isChecked()) {
+                auto& settings = AppSettings::instance();
+                settings.setValue(noticeDescriptor.noticeSettingKey,
+                                  QStringLiteral("False"));
+                settings.save();
+            }
+            if (m_experimentalRadioNotice == box) {
+                m_experimentalRadioNotice = nullptr;
+            }
+        });
+        // QDialog::open() forces WindowModal. On macOS that becomes a Cocoa
+        // sheet with rounded corners, unlike AetherSDR's square frameless
+        // dialogs. ApplicationModal + show() keeps the operator-facing modal
+        // contract without spinning a nested event loop or adopting sheet
+        // chrome, so radio events continue to flow behind the notice.
+        box->setWindowModality(Qt::ApplicationModal);
+        // Changing modality recreates the native NSWindow on macOS. Re-apply
+        // the project chrome afterwards or Cocoa restores a blank traffic-light
+        // title bar and rounded window corners above our custom title strip.
+        box->setWindowTitle(QStringLiteral("Experimental radio support"));
+        box->setFramelessMode(
+            AppSettings::instance().value("FramelessWindow", "True").toString()
+            == QLatin1String("True"));
+        // setWindowFlags() inside setFramelessMode() clears the native title on
+        // macOS, so restore it last for the custom title bar's showEvent read.
+        box->setWindowTitle(QStringLiteral("Experimental radio support"));
+        box->show();
+        box->raise();
+        box->activateWindow();
+    });
 }
 
 void MainWindow::wireRadioModel()

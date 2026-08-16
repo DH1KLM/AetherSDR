@@ -24,6 +24,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <string>
 #include <vector>
 
 namespace AetherSDR::icom::test {
@@ -241,6 +242,51 @@ public:
     // shape of the stall this exists to reproduce: `isConnected()` stays true,
     // link statistics keep climbing, and the command plane is dead.
     void setCivSilent(bool silent) { m_civSilent = silent; }
+
+    // ---- BE A DIFFERENT ICOM ------------------------------------------------
+    //
+    // The fake was hard-wired to the IC-705's 0xA4 and answered 0x19 0x00 no
+    // matter who the frame was addressed to, which made it structurally unable
+    // to reproduce the bug this whole feature exists for: on a real bus CI-V is
+    // ADDRESSED, and an IC-9700 on 0xA2 ignores everything sent to 0xA4 in
+    // total silence. A fake that answers anyway turns that silent dead session
+    // into a passing test.
+    //
+    // Defaults are unchanged, so every test written before this one still faces
+    // the same IC-705 it always did.
+    void setCivAddress(std::uint8_t address) { m_addr = address; }
+    // The tighter of the two windows the name is copied into: 0x40 in a
+    // 0x90-byte connect grant, against 0x52 in a 0xA8-byte announce.
+    static constexpr std::size_t kMaxNameBytes = 0x90 - 0x40;
+
+    // TRUNCATED, because both carriers std::copy into a fixed offset in a
+    // fixed-size frame with no length check of their own. Every name the suite
+    // uses is a model designation of a handful of characters, so this has never
+    // fired — but a fake radio that scribbles past the end of its own frame
+    // fails as memory corruption somewhere else entirely, which is a debugging
+    // trap rather than a test failure. Truncating is also what a fixed-width
+    // device-name field on a real radio does.
+    void setDeviceName(std::string name)
+    {
+        m_name = std::move(name);
+        if (m_name.size() > kMaxNameBytes)
+            m_name.resize(kMaxNameBytes);
+    }
+
+    // A SECOND DEVICE ON THE BUS. Icom's own RS-BA1 server can front a serial
+    // CI-V bus carrying another radio, a rotator or an amplifier, and all of
+    // them answer a broadcast. Set this and the broadcast draws two replies with
+    // two different addresses — the case where adopting either would be a guess.
+    void setSecondResponder(std::uint8_t address) { m_secondAddr = address; }
+
+    // ECHO EVERY TRANSPORTED FRAME BACK, as a real CI-V bus does.
+    //
+    // Off by default: the suite predates it and none of its assertions expect
+    // echoes. On, it is the only way to exercise the "skip our own echo" rule
+    // against a frame that really was ours — and the echo of a broadcast is the
+    // one that matters, because it arrives FIRST (measured on both lab radios,
+    // 2026-08-14) and does not match the naive echo filter.
+    void setCivEcho(bool echo) { m_civEcho = echo; }
     [[nodiscard]] int audioPacketsFromClient() const { return m_audioFromClient; }
 
     // Push an unsolicited CI-V frame (CI-V Transceive, or a scope sweep).
@@ -379,8 +425,7 @@ private:
                 auto caps = s.frame(0xA8, 0x00, m_seq++);
                 for (std::size_t i = 0; i < 16; ++i)
                     caps[0x42 + i] = static_cast<std::uint8_t>(0x40 + i);
-                const char* name = "IC-705";
-                std::copy(name, name + 6, caps.begin() + 0x52);
+                std::copy(m_name.begin(), m_name.end(), caps.begin() + 0x52);
                 s.send(caps);
             };
             if (m_injectStaleGrant) {
@@ -455,13 +500,32 @@ private:
         if (m_civSilent)
             return;
 
+        // THE BUS ECHOES FIRST, whoever the frame was for. This is what makes a
+        // missing echo mean "the transport is dead" rather than "the radio
+        // declined to answer" — the diagnostic that separated a wedged radio
+        // from a wrong address during the hardware measurements.
+        if (m_civEcho)
+            pushCiv(civ);
+
+        // NOT FOR US. CI-V is addressed and a real radio simply ignores traffic
+        // for somebody else — no error, no reply, nothing. That silence IS the
+        // bug being fixed, so the fake has to reproduce it. 0x00 is broadcast
+        // and every device on the bus answers it.
+        if (frame->to != m_addr && frame->to != kBroadcastAddress)
+            return;
+
         // Name itself. A real radio answers 0x19 0x00 with its own CI-V
         // address, and that is how a client learns WHICH Icom it is talking to
         // — several models speak this same transport, and the address is
         // user-changeable, so a client that assumes 0xA4 mis-decodes the rest.
         if (frame->cmd == cmd::kReadId) {
-            pushCiv({0xFE, 0xFE, kControllerAddress, kIc705Addr, cmd::kReadId, 0x00,
-                     kIc705Addr, kCivEom});
+            pushCiv({0xFE, 0xFE, kControllerAddress, m_addr, cmd::kReadId, 0x00,
+                     m_addr, kCivEom});
+            // The other device on the bus answers the broadcast too. Only the
+            // broadcast: a directed query reaches exactly one of them.
+            if (m_secondAddr != 0 && frame->to == kBroadcastAddress)
+                pushCiv({0xFE, 0xFE, kControllerAddress, m_secondAddr, cmd::kReadId,
+                         0x00, m_secondAddr, kCivEom});
             return;
         }
 
@@ -642,8 +706,7 @@ private:
     void sendGrant(FakeStream& stream, bool stale)
     {
         auto grant = stream.frame(0x90, 0x00, m_seq++);
-        const char* name = "IC-705";
-        std::copy(name, name + 6, grant.begin() + 0x40);
+        std::copy(m_name.begin(), m_name.end(), grant.begin() + 0x40);
         for (std::size_t i = 0; i < 6; ++i)
             grant[0x1a + i] = static_cast<std::uint8_t>((stale ? 0xE0 : 0xD0) + i);
         grant[0x60] = 0x01;
@@ -667,6 +730,11 @@ private:
     std::uint16_t m_serialSeq = 0;
     std::uint16_t m_audioSeq = 0;
     std::uint16_t m_audioInner = 1;
+    // WHICH Icom this is. Defaults to the IC-705 the suite was written against.
+    std::uint8_t  m_addr = kIc705Addr;
+    std::uint8_t  m_secondAddr = 0;
+    bool          m_civEcho = false;
+    std::string   m_name = "IC-705";
     std::uint8_t  m_civSeq = 0;
     std::vector<CivFrame> m_civLog;
     bool m_sentCaps = false;

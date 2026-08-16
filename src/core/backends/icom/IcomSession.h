@@ -77,6 +77,20 @@ public:
     [[nodiscard]] QString deviceName() const { return m_deviceName; }
     [[nodiscard]] std::uint8_t civAddress() const noexcept { return m_params.civAddress; }
 
+    // RETARGET the session at a different CI-V address, mid-session.
+    //
+    // The address the session opened with is a SEED — from the operator's pick,
+    // or from the model the RS-BA1 handshake named — and the radio's own
+    // 0x19 0x00 reply is what corrects it. Without a setter the correction had
+    // nowhere to land: Params::civAddress is baked at start() and read through a
+    // const getter, so an IC-9700 seeded at the IC-705's 0xA4 went on being
+    // addressed at 0xA4 for the whole session and answered nothing.
+    //
+    // The echo filter in onSerialPayload() reads this same value, which is why
+    // retargeting BEFORE the connect-edge read burst is the correct order: the
+    // burst then goes to the new address and its echoes are recognised as ours.
+    void setCivAddress(std::uint8_t address) noexcept { m_params.civAddress = address; }
+
     // Send one CI-V frame. Frames are built by CivCodec's cmd* helpers.
     void sendCiv(std::span<const std::uint8_t> frame);
     // Queue transmit audio (mono float). Nothing leaves until a full 20 ms

@@ -2431,7 +2431,7 @@ MainWindow::MainWindow(QWidget* parent)
             m_connPanel->setStatusText("Looking for your radio…");
             setPanadapterConnectionAnimation(true, "Looking for your radio…");
             QTimer::singleShot(500, this, [this, routedIp] {
-                m_connPanel->probeRadio(routedIp);
+                m_connPanel->probeRadio(routedIp, /*restoreSavedFamily=*/true);
             });
         }
     }
@@ -5783,6 +5783,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
     noteAutoConnectFinished(connected);
 
     m_connPanel->setConnected(connected);
+    updateExperimentalRadioSupport(connected);
 
     // Demo mode: reveal the Demo Noise control tile only while connected to the
     // synthetic demo radio; hide it for real radios. On demo connect, push the

@@ -921,6 +921,320 @@ int main(int argc, char** argv)
           "disconnect during TUNE restores ordinary RF power before teardown");
     check(!backend.isConnected(), "the backend disconnects cleanly");
 
+
+    // =======================================================================
+    // CI-V ADDRESS RESOLUTION
+    // =======================================================================
+    //
+    // CI-V is ADDRESSED, and a wrong address fails in complete silence: the
+    // radio ignores the frame, there is no error, and the session comes up
+    // looking healthy with no frequency, no scope and no transmit. Every check
+    // below is written around that silence — which is why they assert on the
+    // `to` byte of what actually went out and on state that only arrives if
+    // something answered, rather than on "it connected".
+    //
+    // Shared rig: a fake standing in for whichever Icom the case needs.
+    struct CivCase {
+        FakeIc705 radio;
+        IcomCivBackend backend;
+        double frequencyMHz = 0.0;
+        QStringList warnings;
+
+        CivCase(std::uint8_t addr, const char* name, bool echo = true)
+        {
+            radio.setCivAddress(addr);
+            radio.setDeviceName(name);
+            radio.setCivEcho(echo);
+            QObject::connect(&backend, &IRadioBackend::sliceChanged, &backend,
+                             [this](int, const SliceDelta& d) {
+                                 if (d.frequency) frequencyMHz = *d.frequency;
+                             });
+            QObject::connect(&backend, &IRadioBackend::configurationWarning, &backend,
+                             [this](const QString& m) { warnings << m; });
+        }
+
+        RadioConnectRequest request()
+        {
+            RadioConnectRequest r;
+            r.host = QStringLiteral("127.0.0.1");
+            r.port = radio.controlPort();
+            r.params.insert(QStringLiteral("icom.serialPort"), radio.serialPort());
+            r.params.insert(QStringLiteral("icom.audioPort"), radio.audioPort());
+            r.params.insert(QStringLiteral("icom.username"), QStringLiteral("beer"));
+            r.params.insert(QStringLiteral("icom.password"), QStringLiteral("beerbeer"));
+            return r;
+        }
+
+        // How many frames the client addressed to `to`. Counted from the
+        // radio's own log, which records everything the bus carried including
+        // the frames it then ignored — so this reports where we SENT, not where
+        // we were answered, and those are the two different things this whole
+        // change is about.
+        [[nodiscard]] int sentTo(std::uint8_t to) const
+        {
+            return static_cast<int>(std::count_if(
+                radio.civCommands().begin(), radio.civCommands().end(),
+                [to](const CivFrame& f) { return f.to == to; }));
+        }
+        // ...AND WHICH COMMAND went there. sentTo() alone cannot tell "the
+        // reads recovered" from "the scope switches recovered", and after a
+        // retarget those are two different questions with two different
+        // answers - which is exactly how a black panadapter hid behind a
+        // passing test.
+        [[nodiscard]] int sentCmdTo(std::uint8_t to, std::uint8_t command) const
+        {
+            return static_cast<int>(std::count_if(
+                radio.civCommands().begin(), radio.civCommands().end(),
+                [to, command](const CivFrame& f) {
+                    return f.to == to && f.cmd == command;
+                }));
+        }
+        [[nodiscard]] bool warnedAbout(const char* fragment) const
+        {
+            return std::any_of(warnings.begin(), warnings.end(),
+                               [fragment](const QString& w) {
+                                   return w.contains(QLatin1String(fragment));
+                               });
+        }
+    };
+
+    // ---- AUTO: the bug, and the fix ---------------------------------------
+    //
+    // An IC-9700 lives on 0xA2. Before this change, an operator who left the
+    // CI-V field blank got 0xA4 — the IC-705's address — hardcoded at the
+    // connect path, so every read went somewhere nobody was listening. The
+    // model still resolved by name, capabilities still published, and the
+    // result read as "this backend has no panadapter yet".
+    {
+        CivCase c(0xA2, "IC-9700");
+        c.backend.connectRadio(c.request());
+        check(waitFor([&] { return c.backend.isConnected(); }),
+              "auto: the session comes up on an IC-9700");
+
+        // THE DISCRIMINATING ASSERTION. Not "it connected" and not "the model
+        // resolved" — both of those were already true on the broken path.
+        check(waitFor([&] { return c.sentTo(0xA2) > 1; }),
+              "auto: the reads are addressed to 0xA2, the address this radio "
+              "actually answers on");
+        check(waitFor([&] { return c.frequencyMHz > 14.0 && c.frequencyMHz < 14.1; }),
+              "auto: and the radio ANSWERS - a frequency arrives, where the "
+              "0xA4-hardcoded path produced a permanently blank session");
+        check(c.backend.model().civAddress == 0xA2, "auto: resolved as the IC-9700");
+
+        // ONE broadcast per connect. Never polled, never retried on a timer:
+        // RFC #4983 attributes an unrecoverable CI-V stall to request volume,
+        // so the cost of this feature has to stay at exactly one frame.
+        const int broadcasts = c.sentTo(kBroadcastAddress);
+        check(broadcasts == 1,
+              "auto: exactly one broadcast 0x19 0x00 is sent for the whole connect");
+    }
+
+    // ---- A DELIBERATELY WRONG TYPED ADDRESS MUST STILL FAIL ----------------
+    //
+    // The other half of the A/B, and the half that makes the first half mean
+    // anything. If auto-detect quietly rescued a wrong entry too, the test
+    // above would pass on a backend that simply ignored the operator — and an
+    // operator who types an address on a shared bus is SELECTING A DEVICE.
+    {
+        CivCase c(0xA2, "IC-9700");
+        RadioConnectRequest r = c.request();
+        r.params.insert(QStringLiteral("icom.civAddress"), 0xA4);
+        r.params.insert(QStringLiteral("icom.civAddressPinned"), true);
+        c.backend.connectRadio(r);
+        check(waitFor([&] { return c.backend.isConnected(); }),
+              "wrong pin: the session still comes up - the RS-BA1 transport is fine");
+        QTest::qWait(300);
+        check(c.sentTo(0xA4) > 1,
+              "wrong pin: the reads go where the operator said, not where the "
+              "radio is");
+        check(c.frequencyMHz == 0.0,
+              "wrong pin: and nothing answers - the typed address is NOT "
+              "silently overridden");
+    }
+
+    // ---- A MODEL PICK IS A SHORTCUT, AND THE WIRE MAY CORRECT IT -----------
+    //
+    // Same wrong address, expressed the other way: picked from the list rather
+    // than typed. The operator picked an IC-705 and is in front of an IC-9700,
+    // or picked correctly and later changed the address on the radio. Either
+    // way the radio is authoritative about itself, and a pick that is merely a
+    // stale shortcut must not cost them the session.
+    {
+        CivCase c(0xA2, "IC-9700");
+        RadioConnectRequest r = c.request();
+        r.params.insert(QStringLiteral("icom.civAddress"), 0xA4);   // NOT pinned
+        c.backend.connectRadio(r);
+        check(waitFor([&] { return c.backend.isConnected(); }),
+              "model pick: the session comes up");
+        check(waitFor([&] { return c.frequencyMHz > 14.0 && c.frequencyMHz < 14.1; }),
+              "model pick: the broadcast reply retargets the session and the "
+              "radio answers");
+        check(c.sentTo(0xA2) > 1, "model pick: the burst is re-issued at 0xA2");
+    }
+
+    // ---- A NAMED MODEL WHOSE ADDRESS WAS CHANGED ON THE RADIO --------------
+    //
+    // The case auto-detect exists for, and the one every case above misses: the
+    // handshake name RESOLVES - so the session is seeded to 0xA2 and the connect
+    // edge addresses everything there - but the radio actually answers on 0x50,
+    // because someone changed it on the front panel. The cases above either
+    // resolve by name to the right address (no retarget) or resolve by neither
+    // (no model), so nothing yet exercises a live model on a moved address.
+    //
+    // The reads recovering is NOT enough to call this fixed. A retarget moves
+    // the destination, and everything already sent went to a device that is not
+    // there; asserting on frequency alone passes while the panadapter stays
+    // black for the rest of the session.
+    {
+        CivCase c(0x50, "IC-9700");
+        c.backend.connectRadio(c.request());
+        check(waitFor([&] { return c.backend.isConnected(); }),
+              "retarget: the session comes up");
+        check(waitFor([&] { return c.frequencyMHz > 14.0 && c.frequencyMHz < 14.1; }),
+              "retarget: the broadcast reply moves the reads to 0x50 and the "
+              "radio answers");
+        check(c.sentTo(0xA2) > 1,
+              "retarget: the name seed DID address the wrong device first - "
+              "that is the setup for this case, not the defect");
+
+        // THE DISCRIMINATING ASSERTION. 0x27 is the scope pair and an IC-9700
+        // has a scope, so if "started" is latched per SESSION those two frames
+        // exist only at 0xA2: the radio is never told to send sweeps, while
+        // capabilities() goes on advertising a panadapter that cannot fill.
+        // Frequency and mode all arrive, so the session reads as healthy.
+        check(waitFor([&] { return c.sentCmdTo(0x50, cmd::kScope) > 0; }),
+              "retarget: the scope switches are re-sent at 0x50 - 'started' is "
+              "per DESTINATION, and a retarget is a new destination");
+    }
+
+    // ---- AN UNKNOWN NAME IN FRONT OF A MODEL THE TABLE DOES KNOW -----------
+    //
+    // The RS-BA1 shape: the handshake names the SERVER rather than the radio, so
+    // no seed is possible and the burst waits on the broadcast. But the address
+    // that comes back is in kModels - 0xB6 is the IC-7300MK2 - so the model IS
+    // resolvable, and the burst has to be built against THAT model rather than
+    // the conservative fallback the unresolved name left in place.
+    //
+    // 0x26 is the read #4984 added so a radio left in USB-D is not adopted as
+    // plain USB and pushed the rest of the way out of DATA by our first write.
+    // It is gated on hasVfoModeCommand, which only the resolved model sets - so
+    // a burst re-issued before resolution silently drops it, on the one path
+    // where the radio most needs it.
+    {
+        CivCase c(0xB6, "IC-7760");
+        c.backend.connectRadio(c.request());
+        check(waitFor([&] { return c.backend.isConnected(); }),
+              "late model: the session comes up");
+        check(waitFor([&] { return c.frequencyMHz > 14.0 && c.frequencyMHz < 14.1; }, 6000),
+              "late model: broadcast alone finds 0xB6 and the reads land");
+        check(waitFor([&] { return c.sentCmdTo(0xB6, cmd::kVfoMode) > 0; }, 6000),
+              "late model: the DATA-mode read goes out too - the burst is built "
+              "against the model the ADDRESS resolved, not the fallback the "
+              "unrecognised name left behind");
+    }
+
+    // ---- A MODEL NOT IN THE TABLE ------------------------------------------
+    //
+    // No name seed is possible, so the broadcast is the ONLY thing that can
+    // resolve this - which is exactly the case a model chooser cannot cover and
+    // auto-detect can. The IC-7760 (0xB2) is a real example: it is missing from
+    // kModels today.
+    {
+        CivCase c(0xB2, "IC-7760");
+        c.backend.connectRadio(c.request());
+        check(waitFor([&] { return c.backend.isConnected(); }),
+              "unknown model: the session comes up");
+        check(waitFor([&] { return c.frequencyMHz > 14.0 && c.frequencyMHz < 14.1; }, 6000),
+              "unknown model: broadcast alone finds 0xB2 and the reads land");
+        check(!c.backend.model().isKnown(),
+              "unknown model: capabilities stay on the conservative fallback - "
+              "the ADDRESS was learned, the model was not");
+        check(c.warnedAbout("not a model AetherSDR has data for"),
+              "unknown model: and the reduced radio is EXPLAINED rather than "
+              "left looking like a half-finished backend");
+    }
+
+    // ---- A SILENT RADIO STILL CONNECTS -------------------------------------
+    //
+    // The bounded wait must not become a way to hang the connect. Unknown name
+    // AND no CI-V answers at all: the worst case, and it has to degrade to
+    // exactly today's behaviour rather than to a session that never proceeds.
+    {
+        CivCase c(0xA2, "IC-7760");
+        c.radio.setCivSilent(true);
+        c.backend.connectRadio(c.request());
+        check(waitFor([&] { return c.backend.isConnected(); }),
+              "silent radio: the session still comes up");
+        check(waitFor([&] { return c.sentTo(0xA4) > 1; }, 6000),
+              "silent radio: the wait times out and the burst goes out at the "
+              "fallback address rather than never going out at all");
+    }
+
+    // ---- TWO RESPONDERS: ADOPT NEITHER -------------------------------------
+    //
+    // Icom's own RS-BA1 server can front a serial CI-V bus carrying a second
+    // radio, a rotator or an amplifier, and every one of them answers a
+    // broadcast. Taking whichever replied first would decode the rest of the
+    // session against a device the operator never chose - silently, and with a
+    // plausible-looking result.
+    //
+    // UNMEASURED on hardware: both lab radios are single direct-LAN devices.
+    // The behaviour is reasoned, not reproduced, and the test says so.
+    {
+        CivCase c(0xA2, "IC-7760");
+        c.radio.setSecondResponder(0x98);
+        c.backend.connectRadio(c.request());
+        check(waitFor([&] { return c.backend.isConnected(); }),
+              "two responders: the session comes up");
+        check(waitFor([&] { return c.warnedAbout("More than one device"); }, 6000),
+              "two responders: the ambiguity is REPORTED, not resolved by guessing");
+        check(!c.backend.model().isKnown(),
+              "two responders: and neither identity is adopted");
+
+        // THE DESTINATION HAS TO REVERT AND STAY REVERTED, which the two
+        // assertions above cannot see — both survive the session quietly
+        // drifting back onto one of the responders.
+        //
+        // It really does drift without a guard: the burst issued at the adopted
+        // address is already in flight and carries its own directed 0x19 0x00,
+        // and that reply arrives AFTER the revert. It matches the address we
+        // recorded, so it is not a third responder — and would otherwise fall
+        // straight through to the retarget branch and undo the revert.
+        QTest::qWait(400);
+        c.radio.clearCivLog();
+        QTest::qWait(600);
+        check(c.sentTo(0xA2) == 0,
+              "two responders: and NOTHING further is addressed to the responder "
+              "that answered first - the fallback holds");
+    }
+
+    // ---- THE REPLY THAT DISAGREES WITH ITSELF --------------------------------
+    //
+    // The address arrives twice in one frame — the `from` byte and the payload —
+    // and they agreed on every measured run on both lab radios. They are still
+    // read separately, because a disagreement means something is rewriting
+    // frames between the radio and us, and that is worth knowing before it gets
+    // diagnosed as a wrong address. The payload is preferred: it is what the
+    // command is defined to answer.
+    {
+        // DEAF, so the crafted frame below is the FIRST id reply of the session.
+        // A radio that answered the broadcast normally first would make the
+        // disagreeing frame a SECOND, different address — which is the
+        // two-responder case above, not this one.
+        CivCase c(0xA2, "IC-7760");
+        c.radio.setCivSilent(true);
+        c.backend.connectRadio(c.request());
+        check(waitFor([&] { return c.backend.isConnected(); }),
+              "disagreeing reply: the session comes up");
+        // Hand-built so the two fields differ, which no real radio produced.
+        c.radio.pushCiv({0xFE, 0xFE, kControllerAddress, 0xA2, cmd::kReadId, 0x00,
+                         0x98, kCivEom});
+        check(waitFor([&] { return c.sentTo(0x98) > 0; }, 6000),
+              "disagreeing reply: the PAYLOAD wins over the frame's from byte");
+        check(c.sentTo(0xA2) == 0,
+              "disagreeing reply: and the from byte is NOT what gets addressed");
+    }
+
     if (g_failures == 0)
         std::printf("icom_backend_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

@@ -670,7 +670,30 @@ void IcomSession::onSerialPayload(const QByteArray& packet)
         // everything addressed to it straight back; treating those echoes as
         // radio state makes every command look confirmed the instant it is
         // sent, including the ones the radio goes on to reject with FA.
-        if (frame->to == m_params.civAddress && frame->from == kControllerAddress)
+        //
+        // `from` ALONE is the test, because a frame we sent is never radio
+        // state — whoever it happened to be addressed to. This used to also
+        // require `to` to be our own address or the 0x00 broadcast, which was
+        // true of every frame we send right up until setCivAddress() made our
+        // address movable mid-session: after a CI-V retarget the echoes of
+        // frames still in flight at the OLD address match neither arm and get
+        // handed up as though the radio had spoken.
+        //
+        // Today's traffic through that window is read-only, so those echoes
+        // carry no data byte and are rejected downstream anyway — but
+        // applyScopeStartup() sends 0x27 WITH a payload, so the class is not
+        // structurally empty, and an invariant that merely happens to hold is
+        // the thing this filter was written not to depend on.
+        //
+        // The broadcast case is what first made the `to` test insufficient: a
+        // 0x19 0x00 sent to 0x00 — the address query that needs no prior
+        // knowledge of who is out there — echoes back as to=0x00, from=0xE0.
+        // Measured on an IC-9700 and an IC-705 on 2026-08-14: the echo always
+        // arrives first, ahead of the real reply.
+        //
+        // A radio answering transceive to 0x00 is a real frame and still gets
+        // through, because its `from` is the radio's address, not ours.
+        if (frame->from == kControllerAddress)
             continue;
         emit civFrameReady(*frame);
     }

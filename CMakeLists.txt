@@ -3049,6 +3049,19 @@ add_executable(icom_live_probe EXCLUDE_FROM_ALL
 target_include_directories(icom_live_probe PRIVATE src)
 target_link_libraries(icom_live_probe PRIVATE Qt6::Core Qt6::Network)
 
+# IcomCIV live CI-V ADDRESS probe — also REQUIRES A REAL RADIO, also EXCLUDE_FROM_ALL.
+# Drives IcomCivBackend (not IcomSession) because the address resolution under
+# test lives there, and reports ALIVE/DEAD on whether a frequency ever arrived —
+# a wrong CI-V address fails silently, so "it connected" proves nothing.
+#   cmake --build build --target icom_live_civ_probe
+#   ICOM_USER=.. ICOM_PW=.. ./build/icom_live_civ_probe 172.17.0.96          # auto
+#   ICOM_USER=.. ICOM_PW=.. ./build/icom_live_civ_probe 172.17.0.96 A4 pin   # typed
+# Credentials come from the environment, never argv: argv is world-readable
+# through /proc for the life of the process.
+add_executable(icom_live_civ_probe EXCLUDE_FROM_ALL tests/icom_live_civ_probe.cpp)
+target_include_directories(icom_live_civ_probe PRIVATE src)
+target_link_libraries(icom_live_civ_probe PRIVATE aethercore Qt6::Core Qt6::Network)
+
 # HL2 live band-filter probe — REQUIRES REAL HARDWARE, so deliberately NOT
 # registered with add_test(). Build it and run it by hand against a radio:
 #   cmake --build build --target hl2_live_band_filter_probe
