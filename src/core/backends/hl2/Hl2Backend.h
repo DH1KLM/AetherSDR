@@ -94,7 +94,8 @@ public:
     void removeNotch(int notchId) override;
     void setNotchesEnabled(bool on) override;
     void setKeying(bool key) override;
-    void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz) override;
+    void submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz,
+                       bool clientLeveled) override;
     void setTxPower(int percent) override;
     void setTxFilter(int lowHz, int highHz) override;
     void setMicGain(int level) override;
@@ -695,6 +696,12 @@ private:
     // rather than merely stopping the stage pumping. -140 is the floor
     // Hl2TxDsp::micPeak reports for silence, and means "nothing measured yet".
     float m_txMicPeakMaxDbfs = -140.0f;
+
+    // True once the current transmission has carried client-leveled (TCI/DAX)
+    // audio, for which the ALC is bypassed (#4796). Gates the unkey "raise mic
+    // gain" diagnostic, whose advice only applies to the microphone path.
+    // Cleared on each key edge in setKeying().
+    bool m_txAudioClientLeveled = false;
 
     // The passband to push at the modulator for `mode`: the operator's if they
     // have chosen one, otherwise that mode's default.

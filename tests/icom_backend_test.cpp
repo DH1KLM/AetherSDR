@@ -295,7 +295,7 @@ int main(int argc, char** argv)
 
         // UNKEYED: nothing may reach the radio.
         for (int i = 0; i < 20; ++i)
-            backend.submitTxAudio(pcm, 24000);
+            backend.submitTxAudio(pcm, 24000, /*clientLeveled=*/false);
         QTest::qWait(120);
         check(radio.audioPacketsFromClient() == before,
               "transmit audio is DROPPED while unkeyed");
@@ -304,7 +304,7 @@ int main(int argc, char** argv)
         radio.clearCivLog();
         backend.setKeying(true);
         for (int i = 0; i < 20; ++i)
-            backend.submitTxAudio(pcm, 24000);
+            backend.submitTxAudio(pcm, 24000, /*clientLeveled=*/false);
         QTest::qWait(200);
         const int keyed = radio.audioPacketsFromClient();
         check(keyed > before, "and flows once keyed");
@@ -327,7 +327,7 @@ int main(int argc, char** argv)
         QTest::qWait(120);
         const int afterUnkey = radio.audioPacketsFromClient();
         for (int i = 0; i < 20; ++i)
-            backend.submitTxAudio(pcm, 24000);
+            backend.submitTxAudio(pcm, 24000, /*clientLeveled=*/false);
         QTest::qWait(120);
         check(radio.audioPacketsFromClient() == afterUnkey,
               "and stops again on unkey");

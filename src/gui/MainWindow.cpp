@@ -1682,8 +1682,9 @@ MainWindow::MainWindow(QWidget* parent)
     // agree with what actually goes on the air. A Flex radio modulates on the
     // radio side and ignores this.
     connect(m_audio, &AudioEngine::txFinalMonitorPcmReady,
-            this, [this](const QByteArray& pcm) {
-        m_radioModel.submitTxAudio(pcm, AudioEngine::DEFAULT_SAMPLE_RATE);
+            this, [this](const QByteArray& pcm, bool clientLeveled) {
+        m_radioModel.submitTxAudio(pcm, AudioEngine::DEFAULT_SAMPLE_RATE,
+                                   clientLeveled);
     });
     connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
             m_qsoRecorder, &QsoRecorder::onMoxChanged);

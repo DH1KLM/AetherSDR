@@ -7512,10 +7512,11 @@ void RadioModel::setTxAudioMonitor(bool on)
         m_backend->setTxAudioMonitor(on);
 }
 
-void RadioModel::submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz)
+void RadioModel::submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz,
+                               bool clientLeveled)
 {
     if (m_backend)
-        m_backend->submitTxAudio(int16Stereo, sampleRateHz);
+        m_backend->submitTxAudio(int16Stereo, sampleRateHz, clientLeveled);
 }
 
 bool RadioModel::sendCommand(const QString& cmd)

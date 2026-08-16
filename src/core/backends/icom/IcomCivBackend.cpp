@@ -1635,8 +1635,12 @@ void IcomCivBackend::onAudio(const std::vector<float>& mono)
     emit sliceAudioFrameReady(sliceId(), stereo24k);
 }
 
-void IcomCivBackend::submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz)
+void IcomCivBackend::submitTxAudio(const QByteArray& int16Stereo, int sampleRateHz,
+                                   bool clientLeveled)
 {
+    // The flag is the HL2's concern: this backend ships PCM to a radio that
+    // runs its own transmit processing, so there is no host ALC here to bypass.
+    Q_UNUSED(clientLeveled);
     if (!m_session || !m_connected)
         return;
 
