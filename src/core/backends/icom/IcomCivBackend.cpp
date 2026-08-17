@@ -35,6 +35,19 @@ Q_LOGGING_CATEGORY(lcIcomScheduler, "aether.icom.scheduler")
 // meter traffic alongside it.
 Q_LOGGING_CATEGORY(lcIcomAddr, "aether.icom.address")
 
+// EVERY CI-V FRAME, both directions, as hex.
+//
+// The in-memory ring behind `civ trace` already recorded these, but it dies
+// with the backend — disconnect and the evidence is gone, which is exactly
+// when you want it. A log category survives the session and can be read after
+// the fact.
+//
+// This is the difference between three indistinguishable failures: the query
+// was never sent, the radio never answered, or the answer arrived and our
+// decode rejected it. Diagnosing a mode-reporting bug without it means
+// inferring from published state, which cannot tell those apart.
+Q_LOGGING_CATEGORY(lcIcomCiv, "aether.icom.civ")
+
 // Metering is examined this often; the MeterPoller decides what is actually
 // due. This is ALSO the scheduler's pump, which is why it is 10 ms and not the
 // 40 ms the meter intervals alone would justify: IcomCivScheduler releases at
@@ -3194,6 +3207,46 @@ void IcomCivBackend::traceCiv(bool outbound, std::span<const std::uint8_t> frame
     m_civTrace.push_back({nowMs(), outbound, routine, hex});
     while (m_civTrace.size() > kCivTraceMax)
         m_civTrace.pop_front();
+
+    // Also to the log, which outlives the backend. Decode the command and
+    // subcommand alongside the raw bytes: `1a 06` means nothing to a reader
+    // scanning a log, and the whole point of switching this on is to answer
+    // "did the 1A 06 query go out, and did the radio answer it".
+    if (lcIcomCiv().isDebugEnabled()) {
+        // THE TWO CALL SITES PASS DIFFERENT LAYOUTS, so the command index is a
+        // parameter and not an assumption:
+        //
+        //   TX (sendUserCommand) — the raw wire frame from buildFrame:
+        //       FE FE <to> <from> <cmd> [<sub>] <data…> FD   -> cmd at 4
+        //   RX (onCivFrame)      — re-serialised, envelope deliberately dropped
+        //       <cmd> [<sub>] <data…>                        -> cmd at 0
+        //
+        // Reading index 4 for both printed a payload byte as the command on
+        // every received frame, and silently printed NOTHING for any RX frame
+        // shorter than five bytes — which is most of them. `1a 06 01 01`, the
+        // reply this whole category was added to make visible, is four bytes
+        // and came out undecorated. Exactly the wrong-but-plausible output the
+        // comment below warns about, in the direction that was not checked.
+        const int cmdIdx = outbound ? 4 : 0;
+        QString tag;
+        if (frame.size() > static_cast<std::size_t>(cmdIdx)) {
+            const std::uint8_t c = frame[cmdIdx];
+            tag = QStringLiteral(" cmd=%1").arg(c, 2, 16, QLatin1Char('0'));
+            // Which commands carry a subcommand is a per-command fact, and
+            // commandHasSubcommand() is the single list parseFrame() decodes
+            // by. Keeping a second copy here would let the two drift, and a
+            // drift would label command 0x05's first frequency digit as a
+            // subcommand — the wrong-but-plausible output this tag exists to
+            // avoid.
+            if (frame.size() > static_cast<std::size_t>(cmdIdx) + 1
+                && commandHasSubcommand(c)) {
+                tag += QStringLiteral(" sub=%1")
+                           .arg(frame[cmdIdx + 1], 2, 16, QLatin1Char('0'));
+            }
+        }
+        qCDebug(lcIcomCiv).noquote().nospace()
+            << (outbound ? "TX -> " : "RX <- ") << hex << tag;
+    }
 }
 
 QVariantList IcomCivBackend::civTrace(bool includeRoutine) const
