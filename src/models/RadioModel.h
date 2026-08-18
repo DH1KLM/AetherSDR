@@ -953,6 +953,10 @@ signals:
     // Wired to AudioEngine's CwSidetoneGenerator for low-latency local
     // sidetone independent of the radio's own DAX-fed sidetone.
     void cwKeyDownChanged(bool down);
+    // Non-Flex diagnostic edge emitted only after transmit preflight, directly
+    // before IRadioBackend::setCwKeying(). Lets tests and diagnostics prove a
+    // refused key-down did not cross the radio seam.
+    void backendCwKeyingForwarded(bool down);
     void sliceAdded(SliceModel* slice);
     void sliceRemoved(int sliceId);
     void rawSliceModeListsChanged();
@@ -1421,6 +1425,9 @@ private:
     static std::unique_ptr<IRadioBackend> makeBackend(const QString& family);
     void handRestoredStateToBackend(const QString& serial);  // RFC #4603
     void persistOperatingState(bool force = false);          // RFC #4603 PR 3
+    void scheduleOperatingStateSave();
+    void captureClientOwnedCwState(RestoredRadioState& state) const;
+    void restoreClientOwnedCwState(const RestoredRadioState& state);
 
     // aetherd Gap B: build/destroy the backend for a radio family. The backend
     // follows the radio the operator picks in the connection manager, so these
@@ -1748,6 +1755,10 @@ private:
     // keying may proceed; on refusal it rolls back the optimistic transmit state
     // and notifies, so no raw-TX edge is ever published for a refused key.
     bool refuseKeyOnTransmitIncapableBackend();
+    // Apply the same capability + receive-only-pan preflight to a non-Flex CW
+    // carrier edge before it crosses the backend seam. Key-up always passes so
+    // an inhibit arriving mid-element can never strand RF on.
+    bool forwardNonFlexCwKeying(bool down);
     bool interlockNotificationArmed() const;
     void emitInterlockNotification(const QString& message,
                                    const QString& key,
