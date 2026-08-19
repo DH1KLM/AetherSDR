@@ -69,6 +69,12 @@ int toneBursts(const std::vector<float>& buf)
 }
 
 // Key one element of `ms` on, `ms` off, spinning on the real clock.
+//
+// The spin is this file's convention, not an oversight: every timing test here
+// advances the same real clock the generator reads, and the element durations
+// they assert on are only as tight as the wait that produces them.  Swapping in
+// sleep_for() would be a file-wide change with those assertions downstream of
+// it, so it wants to be one deliberate decision rather than a local edit.
 void keyElement(CwSidetoneGenerator& gen, int ms)
 {
     using clock = std::chrono::steady_clock;
@@ -422,6 +428,210 @@ int main()
         }
         ok &= expect(toneBursts(cat) == 1,
                      "element after a consumer pause still sounds, once");
+    }
+
+    // ── 12. Push-pump race: an element keyed while the render head is ahead
+    // of wall clock keeps its exact duration (#4890).  A push-model sink
+    // keeps the device buffer full, so process() renders ahead of real time
+    // and an edge's timestamp-mapped position can already be rendered by the
+    // time the edge is consumed.  Clamping just that edge to the block start
+    // quantized BOTH edges of the element to render-head positions — on the
+    // bench this collapsed rhythm into whole-block steps (Linux: emission
+    // SD 0.2 ms rendered as 6–8 ms, in 5.3 ms quanta).  The anchor must
+    // shift forward instead, preserving the element's length.
+    {
+        using clock = std::chrono::steady_clock;
+        CwSidetoneGenerator gen(48000);
+        gen.setEnabled(true);
+        gen.setVolume(1.0f);
+        gen.setShapingMs(0.0f);
+
+        // Element A anchors the burst and flushes normally.  Deliberately
+        // twice element B's length: if B collapses at the render head, the
+        // last loud run the assertions measure is A, and A's length must
+        // not fit B's expected window.
+        gen.setKeyDown(true);
+        auto blk = runFrames(gen, 128);
+        std::vector<float> cat(blk.begin(), blk.end());
+        const auto a1 = clock::now();
+        while (clock::now() - a1 < std::chrono::milliseconds(20)) { /* spin */ }
+        gen.setKeyDown(false);
+        while (cat.size() < 2000) {
+            blk = runFrames(gen, 128);
+            cat.insert(cat.end(), blk.begin(), blk.end());
+        }
+
+        // Inter-element gap, during which the "pump" tops the buffer up —
+        // the render head moves ~80 ms ahead while the anchor is retained
+        // (gap and lead both well under the idle re-anchor threshold).
+        const auto g0 = clock::now();
+        while (clock::now() - g0 < std::chrono::milliseconds(40)) { /* spin */ }
+        while (cat.size() < 6000) {
+            blk = runFrames(gen, 128);
+            cat.insert(cat.end(), blk.begin(), blk.end());
+        }
+
+        // Element B: keyed in real time, consumed with the head far ahead.
+        gen.setKeyDown(true);
+        const auto b1 = clock::now();
+        while (clock::now() - b1 < std::chrono::milliseconds(10)) { /* spin */ }
+        const auto c0 = clock::now();
+        gen.setKeyDown(false);
+        const auto c1 = clock::now();
+        for (int b = 0; b < 40; ++b) {
+            blk = runFrames(gen, 128);
+            cat.insert(cat.end(), blk.begin(), blk.end());
+        }
+
+        // Locate element B — the last loud run — and measure its length.
+        int lastStart = -1, lastEnd = -1;
+        bool loudRun = false;
+        for (int i = 0; i + 8 <= static_cast<int>(cat.size()); i += 8) {
+            const float peak = maxAbs(std::vector<float>(
+                cat.begin() + i, cat.begin() + i + 8));
+            const bool loud = peak > 0.1f;
+            if (loud && !loudRun) lastStart = i;
+            if (loud) lastEnd = i + 8;
+            loudRun = loud;
+        }
+        ok &= expect(toneBursts(cat) == 2,
+                     "push-pump race: late element still renders as its own"
+                     " burst");
+        // The assertions below only exercise the late-edge branch if the
+        // render head actually got ahead of wall clock above; on a runner
+        // where runFrames() is slower than real time nothing is ever late and
+        // they would pass against the pre-fix code too.  Require the branch.
+        ok &= expect(gen.shiftCount() > 0,
+                     "push-pump race: the late-edge branch actually fired");
+        const auto loNs = std::chrono::duration_cast<std::chrono::nanoseconds>(c0 - b1).count();
+        const auto hiNs = std::chrono::duration_cast<std::chrono::nanoseconds>(c1 - b1).count();
+        const int lo = static_cast<int>(loNs * 48000 / 1'000'000'000LL) - 16;
+        const int hi = static_cast<int>(hiNs * 48000 / 1'000'000'000LL) + 144;
+        const int lenB = (lastStart >= 0 && lastEnd > lastStart)
+                             ? lastEnd - lastStart : -1;
+        ok &= expect(lenB >= lo && lenB <= hi,
+                     "push-pump race: element duration is preserved, not"
+                     " clamped to the render head");
+    }
+
+    // ── 13. Sustained racing does not walk the mapping into the staleness
+    // guard (#4890).  Review asked whether the per-edge forward shift, being
+    // uncapped, could accumulate until the guard fires mid-burst and re-quantizes
+    // an onset at an unpredictable moment.  It cannot: a shift moves the mapping
+    // ONTO the render head rather than past it, so the guard's quantity after a
+    // shift is the wall time since that edge, not a running total.  This pins
+    // that — a long burst rendered faster than real time, so every element
+    // shifts, must produce no staleness re-anchor at all.
+    {
+        using clock = std::chrono::steady_clock;
+        CwSidetoneGenerator gen(48000);
+        gen.setEnabled(true);
+        gen.setVolume(1.0f);
+        gen.setShapingMs(0.0f);
+        const auto spin = [](int ms) {
+            const auto t = clock::now();
+            while (clock::now() - t < std::chrono::milliseconds(ms)) { /* spin */ }
+        };
+
+        // 60 elements keyed on the real clock but rendered ~3x faster, so the
+        // head gains on wall clock every single element and each edge is late.
+        for (int n = 0; n < 60; ++n) {
+            gen.setKeyDown(true);
+            spin(5);
+            for (int b = 0; b < 6; ++b) runFrames(gen, 128);   // 16 ms audio / 5 ms real
+            gen.setKeyDown(false);
+            spin(5);
+            for (int b = 0; b < 6; ++b) runFrames(gen, 128);
+        }
+        ok &= expect(gen.shiftCount() > 20,
+                     "sustained racing: the late-edge branch fired throughout");
+        ok &= expect(gen.staleReanchorCount() == 0,
+                     "sustained racing: shifts never trip the staleness guard");
+    }
+
+    // ── 14. Learned slack decays (#4890).  It must be able to shrink: this
+    // generator exists to beat the radio's 30–100 ms round trip, so a slack
+    // that only ratcheted upward would let one transient stall park the tone
+    // inside that range for the rest of the session.  A burst that never runs
+    // late is evidence the sink has headroom, and gives some back.
+    {
+        using clock = std::chrono::steady_clock;
+        CwSidetoneGenerator gen(48000);
+        gen.setEnabled(true);
+        gen.setVolume(1.0f);
+        gen.setShapingMs(0.0f);
+
+        const auto spin = [](int ms) {
+            const auto t = clock::now();
+            while (clock::now() - t < std::chrono::milliseconds(ms)) { /* spin */ }
+        };
+
+        // Stall the pump so an edge arrives far behind the render head; that
+        // teaches the mapping the maximum slack.
+        gen.setKeyDown(true);
+        for (int b = 0; b < 300; ++b) runFrames(gen, 128);   // race ~800 ms ahead
+        gen.setKeyDown(false);
+        gen.setKeyDown(true);
+        gen.setKeyDown(false);
+        for (int b = 0; b < 8; ++b) runFrames(gen, 128);
+        ok &= expect(gen.shiftCount() > 0, "slack decay: the stall produced late edges");
+
+        // Clean bursts: both edges are queued with no rendering between them,
+        // so neither can land behind the head however far ahead the head is —
+        // the anchor is taken relative to the current block. Each burst is
+        // followed by enough idle to release the anchor, which is where a
+        // burst that never ran late gives slack back.
+        const auto cleanBurst = [&](int idleBlocks, std::vector<float>* out) {
+            gen.setKeyDown(true);
+            spin(5);
+            gen.setKeyDown(false);
+            for (int b = 0; b < idleBlocks; ++b) {
+                auto blk = runFrames(gen, 128);
+                if (out) out->insert(out->end(), blk.begin(), blk.end());
+            }
+        };
+
+        // Release the stall's anchor (it ran late, so releasing it does not
+        // halve the slack) so the next burst re-anchors fresh: the onset that
+        // burst renders IS the carried slack, measured end to end.
+        for (int b = 0; b < 100; ++b) runFrames(gen, 128);  // > kReanchorIdleMs
+
+        // seg is mono — runFrames() returns one entry per frame.
+        const auto onsetOf = [](const std::vector<float>& seg) -> int64_t {
+            for (int i = 0; i + 8 <= static_cast<int>(seg.size()); i += 8) {
+                float peak = 0.0f;
+                for (int j = i; j < i + 8; ++j)
+                    peak = std::max(peak, std::abs(seg[j]));
+                if (peak > 0.1f) return i;
+            }
+            return -1;
+        };
+
+        // Both ends of the decay are pinned.  Near end: the first fresh
+        // anchor after the stall spends the full taught slack, so the onset
+        // sits at the cap (1920 samples = 40 ms at 48 kHz).  If the idle
+        // counter survived the anchor take, the still-saturated counter
+        // would release each new anchor once per empty run-up block and
+        // halve the slack every time — collapsing the onset to under five
+        // blocks (measured: 632 samples) and silently capping carried slack
+        // at one audio block instead of kAnchorSlackCapMs.
+        std::vector<float> first;
+        cleanBurst(130, &first);           // 130×128 ≈ 347 ms > kReanchorIdleMs
+        const int64_t onset0 = onsetOf(first);
+        ok &= expect(onset0 >= 1920 - 256 && onset0 <= 1920 + 256,
+                     "slack decay: first fresh anchor spends the full taught slack");
+
+        for (int burst = 0; burst < 8; ++burst)
+            cleanBurst(130, nullptr);
+
+        // Far end: after repeated clean bursts the slack must have decayed
+        // back to (about) the block start instead of staying latched at what
+        // the stall taught it.
+        std::vector<float> seg;
+        cleanBurst(40, &seg);
+        const int64_t onset = onsetOf(seg);
+        ok &= expect(onset >= 0 && onset <= 256,
+                     "slack decay: onset returns to the block start after clean bursts");
     }
 
     return ok ? 0 : 1;
