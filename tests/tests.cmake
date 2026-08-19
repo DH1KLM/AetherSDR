@@ -2718,6 +2718,19 @@ add_test(NAME owned_single_shot_timer_test COMMAND owned_single_shot_timer_test)
 
 # The bridge preserves dragAt, target-tune, memory-recall, and authenticated
 # positional requests across its bare and JSON protocol forms.
+# doubleClick / doubleClickAt verbs (#5068) — asserts the real Qt sequence
+# (Press, Release, DblClick, Release) and that mouseDoubleClickEvent fires,
+# which no number of clickAt calls can produce.
+add_executable(automation_double_click_test tests/automation_double_click_test.cpp)
+target_include_directories(automation_double_click_test PRIVATE src)
+target_link_libraries(automation_double_click_test PRIVATE
+    aethercore Qt6::Core Qt6::Network Qt6::Widgets
+)
+set_target_properties(automation_double_click_test PROPERTIES AUTOMOC ON)
+add_test(NAME automation_double_click_test COMMAND automation_double_click_test)
+set_tests_properties(automation_double_click_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(automation_drag_at_test tests/automation_drag_at_test.cpp)
 target_include_directories(automation_drag_at_test PRIVATE src)
 target_link_libraries(automation_drag_at_test PRIVATE
