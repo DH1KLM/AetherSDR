@@ -69,7 +69,8 @@ void CwSidetoneGenerator::setPan(float p) noexcept
     m_pan.store(clampf(p, 0.0f, 1.0f), std::memory_order_relaxed);
 }
 
-void CwSidetoneGenerator::setKeyDown(bool down) noexcept
+void CwSidetoneGenerator::setKeyDown(bool down,
+                                     std::chrono::steady_clock::time_point when) noexcept
 {
     // Several threads legitimately produce edges — the iambic and CWX
     // workers call in directly, and the GUI thread echoes every
@@ -77,9 +78,25 @@ void CwSidetoneGenerator::setKeyDown(bool down) noexcept
     // and head publish must be exclusive among producers.  A short spin
     // is cheaper than any blocking primitive at tens of edges per
     // second; process() only consumes the tail and never takes this
-    // lock, so the audio thread stays wait-free.  The timestamp is taken
+    // lock, so the audio thread stays wait-free.  The stamp is resolved
     // inside the lock so queue order equals timestamp order — process()
-    // relies on that for its edges-are-time-ordered early-out.
+    // relies on that for its edges-are-time-ordered early-out.  A caller-
+    // supplied scheduled instant lies slightly in the past (wake latency),
+    // so it is clamped against the newest queued stamp: without this, a
+    // wall-clock edge from another producer could sit ahead of it in the
+    // queue with a later stamp.  The clamp preserves the schedule's exact
+    // spacing whenever edges from one producer arrive back-to-back, which
+    // is the #4890 case that matters.
+    // Bound worth knowing: the GUI echo (RadioModel::cwKeyDownChanged →
+    // MainWindow's connect → setCwKeyDown(down)) queues a wall-clock stamp
+    // after each scheduled edge, so the floor sits at wall clock going into
+    // the next one.  Scheduled stamps therefore hold only while that echo
+    // round-trip stays shorter than one element (measured ~2 ms against
+    // 48 ms at 25 WPM).  Should an echo ever land after the following grid
+    // instant, that edge clamps to the echo's stamp and the sidetone
+    // reverts to wall-clock rhythm — the pre-#4890 behaviour, not
+    // corruption.  Removing the coupling means suppressing the echo for
+    // producers that already drove the gate directly.
     // Worst case among producers: the GUI thread descheduled inside the
     // section leaves a keying worker spinning until the holder resumes.
     // The section is ~20 instructions, so the window is vanishingly
@@ -87,7 +104,7 @@ void CwSidetoneGenerator::setKeyDown(bool down) noexcept
     // the same per-edge epsilon class as wake latency, and never a
     // correctness concern.
     while (m_edgeLock.test_and_set(std::memory_order_acquire)) { /* spin */ }
-    const auto now = std::chrono::steady_clock::now();
+    const auto now = std::max(when, m_lastQueuedStamp);
     const uint32_t head = m_edgeHead.load(std::memory_order_relaxed);
     const uint32_t tail = m_edgeTail.load(std::memory_order_acquire);
     // Mirror the latest state BEFORE publishing the head.  The lock excludes
@@ -101,6 +118,11 @@ void CwSidetoneGenerator::setKeyDown(bool down) noexcept
     // mid-element, plus a second phantom edge undoing it.
     m_keyDown.store(down, std::memory_order_relaxed);
     if (head - tail < kEdgeQueueSize) {
+        // Raise the floor only for an edge that actually enters the queue:
+        // the floor exists to keep queued stamps ordered, and a dropped edge
+        // has no place in that order.  (Monotonicity holds either way; this
+        // keeps the member true to its name.)
+        m_lastQueuedStamp = now;
         m_edgeQueue[head % kEdgeQueueSize] = {now, down};
         m_edgeHead.store(head + 1, std::memory_order_release);
     }
@@ -123,6 +145,17 @@ void CwSidetoneGenerator::reset() noexcept
     // Drop queued edges (consumer-side drain: only the tail moves).
     m_edgeTail.store(m_edgeHead.load(std::memory_order_acquire),
                      std::memory_order_release);
+    // m_lastQueuedStamp is deliberately NOT cleared, and must not be: it is
+    // a plain time_point written by producers under m_edgeLock, while
+    // reset() runs on the audio thread WITHOUT that lock — clearing it here
+    // would be a data race.  Retaining it is also correct: queue ordering
+    // is enforced by the max() clamp in setKeyDown(), not by steady_clock's
+    // monotonicity — a scheduled instant lies a few ms in the past, so an
+    // edge CAN carry a stamp below a floor a wall-clock echo raised (see
+    // the echo note in setKeyDown()).  The cost of the retained floor is
+    // bounded and one-sided: the first edge queued after this drain clamps
+    // up to it rather than to its own scheduled instant, then the grid
+    // re-establishes itself within an element or two.
 }
 
 void CwSidetoneGenerator::setSampleRateHz(int hz) noexcept
