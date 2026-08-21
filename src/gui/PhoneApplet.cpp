@@ -284,19 +284,31 @@ void PhoneApplet::buildUI()
         m_lowCutDown->setAccessibleName("TX low cut decrease");
         // Step buttons snap the value to the next multiple of 50 Hz in
         // the chosen direction (rather than the old +/-50 from current).
-        // Example: at 87 Hz, ▲ → 100, ▼ → 50.  The radio accepts any
-        // integer Hz so this is purely a UI nicety.
+        // Example on a continuous radio: at 87 Hz, ▲ → 100, ▼ → 50.
+        // A backend may instead publish a discrete edge list below.
         auto lowCutDown = [this]() {
             if (!m_model) return;
-            const int v = m_model->txFilterLow();
-            const int snapped = ((v - 1) / 50) * 50;
-            m_model->setTxFilterLow(qMax(m_model->txFilterMinHz(), snapped));
+            if (m_txLowEdgesHz.isEmpty()) {
+                const int v = m_model->txFilterLow();
+                const int snapped = ((v - 1) / 50) * 50;
+                m_model->setTxFilterLow(qMax(m_model->txFilterMinHz(), snapped));
+                return;
+            }
+            m_model->setTxFilterLow(steppedEdgeHz(m_txLowEdgesHz,
+                                                   m_model->txFilterLow(), -1));
         };
         auto lowCutUp = [this]() {
             if (!m_model) return;
-            const int v = m_model->txFilterLow();
-            const int snapped = ((v / 50) + 1) * 50;
-            m_model->setTxFilterLow(qMin(m_model->txFilterHigh() - m_model->txFilterMinWidthHz(), snapped));
+            if (m_txLowEdgesHz.isEmpty()) {
+                const int v = m_model->txFilterLow();
+                const int snapped = ((v / 50) + 1) * 50;
+                m_model->setTxFilterLow(qMin(m_model->txFilterHigh()
+                                                 - m_model->txFilterMinWidthHz(),
+                                             snapped));
+                return;
+            }
+            m_model->setTxFilterLow(steppedEdgeHz(m_txLowEdgesHz,
+                                                   m_model->txFilterLow(), +1));
         };
         connect(m_lowCutDown, &QPushButton::clicked, this, lowCutDown);
         lowRow->addWidget(m_lowCutDown);
@@ -344,7 +356,8 @@ void PhoneApplet::buildUI()
             // bound is the only sensible answer, while a typed number is a
             // request for that exact value.
             if (hz < m_model->txFilterMinHz()
-                || hz > m_model->txFilterHigh() - m_model->txFilterMinWidthHz()) {
+                || hz > m_model->txFilterHigh() - m_model->txFilterMinWidthHz()
+                || (!m_txLowEdgesHz.isEmpty() && !m_txLowEdgesHz.contains(hz))) {
                 return;
             }
             m_model->setTxFilterLow(hz);
@@ -381,15 +394,27 @@ void PhoneApplet::buildUI()
         m_highCutDown->setAccessibleName("TX high cut decrease");
         auto highCutDown = [this]() {
             if (!m_model) return;
-            const int v = m_model->txFilterHigh();
-            const int snapped = ((v - 1) / 50) * 50;
-            m_model->setTxFilterHigh(qMax(m_model->txFilterLow() + m_model->txFilterMinWidthHz(), snapped));
+            if (m_txHighEdgesHz.isEmpty()) {
+                const int v = m_model->txFilterHigh();
+                const int snapped = ((v - 1) / 50) * 50;
+                m_model->setTxFilterHigh(qMax(m_model->txFilterLow()
+                                                  + m_model->txFilterMinWidthHz(),
+                                              snapped));
+                return;
+            }
+            m_model->setTxFilterHigh(steppedEdgeHz(m_txHighEdgesHz,
+                                                    m_model->txFilterHigh(), -1));
         };
         auto highCutUp = [this]() {
             if (!m_model) return;
-            const int v = m_model->txFilterHigh();
-            const int snapped = ((v / 50) + 1) * 50;
-            m_model->setTxFilterHigh(qMin(m_model->txFilterMaxHz(), snapped));
+            if (m_txHighEdgesHz.isEmpty()) {
+                const int v = m_model->txFilterHigh();
+                const int snapped = ((v / 50) + 1) * 50;
+                m_model->setTxFilterHigh(qMin(m_model->txFilterMaxHz(), snapped));
+                return;
+            }
+            m_model->setTxFilterHigh(steppedEdgeHz(m_txHighEdgesHz,
+                                                    m_model->txFilterHigh(), +1));
         };
         connect(m_highCutDown, &QPushButton::clicked, this, highCutDown);
         highRow->addWidget(m_highCutDown);
@@ -416,7 +441,8 @@ void PhoneApplet::buildUI()
             // was the CLAMPING answer; it is the wrong one for direct entry,
             // where the operator gets their previous value back instead.
             if (hz > m_model->txFilterMaxHz()
-                || hz < m_model->txFilterLow() + m_model->txFilterMinWidthHz()) {
+                || hz < m_model->txFilterLow() + m_model->txFilterMinWidthHz()
+                || (!m_txHighEdgesHz.isEmpty() && !m_txHighEdgesHz.contains(hz))) {
                 return;
             }
             m_model->setTxFilterHigh(hz);
@@ -441,6 +467,38 @@ void PhoneApplet::buildUI()
 }
 
 // ── Model binding ────────────────────────────────────────────────────────────
+
+int PhoneApplet::steppedEdgeHz(const QList<int>& edges, int currentHz, int dir)
+{
+    if (edges.isEmpty()) {
+        // Continuous radio: the original behaviour — snap to the next multiple
+        // of 50 Hz in the chosen direction, so 87 Hz goes to 100 up and 50 down.
+        return dir < 0 ? ((currentHz - 1) / 50) * 50 : ((currentHz / 50) + 1) * 50;
+    }
+    // FROM WHERE THE RADIO ACTUALLY IS, which need not be in the list: the
+    // operator may have connected to a radio holding an edge from a firmware or
+    // model we do not have tabulated. Start from the nearest entry so the first
+    // click still lands somewhere reachable rather than doing nothing.
+    int nearest = 0;
+    int bestDelta = qAbs(edges.at(0) - currentHz);
+    for (int i = 1; i < edges.size(); ++i) {
+        const int delta = qAbs(edges.at(i) - currentHz);
+        if (delta < bestDelta) {
+            nearest = i;
+            bestDelta = delta;
+        }
+    }
+    // Only advance off the nearest entry when we are already ON it. Otherwise
+    // the click's job is to land on it — moving past would skip an edge.
+    const int index = (edges.at(nearest) == currentHz) ? nearest + dir : nearest;
+    return edges.at(qBound(0, index, edges.size() - 1));
+}
+
+void PhoneApplet::setTxFilterEdges(const QList<int>& lowEdgesHz, const QList<int>& highEdgesHz)
+{
+    m_txLowEdgesHz  = lowEdgesHz;
+    m_txHighEdgesHz = highEdgesHz;
+}
 
 void PhoneApplet::setTransmitModel(TransmitModel* model)
 {

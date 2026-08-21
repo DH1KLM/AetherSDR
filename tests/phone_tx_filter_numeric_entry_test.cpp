@@ -148,6 +148,25 @@ int main(int argc, char** argv)
     check(model.txFilterLow() == 100 && model.txFilterHigh() == 2900,
           "100-2900 Hz is reachable by typing both bounds");
 
+    // A discrete backend cannot honour every integer in the model's broad
+    // range. Exact entry must reject an unreachable value instead of accepting
+    // it in the UI and then letting the backend silently snap somewhere else.
+    applet.setTxFilterEdges({100, 200, 300, 500}, {2500, 2700, 2800, 2900});
+    model.setTxFilter(200, 2700);
+    typeAndCommit(low, QStringLiteral("150"));
+    check(model.txFilterLow() == 200,
+          "a typed low edge outside a discrete radio's list is rejected");
+    typeAndCommit(low, QStringLiteral("300"));
+    check(model.txFilterLow() == 300,
+          "a typed low edge in a discrete radio's list is accepted exactly");
+    typeAndCommit(high, QStringLiteral("2600"));
+    check(model.txFilterHigh() == 2700,
+          "a typed high edge outside a discrete radio's list is rejected");
+    typeAndCommit(high, QStringLiteral("2800"));
+    check(model.txFilterHigh() == 2800,
+          "a typed high edge in a discrete radio's list is accepted exactly");
+    applet.setTxFilterEdges({}, {});
+
     // ── Cross-bound: rejected, previous value restored (#3627) ────────────
     //
     // Issue #3627: "Invalid values are rejected with validation and the

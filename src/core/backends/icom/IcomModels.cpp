@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdlib>
 #include <string>
 
 namespace AetherSDR::icom {
@@ -321,6 +322,59 @@ std::optional<ModulationProfile> modulationProfileFor(const IcomModel& model)
                                  kIc7300Mk2ModInputs};
     }
     return std::nullopt;
+}
+
+// TX bandwidth edge tables.
+//
+// HIGH EDGES ARE THE SAME ON BOTH RADIOS; the low edges are not. Transcribed
+// from the "SSB/SSB-DATA transmission passband width settings" page of each
+// model's own CI-V Reference Guide — IC-7300MK2 p.19 (1A 05 00 14..00 17),
+// IC-705 p.19 (1A 05 0019..0022).
+constexpr std::array<int, 4> kTbwLowIc705{100, 200, 300, 500};
+constexpr std::array<int, 6> kTbwLowIc7300Mk2{100, 120, 150, 200, 300, 500};
+constexpr std::array<int, 4> kTbwHigh{2500, 2700, 2800, 2900};
+
+std::optional<TxBandwidthProfile> txBandwidthProfileFor(const IcomModel& model)
+{
+    if (model.civAddress == 0xA4) {
+        // IC-705: 0019 WIDE, 0020 MID, 0021 NAR, 0022 SSB-D.
+        //
+        // The 16 58 command-table note mistakenly cites 0017/0018/0019. The
+        // guide's detailed SET table assigns 0017/0018 to TX Tone Bass/Treble
+        // and explicitly assigns 0019..0022 to WIDE/MID/NAR/SSB-D; its command
+        // format page independently repeats the 0019..0022 range. Those two
+        // authoritative tables are the basis for the mapping below.
+        return TxBandwidthProfile{kTbwLowIc705, kTbwHigh, 19, 20, 21, 22};
+    }
+    if (model.civAddress == 0xB6) {
+        // IC-7300MK2: 00 14 WIDE, 00 15 MID, 00 16 NAR, 00 17 SSB-D. Six low
+        // edges — the MK2 added 120 and 150 Hz, which the IC-705 has not got.
+        return TxBandwidthProfile{kTbwLowIc7300Mk2, kTbwHigh, 14, 15, 16, 17};
+    }
+    return std::nullopt;
+}
+
+int edgeIndexFor(std::span<const int> table, int hz) noexcept
+{
+    if (table.empty())
+        return 0;
+    std::size_t best = 0;
+    int bestDelta = std::abs(table[0] - hz);
+    for (std::size_t i = 1; i < table.size(); ++i) {
+        const int delta = std::abs(table[i] - hz);
+        if (delta < bestDelta) {
+            best = i;
+            bestDelta = delta;
+        }
+    }
+    return static_cast<int>(best);
+}
+
+int nearestEdgeHz(std::span<const int> table, int hz) noexcept
+{
+    if (table.empty())
+        return hz;
+    return table[static_cast<std::size_t>(edgeIndexFor(table, hz))];
 }
 
 std::optional<std::uint8_t> parseModelIdReply(const CivFrame& frame)

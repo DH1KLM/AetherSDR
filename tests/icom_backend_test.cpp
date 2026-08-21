@@ -171,6 +171,8 @@ int main(int argc, char** argv)
         if (d.cwSpeed) lastTransmitState.cwSpeed = d.cwSpeed;
         if (d.cwBreakIn) lastTransmitState.cwBreakIn = d.cwBreakIn;
         if (d.transmitFreq) lastTransmitState.transmitFreq = d.transmitFreq;
+        if (d.txFilterLow) lastTransmitState.txFilterLow = d.txFilterLow;
+        if (d.txFilterHigh) lastTransmitState.txFilterHigh = d.txFilterHigh;
         if (d.atuEnabled) lastTransmitState.atuEnabled = d.atuEnabled;
         if (d.atuStatusRaw) lastTransmitState.atuStatusRaw = d.atuStatusRaw;
         if (d.mox) { lastTransmitState.mox = d.mox; moxPublications.push_back(*d.mox); }
@@ -907,6 +909,194 @@ int main(int argc, char** argv)
               "when the radio REFUSES DATA, its own report corrects the "
               "optimistic DIGU back to USB instead of the indicator lying");
         radio.m_refuseDataMode = false;
+    }
+
+    // ---- the passband: slot vs width vs PBT -------------------------------
+    //
+    // THE THREE THINGS THIS PHASE EXISTS TO SEPARATE. Before it, the backend
+    // read the SLOT and looked its width up in a table of factory defaults, so
+    // an operator who had redefined a slot got a passband drawn from a number
+    // nobody had ever asked the radio for.
+    {
+        check(waitSchedulerIdle(), "the connect burst drains before the passband checks");
+
+        // 1. THE WIDTH COMES FROM THE RADIO. The fake holds code 0x34 — 3.0 kHz
+        //    in SSB — and the client is in USB, so the drawn window must be
+        //    3.0 kHz centred at 1500 Hz, i.e. 0..3000.
+        check(lastSliceState.filterLow.value_or(-1) == 0
+                  && lastSliceState.filterHigh.value_or(-1) == 3000,
+              "the connect snapshot draws the radio's OWN 3.0 kHz width, centred");
+
+        // 2. A DRAG IS A WIDTH CHANGE, not a slot change. 600..2600 is 2.0 kHz
+        //    centred on 1600 — not one of the three published ladder widths, so
+        //    it must go out as 1A 03 plus a PBT pair and must NOT send 0x26.
+        radio.clearCivLog();
+        backend.setSliceFilter(0, 600, 2600);
+        check(waitSchedulerIdle(), "the width write and its confirmation converge");
+
+        const auto sentFrame = [&](std::uint8_t command, std::uint8_t sub) {
+            return std::any_of(radio.civCommands().begin(), radio.civCommands().end(),
+                               [=](const CivFrame& f) {
+                return f.cmd == command && f.hasSub && f.sub == sub && !f.data.empty();
+            });
+        };
+        check(sentFrame(cmd::kSetting, settingSub::kFilterWidth),
+              "dragging an edge writes the IF width (1A 03)");
+        check(sentFrame(cmd::kLevel, level::kPbtInner)
+                  && sentFrame(cmd::kLevel, level::kPbtOuter),
+              "and moves BOTH Twin PBTs, which is what slides without narrowing");
+        check(!std::any_of(radio.civCommands().begin(), radio.civCommands().end(),
+                           [](const CivFrame& f) {
+                               return f.cmd == cmd::kVfoMode && !f.data.empty();
+                           }),
+              "a drag must NOT change the filter slot — the slots are the "
+              "operator's own three presets");
+        check(lastSliceState.filterHigh.value_or(0) - lastSliceState.filterLow.value_or(0)
+                  == 2000,
+              "and the published passband is the 2.0 kHz that was drawn");
+        const QList<int> actualLabels = backend.capabilities().rxFilterWidthsHz;
+        check(actualLabels == QList<int>({1800, 2000, 2400}),
+              "the selected RX filter label uses its actual 1A 03 width, not 3.0k");
+
+        // 3. A LADDER WIDTH IS A SLOT PICK. 1800 Hz is one of the three widths
+        //    this backend published for SSB, so it must select FIL3 with 0x26
+        //    and must not redefine the slot it is leaving.
+        radio.clearCivLog();
+        backend.setSliceFilter(0, 300, 2100);   // 1800 Hz — on the ladder
+        check(waitSchedulerIdle(), "the slot write and its confirmation converge");
+        check(std::any_of(radio.civCommands().begin(), radio.civCommands().end(),
+                          [](const CivFrame& f) {
+                              return f.cmd == cmd::kVfoMode && f.data.size() == 3;
+                          }),
+              "a published ladder width selects a SLOT with 0x26");
+        check(!sentFrame(cmd::kSetting, settingSub::kFilterWidth),
+              "and does NOT redefine the slot's stored width");
+
+        // 4. A MODE CHANGE RE-READS THE WIDTH — the regression this whole
+        //    context-stamping design exists for, and the one that shipped past
+        //    an earlier version of this test.
+        //
+        //    setSliceMode() advances m_mode OPTIMISTICALLY before the write
+        //    goes out, so by the time the radio's 26 confirmation arrives, a
+        //    "did the mode change?" test compares the new mode against itself
+        //    and says no. The re-read never fired, nothing zeroed the width,
+        //    and every mode inherited the one read at connect. On a real
+        //    IC-7300MK2 that painted AM's 9 kHz window over every SSB filter.
+        //
+        //    The fake holds a DIFFERENT width per (mode, DATA, slot), which is
+        //    what makes carrying one across visible here instead of plausible.
+        //    Pin the slot first: step 3 above left the radio on FIL3, and the
+        //    fixture defines its per-mode widths on FIL1. Selecting the SSB
+        //    ladder's widest entry is a slot pick, so this moves the slot
+        //    without redefining anything.
+        backend.setSliceFilter(0, 300, 3300);   // 3000 Hz — ladder, so FIL1
+        check(waitSchedulerIdle(), "the slot returns to FIL1");
+
+        radio.clearCivLog();
+        backend.setSliceMode(0, QStringLiteral("AM"));
+        check(waitFor([&] {
+                  return lastSliceState.filterLow.value_or(0) == -4500
+                      && lastSliceState.filterHigh.value_or(0) == 4500;
+              }, 4000),
+              "a mode change adopts THAT mode's width (AM 9 kHz), not the one "
+              "the previous mode was read at");
+        check(waitFor([&] {
+                  return std::any_of(radio.civCommands().begin(), radio.civCommands().end(),
+                                     [](const CivFrame& f) {
+                                         return f.cmd == cmd::kSetting && f.hasSub
+                                             && f.sub == settingSub::kFilterWidth
+                                             && f.data.empty();
+                                     });
+              }, 3000),
+              "and it got there by ASKING (1A 03), not by keeping the old value");
+
+        // 5. THE DATA FLAG IS PART OF THE CONTEXT. USB and USB-D are different
+        //    filter contexts on the radio and hold different widths — proven
+        //    live, where plain USB read 3.0 kHz and USB-D read 3.6 kHz.
+        radio.clearCivLog();
+        backend.setSliceMode(0, QStringLiteral("USB"));
+        check(waitFor([&] {
+                  return lastSliceState.filterHigh.value_or(0)
+                             - lastSliceState.filterLow.value_or(0) == 3000;
+              }, 4000),
+              "plain USB reads its own 3.0 kHz");
+        radio.clearCivLog();
+        backend.setSliceMode(0, QStringLiteral("DIGU"));
+        check(waitFor([&] {
+                  return lastSliceState.filterHigh.value_or(0)
+                             - lastSliceState.filterLow.value_or(0) == 3600;
+              }, 4000),
+              "and USB-D reads its own 3.6 kHz — the DATA flag selects a "
+              "different stored width, so it must re-read across it");
+
+        backend.setSliceMode(0, QStringLiteral("USB"));
+        check(waitSchedulerIdle(), "settle back into USB");
+
+        // 6. THE WIDTH IS RE-READ AFTER A SLOT CHANGE, because the radio holds a
+        //    different one per slot and announces none of them.
+        check(waitFor([&] {
+                  return std::any_of(radio.civCommands().begin(), radio.civCommands().end(),
+                                     [](const CivFrame& f) {
+                                         return f.cmd == cmd::kSetting && f.hasSub
+                                             && f.sub == settingSub::kFilterWidth
+                                             && f.data.empty();
+                                     });
+              }, 3000),
+              "changing slot re-reads the new slot's actual width");
+    }
+
+    // ---- TX bandwidth: a short list, not a slider -------------------------
+    {
+        check(waitSchedulerIdle(), "the TX bandwidth reads settle");
+
+        // WHICH SLOT IS LIVE decides which SET item holds the passband. The
+        // fake reports MID (16 58 = 01), whose stored pair is 300..2700.
+        check(lastTransmitState.txFilterLow.value_or(-1) == 300
+                  && lastTransmitState.txFilterHigh.value_or(-1) == 2700,
+              "the TX passband is read from the slot 16 58 actually names");
+
+        // A REQUEST SNAPS, and what the operator sees is the read-back. 150 Hz
+        // does not exist on an IC-705 (it has 100/200/300/500), and 3200 Hz is
+        // past the 2900 Hz ceiling.
+        radio.clearCivLog();
+        backend.setTxFilter(150, 3200);
+        check(waitSchedulerIdle(), "the TX bandwidth write and read-back converge");
+        // 150 Hz is exactly between the IC-705's 100 and 200, and a tie takes the
+        // LOWER edge — the wider passband, which is the conservative direction
+        // for a transmitter. THE SAME REQUEST ON AN IC-7300MK2 WOULD GIVE 150
+        // EXACTLY, because the MK2 has that edge and the IC-705 does not: the
+        // per-model tables in icom_family_test are what make the two differ.
+        check(lastTransmitState.txFilterLow.value_or(-1) == 100,
+              "150 Hz has no IC-705 equivalent and snaps to the wider 100 Hz");
+        check(lastTransmitState.txFilterHigh.value_or(-1) == 2900,
+              "and 3200 Hz clamps to the 2900 Hz ceiling — the applet shows the "
+              "passband the transmitter has, not the one that was asked for");
+
+        // IT MUST RESHAPE THE LIVE SLOT AND ONLY THAT ONE. Writing WIDE while
+        // the radio is running MID changes a passband nobody is transmitting
+        // through and leaves the real one untouched.
+        const bool wroteMidItem = std::any_of(
+            radio.civCommands().begin(), radio.civCommands().end(),
+            [](const CivFrame& f) {
+                return f.cmd == cmd::kSetting && f.hasSub && f.sub == settingSub::kMenu
+                    && f.data.size() >= 3
+                    && decodeBcdByte(f.data[0]) * 100 + decodeBcdByte(f.data[1]) == 20;
+            });
+        check(wroteMidItem, "the write lands in SET 0020 — the MID slot, which is live");
+
+        // The slot named by 16 58 depends on COMP state. Toggling the speech
+        // processor therefore invalidates more than 16 44 itself: without this
+        // second read, the next TX edge write can reshape the old slot while
+        // the UI continues to display its stale pair.
+        radio.clearCivLog();
+        backend.setSpeechProcessor(false, 0);
+        check(waitSchedulerIdle(), "the compressor toggle and dependent TX bandwidth read settle");
+        check(std::any_of(radio.civCommands().begin(), radio.civCommands().end(),
+                          [](const CivFrame& f) {
+                              return f.cmd == cmd::kFunction && f.hasSub
+                                  && f.sub == func::kTxBandwidth && f.data.empty();
+                          }),
+              "a compressor change re-reads 16 58 because it can change the active slot");
     }
 
     // ---- shared 0..255 percentage write buckets --------------------------

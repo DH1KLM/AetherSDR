@@ -364,7 +364,7 @@ public:
     // (RadioCapabilities::hasHostNoiseBlanker). Non-permissive on the same
     // reasoning as hasManualNotch(): it can only add the NB button.
     bool hasHostNoiseBlanker() const;
-    // The filter widths the radio declares, widest first, or an EMPTY list
+    // The filter widths the radio declares, narrowest first, or an EMPTY list
     // when it declares none. Empty is the permissive answer here — it means
     // "use the operator's own presets", which is what every radio without a
     // fixed IF ladder wants and what a disconnected app should show.
