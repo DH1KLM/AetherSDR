@@ -745,6 +745,7 @@ public:
         {func::kCompressor, 1},      // PROC ON
         {func::kMonitorFn, 1},       // monitor ON
         {func::kVox, 1},             // VOX ON
+        {func::kBreakIn, 2},         // full break-in
         {func::kPreamp, 2},          // P.AMP2
         {func::kAgc, 3},             // SLOW
     };
@@ -759,6 +760,8 @@ public:
         {level::kCompLevel, 102}, // ~40 %
         {level::kNotchPos, 128},  // ~50 %
         {level::kVoxGain, 204},   // ~80 %
+        {level::kCwPitch, 128},   // ~601 Hz
+        {level::kKeySpeed, 134},  // ~28 WPM
     };
     // 1A 05 SET-menu leaves, by DECIMAL item number. The IC-705's DATA OFF MOD
     // starts at USB (0x01) rather than the WLAN (0x03) this client wants: an
