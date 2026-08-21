@@ -3694,6 +3694,22 @@ add_test(NAME tx_applet_power_reconciliation_test
 set_tests_properties(tx_applet_power_reconciliation_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+add_executable(phone_tx_filter_numeric_entry_test
+    tests/phone_tx_filter_numeric_entry_test.cpp
+    src/gui/PhoneApplet.cpp
+    src/gui/DragValuePopup.cpp
+    src/gui/GuardedSlider.h      # Q_OBJECT in a header with no .cpp — AUTOMOC
+)
+target_include_directories(phone_tx_filter_numeric_entry_test PRIVATE src)
+target_link_libraries(phone_tx_filter_numeric_entry_test PRIVATE
+    aethercore Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(phone_tx_filter_numeric_entry_test PROPERTIES AUTOMOC ON)
+add_test(NAME phone_tx_filter_numeric_entry_test
+         COMMAND phone_tx_filter_numeric_entry_test)
+set_tests_properties(phone_tx_filter_numeric_entry_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(phone_cw_mic_gain_authority_test
     tests/phone_cw_mic_gain_authority_test.cpp
     src/gui/PhoneCwApplet.cpp
