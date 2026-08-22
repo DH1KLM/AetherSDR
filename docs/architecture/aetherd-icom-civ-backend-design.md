@@ -1,5 +1,9 @@
 # Icom CI-V Backend — Design Note
 
+Model-specific command capability and evidence are defined in
+[`icom-capability-profiles.md`](icom-capability-profiles.md), implementing the
+profile foundation from RFC issue #4984 without widening `IRadioBackend`.
+
 Bring-up plan for `IcomCivBackend`, an `IRadioBackend` implementor for Icom
 networked radios. First targets: **IC-705 over WiFi** and **IC-7300MK2 over
 Ethernet**.
@@ -191,7 +195,8 @@ caps.txPowerMaxWatts        = 10.0;
 caps.hostModulates          = false;           // the radio modulates
 caps.hasRadioSideDsp        = true;            // NR/NB/notch are 16 xx, in firmware
 caps.hasTuner               = false;           // no INTERNAL ATU; see note
-caps.hasSupplyVoltageTelemetry = true;         // 15 15 Vd
+caps.hasSupplyVoltageTelemetry =
+    profile.meters.calibration != MeterCalibration::Uncalibrated; // 15 15 Vd
 caps.hasDaxStreams          = false;           // NO IQ — see oracle §8.1
 caps.hasGpsLocation         = false;           // GPS exists, protocol won't carry it
 caps.hasProfiles            = false;

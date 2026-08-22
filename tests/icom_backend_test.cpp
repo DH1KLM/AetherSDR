@@ -19,6 +19,7 @@
 
 #include <QCoreApplication>
 #include <QLoggingCategory>
+#include <QMap>
 #include <QSignalSpy>
 #include <QStringList>
 #include <QTest>
@@ -313,6 +314,30 @@ int main(int argc, char** argv)
     check(caps.hasRadioSideDsp, "NR/NB/notch run in the radio's firmware");
     check(caps.hasRadioSideCwKeyer && caps.cwTextKeyerName == QLatin1String("CWK"),
           "CWK capability follows the resolved CI-V model, not its display string");
+
+    // RFC #4984's profile diagnostic is the hand-off contract for subsequent
+    // model bring-ups. Pin the serialized form here, not only the C++ table, so
+    // PRs #5140/#5149 can consume it without reintroducing address branches.
+    {
+        QSignalSpy profileSpy(&backend, &IRadioBackend::extensionResult);
+        backend.invokeExtension(QStringLiteral("icom"), QStringLiteral("profile.show"),
+                                9001, {});
+        check(profileSpy.count() == 1, "profile.show answers synchronously");
+        if (profileSpy.count() == 1) {
+            const QVariantMap profile = profileSpy.at(0).at(1).toMap();
+            check(profile.value(QStringLiteral("model")).toString()
+                      == QLatin1String("IC-705"),
+                  "profile.show names the active model");
+            check(profile.value(QStringLiteral("supportedBringup")).toBool(),
+                  "the active IC-705 profile is an intentional bring-up target");
+            const QVariantMap fm = profile.value(QStringLiteral("fmRepeater")).toMap();
+            check(fm.value(QStringLiteral("dialect")).toString()
+                      == QLatin1String("extended")
+                      && fm.value(QStringLiteral("dtcs")).toBool()
+                      && fm.value(QStringLiteral("xfc")).toBool(),
+                  "profile.show carries the IC-705 repeater dialect, DTCS and XFC");
+        }
+    }
     check(caps.cwTextMinWpm == 6 && caps.cwTextMaxWpm == 48
               && caps.cwTextMaxMessageChars == 30
               && !caps.cwTextHasProgress && !caps.cwTextHasStoredMacros,
@@ -1802,6 +1827,57 @@ int main(int argc, char** argv)
                                });
         }
     };
+
+    // A user-visible Network Radio Name is only a handshake hint. The 0x19
+    // reply is authoritative and can move the session from a calibrated
+    // profile to an uncalibrated one. Meter definitions must be replaced by
+    // stable identity, not compacted into new indices, or OVF takes the old Vd
+    // slot and the status bar reads an overflow flag as supply voltage.
+    {
+        CivCase c(0xA2, "IC-705");
+        QMap<int, MeterDef> activeMeters;
+        QList<int> removedMeters;
+        QObject::connect(&c.backend, &IRadioBackend::meterDefined, &c.backend,
+                         [&activeMeters](const MeterDef& def) {
+                             activeMeters.insert(def.index, def);
+                         });
+        QObject::connect(&c.backend, &IRadioBackend::meterRemoved, &c.backend,
+                         [&activeMeters, &removedMeters](int index) {
+                             activeMeters.remove(index);
+                             removedMeters.append(index);
+                         });
+
+        c.backend.connectRadio(c.request());
+        check(waitFor([&] {
+                  return c.backend.isConnected()
+                      && c.backend.model().civAddress == 0xA2;
+              }),
+              "identity correction: the wire identity replaces the handshake profile");
+
+        const int vdIndex = static_cast<int>(MeterId::Vd);
+        const int idIndex = static_cast<int>(MeterId::Id);
+        const int overflowIndex = static_cast<int>(MeterId::Overflow);
+        check(removedMeters.contains(vdIndex) && removedMeters.contains(idIndex),
+              "identity correction: withdrawn Vd and Id definitions are removed explicitly");
+        check(!activeMeters.contains(vdIndex) && !activeMeters.contains(idIndex),
+              "identity correction: uncalibrated Vd and Id do not remain cached");
+        check(activeMeters.contains(overflowIndex)
+                  && activeMeters.value(overflowIndex).name == QStringLiteral("OVF"),
+              "identity correction: OVF retains its stable meter identity");
+        check(activeMeters.size() == 6,
+              "identity correction: only calibrated-independent meters remain");
+
+        c.radio.clearCivLog();
+        check(waitFor([&] { return !c.radio.civCommands().empty(); }, 1500),
+              "identity correction: scheduler continues after profile correction");
+        check(std::ranges::none_of(c.radio.civCommands(), [](const CivFrame& frame) {
+                  return frame.cmd == cmd::kMeter && frame.hasSub
+                      && (frame.sub == meter::kVd || frame.sub == meter::kId);
+              }),
+              "identity correction: uncalibrated Vd and Id are no longer polled");
+
+        c.backend.disconnectRadio();
+    }
 
     // ---- AUTO: the bug, and the fix ---------------------------------------
     //
