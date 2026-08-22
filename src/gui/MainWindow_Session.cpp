@@ -38,6 +38,7 @@
 #include "core/IambicKeyer.h"
 #include "core/PerfTelemetry.h"
 #if defined(Q_OS_MAC)
+#include "core/UlanziDialMacOSManager.h"
 #include "core/VirtualAudioBridge.h"
 #elif defined(HAVE_PIPEWIRE)
 #include "core/PipeWireAudioBridge.h"
@@ -2551,6 +2552,46 @@ bool MainWindow::startAutomationBridge(const QString& sockName)
             };
         }
         return tciServer()->routingSnapshot();
+    });
+    m_automation->setDeviceDiagnosticsHandler([this](const QString& diagnostic) {
+        if (diagnostic != QLatin1String("ulanzi")
+            && diagnostic != QLatin1String("ulanzi-start")
+            && diagnostic != QLatin1String("ulanzi-stop")) {
+            return QJsonObject{
+                {QStringLiteral("ok"), false},
+                {QStringLiteral("error"), QStringLiteral("unknown device diagnostic")},
+            };
+        }
+#ifdef Q_OS_MAC
+        if (!m_dialBackend) {
+            return QJsonObject{
+                {QStringLiteral("ok"), false},
+                {QStringLiteral("error"), QStringLiteral("Ulanzi backend unavailable")},
+            };
+        }
+        if (diagnostic == QLatin1String("ulanzi-start")) {
+            m_dialBackend->start();
+        } else if (diagnostic == QLatin1String("ulanzi-stop")) {
+            m_dialBackend->stop();
+        }
+        QJsonObject snapshot = m_dialBackend->diagnostics();
+        snapshot[QStringLiteral("operation")] = diagnostic;
+        snapshot[QStringLiteral("enabled")] =
+            AppSettings::instance()
+                    .value(QStringLiteral("UlanziDialEnabled"),
+                           QStringLiteral("False"))
+                    .toString()
+            == QLatin1String("True");
+        return snapshot;
+#else
+        return QJsonObject{
+            {QStringLiteral("ok"), true},
+            {QStringLiteral("diagnostic"), QStringLiteral("ulanzi")},
+            {QStringLiteral("supported"), false},
+            {QStringLiteral("message"),
+             QStringLiteral("Ulanzi HID diagnostics are currently macOS-only")},
+        };
+#endif
     });
 
     // The access token lives in the OS secret store (QtKeychain), which reads

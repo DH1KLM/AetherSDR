@@ -2559,7 +2559,7 @@ bool isReadOnlyRequest(const QString& name, const QString& action)
         QStringLiteral("grab"),     QStringLiteral("get"),
         QStringLiteral("floors"),   QStringLiteral("hitTest"),
         // Reads backend telemetry; keys nothing and sets nothing.
-        QStringLiteral("health"),
+        QStringLiteral("health"),   QStringLiteral("devices"),
     };
     if (kSafe.contains(name)) {
         return true;
@@ -3237,6 +3237,13 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
             parseActionOnly,
             [](AutomationServer& s, A& a, QLocalSocket*) {
                 return s.doStreams(a.action);
+            });
+
+        add("devices", {},
+            "devices <list|ulanzi|ulanzi-start|ulanzi-stop> — external-device diagnostics and lifecycle control",
+            parseActionOnly,
+            [](AutomationServer& s, A& a, QLocalSocket*) {
+                return s.doDeviceDiagnostics(a.action);
             });
 
         add("modem", {"aethermodem"},
@@ -11242,6 +11249,33 @@ QJsonObject AutomationServer::doWhoami() const
         {QStringLiteral("readOnly"), m_readOnly},
         {QStringLiteral("version"), QCoreApplication::applicationVersion()},
     };
+}
+
+QJsonObject AutomationServer::doDeviceDiagnostics(const QString& action) const
+{
+    const QString normalized = action.trimmed().toLower();
+    if (normalized.isEmpty() || normalized == QLatin1String("list")) {
+        return QJsonObject{
+            {QStringLiteral("ok"), true},
+            {QStringLiteral("diagnostics"),
+             QJsonArray{QStringLiteral("ulanzi")}},
+            {QStringLiteral("providerAvailable"),
+             static_cast<bool>(m_deviceDiagnosticsHandler)},
+        };
+    }
+    const bool lifecycle = normalized == QLatin1String("ulanzi-start")
+        || normalized == QLatin1String("ulanzi-stop");
+    if (normalized != QLatin1String("ulanzi") && !lifecycle) {
+        return err(QStringLiteral(
+            "devices requires list|ulanzi|ulanzi-start|ulanzi-stop"));
+    }
+    if (!m_deviceDiagnosticsHandler) {
+        return err(QStringLiteral("Ulanzi device diagnostics unavailable"));
+    }
+    if (lifecycle && m_readOnly) {
+        return err(QStringLiteral("device lifecycle control is unavailable in read-only mode"));
+    }
+    return m_deviceDiagnosticsHandler(normalized);
 }
 
 // ---------------------------------------------------------------------------
