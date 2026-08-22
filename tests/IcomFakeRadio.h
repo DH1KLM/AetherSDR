@@ -18,6 +18,7 @@
 #include <QEventLoop>
 #include <QHostAddress>
 #include <QObject>
+#include <QTimer>
 #include <QUdpSocket>
 
 #include <algorithm>
@@ -26,6 +27,7 @@
 #include <map>
 #include <tuple>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace AetherSDR::icom::test {
@@ -172,6 +174,7 @@ class FakeIc705 : public QObject {
 public:
     explicit FakeIc705(QObject* parent = nullptr) : QObject(parent)
     {
+        m_clock.start();
         m_control = new FakeStream(0xAAAA0001,
                                    [this](FakeStream& s, const QByteArray& b) { control(s, b); },
                                    this);
@@ -194,6 +197,10 @@ public:
     [[nodiscard]] std::uint8_t announcedRxCodec() const { return m_announcedRxCodec; }
     [[nodiscard]] int authCount() const { return m_authCount; }
     [[nodiscard]] bool serialOpened() const { return m_serialOpened; }
+    [[nodiscard]] const std::vector<qint64>& serialRestartTimesMs() const
+    {
+        return m_serialRestartTimesMs;
+    }
     [[nodiscard]] bool sawUsernameObfuscated() const { return m_usernameObfuscated; }
     [[nodiscard]] int civCommandsSeen() const { return m_civCommands; }
     // What the radio currently holds for a 1A 05 leaf — the persisted-state
@@ -230,6 +237,7 @@ public:
     void setRejectRenewalsAfter(int accepted) { m_acceptRenewals = accepted; }
     void setReissueInitialTokenOnNextLogin(bool on) { m_reissueNextInitialToken = on; }
     void setAuthFailureOnLogin(bool on) { m_authFailureOnLogin = on; }
+    void setHoldLoginReply(bool on) { m_holdLoginReply = on; }
     // The PREVIOUS session's teardown status, delivered on the new control
     // association before this session has a stream grant to protect it. At
     // that point the lifecycle exception does not apply yet, so the header
@@ -251,6 +259,11 @@ public:
     // shape of the stall this exists to reproduce: `isConnected()` stays true,
     // link statistics keep climbing, and the command plane is dead.
     void setCivSilent(bool silent) { m_civSilent = silent; }
+    void setCivRestartRecovery(bool recovers, int frequencyReplyDelayMs = 0)
+    {
+        m_civRestartRecovers = recovers;
+        m_restartFrequencyReplyDelayMs = std::max(0, frequencyReplyDelayMs);
+    }
 
     // ---- BE A DIFFERENT ICOM ------------------------------------------------
     //
@@ -386,6 +399,9 @@ private:
                                                   + 0x40);
             const std::uint16_t tokenRequestId = getLe16(b, 0x1a);
             m_loginTokenRequestIds.push_back(tokenRequestId);
+            if (m_holdLoginReply) {
+                return;
+            }
             if (m_authFailureOnLogin) {
                 auto status = s.frame(kLenStatus, 0x00, m_seq++);
                 status[0x30] = status[0x31] = status[0x32] = status[0x33] = 0xff;
@@ -521,7 +537,18 @@ private:
     {
         const auto marker = static_cast<std::uint8_t>(b[0x10]);
         if (b.size() == 0x16 && marker == 0xc0) {
-            m_serialOpened = static_cast<std::uint8_t>(b[0x15]) == 0x05;
+            const std::uint8_t operation = static_cast<std::uint8_t>(b[0x15]);
+            if (operation == 0x05) {
+                m_serialOpened = true;
+            } else if (operation == 0x00) {
+                m_serialOpened = false;
+            } else if (operation == 0x04) {
+                m_serialRestartTimesMs.push_back(m_clock.elapsed());
+                if (m_civRestartRecovers) {
+                    m_civSilent = false;
+                    m_nextFrequencyReplyDelayMs = m_restartFrequencyReplyDelayMs;
+                }
+            }
             return;
         }
         if (marker != 0xc1)
@@ -578,7 +605,15 @@ private:
             const auto bcd = encodeFreq(m_frequencyHz);
             reply.insert(reply.end(), bcd.begin(), bcd.end());
             reply.push_back(kCivEom);
-            pushCiv(reply);
+            const int delayMs = std::exchange(m_nextFrequencyReplyDelayMs, 0);
+            if (delayMs > 0) {
+                QTimer::singleShot(delayMs, this,
+                                   [this, reply = std::move(reply)]() {
+                                       pushCiv(reply);
+                                   });
+            } else {
+                pushCiv(reply);
+            }
             return;
         }
         if (frame->cmd == cmd::kSetFreq) {
@@ -1008,10 +1043,16 @@ private:
     std::vector<CivFrame> m_civLog;
     bool m_sentCaps = false;
     bool m_serialOpened = false;
+    QElapsedTimer m_clock;
+    std::vector<qint64> m_serialRestartTimesMs;
     bool m_usernameObfuscated = false;
     int m_authCount = 0;
     int m_civCommands = 0;
     bool m_civSilent = false;
+    bool m_civRestartRecovers = false;
+    int m_restartFrequencyReplyDelayMs = 0;
+    int m_nextFrequencyReplyDelayMs = 0;
+    bool m_holdLoginReply = false;
     bool m_injectStaleGrant = false;
     bool m_sentPrematureGrant = false;
     bool m_reissueNextInitialToken = false;
