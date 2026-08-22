@@ -166,11 +166,16 @@ that should have changed → `grab_widget` for a visual check.
 **Access token.** Enabling the bridge in Radio Setup → Network mints a
 random token (stored in your OS secret store via QtKeychain — macOS
 Keychain / Windows Credential Manager / libsecret-KWallet, never in the
-settings store — RFC #4603 bans credentials from it outright). Copy it
-into your assistant's MCP config as the
-`AETHER_MCP_TOKEN` environment variable; the bridge then rejects every
-verb except `ping` without a matching token. Headless/CI can supply the
-token via `AETHER_MCP_TOKEN` directly, which overrides the keychain.
+settings store — RFC #4603 bans credentials from it outright). Make it
+available as `AETHER_MCP_TOKEN` only in the shell session that launches
+your assistant, using a secret-safe input method that does not record the
+value in shell history. `tools/aether_mcp.py` inherits it from the parent
+process environment automatically, so no file needs to carry it. **Do not**
+put the literal token in a shell profile or add an `env` block to `.mcp.json`
+(or any other MCP config file) — those put a live credential on disk instead
+of keeping it in your OS keychain and risk it landing in a commit. The bridge
+rejects every verb except `ping` without a matching token. Headless/CI can
+supply the token via `AETHER_MCP_TOKEN` directly, which overrides the keychain.
 
 ### Secure fresh-build handoff
 
