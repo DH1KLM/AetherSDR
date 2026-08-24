@@ -2005,6 +2005,9 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame,
             // The PREAMP control, not the RF-gain slider. It used to publish
             // into SliceDelta::rfGain, which is what made a three-position
             // switch look like a gain reading.
+            // Preserve the radio's wire state independently of the labels the
+            // UI is allowed to offer. 16 02 carries 00/01/02 even when a
+            // model's verified presentation ladder names fewer positions.
             m_preampStep = std::clamp(v, 0, 2);
             emit panPreampChanged(panId(), m_preampStep);
             return;
@@ -3286,12 +3289,24 @@ void IcomCivBackend::setPanRfGain(const QString&, int gainDb)
 // none at all.
 void IcomCivBackend::setPanPreamp(const QString&, int step)
 {
-    // Clamp, never refuse — the seam's rule for every stepped control.
-    const int wanted = std::clamp(step, 0, 2);
+    // Operator intent is bounded by the model's verified presentation ladder.
+    // This deliberately prevents the IC-9700 UI from requesting External
+    // P.AMP states while still allowing radio-originated state 02 to be
+    // mirrored and reasserted unchanged by the diagnostic scrub path below.
+    const int maxStep = std::max(
+        0, static_cast<int>(preampLabelsFor(*m_model).size()) - 1);
+    const int wanted = std::clamp(step, 0, maxStep);
     m_preampStep = wanted;
     sendUserCommand(cmdSetFunction(m_session ? m_session->civAddress() : 0xA4,
                                    func::kPreamp, wanted));
     emit panPreampChanged(panId(), wanted);
+}
+
+void IcomCivBackend::reassertPanPreampWireStep(int step)
+{
+    const int wireStep = std::clamp(step, 0, 2);
+    sendUserCommand(cmdSetFunction(m_session ? m_session->civAddress() : 0xA4,
+                                   func::kPreamp, wireStep));
 }
 
 void IcomCivBackend::setPanAttenuator(const QString&, int step)
@@ -4223,7 +4238,7 @@ bool IcomCivBackend::scrubDrive(const icom::ControlSpec& c)
         return false;
 
     if (id == QLatin1String("rf.gain"))  { setPanRfGain(pan, m_rfGainPercent); return true; }
-    if (id == QLatin1String("preamp"))   { setPanPreamp(pan, m_preampStep); return true; }
+    if (id == QLatin1String("preamp"))   { reassertPanPreampWireStep(m_preampStep); return true; }
     if (id == QLatin1String("atten"))    { setPanAttenuator(pan, m_attenStep); return true; }
     if (id == QLatin1String("rx.antenna")) {
         setSliceRxAntenna(slice, m_rxAntennaExternal
