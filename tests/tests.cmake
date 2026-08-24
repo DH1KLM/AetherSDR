@@ -2846,6 +2846,16 @@ add_test(NAME automation_double_click_test COMMAND automation_double_click_test)
 set_tests_properties(automation_double_click_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+add_executable(automation_fm_repeater_verbs_test tests/automation_fm_repeater_verbs_test.cpp)
+target_include_directories(automation_fm_repeater_verbs_test PRIVATE src)
+target_link_libraries(automation_fm_repeater_verbs_test PRIVATE
+    aethercore Qt6::Core Qt6::Network Qt6::Widgets
+)
+set_target_properties(automation_fm_repeater_verbs_test PROPERTIES AUTOMOC ON)
+add_test(NAME automation_fm_repeater_verbs_test COMMAND automation_fm_repeater_verbs_test)
+set_tests_properties(automation_fm_repeater_verbs_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(automation_drag_at_test tests/automation_drag_at_test.cpp)
 target_include_directories(automation_drag_at_test PRIVATE src)
 target_link_libraries(automation_drag_at_test PRIVATE
