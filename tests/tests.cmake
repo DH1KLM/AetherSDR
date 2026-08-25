@@ -1755,7 +1755,10 @@ add_executable(passive_spots_policy_test
     src/core/SpotCommandPolicy.cpp
 )
 target_include_directories(passive_spots_policy_test PRIVATE src)
+target_compile_definitions(passive_spots_policy_test PRIVATE
+    AETHER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(passive_spots_policy_test PRIVATE Qt6::Core)
+add_test(NAME passive_spots_policy_test COMMAND passive_spots_policy_test)
 
 add_executable(spot_mode_resolver_test
     tests/spot_mode_resolver_test.cpp
