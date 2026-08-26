@@ -234,6 +234,8 @@ RadioCapabilities IcomCivBackend::capabilities() const
                                           static_cast<double>(band.highHz),
                                           band.maxWatts});
     }
+    c.forwardPowerRequiresSmoothing = profile.meters.powerConversion
+        != MeterCalibrationProfile::PowerConversion::RelativePercentOfBandRating;
 
     // THE MODES THIS RADIO RECEIVES BUT WILL NOT TRANSMIT IN — WFM on an
     // IC-705, which covers 76-108 MHz broadcast and whose transmitter does not
@@ -2360,16 +2362,44 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame,
 
         const qint64 answeredAtMs = nowMs();
         m_meters.markAnswered(spec->id, answeredAtMs);
+        const MeterCalibrationProfile meterProfile = m_model
+            ? profileFor(*m_model).meters : MeterCalibrationProfile{};
+        const std::span<const CurvePoint> powerCurve = m_model
+            ? powerCurveFor(*m_model) : std::span<const CurvePoint>{};
+        // An IC-9700 Po reply may already be on the wire when the authoritative
+        // PTT-OFF report arrives. Do not let that late relative-power sample
+        // repopulate the model after the idle reset below. Keep this exception
+        // model-profile-shaped: native-watt Icom radios retain their existing
+        // meter timing and every non-power TX meter remains untouched.
+        if (spec->id == MeterId::Power && !m_keyed
+            && meterProfile.powerConversion
+                == MeterCalibrationProfile::PowerConversion::RelativePercentOfBandRating) {
+            return;
+        }
         const bool holdIsolatedMinimums = m_model
             && profileFor(*m_model).meters.holdIsolatedTxMinimums;
         if (!m_meters.shouldPublish(spec->id, *raw, answeredAtMs,
                                     holdIsolatedMinimums)) {
             return;
         }
-        const double value = meterValue(
-            spec->id, *raw, s9ReferenceFor(m_frequencyHz),
-            m_model ? profileFor(*m_model).meters.calibration
-                    : MeterCalibration::Uncalibrated);
+        double value = spec->id == MeterId::Power && !powerCurve.empty()
+            ? interpolateCurve(powerCurve, *raw)
+            : meterValue(spec->id, *raw, s9ReferenceFor(m_frequencyHz),
+                         meterProfile.calibration);
+        if (spec->id == MeterId::Power
+            && meterProfile.powerConversion
+                == MeterCalibrationProfile::PowerConversion::RelativePercentOfBandRating) {
+            const std::optional<double> ratedWatts = m_model
+                ? bandRatedPowerWatts(*m_model, m_frequencyHz)
+                : std::nullopt;
+            if (!ratedWatts) {
+                // Do not borrow an adjacent deck's rating while frequency state
+                // is absent or between supported bands. No reading is safer
+                // than a derived watt estimate with the wrong denominator.
+                return;
+            }
+            value = derivedPowerWatts(value, *ratedWatts);
+        }
 
         if (spec->id == MeterId::Overflow) {
             m_overflow = value > 0.5;
@@ -2450,6 +2480,9 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame,
             m_meters.setTransmitting(m_keyed);
             if (!keyed && m_session) {
                 m_session->flushTxAudio();
+            }
+            if (!m_keyed) {
+                clearDerivedForwardPower();
             }
             TransmitDelta t;
             t.mox = m_keyed;
@@ -3932,6 +3965,9 @@ void IcomCivBackend::setKeying(bool key)
     // "are we transmitting".
     if (m_keyed != key) {
         m_keyed = key;
+        if (!m_keyed) {
+            clearDerivedForwardPower();
+        }
         TransmitDelta t;
         t.mox = key;
         emit transmitChanged(t);
@@ -3943,6 +3979,21 @@ void IcomCivBackend::setKeying(bool key)
     if (restoreTunePower >= 0) {
         setTxPower(restoreTunePower);
     }
+}
+
+void IcomCivBackend::clearDerivedForwardPower()
+{
+    if (!m_model
+        || profileFor(*m_model).meters.powerConversion
+            != MeterCalibrationProfile::PowerConversion::RelativePercentOfBandRating) {
+        return;
+    }
+
+    // CI-V stops Po polling at the unkey edge. Clear only the derived IC-9700
+    // estimate; native-watt Icom radios and every other TX meter keep their
+    // established idle behavior. Both operator-requested and radio-originated
+    // unkeys call this helper, so the model cannot retain the last keyed value.
+    emit meterUpdate(QStringLiteral("TX:FWDPWR"), 0.0);
 }
 
 void IcomCivBackend::setTune(bool on, int tunePowerPercent)
@@ -4364,6 +4415,12 @@ QVariantList IcomCivBackend::meterMap() const
                 high = 100.0;
             } else {
                 high = curve.back().value;
+            }
+            if (profile.meters.powerConversion
+                == MeterCalibrationProfile::PowerConversion::RelativePercentOfBandRating) {
+                high = bandRatedPowerWatts(*m_model, m_frequencyHz).value_or(0.0);
+                r.insert(QStringLiteral("basis"),
+                         QStringLiteral("derived: relative Po percent x active-band rated watts"));
             }
         } else if (m.id == MeterId::Id) {
             high = profile.meters.currentFullScaleAmps;
@@ -5088,10 +5145,14 @@ void IcomCivBackend::publishMeterDefs()
         d.unit = QString::fromUtf8(s.unit.data(), static_cast<int>(s.unit.size()));
         d.low = s.low;
         d.high = s.high;
-        // The Po meter's high depends on the model's measured curve, and a
-        // model we have no curve for must NOT claim watts — see powerCurveFor.
+        // MeterDef is the model-wide identity published at connect, not the
+        // active-deck diagnostic. IC-9700's relative curve is converted below
+        // the seam to derived watts and its highest deck is 100 W, so the
+        // stable definition deliberately remains 100 W. meterMap() reports the
+        // current 100/75/10 W deck rating without forcing definition churn on
+        // every band transition.
         if (s.id == MeterId::Power) {
-            const auto curve = powerCurveFor(*m_model);
+            const std::span<const CurvePoint> curve = powerCurveFor(*m_model);
             if (curve.empty()) {
                 d.unit = QStringLiteral("Percent");
                 d.high = 100.0;
