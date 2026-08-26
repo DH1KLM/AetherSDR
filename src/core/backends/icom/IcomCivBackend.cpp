@@ -1542,6 +1542,29 @@ void IcomCivBackend::checkModInput()
     }
 }
 
+void IcomCivBackend::publishPhoneModulationLevel()
+{
+    const auto mod = modulationProfileFor(*m_model);
+    if (!mod || !mod->phoneLevelFollowsNetworkInput) {
+        return;
+    }
+
+    const int activeInput = m_dataMode ? m_dataModInput : m_dataOffModInput;
+    if (activeInput == mod->networkOnlyValue && m_networkModLevelPercent >= 0) {
+        TransmitDelta t;
+        t.micLevel = m_networkModLevelPercent;
+        emit transmitChanged(t);
+    } else if (activeInput >= 0 && activeInput != mod->networkOnlyValue
+               && m_micGainReported) {
+        // Preserve the established physical-input behavior whenever LAN is not
+        // selected.  In particular, a connect-time source read must not leave
+        // a stale LAN value displayed after the operator changes the radio.
+        TransmitDelta t;
+        t.micLevel = m_micGainPercent;
+        emit transmitChanged(t);
+    }
+}
+
 void IcomCivBackend::applyScopeStartup()
 {
     if (!m_session || !m_model->hasScope || m_scopeStarted)
@@ -1940,8 +1963,18 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame,
         case level::kMicGain: {
             m_micGainPercent = pct;
             m_micGainReported = true;
-            TransmitDelta t; t.micLevel = pct;
-            emit transmitChanged(t);
+            const auto mod = modulationProfileFor(*m_model);
+            if (mod && mod->phoneLevelFollowsNetworkInput) {
+                // IC-9700 LAN audio has its own radio-owned level register.
+                // Keep this physical-MIC report cached for a later source
+                // change, but do not let its periodic poll overwrite the
+                // active LAN value in the shared Phone control.
+                publishPhoneModulationLevel();
+            } else {
+                TransmitDelta t;
+                t.micLevel = pct;
+                emit transmitChanged(t);
+            }
             return;
         }
         case level::kCompLevel: {
@@ -2328,10 +2361,21 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame,
                 m_accessoryModLevelPercent = pct;
             } else if (item == mod->networkLevelItem) {
                 m_networkModLevelPercent = pct;
+                // SET 0114 is the authoritative mirror behind the shared
+                // mic.gain seam verb while LAN is selected.  Its wire address
+                // is model-specific and therefore absent from the generic
+                // 14 0B control registry; record the logical control only
+                // after a real radio reply has established this value.  The
+                // same logical known-state may also be established by a 14 0B
+                // reply while MIC is authoritative; publishPhoneModulationLevel()
+                // always re-derives the displayed value from the active input,
+                // so the set records readiness rather than register identity.
+                m_controlsValueKnown.insert(QStringLiteral("mic.gain"));
             } else {
                 return;
             }
         }
+        publishPhoneModulationLevel();
         checkModInput();
         return;
     }
@@ -3621,6 +3665,26 @@ void IcomCivBackend::setSpeechProcessor(bool on, int level)
 
 void IcomCivBackend::setMicGain(int gainPercent)
 {
+    if (const auto mod = modulationProfileFor(*m_model);
+        mod && mod->phoneLevelFollowsNetworkInput) {
+        const int activeInput = m_dataMode ? m_dataModInput : m_dataOffModInput;
+        if (activeInput == mod->networkOnlyValue) {
+            // The LAN register is radio-persisted state.  Until its readback
+            // arrives, the shared slider does not describe it and must not
+            // turn a construction/physical-mic mirror into a LAN write.
+            if (m_networkModLevelPercent < 0) {
+                qCWarning(lcIcomTx)
+                    << "ignoring Phone level change: LAN MOD readback is not established";
+                return;
+            }
+            m_networkModLevelPercent = std::clamp(gainPercent, 0, 100);
+            sendUserCommand(cmdWriteSettingLevel(
+                m_session ? m_session->civAddress() : m_model->civAddress,
+                mod->networkLevelItem,
+                percentToLevelRaw(m_networkModLevelPercent)));
+            return;
+        }
+    }
     m_micGainPercent = gainPercent;
     m_micGainReported = true;
     sendUserCommand(cmdSetLevel(m_session ? m_session->civAddress() : 0xA4,
@@ -4597,7 +4661,27 @@ bool IcomCivBackend::scrubDrive(const icom::ControlSpec& c)
     if (id == QLatin1String("squelch"))  { setSliceSquelch(slice, m_squelchPercent > 0, m_squelchPercent); return true; }
     if (id == QLatin1String("agc"))      { setSliceAgc(slice, m_agcMode, 0); return true; }
     if (id == QLatin1String("tx.power")) { setTxPower(m_txPowerPercent); return true; }
-    if (id == QLatin1String("mic.gain")) { setMicGain(m_micGainPercent); return true; }
+    if (id == QLatin1String("mic.gain")) {
+        const auto mod = modulationProfileFor(*m_model);
+        const int activeInput = m_dataMode ? m_dataModInput : m_dataOffModInput;
+        if (mod && mod->phoneLevelFollowsNetworkInput
+            && activeInput == mod->networkOnlyValue) {
+            if (m_networkModLevelPercent < 0) {
+                qCWarning(lcIcomTx)
+                    << "mic.gain scrub skipped: LAN MOD readback is not established";
+                return false;
+            }
+            setMicGain(m_networkModLevelPercent);
+            // The shared seam verb is logically mic.gain even though this
+            // model routes it to SET 0114.  The generic cmd/sub registry sees
+            // the physical 14 0B row or the SET row, so retain the logical
+            // alias explicitly for the scrub verdict.
+            m_controlsScheduled.insert(id);
+            return true;
+        }
+        setMicGain(m_micGainPercent);
+        return true;
+    }
     if (id == QLatin1String("mod.input.dataoff")) {
         // Re-assert the CURRENT selection, which is the whole scrub contract:
         // the question is whether the intent reaches the wire, not whether the
