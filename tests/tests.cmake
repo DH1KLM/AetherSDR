@@ -3916,6 +3916,8 @@ add_executable(phone_cw_mic_gain_authority_test
     src/gui/DragValuePopup.cpp
 )
 target_include_directories(phone_cw_mic_gain_authority_test PRIVATE src)
+target_compile_definitions(phone_cw_mic_gain_authority_test PRIVATE
+    AETHER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(phone_cw_mic_gain_authority_test PRIVATE
     aethercore Qt6::Core Qt6::Widgets Qt6::Test
 )
