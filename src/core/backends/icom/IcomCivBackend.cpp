@@ -314,6 +314,8 @@ RadioCapabilities IcomCivBackend::capabilities() const
     c.hasSupplyVoltageTelemetry =
         hasVoltageCalibration(profile.meters.calibration);
     c.hasPaTemperatureTelemetry = profile.meters.hasPaTemperatureTelemetry;
+    c.hasPaCurrentTelemetry = profile.meters.hasPaCurrentTelemetry
+        && hasCurrentCalibration(profile.meters.calibration);
     // No supported Icom model currently publishes fan-speed telemetry. Keep
     // this family-wide and fail closed until the backend implements a real
     // CI-V fan meter; do not add speculative per-model profile surface.
@@ -2410,14 +2412,17 @@ void IcomCivBackend::onCivFrame(const CivFrame& frame,
             ? profileFor(*m_model).meters : MeterCalibrationProfile{};
         const std::span<const CurvePoint> powerCurve = m_model
             ? powerCurveFor(*m_model) : std::span<const CurvePoint>{};
-        // An IC-9700 Po reply may already be on the wire when the authoritative
-        // PTT-OFF report arrives. Do not let that late relative-power sample
-        // repopulate the model after the idle reset below. Keep this exception
-        // model-profile-shaped: native-watt Icom radios retain their existing
-        // meter timing and every non-power TX meter remains untouched.
-        if (spec->id == MeterId::Power && !m_keyed
+        // IC-9700 Po/Id replies may already be on the wire when the
+        // authoritative PTT-OFF report arrives. Do not let those late TX-only
+        // samples repopulate the model after the idle reset below. Keep the
+        // exceptions profile-shaped so native-watt/current Icom radios retain
+        // their established meter timing.
+        const bool lateDerivedPower = spec->id == MeterId::Power
             && meterProfile.powerConversion
-                == MeterCalibrationProfile::PowerConversion::RelativePercentOfBandRating) {
+                == MeterCalibrationProfile::PowerConversion::RelativePercentOfBandRating;
+        const bool latePaCurrent = spec->id == MeterId::Id
+            && meterProfile.hasPaCurrentTelemetry;
+        if (!m_keyed && (lateDerivedPower || latePaCurrent)) {
             return;
         }
         const bool holdIsolatedMinimums = m_model
