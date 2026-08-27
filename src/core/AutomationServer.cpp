@@ -244,6 +244,26 @@ constexpr int kTextViewValueCap = 2048;
 // set in the same pass that builds the string, so the document is
 // materialized once, not re-read for the flag (a 5k-line log would
 // otherwise be built twice per dump_tree node).
+
+// Clears the aetherComboPopup name when the named container hides, then
+// removes itself. Keeps "aetherComboPopup" true only of an open drop-down so a
+// grab after the popup closed cannot resolve stale geometry under a name the
+// driver was told to trust (#5080). QObject-only: no QtWidgets include.
+class ComboPopupNameReset : public QObject {
+public:
+    explicit ComboPopupNameReset(QObject* container) : QObject(container) {}
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        if (event->type() == QEvent::Hide) {
+            if (watched->objectName() == QLatin1String("aetherComboPopup"))
+                watched->setObjectName(QString());
+            watched->removeEventFilter(this);
+            deleteLater();
+        }
+        return false;
+    }
+};
+
 QString widgetValue(const QWidget* w, bool* truncated = nullptr)
 {
     if (auto* s = qobject_cast<const QAbstractSlider*>(w))
@@ -4397,6 +4417,68 @@ QJsonObject AutomationServer::doInvoke(const QString& target, const QString& act
             selectedRow = row;
             selectedRowText = m->data(first, Qt::DisplayRole).toString();
             done = true;
+        }
+    } else if (action == QLatin1String("showPopup")
+               || action == QLatin1String("hidePopup")) {
+        // Hold a combo's drop-down open under bridge control so a follow-up
+        // grab_widget can land on it. clickAt opens the popup but it is gone
+        // before the next call arrives, and the never-shown sibling
+        // QComboBoxPrivateContainers all tie at hidden rank, so a grab by
+        // class picks an arbitrary sliver. Deferred to a clean main-loop turn
+        // for the same reason as showMenu: showing a native popup window from
+        // inside the socket-read callback re-enters the platform event loop.
+        // The container is named so grab_widget has an unambiguous target —
+        // objectName is stage 1 of resolution, ahead of class matching. (#5080)
+        if (auto* cb = qobject_cast<QComboBox*>(w)) {
+            const bool show = (action == QLatin1String("showPopup"));
+            // QComboBox::showPopup() is a no-op on an empty combo: nothing
+            // would open, no Hide would ever fire, and a name set anyway
+            // would stick to a hidden container for good. Refuse up front so
+            // the caller gets an error instead of ok/deferred + a stale grab.
+            if (show && cb->count() == 0)
+                return err(QStringLiteral("combo '") + target
+                           + QStringLiteral("' has no items: showPopup would be a no-op"));
+            QPointer<QComboBox> cbg = cb;
+            QPointer<QWidget> win = cb->window();
+            QTimer::singleShot(0, qApp, [cbg, win, show]() {
+                if (!cbg) return;
+                if (!show) {
+                    // The name is dropped by ComboPopupNameReset on the
+                    // container's Hide (installed when the popup was named),
+                    // so no explicit clear here — and deliberately no
+                    // cbg->view() either: view() lazily CREATES the container
+                    // for a combo whose popup never existed. (#5080)
+                    cbg->hidePopup();
+                    return;
+                }
+                if (win && win->isVisible()) {   // give the popup a realized anchor
+                    win->raise();
+                    win->activateWindow();
+                }
+                cbg->showPopup();
+                if (QWidget* v = cbg->view()) {
+                    // Name it only if it actually opened: the name must be
+                    // true of an OPEN list and nothing else (#5080).
+                    if (QWidget* c = v->window(); c && c->isVisible()) {
+                        // Exactly one holder: a second showPopup while
+                        // another combo's list is still up would otherwise
+                        // leave two widgets answering to the name, and
+                        // resolution would return whichever it finds first.
+                        for (QWidget* old : QApplication::allWidgets())
+                            if (old != c && old->objectName()
+                                                == QLatin1String("aetherComboPopup"))
+                                old->setObjectName(QString());
+                        c->setObjectName(QStringLiteral("aetherComboPopup"));
+                        // The popup also closes on its own (item pick, Esc,
+                        // click-away, focus loss). Clear the name on that hide
+                        // too, so the name is only ever true of an OPEN list.
+                        // One-shot: the filter removes itself after firing.
+                        c->installEventFilter(new ComboPopupNameReset(c));
+                    }
+                }
+            });
+            done = true;
+            deferred = true;
         }
     } else {
         return err(QStringLiteral("unknown action: ") + action);
