@@ -236,7 +236,15 @@ QJsonObject describeAction(const QAction* action, const QMenu* owner)
 // Human-meaningful "value" for a control, so an assertion can read state
 // without a screenshot. Returns a null QString for widgets that have no
 // natural scalar/text value (containers, custom-painted surfaces).
-QString widgetValue(const QWidget* w)
+// Text views (QTextEdit / QPlainTextEdit) serialize a bounded prefix wherever
+// `value` is reported — dump_tree and invoke's newValue echo alike (#5078).
+constexpr int kTextViewValueCap = 2048;
+
+// `truncated` (optional) reports whether the text-view cap cut the value —
+// set in the same pass that builds the string, so the document is
+// materialized once, not re-read for the flag (a 5k-line log would
+// otherwise be built twice per dump_tree node).
+QString widgetValue(const QWidget* w, bool* truncated = nullptr)
 {
     if (auto* s = qobject_cast<const QAbstractSlider*>(w))
         return QString::number(s->value());
@@ -256,6 +264,34 @@ QString widgetValue(const QWidget* w)
         if (le->echoMode() != QLineEdit::Normal)
             return le->text().isEmpty() ? QString() : QStringLiteral("<hidden>");
         return le->text();
+    }
+    // Text views (transcripts, decode logs, terminals) are documents, not
+    // scalars, so the tree carries a bounded prefix: enough for an assertion
+    // without turning a 5k-line AX.25 log into the snapshot. The `text` verb
+    // returns the full document. No echo-mode concern here — these views have
+    // none — and this sits below the QLineEdit guard so #3646 is untouched.
+    // Read through the meta-object: QTextEdit and QPlainTextEdit both export
+    // Q_PROPERTY(QString plainText ...), so no QtWidgets include is needed
+    // (engine-boundary rule EB2 — this file's QtWidgets count may only
+    // shrink). QTextBrowser inherits QTextEdit and is covered. A present
+    // view yields a valid QVariant even when empty, so "the transcript is
+    // empty" serializes as "" and is a real assertion. (#5078)
+    {
+        const QVariant plain = w->property("plainText");
+        if (plain.isValid()) {
+            const QString doc = plain.toString();
+            if (doc.size() <= kTextViewValueCap)
+                return doc;
+            // Cut on a code-point boundary: a cap landing between the halves
+            // of a surrogate pair would leave a lone surrogate that the JSON
+            // encoder replaces with U+FFFD.
+            int cut = kTextViewValueCap;
+            if (doc.at(cut - 1).isHighSurrogate())
+                --cut;
+            if (truncated)
+                *truncated = true;
+            return doc.left(cut) + QStringLiteral("…<truncated>");
+        }
     }
     if (auto* sb = qobject_cast<const QSpinBox*>(w))
         return QString::number(sb->value());
@@ -370,9 +406,15 @@ QJsonObject describeWidget(const QWidget* w)
         o[QStringLiteral("windowState")] = QLatin1String(ws);
     }
 
-    const QString val = widgetValue(w);
-    if (!val.isNull())
+    bool valTruncated = false;
+    const QString val = widgetValue(w, &valTruncated);
+    if (!val.isNull()) {
         o[QStringLiteral("value")] = val;
+        // Machine-readable truncation signal: the "…<truncated>" marker is
+        // in-band and a transcript could contain it itself. (#5078)
+        if (valTruncated)
+            o[QStringLiteral("valueTruncated")] = true;
+    }
 
     // A checkable button reports its value as "checked"/"unchecked", which hides
     // the label that says *which* control it is (the six DSP method buttons —
@@ -2587,6 +2629,7 @@ bool isReadOnlyRequest(const QString& name, const QString& action)
         QStringLiteral("ping"),     QStringLiteral("verbs"),
         QStringLiteral("whoami"),   QStringLiteral("dumpTree"),
         QStringLiteral("grab"),     QStringLiteral("get"),
+        QStringLiteral("text"),
         QStringLiteral("floors"),   QStringLiteral("hitTest"),
         // Reads backend telemetry; keys nothing and sets nothing.
         QStringLiteral("health"),   QStringLiteral("devices"),
@@ -2791,6 +2834,15 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
         add("floors", {}, "per-pan measured noise + display floor (dBm)",
             parseTargetPath,
             [](AutomationServer& s, A&, QLocalSocket*) { return s.doFloors(); });
+
+        add("text", {QStringLiteral("getText")},
+            "text <target> — full plain text of a QTextEdit/QPlainTextEdit view",
+            parseTargetOnly,
+            [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
+                if (a.target.isEmpty())
+                    return err(QStringLiteral("text requires a target widget"));
+                return s.doGetText(a.target);
+            });
 
         add("grab", {}, "grab <target|pan|pan-visible [index]> [path] — PNG capture",
             [](const QList<QByteArray>& p, A& a) -> QJsonObject {
@@ -3793,6 +3845,36 @@ QJsonObject AutomationServer::doGrab(const QString& target, const QString& path)
                             QStringLiteral("widget not found: ") + target}};
     }
     return saveWidgetGrab(w, target, path);
+}
+
+// Full document for one resolved text view. dumpTree carries only a capped
+// prefix (see widgetValue); this is the full-fidelity read a transcript
+// assertion needs. Read-only: nothing is set and nothing is keyed. (#5078)
+QJsonObject AutomationServer::doGetText(const QString& target) const
+{
+    QWidget* w = resolveWidget(target);
+    if (!w)
+        return err(QStringLiteral("widget not found: ") + target);
+
+    // Same meta-object read as widgetValue(): the plainText property exists
+    // only on QTextEdit/QPlainTextEdit (and subclasses), so validity is the
+    // text-view test and no QtWidgets include is needed (EB2).
+    const QVariant plain = w->property("plainText");
+    if (!plain.isValid())
+        return err(QStringLiteral("not a text view: ") + target
+                   + QStringLiteral(" (") + shortClassName(w) + QLatin1Char(')'));
+    const QString doc = plain.toString();
+
+    return QJsonObject{{QStringLiteral("ok"), true},
+                       {QStringLiteral("target"), target},
+                       {QStringLiteral("class"), shortClassName(w)},
+                       {QStringLiteral("length"), doc.size()},
+                       // Count lines the way the pane shows them: a trailing
+                       // newline ends the last line, it does not start another.
+                       {QStringLiteral("lines"), doc.isEmpty() ? 0
+                            : doc.count(QLatin1Char('\n'))
+                              + (doc.endsWith(QLatin1Char('\n')) ? 0 : 1)},
+                       {QStringLiteral("text"), doc}};
 }
 
 // Capture a specific pan's spectrum surface by SpectrumWidget::panIndex, so a

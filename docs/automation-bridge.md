@@ -479,6 +479,7 @@ for common controls so you can assert without a screenshot:
 | `QSpinBox` / `QDoubleSpinBox` | numeric value |
 | `QProgressBar` | numeric value |
 | `QLabel` | its text |
+| `QTextEdit` / `QPlainTextEdit` (transcripts, decode logs, consoles) | plain text, capped at 2048 characters with a trailing `…<truncated>` marker; the `dump_tree` node also carries `valueTruncated: true` when cut (the cap itself applies wherever `value` is reported, including `invoke`'s `newValue` echo, which carries only the in-band marker) — use [`text`](#text) for the full document |
 | `QAction` inside a `QMenu` | label text, or `"checked"` / `"unchecked"` for checkable actions |
 | containers / custom-painted surfaces | omitted |
 
@@ -1725,6 +1726,32 @@ Section-title rows (a disabled `QWidgetAction` + `QLabel`, the app's idiom for
 menu headers since `QMenu::addSection` text doesn't render under the app styling)
 serialize with `"type":"header"` and the label's text, so titles are assertable
 instead of blank rows.
+
+### `text`
+Full plain text of one `QTextEdit` / `QPlainTextEdit` view (alias `getText`). Read-only; refused in
+observe-only mode like every non-allow-listed verb is — except that `text` *is* allow-listed, since it
+sets nothing and keys nothing.
+
+```json
+→ {"cmd":"text","target":"cwDecodeText"}
+← {"ok":true,"target":"cwDecodeText","class":"QPlainTextEdit",
+   "length":5102,"lines":48,"text":"CQ CQ DE ..."}
+```
+
+- `dump_tree` carries only a 2048-character prefix of these views (see the `value` table above; the
+  node also carries `valueTruncated: true` when cut); this verb returns the whole document, so a
+  transcript assertion is not truncated. The response is unbounded — a long console goes into one
+  JSON line; whether it should take a newest-`n`/`path` form like `log tail` / `grab` is an open
+  design question.
+- `lines` counts lines as the pane shows them: a trailing newline ends the last line rather than
+  starting another.
+- `length` is UTF-16 code units (`QString::size()`), not Unicode code points: a driver comparing it
+  to Python's `len(resp["text"])` will disagree on any document containing astral characters
+  (emoji in a chat or cluster pane is the realistic case).
+- A non-text target answers `not a text view: <target> (<class>)`.
+- The view is read through its `plainText` property (Qt's `QTextEdit`/`QPlainTextEdit` both export it),
+  so `QTextBrowser` and read-only views are covered; `QLineEdit` has no such property and keeps its
+  echo-mode `<hidden>` guard.
 
 ### `hitTest`
 Read-only Qt hit-test probe for overlay/input-mask regressions. The point is
@@ -3638,7 +3665,7 @@ receiver capacity. It never enables transmit and remains available without
 The complete registry, generated from the `add(...)` table in `AutomationServer.cpp` by `tools/gen_bridge_docs.py`. CI fails if this drifts from the code.
 
 <!-- BEGIN GENERATED VERB TABLE (tools/gen_bridge_docs.py) -->
-<!-- Do not edit by hand — run tools/gen_bridge_docs.py. 70 verbs. -->
+<!-- Do not edit by hand — run tools/gen_bridge_docs.py. 71 verbs. -->
 
 | Verb | Aliases | Description |
 |---|---|---|
@@ -3646,6 +3673,7 @@ The complete registry, generated from the `add(...)` table in `AutomationServer.
 | `verbs` | — | list every bridge verb with aliases and help (this table) |
 | `dumpTree` | — | serialize the full widget tree as JSON |
 | `floors` | — | per-pan measured noise + display floor (dBm) |
+| `text` | `getText` | text <target> — full plain text of a QTextEdit/QPlainTextEdit view |
 | `grab` | — | grab <target\|pan\|pan-visible [index]> [path] — PNG capture |
 | `close` | — | close <target> — close the target's top-level window |
 | `hover` | — | hover <target> [leave] — synthetic mouse hover |
