@@ -6357,6 +6357,11 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
         sendCmd("client low_bw_connect");
 
     m_guiClientRegistrationState.begin();
+    // The radio dumps slice status in response to GUI-client registration,
+    // which lands BEFORE the "client gui" reply that dispatches the sub batch.
+    // Arming at "sub slice all" opens the window after onSliceAdded has already
+    // chosen its source, so the guard is never consulted (#4759).
+    emit sliceConnectEnumerationStarted();
     sendCmd(QString("client gui %1").arg(clientId), [this](int code, const QString& body) {
         armClientConnectionNoticeSuppression();
         if (code != 0) {
@@ -6614,6 +6619,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
 
                 sendCmd("slice list",
                     [this](int code3, const QString& body) {
+                        emit sliceConnectEnumerationFinished();
                         const quint64 restoreGeneration = m_sessionModelGeneration;
                         QTimer::singleShot(kSessionRestorePruneDelayMs, this, [this, restoreGeneration]() {
                             pruneStaleSessionModels(restoreGeneration);

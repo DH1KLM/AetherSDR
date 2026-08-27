@@ -326,9 +326,7 @@ void MainWindow::selectSliceFromRadioState(
             << "MainWindow: band recall suppressing slice reveal"
             << "pan=" << slice->panId()
             << "slice=" << slice->sliceId()
-            << "source="
-            << (source == RadioSliceSelectionSource::ActiveStatus
-                    ? "active-status" : "topology-fallback");
+            << "source=" << radioSliceSelectionSourceName(source);
     }
 
     const bool wasUpdatingFromModel = m_updatingFromModel;
@@ -1656,8 +1654,25 @@ void MainWindow::onSliceAdded(SliceModel* s)
 
     // First slice — wire everything up
     if (firstSlice) {
-        selectSliceFromRadioState(
-            s, RadioSliceSelectionSource::TopologyFallback);
+        // Bootstrap only: give the UI a selection. Do NOT write active=1 during
+        // initial connect enumeration — this is the first slice ENUMERATED, not
+        // the slice that should own the UI. A FLEX does not persist the operator's
+        // active-slice choice across a restart; during connect the status burst /
+        // enumeration order may end with a different slice active (often last-created),
+        // and that slice may not exist client-side yet (it arrives in a later
+        // status frame). Asserting here would clobber that live status and
+        // make first-enumerated always win. The adoption check later in
+        // onSliceAdded() reads s->isActive() as subsequent slices arrive, so the
+        // client converges on the radio-authoritative active slice.
+        // Mid-session creation into an empty list (after initial enumeration window has passed)
+        // routes through TopologyFallback to assert the selection as needed.
+        const auto nowMs = QDateTime::currentMSecsSinceEpoch();
+        if (m_connectSliceEnumeration.expiredUnused(nowMs)) {
+            qCWarning(lcProtocol) << "MainWindow: connect slice enumeration window expired unused; falling back to TopologyFallback";
+        }
+        const RadioSliceSelectionSource source =
+            firstSliceSelectionSource(m_connectSliceEnumeration.isActive(nowMs));
+        selectSliceFromRadioState(s, source);
 
         // Detect initial band from radio's frequency
         if (m_bandSettings.currentBand().isEmpty())

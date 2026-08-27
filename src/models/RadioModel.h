@@ -975,6 +975,12 @@ signals:
     void backendCwKeyingForwarded(bool down);
     void sliceAdded(SliceModel* slice);
     void sliceRemoved(int sliceId);
+    // Emitted immediately before "sub slice all" is dispatched during connect
+    // handshake, opening the connect-time slice enumeration window.
+    void sliceConnectEnumerationStarted();
+    // Emitted when the "slice list" reply arrives during connect handshake,
+    // closing the connect-time slice enumeration window.
+    void sliceConnectEnumerationFinished();
     void rawSliceModeListsChanged();
     void metersChanged();
     void connectionError(const QString& msg);
@@ -1535,6 +1541,10 @@ public:
         return backendPanIdFor(modelPanId);
     }
     static QString neutralPanIdStringForTest(int panIdx);
+    void handleSliceStatusForTest(int id, const QMap<QString, QString>& kvs, bool removed = false)
+    {
+        handleSliceStatus(id, kvs, removed);
+    }
 
 private:
     PanadapterModel* resolveBackendPan(const QString& backendPanId);
