@@ -3638,7 +3638,7 @@ receiver capacity. It never enables transmit and remains available without
 The complete registry, generated from the `add(...)` table in `AutomationServer.cpp` by `tools/gen_bridge_docs.py`. CI fails if this drifts from the code.
 
 <!-- BEGIN GENERATED VERB TABLE (tools/gen_bridge_docs.py) -->
-<!-- Do not edit by hand — run tools/gen_bridge_docs.py. 69 verbs. -->
+<!-- Do not edit by hand — run tools/gen_bridge_docs.py. 70 verbs. -->
 
 | Verb | Aliases | Description |
 |---|---|---|
@@ -3704,6 +3704,7 @@ The complete registry, generated from the `add(...)` table in `AutomationServer.
 | `resize` | — | resize <w> <h> [target] — resize a window |
 | `window` | — | window <maximize\|restore\|minimize\|fullscreen> [target] |
 | `shortcut` | — | shortcut <id> — fire a ShortcutManager/MIDI action (TX-gated) |
+| `keyevent` | — | keyevent <press\|release> <action-id\|key-seq> — inject a real key edge through the app event filter (momentary shortcuts only — PTT hold, and the CW keys once bound: their ids ship unbound, so KeyInjectUnbound until the operator binds them in Configure Shortcuts; press is TX-gated; a literal Tab/Backtab moves focus yet reports consumed) |
 | `midi` | — | midi cc <0-127> — inject a learned VFO Tune Knob CC event |
 | `menu` | — | menu list \| open <name> — menu-bar menus |
 | `whoami` | — | bridge instance info: pid, socket, label, station, txAllowed |
