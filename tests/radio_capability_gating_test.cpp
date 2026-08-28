@@ -572,18 +572,39 @@ int main(int argc, char** argv)
             check(caps.speechProcessorLevelMaximum == 100
                       && caps.speechProcessorLabel == QStringLiteral("COMP"),
                   "IC-9700 alone declares the continuous COMP presentation");
+            check(caps.fmDtcsCodes.size() == 104
+                      && caps.fmToneModes.contains(QStringLiteral("dtcs_txrx")),
+                  "IC-9700 declares the complete DTCS operator vocabulary");
         }
 
-        for (const char* siblingName : {"IC-705", "IC-7300MK2"}) {
-            const IcomModel* sibling = modelForName(siblingName);
-            check(sibling != nullptr, "the protected sibling Icom model resolves");
+        {
+            const IcomModel* ic705 = modelForName("IC-705");
+            check(ic705 != nullptr, "the IC-705 model resolves");
+            if (ic705) {
+                IcomCivBackend backend;
+                IcomCivBackendTestAccess::selectModel(backend, *ic705);
+                const RadioCapabilities caps = backend.capabilities();
+                check(caps.speechProcessorLevelMaximum == 2
+                          && caps.speechProcessorLabel == QStringLiteral("PROC"),
+                      "IC-705 retains the legacy PROC presentation");
+                check(caps.fmDtcsCodes.size() == 104
+                          && caps.fmToneModes.contains(QStringLiteral("dtcs_txrx")),
+                      "IC-705 declares its documented DTCS operator vocabulary");
+            }
+        }
+
+        {
+            const IcomModel* sibling = modelForName("IC-7300MK2");
+            check(sibling != nullptr, "the protected IC-7300MK2 model resolves");
             if (sibling) {
                 IcomCivBackend backend;
                 IcomCivBackendTestAccess::selectModel(backend, *sibling);
                 const RadioCapabilities caps = backend.capabilities();
                 check(caps.speechProcessorLevelMaximum == 2
                           && caps.speechProcessorLabel == QStringLiteral("PROC"),
-                      "non-9700 Icom models retain the legacy PROC presentation");
+                      "IC-7300MK2 retains the legacy PROC presentation");
+                check(caps.fmDtcsCodes.isEmpty(),
+                      "Icom models without documented DTCS do not activate controls");
             }
         }
 
@@ -1056,6 +1077,10 @@ int main(int argc, char** argv)
               "Sim keeps its existing operator-controlled spot behavior");
         check(icomCaps.alwaysUseClientSideSpots,
               "Icom forces SpotHub spots through the passive client model");
+        check(fresh.fmDtcsCodes.isEmpty() && flexCaps.fmDtcsCodes.isEmpty()
+                  && hl2Caps.fmDtcsCodes.isEmpty() && simCaps.fmDtcsCodes.isEmpty()
+                  && icomCaps.fmDtcsCodes.isEmpty(),
+              "DTCS defaults and backends without an active Icom profile stay empty");
         check(flexCaps.speechProcessorLevelMaximum == 2
                   && flexCaps.speechProcessorLabel == QStringLiteral("PROC"),
               "Flex retains the legacy PROC presentation");
