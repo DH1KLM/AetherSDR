@@ -2550,6 +2550,17 @@ target_include_directories(mqtt_antenna_alias_test PRIVATE src)
 target_link_libraries(mqtt_antenna_alias_test PRIVATE Qt6::Core)
 add_test(NAME mqtt_antenna_alias_test COMMAND mqtt_antenna_alias_test)
 
+# Green Heron Everyware antenna switch. The protocol test is pure — verbatim
+# wire fixtures in, records out, no socket — which is why GreenHeronProtocol.cpp
+# has no I/O in it.
+add_executable(green_heron_protocol_test
+    tests/green_heron_protocol_test.cpp
+    src/core/GreenHeronProtocol.cpp
+)
+target_include_directories(green_heron_protocol_test PRIVATE src)
+target_link_libraries(green_heron_protocol_test PRIVATE Qt6::Core)
+add_test(NAME green_heron_protocol_test COMMAND green_heron_protocol_test)
+
 add_executable(mqtt_settings_test
     tests/mqtt_settings_test.cpp
     src/core/MqttSettings.cpp
