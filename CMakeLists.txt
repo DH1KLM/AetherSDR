@@ -774,6 +774,9 @@ set(CORE_SOURCES
     src/core/ShortcutManager.cpp
     src/core/SupportBundle.cpp
     src/core/IssueReport.cpp
+    src/core/SystemInfo.cpp
+    src/core/SystemInfoCollector.cpp
+    src/core/ThreadName.cpp
     src/core/SystemInventory.cpp
     src/core/DeviceDiagnostics.cpp
     src/core/SerialPortController.cpp
@@ -921,6 +924,7 @@ set(GUI_SOURCES
     src/gui/MeterViewController.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/NetworkDiagnosticsDialog.cpp
+    src/gui/SystemInfoDialog.cpp
     src/gui/Ax25HfPacketDecodeDialog.cpp
     src/gui/DStarAccessibility.cpp
     src/gui/DStarModemPage.cpp
