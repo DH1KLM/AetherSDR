@@ -791,6 +791,53 @@ int main(int argc, char** argv)
               "Sim declares hasPaTemperatureTelemetry=false");
         check(!caps.hasMainFanTelemetry,
               "Sim declares hasMainFanTelemetry=false");
+        check(caps.extensionNamespaces.contains(QStringLiteral("sim")),
+              "Sim declares the 'sim' extension namespace — the Demo Noise "
+              "tile gates on this handshake, not on the backend type "
+              "(M0, #5263)");
+
+        IRadioBackend* simBackend = model.backend();
+        QSignalSpy extensionResultSpy(simBackend, &IRadioBackend::extensionResult);
+        QSignalSpy extensionErrorSpy(simBackend, &IRadioBackend::extensionError);
+        simBackend->invokeExtension(
+            QStringLiteral("sim"), QStringLiteral("noise.enable"), 101,
+            QVariantMap{{QStringLiteral("ch"), QStringLiteral("pink")},
+                        {QStringLiteral("on"), true}});
+        check(extensionResultSpy.count() == 1
+                  && extensionResultSpy.takeFirst().value(0).toULongLong() == 101,
+              "valid Demo Noise extension request returns its correlated result");
+        check(extensionErrorSpy.isEmpty(),
+              "valid Demo Noise extension request returns no error");
+
+        simBackend->invokeExtension(
+            QStringLiteral("sim"), QStringLiteral("noise.preset"), 102,
+            QStringLiteral("not-a-preset"));
+        check(extensionErrorSpy.count() == 1
+                  && extensionErrorSpy.takeFirst().value(0).toULongLong() == 102,
+              "unknown Demo Noise preset returns its correlated error");
+        check(extensionResultSpy.isEmpty(),
+              "unknown Demo Noise preset does not falsely report applied=true");
+
+        simBackend->invokeExtension(
+            QStringLiteral("sim"), QStringLiteral("noise.level"), 103,
+            QVariantMap{{QStringLiteral("ch"), QStringLiteral("not-a-channel")},
+                        {QStringLiteral("db"), -20.0}});
+        check(extensionErrorSpy.count() == 1
+                  && extensionErrorSpy.takeFirst().value(0).toULongLong() == 103,
+              "unknown Demo Noise channel returns its correlated error");
+        check(extensionResultSpy.isEmpty(),
+              "unknown Demo Noise channel does not report applied=true");
+
+        simBackend->invokeExtension(
+            QStringLiteral("sim"), QStringLiteral("noise.knob"), 104,
+            QVariantMap{{QStringLiteral("ch"), QStringLiteral("birdie")},
+                        {QStringLiteral("knob"), QStringLiteral("unknown")},
+                        {QStringLiteral("v"), 700.0}});
+        check(extensionErrorSpy.count() == 1
+                  && extensionErrorSpy.takeFirst().value(0).toULongLong() == 104,
+              "unknown Demo Noise knob returns its correlated error");
+        check(extensionResultSpy.isEmpty(),
+              "unknown Demo Noise knob does not report applied=true");
         check(!caps.hasRadioSideCwKeyer,
               "Sim declares hasRadioSideCwKeyer=false");
         check(!caps.hasVoiceKeyer, "Sim declares hasVoiceKeyer=false");
