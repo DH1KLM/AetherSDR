@@ -2625,6 +2625,13 @@ target_include_directories(cw_sidetone_device_match_test PRIVATE src)
 target_link_libraries(cw_sidetone_device_match_test PRIVATE Qt6::Core)
 add_test(NAME cw_sidetone_device_match_test COMMAND cw_sidetone_device_match_test)
 
+# #5028 — the RTTY sensitivity slider's confidence mapping. Pure, header-only;
+# the floor/default/ceiling rows are compile-time static_asserts, so every CI
+# build enforces them even outside the ctest gates.
+add_executable(rtty_decoder_sensitivity_test tests/rtty_decoder_sensitivity_test.cpp)
+target_include_directories(rtty_decoder_sensitivity_test PRIVATE src)
+add_test(NAME rtty_decoder_sensitivity_test COMMAND rtty_decoder_sensitivity_test)
+
 add_executable(cwx_local_keyer_drift_test
     tests/cwx_local_keyer_drift_test.cpp
     src/core/CwxLocalKeyer.cpp
