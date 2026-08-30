@@ -43,6 +43,12 @@ struct IcomCivBackendTestAccess {
     {
         return backend.confirmationFor(frame);
     }
+
+    static void injectConnectedFrame(IcomCivBackend& backend, const CivFrame& frame)
+    {
+        backend.m_connected = true;
+        backend.onCivFrame(frame, backend.m_sessionGeneration);
+    }
 };
 
 } // namespace AetherSDR::icom
@@ -105,6 +111,18 @@ int main(int argc, char** argv)
           "an Icom remembers its own state, so the client restores NOTHING");
     check(!caps.hasDownwardExpander,
           "Icom exposes no DEXP surface without an evidenced command path");
+    check(!caps.canReboot && !caps.hasRemoteOnControl
+              && !caps.canUpgradeFirmware,
+          "Icom hides unsupported remote radio-management controls");
+    check(!caps.hasSmartLink && !caps.hasLicenseInfo
+              && !caps.hasClientNetworkConfig
+              && !caps.hasFlexControlIntegration
+              && !caps.hasAudioCompression && !caps.hasSharpFilters,
+          "Icom hides unsupported Flex Settings surfaces");
+    check(!caps.usesVita49Transport,
+          "Icom hides Flex VITA-49 receive-buffer tuning");
+    check(!caps.hasPrivateIpConnectionPolicy,
+          "Icom hides the Flex private-IP connection policy");
 
     auto* selectedBackend = dynamic_cast<icom::IcomCivBackend*>(model.backend());
     check(selectedBackend != nullptr,
@@ -130,6 +148,36 @@ int main(int argc, char** argv)
                           QStringLiteral("ctcss_tx_dtcs_rx"))
                       && ic9700Caps.fmDtcsCodes.size() == 104,
                   "IC-9700 advertises its documented complete DTCS UI vocabulary");
+
+            RadioDelta published;
+            bool sawNetworkName = false;
+            QObject::connect(selectedBackend, &IRadioBackend::radioChanged,
+                             [&published, &sawNetworkName](const RadioDelta& delta) {
+                if (delta.networkName) {
+                    published = delta;
+                    sawNetworkName = true;
+                }
+            });
+            icom::CivFrame networkNameFrame;
+            networkNameFrame.cmd = icom::cmd::kSetting;
+            networkNameFrame.hasSub = true;
+            networkNameFrame.sub = 0x05;
+            networkNameFrame.data = {0x01, 0x44, 'S', 'H', 'A', 'C', 'K'};
+            icom::IcomCivBackendTestAccess::injectConnectedFrame(
+                *selectedBackend, networkNameFrame);
+            check(sawNetworkName
+                      && published.networkName == QStringLiteral("SHACK")
+                      && !published.nickname,
+                  "IC-9700 Network Name publishes dedicated network identity");
+            check(model.networkName() == QStringLiteral("SHACK")
+                      && model.nickname().isEmpty(),
+                  "Network Name reaches RadioModel without replacing station nickname");
+
+            check(QMetaObject::invokeMethod(&model, "onDisconnected",
+                                            Qt::DirectConnection),
+                  "Icom network-name reset fixture reached RadioModel");
+            check(model.networkName().isEmpty(),
+                  "disconnect clears session-owned Icom Network Name");
         }
         icom::IcomCivBackendTestAccess::selectModel(*selectedBackend, initialModel);
     }
@@ -193,6 +241,10 @@ int main(int argc, char** argv)
                 icomBackend, "onSessionConnected", Qt::DirectConnection,
                 Q_ARG(QString, QStringLiteral("IC-705")));
             check(firstConnected, "the first Icom session reaches its connected edge");
+            check(icomBackend->capabilities().hasGpsHardware,
+                  "IC-705 backend publishes its profile's GPS hardware capability");
+            check(reconnectModel.hasGpsSetupHardware(),
+                  "IC-705 profile enables the Settings GPS hardware surface");
 
             SliceDelta initial;
             initial.panId = QStringLiteral("icom");
@@ -298,6 +350,30 @@ int main(int argc, char** argv)
         *icom::modelForCivAddress(0xA2));
     const auto mk2Mod = icom::modulationProfileFor(
         *icom::modelForCivAddress(0xB6));
+    check(icom::profileFor(*icom::modelForCivAddress(0xA4)).hasGpsHardware,
+          "IC-705 profile declares its internal GPS receiver");
+    check(!icom::profileFor(*icom::modelForCivAddress(0xA2)).hasGpsHardware,
+          "IC-9700 profile does not declare GPS hardware");
+    check(!icom::profileFor(*icom::modelForCivAddress(0xB6)).hasGpsHardware,
+          "IC-7300MK2 profile does not declare GPS hardware");
+    const auto ic9700Network = icom::profileFor(
+        *icom::modelForCivAddress(0xA2)).networkConfiguration;
+    const auto ic705Network = icom::profileFor(
+        *icom::modelForCivAddress(0xA4)).networkConfiguration;
+    const auto mk2Network = icom::profileFor(
+        *icom::modelForCivAddress(0xB6)).networkConfiguration;
+    check(ic9700Network && ic9700Network->effectiveIpItem == 139
+              && ic9700Network->subnetMaskItem == 140
+              && ic9700Network->gatewayItem == 141
+              && ic9700Network->networkNameItem == 144,
+          "IC-9700 profile maps its documented SET 0139-0144 network fields");
+    check(!ic705Network,
+          "IC-705 does not claim network registers absent from its CI-V guide");
+    check(mk2Network && mk2Network->effectiveIpItem == 102
+              && mk2Network->subnetMaskItem == 103
+              && mk2Network->gatewayItem == 104
+              && mk2Network->networkNameItem == 107,
+          "IC-7300MK2 profile maps its documented SET 0102-0107 network fields");
     check(ic705Mod && ic705Mod->dataOffInputItem == 118
               && ic705Mod->dataInputItem == 119
               && ic705Mod->networkOnlyValue == 0x03,

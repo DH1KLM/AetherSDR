@@ -831,6 +831,11 @@ void MainWindow::disconnectWanRadioClients(const WanRadioInfo& info)
 
 void MainWindow::showMultiFlexDialog()
 {
+    if (m_radioModel.isConnected()
+        && !m_radioModel.backendCapabilities().hasMultiClientSessions) {
+        return;
+    }
+
     MultiFlexDialog dlg(&m_radioModel, this);
     connect(&dlg, &MultiFlexDialog::disconnectClientRequested,
             this, &MainWindow::handleMultiFlexClientDisconnect);
@@ -7448,6 +7453,15 @@ void MainWindow::applyCapabilitiesToUi(bool connected, const RadioCapabilities& 
     }
     if (m_multiFlexAction) {
         m_multiFlexAction->setVisible(!connected || caps.hasMultiClientSessions);
+    }
+    if (m_aetherControlAction) {
+        m_aetherControlAction->setVisible(!connected || caps.hasFlexControlIntegration);
+    }
+    if (m_flexControlKnobAction) {
+        m_flexControlKnobAction->setVisible(!connected || caps.hasFlexControlIntegration);
+    }
+    if (connected && !caps.hasFlexControlIntegration && m_flexControlDialog) {
+        m_flexControlDialog->close();
     }
 
     // Demo Noise tile: a sim-cluster applet, so applet-granularity hiding is
