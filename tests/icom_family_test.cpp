@@ -459,6 +459,14 @@ int main(int argc, char** argv)
               && icom::speechProcessorRawLevel(2, 1) == 153
               && icom::speechProcessorRawLevel(2, 2) == 229,
           "sibling Icom processor presets retain raw 76/153/229 encoding");
+    std::vector<std::uint8_t> tunerModels;
+    for (const icom::IcomModel& model : icom::knownModels()) {
+        if (icom::profileFor(model).supports(icom::IcomFeature::AntennaTuner)) {
+            tunerModels.push_back(model.civAddress);
+        }
+    }
+    check(tunerModels == std::vector<std::uint8_t>{0xA4, 0x98, 0x8E, 0x94, 0xB6},
+          "each evidenced internal/external-tuner model opts into tuner control");
 
     // ── TX bandwidth: the models genuinely differ ─────────────────────────
     {

@@ -347,6 +347,7 @@ enum class IcomFeature : std::uint8_t {
     DialLock,
     CivDataRestart,
     MemoryChannels,
+    AntennaTuner,
 };
 
 enum class MemoryDialect : std::uint8_t {

@@ -63,7 +63,7 @@ enum class FmTonePresentation {
 // that describe an already-established control instead default to the legacy
 // shape (for example PROC's 0..2 domain), avoiding a disconnected or older
 // backend briefly losing an existing surface. In both cases, set the field
-// explicitly in FlexBackend, Hl2Backend AND SimBackend. Then record it in
+// explicitly in every backend implementation. Then record it in
 // docs/architecture/radio-capabilities-map.md, which maps every field to the
 // code that reads it (and lists the ones nothing reads yet). A capability no
 // consumer reads looks identical, from here, to one that works.
@@ -310,7 +310,8 @@ struct RadioCapabilities {
     // knowing the address selected by the client.
     bool hasNetworkConfigurationReadback = false;
     bool hasPrivateIpConnectionPolicy = false; // SmartSDR private-IP enforcement setting
-    bool hasTuner = false;         // antenna tuner / ATU
+    bool hasTuner = false;         // antenna tuner / ATU matching control
+    bool hasTunerMemories = false; // radio-side ATU memory recall/database
     bool hasAmplifier = false;     // integrated or controllable PA
     bool hasExtendedDsp = false;   // extended firmware DSP filters (NRS/RNN/NRF)
 
