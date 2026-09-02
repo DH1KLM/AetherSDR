@@ -460,8 +460,19 @@ static const QString kModeBtn =
     "QPushButton:checked { background: #0070c0; color: #ffffff; border: 1px solid #0090e0; }"
     "QPushButton:hover { border: 1px solid #0090e0; }";
 
+// Shared :disabled rule: a stylesheet colour beats the disabled palette, so
+// a label in a disabled row stays bright unless the sheet says otherwise.
+// #5e6e7c is ~0.45 of makeOptLabel()'s #c8d8e8 over the flag background (a
+// lighter step, ~0.65, from kLabelStyle's #8aa8c0). Used by kLabelStyle and
+// by makeOptLabel() below. Note the rule only bites a label whose row is
+// disabled as a container: today that is the APF level row while APF is off
+// (#4658); rows that disable just their slider (SQL) keep a bright label.
+static const QString kDisabledLabelRule =
+    "QLabel:disabled { color: #5e6e7c; }";
+
 static const QString kLabelStyle =
-    "QLabel { background: transparent; border: none; color: #8aa8c0; font-size: 13px; }";
+    "QLabel { background: transparent; border: none; color: #8aa8c0; font-size: 13px; }"
+    + kDisabledLabelRule;
 
 // Meter-view selector buttons.  Unselected look matches the DSP NR/NB/ANF
 // toggles exactly (kDspToggle base + hover); the selected/checked look matches
@@ -1272,11 +1283,10 @@ void VfoWidget::buildUI()
         auto* lbl = new QLabel(text);
         // :disabled dims the label when its row is disabled — a render()-compatible
         // replacement for the old QGraphicsOpacityEffect (which QWidget::render()
-        // can't rasterize, so it blanked these rows in GPU flag sprites). #5e6e7c is
-        // ~0.45 of the normal text over the flag background.
+        // can't rasterize, so it blanked these rows in GPU flag sprites).
         lbl->setStyleSheet("QLabel { background: transparent; border: none; "
                            "color: #c8d8e8; font-size: 12px; }"
-                           "QLabel:disabled { color: #5e6e7c; }");
+                           + kDisabledLabelRule);
         return lbl;
     };
 
@@ -2055,7 +2065,7 @@ void VfoWidget::buildTabContent()
             apfVb->addWidget(lbl);
             m_apfSlider = new GuardedSlider(Qt::Horizontal);
             m_apfSlider->setAccessibleName("APF bandwidth");
-            m_apfSlider->setAccessibleDescription("CW audio peaking filter bandwidth");
+            m_apfSlider->setAccessibleDescription("CW audio peaking filter bandwidth. Enabled when APF is on in the DSP grid.");
             m_apfSlider->setRange(0, 100);
             m_apfSlider->setValue(50);
             applyPrimarySliderStyle(m_apfSlider);
