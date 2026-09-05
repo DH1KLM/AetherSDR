@@ -1,12 +1,20 @@
 # `kiwi.json` — schema 1
 
 The reviewable, in-tree contract for the payload AetherSDR's directory mirror
-publishes at `https://cdn.aethersdr.com/kiwi.json`. The producer (a Cloudflare
-Worker that pulls `kiwisdr.com/public` hourly under a shared secret the KiwiSDR
-maintainer provided) lives outside this repository, so this file is what
-`KiwiPublicDirectory::kSupportedSchema` actually pins the client to.
+publishes at `https://cdn.aethersdr.com/kiwi.json`.
 
-**Changing anything below is a schema break.** Bump `schema`, and bump
+Both sides of this contract are in this repository:
+
+| Side | Where |
+|---|---|
+| **Producer** — the Cloudflare Worker that pulls `kiwisdr.com/public` hourly under a shared secret the KiwiSDR maintainer provided, and emits this payload | [`tools/kiwi-mirror-worker/`](../tools/kiwi-mirror-worker/) — field mapping in `src/parse.js`, the `schema` literals in `src/index.js` |
+| **Consumer** — the client that reads it | `src/core/KiwiPublicDirectory.cpp`, pinned by `kSupportedSchema` |
+
+Change one and change the other, in the same PR.
+
+**Changing anything below is a schema break.** Bump `schema` in
+`tools/kiwi-mirror-worker/src/index.js` (both the published payload and the
+status document), and bump
 `kSupportedSchema` in `src/core/KiwiPublicDirectory.h` in the same breath — the
 client rejects an unrecognised `schema` outright rather than parsing on
 hopefully, so an unannounced field change turns into "please update AetherSDR"
@@ -129,6 +137,19 @@ Serving each schema from its own path makes that impossible: old builds keep
 reading the URL they were built against, and a rollout becomes additive rather
 than a flag day. Retire an old path only when the builds that request it are
 genuinely gone, and treat that as its own decision.
+
+## Staleness is advisory
+
+`fetched_at` tells the client how old the mirror's copy is. It is something to
+**display**, never something to gate on: the client shows the list at any age,
+and adds its age to the picker's status line past 360 minutes.
+
+The producer should not expect a client to refuse stale data, and should not add
+a field trying to make it. The mirror advertises `stale_after_minutes` on its
+**status document** for humans reading the status page; if anything of that kind
+ever appears in `kiwi.json`, it remains advice. A stale list almost always means
+the origin is down while the mirror correctly serves its last good copy —
+withholding it at that moment converts an origin outage into a client outage.
 
 ## Compatibility rules for the producer
 
