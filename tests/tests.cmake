@@ -2518,6 +2518,18 @@ add_test(NAME native_widget_topology_test COMMAND native_widget_topology_test)
 set_tests_properties(native_widget_topology_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Windows Store publication policy: socket-free PowerShell with an injected
+# CLI command. Runs in the full suite wherever PowerShell is installed and in
+# Windows Installer before packaging. The frozen per-PR CTest gate is unchanged.
+# pwsh first: the suite is developed and verified on PowerShell 7, and on a
+# Windows box `powershell` would otherwise silently select 5.1 instead.
+find_program(AETHER_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
+if(AETHER_POWERSHELL_EXECUTABLE)
+    add_test(NAME windows_store_policy
+             COMMAND ${AETHER_POWERSHELL_EXECUTABLE} -NoProfile -ExecutionPolicy Bypass
+                     -File ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_store_policy_test.ps1)
+endif()
+
 # MCP server field-mapping / protocol regression test (#4177). Pure Python,
 # no app or Qt needed — guards the schema ↔ bridge verb field mapping.
 find_program(PYTHON3_EXECUTABLE NAMES python3 python)
