@@ -584,6 +584,18 @@ target_link_libraries(icom_power_derivation_test PRIVATE
     aethercore Qt6::Core Qt6::Test)
 add_test(NAME icom_power_derivation_test COMMAND icom_power_derivation_test)
 
+# Socket-free coverage for the Icom PTT seam contract (#5311): setKeying() is
+# intent, the decoded 1C 00 readback is state, a contradicting readback after
+# an unkey is republished, the key-on window is bounded, and the TX-audio gate
+# follows intent inside that window. Frames are injected through the same test
+# seam as icom_power_derivation_test — no session, no UDP peer.
+add_executable(icom_ptt_authority_test
+    tests/icom_ptt_authority_test.cpp)
+target_include_directories(icom_ptt_authority_test PRIVATE src)
+target_link_libraries(icom_ptt_authority_test PRIVATE
+    aethercore Qt6::Core)
+add_test(NAME icom_ptt_authority_test COMMAND icom_ptt_authority_test)
+
 # Retired fake-radio fixtures. Positive session and backend convergence is
 # certified against real firmware through the automation bridge and radiocert;
 # deterministic protocol/model policy stays in socket-free tests. Keep these
@@ -2752,6 +2764,8 @@ add_test(NAME ax25_frame_formatter_test COMMAND ax25_frame_formatter_test)
 
 add_executable(ax25_libmodem_shim_test
     tests/ax25_libmodem_shim_test.cpp
+    src/core/Resampler.cpp
+    src/core/tnc/Ax25AudioCapture.cpp
     src/core/tnc/AetherAx25LibmodemShim.cpp
     src/core/tnc/HdlcCodec.cpp
     src/core/tnc/Ax25FrameFormatter.cpp
@@ -2765,7 +2779,10 @@ add_executable(ax25_libmodem_shim_test
     src/core/AsyncLogWriter.cpp
     ${AETHER_SETTINGS_SOURCES}
 )
-target_include_directories(ax25_libmodem_shim_test PRIVATE src)
+target_include_directories(ax25_libmodem_shim_test PRIVATE
+    src
+    ${CMAKE_SOURCE_DIR}/third_party/r8brain
+)
 target_link_libraries(ax25_libmodem_shim_test PRIVATE Qt6::Core aether_libmodem_core
     aether_afskdemod)
 add_test(NAME ax25_libmodem_shim_test COMMAND ax25_libmodem_shim_test)
