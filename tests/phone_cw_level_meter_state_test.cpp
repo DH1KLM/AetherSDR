@@ -81,8 +81,8 @@ int main(int argc, char** argv)
     check(levelGauge->value() == -16.0f,
           "a repeated disconnected state preserves live PC-mic telemetry");
 
-    // Drive the actual ALC consumer with normalized model values, including
-    // Percent input. There is no backend, transport or keyed transmitter.
+    // Drive the native ALC consumer, including active-slice invalidation.
+    // There is no backend, transport or keyed transmitter.
     MeterModel meters;
     for (int slice = 0; slice < 2; ++slice) {
         MeterDef slc;
@@ -101,8 +101,15 @@ int main(int argc, char** argv)
         meters.defineMeter(alc);
     }
     meters.setActiveTxSlice(1);
-    QObject::connect(&meters, &MeterModel::swAlcChanged,
-                     &applet, &PhoneCwApplet::updateAlc);
+    QObject::connect(&meters, &MeterModel::alcValueChanged, &applet,
+                     [&applet](float value, const QString& unit) {
+        applet.setAlcMeterUnit(unit);
+        if (unit.isEmpty()) {
+            applet.resetAlc();
+        } else {
+            applet.updateAlc(value);
+        }
+    });
     QList<HGauge*> alcGauges;
     for (QWidget* widget : applet.findChildren<QWidget*>()) {
         if (widget->accessibleName() == "ALC gauge (Phone)"
@@ -117,12 +124,12 @@ int main(int argc, char** argv)
         }
     };
     meters.updateValues({21}, {50});
-    checkAlc(-10.0f, "a percentage ALC sample reaches both gauges in dBFS");
+    checkAlc(50.0f, "a percentage ALC sample reaches both gauges in native units");
     meters.setActiveTxSlice(0);
-    checkAlc(-20.0f, "changing TX slice sets both ALC gauges to empty");
+    checkAlc(0.0f, "changing TX slice sets both ALC gauges to empty");
     meters.updateValues({20}, {50});
     meters.removeMeter(20);
-    checkAlc(-20.0f, "active meter removal sets both ALC gauges to empty");
+    checkAlc(0.0f, "active meter removal sets both ALC gauges to empty");
 
     return failures == 0 ? 0 : 1;
 }

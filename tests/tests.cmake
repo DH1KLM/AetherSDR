@@ -555,6 +555,13 @@ add_executable(icom_civ_scheduler_test
 target_include_directories(icom_civ_scheduler_test PRIVATE src)
 add_test(NAME icom_civ_scheduler_test COMMAND icom_civ_scheduler_test)
 
+# Socket-free PR #5436 coverage recovered from the retired capability fixture.
+# Uses an unstarted IcomSession and direct frame/state injection; never binds.
+add_executable(icom_control_profile_test tests/icom_control_profile_test.cpp)
+target_include_directories(icom_control_profile_test PRIVATE src tests)
+target_link_libraries(icom_control_profile_test PRIVATE aethercore Qt6::Core)
+add_test(NAME icom_control_profile_test COMMAND icom_control_profile_test)
+
 # Socket-free backend incident-state transition. Positive session convergence
 # is certified against real firmware through the automation bridge.
 add_executable(icom_incident_telemetry_test
@@ -4376,6 +4383,7 @@ target_link_libraries(CAT_Flex_test PRIVATE Qt6::Core Qt6::Network)
 # directly (rather than linking aethercore) needs the vendored SQLite engine.
 # Conditional targets are guarded with if(TARGET ...).
 set(AETHER_SETTINGS_CONSUMERS
+    icom_control_profile_test
     control_resource_service_test
     aetherd_discovery_startup_test
     slice_label_test
