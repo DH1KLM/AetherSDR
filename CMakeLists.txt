@@ -994,6 +994,8 @@ set(GUI_SOURCES
     src/gui/MainWindow_Callsign.cpp
     src/gui/MainWindow_ReceiveSync.cpp
     src/gui/MainWindow_KiwiSdr.cpp
+    src/gui/map/CityLightsItem.cpp
+    src/gui/map/CityLightsSource.cpp
     src/gui/map/MapDisplayWidget.cpp
     src/gui/map/GlobeMapView.cpp
     src/gui/map/MapView.cpp

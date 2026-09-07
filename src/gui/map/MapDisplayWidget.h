@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CityLightsShading.h"
 #include "MapView.h"
 #include "WeatherRadarLoadingStatus.h"
 #include "WeatherRadarPlaybackTimeline.h"
@@ -27,6 +28,7 @@ class QLabel;
 namespace AetherSDR {
 
 class GlobeMapView;
+class CityLightsSource;
 
 // Projection-neutral facade for map consumers that can switch renderers.
 // The GPS dialog continues to use MapView directly; PSK Reporter uses this
@@ -58,6 +60,12 @@ public:
     bool pathsVisible() const;
     void setDayNightTerminatorVisible(bool visible);
     bool dayNightTerminatorVisible() const;
+    void setCityLightsVisible(bool visible);
+    bool cityLightsVisible() const { return m_cityLightsVisible; }
+    void setCityLightsBrightness(int percent);
+    void setCityLightsFaintLights(int percent);
+    void setCityLightsWarmth(int percent);
+    int cityLightsBrightness() const { return m_cityLightsBrightness; }
     void setWeatherRadarVisible(bool visible);
     bool weatherRadarVisible() const { return m_weatherRadarVisible; }
     void startWeatherRadarAnimation(int historyHours);
@@ -75,6 +83,7 @@ public:
     QString globeUnavailableReason() const { return m_globeUnavailableReason; }
 
 signals:
+    void cityLightsStatusChanged(const QString& status);
     void markerClicked(const MapDisplayWidget::Marker& marker);
     void projectionModeChanged(ProjectionMode mode);
     void globeAvailabilityChanged(bool available, const QString& reason);
@@ -87,6 +96,11 @@ public slots:
     void resetToHome();
     void zoomIn();
     void zoomOut();
+
+protected:
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     friend class WeatherRadarLoadingTest;
@@ -119,6 +133,7 @@ private:
         const QString& key, const CachedWeatherRadarFrame& frame);
     void finishWeatherRadarDownloadBatch();
     void updateWeatherRadarLoadingStatus();
+    void updateOverlayLoadingStatus();
     void retryWeatherRadarHistory();
     void requestNextWeatherRadarBufferedFrames();
     void tryStartWeatherRadarBufferedPrefix();
@@ -141,7 +156,14 @@ private:
     void cancelWeatherRadarTimelineRequest();
     void resetWeatherRadarAnimation(bool returnToLive);
     void pruneWeatherRadarCache();
+    void refreshCityLightsView();
+    void presentCityLights();
 
+    CityLightsSource* m_cityLightsSource{nullptr};
+    bool m_cityLightsVisible{false};
+    int m_cityLightsBrightness{CityLightsShading::kDefaultBrightness};
+    int m_cityLightsFaintLights{CityLightsShading::kDefaultFaintLights};
+    int m_cityLightsWarmth{CityLightsShading::kDefaultWarmth};
     QStackedLayout* m_stack{nullptr};
     MapView* m_flatView{nullptr};
     GlobeMapView* m_globeView{nullptr};
@@ -188,6 +210,10 @@ private:
     QElapsedTimer m_weatherRadarLoadingElapsed;
     WeatherRadarLoadingStatus m_weatherRadarLoadingStatus;
     QString m_weatherRadarLoadingAnnouncement;
+    QString m_weatherRadarLoadingText;
+    QString m_cityLightsLoadingText;
+    QString m_overlayLoadingAnnouncement;
+    QTimer* m_cityLightsLoadingTimer{nullptr};
     QVector<int> m_weatherRadarSegmentDurationsMs;
     QHash<int, QImage> m_weatherRadarDecodedImages;
     QSet<int> m_weatherRadarDecodePending;

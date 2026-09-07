@@ -1,4 +1,5 @@
 #include "GlobeMapView.h"
+#include "CityLightsShading.h"
 
 #include "MapHoverPathSelection.h"
 #include "SolarTerminator.h"
@@ -201,6 +202,7 @@ GlobeMapView::GlobeMapView(QWidget* parent)
     m_weatherRadarPlaybackViewTimer.setInterval(600);
     connect(&m_weatherRadarPlaybackViewTimer, &QTimer::timeout,
             this, [this] {
+                emit imageOverlayViewChanged();
                 if (m_weatherRadarPlaybackActive) {
                     emit weatherRadarPlaybackViewChanged();
                 }
@@ -301,6 +303,8 @@ void GlobeMapView::cleanupOpenGlResources()
     }
     m_detailTiles.clear();
     m_texture.reset();
+    m_cityLightsTexture.reset();
+    m_cityLightsProgram.reset();
     m_radarTexture.reset();
     m_previousRadarTexture.reset();
     m_preloadedRadarTexture.reset();
@@ -607,6 +611,8 @@ void GlobeMapView::paintGL()
     m_program->disableAttributeArray(uvLocation);
     m_program->release();
 
+    drawCityLights(matrix);
+
     if (m_weatherRadarVisible && m_radarProgram != nullptr) {
         if (m_pendingWeatherRadarPlaybackFrameDirty) {
             uploadPendingWeatherRadarPlaybackFrame();
@@ -738,6 +744,7 @@ void GlobeMapView::paintVectorOverlay(QPainter& painter)
 void GlobeMapView::uploadAtlas()
 {
     m_texture.reset();
+    // Basemap refreshes must retain the independent city-light GPU resources.
     m_texture = std::make_unique<QOpenGLTexture>(m_atlas);
     m_texture->setMinificationFilter(QOpenGLTexture::LinearMipMapLinear);
     m_texture->setMagnificationFilter(QOpenGLTexture::Linear);
@@ -1795,16 +1802,137 @@ void GlobeMapView::setDayNightTerminatorVisible(bool visible)
     update();
 }
 
+void GlobeMapView::setCityLightsVisible(bool visible)
+{
+    if (m_cityLightsVisible == visible) {
+        return;
+    }
+    m_cityLightsVisible = visible;
+    updateMapAttribution();
+    update();
+}
+
+void GlobeMapView::setCityLightsWarmth(int percent)
+{
+    m_cityLightsWarmth = std::clamp(percent, 0, 100) / 100.0F;
+    update();
+}
+
+void GlobeMapView::setCityLightsFaintLights(int percent)
+{
+    m_cityLightsGamma = float(CityLightsShading::faintLightsGamma(percent));
+    update();
+}
+
+void GlobeMapView::setCityLightsBrightness(int percent)
+{
+    m_cityLightsOpacity = std::clamp(percent, 0, 100) / 100.0F;
+    update();
+}
+
+void GlobeMapView::setCityLightsImage(const QImage& image, const QRectF& bounds)
+{
+    if (image.cacheKey() == m_cityLightsImage.cacheKey() && bounds == m_cityLightsBounds) {
+        return;
+    }
+    m_cityLightsImage = image;
+    m_cityLightsBounds = bounds;
+    m_cityLightsDirty = true;
+    update();
+}
+
+void GlobeMapView::updateMapAttribution()
+{
+    QString text = QStringLiteral("© OpenStreetMap contributors");
+    if (m_cityLightsVisible) {
+        text += QStringLiteral(" · Lights: NASA/GSFC, 2016");
+    }
+    if (m_weatherRadarVisible) {
+        text += QStringLiteral(" · Radar: NOAA/NWS");
+    }
+    m_attribution->setText(text);
+    layoutOverlays();
+}
+
+void GlobeMapView::drawCityLights(const QMatrix4x4& matrix)
+{
+    if (!m_cityLightsVisible || m_cityLightsImage.isNull() || m_cityLightsBounds.isEmpty()) {
+        return;
+    }
+    if (m_cityLightsProgram == nullptr) {
+        m_cityLightsProgram = std::make_unique<QOpenGLShaderProgram>();
+        static constexpr char vertex[] = R"(
+            attribute highp vec3 position;
+            uniform highp mat4 matrix;
+            varying highp vec3 earthPosition;
+            void main() {
+                earthPosition = position;
+                gl_Position = matrix * vec4(position, 1.0);
+            }
+        )";
+        if (!m_cityLightsProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, vertex)
+            || !m_cityLightsProgram->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                                             CityLightsShading::fragmentShaderSource())
+            || !m_cityLightsProgram->link()) {
+            qCWarning(lcPskReporterGlobe) << "City lights shader:" << m_cityLightsProgram->log();
+            return;
+        }
+    }
+    if (!m_cityLightsProgram->isLinked()) {
+        return;
+    }
+    if (m_cityLightsDirty || m_cityLightsTexture == nullptr) {
+        m_cityLightsTexture = WeatherRadarTexture::makeTexture(m_cityLightsImage);
+        m_cityLightsDirty = false;
+    }
+    if (m_cityLightsTexture == nullptr) {
+        return;
+    }
+    // Same surface-order rule as radar: the globe's coarse mesh is below
+    // basemap detail triangles. Cull the back hemisphere, not the base map.
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glFrontFace(GL_CW);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    m_cityLightsProgram->bind();
+    m_cityLightsProgram->setUniformValue("matrix", matrix);
+    m_cityLightsProgram->setUniformValue("lights", 0);
+    m_cityLightsProgram->setUniformValue("bounds", normalizedRadarTextureBounds(m_cityLightsBounds));
+    m_cityLightsProgram->setUniformValue("opacity", m_cityLightsOpacity);
+    m_cityLightsProgram->setUniformValue("lightsGamma", m_cityLightsGamma);
+    m_cityLightsProgram->setUniformValue("warmth", m_cityLightsWarmth);
+    const SolarTerminator::Position sun = SolarTerminator::positionAt(QDateTime::currentDateTimeUtc());
+    m_cityLightsProgram->setUniformValue("sunDirection", geoVector(
+        qRadiansToDegrees(sun.declinationRad), qRadiansToDegrees(sun.subsolarLonRad)));
+    m_cityLightsProgram->setUniformValue("nightOnly", m_terminatorVisible ? 1.0F : 0.0F);
+    m_cityLightsTexture->bind(0);
+    m_vertexBuffer.bind();
+    m_indexBuffer.bind();
+    const int position = m_cityLightsProgram->attributeLocation("position");
+    m_cityLightsProgram->enableAttributeArray(position);
+    m_cityLightsProgram->setAttributeBuffer(position, GL_FLOAT,
+        offsetof(Vertex, position), 3, sizeof(Vertex));
+    glDrawElements(GL_TRIANGLES, m_indexCount, GL_UNSIGNED_INT, nullptr);
+    m_cityLightsProgram->disableAttributeArray(position);
+    m_indexBuffer.release();
+    m_vertexBuffer.release();
+    m_cityLightsTexture->release();
+    m_cityLightsProgram->release();
+    glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
+    glFrontFace(GL_CCW);
+    glEnable(GL_DEPTH_TEST);
+}
+
 void GlobeMapView::setWeatherRadarVisible(bool visible)
 {
     if (m_weatherRadarVisible == visible) {
         return;
     }
     m_weatherRadarVisible = visible;
-    m_attribution->setText(visible
-        ? QStringLiteral("© OpenStreetMap contributors · Radar: NOAA/NWS")
-        : QStringLiteral("© OpenStreetMap contributors"));
-    layoutOverlays();
+    updateMapAttribution();
     if (visible) {
         m_detailSelectionDirty = true;
         setWeatherRadarSource(m_weatherRadarSource);
@@ -2126,7 +2254,7 @@ void GlobeMapView::beginTransientInteraction()
 
 void GlobeMapView::scheduleWeatherRadarPlaybackViewRefresh()
 {
-    if (m_weatherRadarPlaybackActive) {
+    if (m_weatherRadarPlaybackActive || m_cityLightsVisible) {
         m_weatherRadarPlaybackViewTimer.start();
     }
 }
@@ -2438,9 +2566,7 @@ void GlobeMapView::resizeEvent(QResizeEvent* event)
 {
     QOpenGLWidget::resizeEvent(event);
     layoutOverlays();
-    if (m_weatherRadarPlaybackActive) {
-        scheduleWeatherRadarPlaybackViewRefresh();
-    }
+    scheduleWeatherRadarPlaybackViewRefresh();
 }
 
 void GlobeMapView::showEvent(QShowEvent* event)
