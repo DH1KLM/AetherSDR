@@ -10,8 +10,6 @@
 #include <QUdpSocket>
 
 #ifdef Q_OS_WIN
-// winsock2.h pulls in windows.h, whose min/max function-like macros otherwise
-// clobber std::min/std::max at their use sites (MSVC error C2589).
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -21,14 +19,11 @@
 #endif
 
 namespace AetherSDR::anan {
-
 namespace {
 
-// QUdpSocket does not enable SO_BROADCAST itself; set it on the native handle
-// so the discovery datagram reaches the subnet broadcast address. Duplicated
-// from Hl2Discovery.cpp's helper of the same name rather than factored into a
-// shared header -- matches this codebase's existing per-file convention
-// (MetisClient.cpp carries its own copy too).
+constexpr char kIdentityFeature[] = "Identity";
+constexpr char kNicknameField[] = "nickname";
+
 void enableBroadcast(QUdpSocket& s) noexcept
 {
     const qintptr fd = s.socketDescriptor();
@@ -43,47 +38,7 @@ void enableBroadcast(QUdpSocket& s) noexcept
 #endif
 }
 
-constexpr char kIdentityFeature[] = "Identity";
-constexpr char kNicknameField[] = "nickname";
-
-}  // namespace
-
-QString AnanDiscovery::macToSerial(const std::array<std::uint8_t, 6>& mac)
-{
-    QStringList parts;
-    parts.reserve(6);
-    for (const std::uint8_t b : mac)
-        parts << QStringLiteral("%1").arg(b, 2, 16, QLatin1Char('0')).toUpper();
-    return parts.join(QLatin1Char(':'));
-}
-
-QString AnanDiscovery::effectiveNickname(const QString& family, const QString& serial,
-                                         const QString& fallback)
-{
-    auto& settings = AppSettings::instance();
-    const QString custom = settings
-                                .radioFeature(family, serial,
-                                              QString::fromLatin1(kIdentityFeature))
-                                .value(QLatin1String(kNicknameField))
-                                .toString()
-                                .trimmed();
-    return custom.isEmpty() ? fallback : custom;
-}
-
-void AnanDiscovery::setNickname(const QString& family, const QString& serial,
-                                const QString& name)
-{
-    auto& settings = AppSettings::instance();
-    const QString trimmed = name.trimmed();
-    if (trimmed.isEmpty()) {
-        settings.removeRadioFeature(family, serial, QString::fromLatin1(kIdentityFeature));
-    } else {
-        settings.setRadioFeature(
-            family, serial, QString::fromLatin1(kIdentityFeature), 1,
-            QJsonObject{{QLatin1String(kNicknameField), trimmed}});
-    }
-    settings.save();
-}
+} // namespace
 
 AnanDiscovery::AnanDiscovery(QObject* parent) : QObject(parent)
 {
@@ -102,16 +57,19 @@ void AnanDiscovery::start(int intervalMs)
 {
     if (!m_socket) {
         m_socket = new QUdpSocket(this);
-        if (!m_socket->bind(QHostAddress::AnyIPv4, 0)) {
+        if (!m_socket->bind(QHostAddress::AnyIPv4, 0,
+                           QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
             m_socket->deleteLater();
             m_socket = nullptr;
-            return;   // no socket: stay silent rather than half-running
+            return;
         }
         enableBroadcast(*m_socket);
-        connect(m_socket, &QUdpSocket::readyRead, this, &AnanDiscovery::onReadyRead);
+        connect(m_socket, &QUdpSocket::readyRead,
+                this, &AnanDiscovery::onReadyRead);
     }
+
     m_timer->start(intervalMs);
-    sweepNow();   // don't make the operator wait a full interval for the first sweep
+    sweepNow();
 }
 
 void AnanDiscovery::stop()
@@ -119,6 +77,7 @@ void AnanDiscovery::stop()
     if (m_timer)
         m_timer->stop();
     if (m_socket) {
+        m_socket->close();
         m_socket->deleteLater();
         m_socket = nullptr;
     }
@@ -129,16 +88,25 @@ void AnanDiscovery::sweepNow()
 {
     if (!m_socket)
         return;
-    const auto pkt = buildDiscovery();
-    m_socket->writeDatagram(reinterpret_cast<const char*>(pkt.data()),
-                            static_cast<qint64>(pkt.size()),
+
+    //DH1KLM: Protocol 1 discovery is 63 bytes: EF FE 02 followed by zero padding.
+    //DH1KLM: Do NOT put 0xFF into byte 3/4 here; Thetis/NereusSDR's proven request
+    //DH1KLM: is EF FE 02 + 60 zero bytes.
+    QByteArray p1(63, '\0');
+    p1[0] = char(0xEF);
+    p1[1] = char(0xFE);
+    p1[2] = char(0x02);
+    m_socket->writeDatagram(p1, QHostAddress::Broadcast, 1024);
+
+    //DH1KLM: Preserve the existing Protocol 2 discovery packet byte-for-byte.
+    const auto p2 = buildDiscovery();
+    m_socket->writeDatagram(reinterpret_cast<const char*>(p2.data()),
+                            static_cast<qint64>(p2.size()),
                             QHostAddress::Broadcast, kRadioPort);
 }
 
 void AnanDiscovery::onSweepTimer()
 {
-    // Age out anything that missed too many consecutive sweeps before
-    // probing again, so a radio that is unplugged disappears from the picker.
     for (auto it = m_seen.begin(); it != m_seen.end();) {
         if (++it.value().missedSweeps > kMissedSweepsBeforeLost) {
             const QString serial = it.key();
@@ -151,52 +119,199 @@ void AnanDiscovery::onSweepTimer()
     sweepNow();
 }
 
+bool AnanDiscovery::parseP1Reply(const QByteArray& data, P1Reply& out) noexcept
+{
+    //DH1KLM: The standard P1 reply is at least 21 bytes. The byte layout below is
+    //DH1KLM: taken from Thetis clsRadioDiscovery.cs and the NereusSDR P1 capture
+    //DH1KLM: reference; no guessed fields are used.
+    if (data.size() < 21)
+        return false;
+
+    const auto u8 = [&data](int i) -> std::uint8_t {
+        return static_cast<std::uint8_t>(data.at(i));
+    };
+
+    if (u8(0) != 0xEF || u8(1) != 0xFE)
+        return false;
+    if (u8(2) != 0x02 && u8(2) != 0x03)
+        return false;
+
+    out.busy = (u8(2) == 0x03);
+    for (int i = 0; i < 6; ++i)
+        out.mac[static_cast<std::size_t>(i)] = u8(3 + i);
+    out.firmware = u8(9);
+    out.boardId = u8(10);
+    out.metisVersion = u8(19);
+    out.numRxs = u8(20);
+    return true;
+}
+
 void AnanDiscovery::onReadyRead()
 {
     while (m_socket && m_socket->hasPendingDatagrams()) {
         const QNetworkDatagram dg = m_socket->receiveDatagram();
         const QByteArray data = dg.data();
-        const auto reply = parseDiscoveryReply(
-            {reinterpret_cast<const std::uint8_t*>(data.constData()),
-             static_cast<std::size_t>(data.size())});
-        if (!reply || !reply->isSaturn())
-            continue;   // not an ANAN-G2 (or not a discovery reply at all)
 
-        RadioInfo info;
-        info.family   = QStringLiteral("anan");
-        info.address  = dg.senderAddress();
-        info.port     = kRadioPort;
-        info.model    = QStringLiteral("ANAN-G2");
-        info.name     = info.model;
-        info.serial   = macToSerial(reply->mac);
-        info.nickname = effectiveNickname(QStringLiteral("anan"), info.serial, info.model);
-        info.version  = QString::number(reply->firmwareVer);
-        // A bare integer is not self-describing in a status bar -- and this
-        // one especially: it is a gateware bitstream number, not a software
-        // version (discrepancy #1, see P2Protocol.h's DiscoveryReply).
-        info.versionLabel = QStringLiteral("Gateware");
-        // A radio already streaming to another client answers with 0x03.
-        // Show it as present-but-taken rather than hiding it.
-        info.inUse    = reply->streaming;
-        info.status   = reply->streaming ? QStringLiteral("In_Use")
-                                         : QStringLiteral("Available");
-
-        auto it = m_seen.find(info.serial);
-        if (it == m_seen.end()) {
-            m_seen.insert(info.serial, Seen{info, 0});
-            emit radioDiscovered(info);
+        //DH1KLM: P1 and P2 share UDP/1024. The EF FE prefix is the authoritative
+        //DH1KLM: discriminator, not packet length or source port.
+        if (data.size() >= 3
+            && static_cast<std::uint8_t>(data.at(0)) == 0xEF
+            && static_cast<std::uint8_t>(data.at(1)) == 0xFE) {
+            processP1Reply(data, dg.senderAddress());
         } else {
-            it.value().missedSweeps = 0;
-            // Only re-emit when something the picker displays actually changed.
-            const RadioInfo& prev = it.value().info;
-            const bool changed = prev.address != info.address
-                              || prev.status  != info.status
-                              || prev.version != info.version;
-            it.value().info = info;
-            if (changed)
-                emit radioUpdated(info);
+            processP2Reply(data, dg.senderAddress());
         }
     }
 }
 
-}  // namespace AetherSDR::anan
+void AnanDiscovery::processP1Reply(const QByteArray& data,
+                                    const QHostAddress& sender)
+{
+    P1Reply reply;
+    if (!parseP1Reply(data, reply))
+        return;
+
+    const QString model = p1ModelName(reply.boardId);
+
+    //DH1KLM: Stage 1 deliberately exposes only Orion/ANAN-200D. Other P1 boards
+    //DH1KLM: are enabled after the ANAN capability registry is completed.
+    if (model.isEmpty())
+        return;
+
+    RadioInfo info;
+    info.family = QStringLiteral("anan");
+    info.address = sender;
+    info.port = 1024;
+    info.model = model;
+    info.name = model;
+    info.serial = macToSerial(reply.mac);
+    info.nickname = effectiveNickname(QStringLiteral("anan"), info.serial, model);
+    info.version = QString::number(reply.firmware);
+    info.versionLabel = QStringLiteral("P1 Gateware");
+    info.inUse = reply.busy;
+    info.status = reply.busy ? QStringLiteral("In_Use") : QStringLiteral("Available");
+
+    upsert(info, Protocol::P1);
+}
+
+void AnanDiscovery::processP2Reply(const QByteArray& data,
+                                    const QHostAddress& sender)
+{
+    const auto reply = parseDiscoveryReply(
+        {reinterpret_cast<const std::uint8_t*>(data.constData()),
+         static_cast<std::size_t>(data.size())});
+    if (!reply || !reply->isSaturn())
+        return;
+
+    RadioInfo info;
+    info.family = QStringLiteral("anan");
+    info.address = sender;
+    info.port = kRadioPort;
+    info.model = QStringLiteral("ANAN-G2");
+    info.name = info.model;
+    info.serial = macToSerial(reply->mac);
+    info.nickname = effectiveNickname(QStringLiteral("anan"), info.serial, info.model);
+    info.version = QString::number(reply->firmwareVer);
+    info.versionLabel = QStringLiteral("P2 Gateware");
+    info.inUse = reply->streaming;
+    info.status = reply->streaming ? QStringLiteral("In_Use") : QStringLiteral("Available");
+
+    upsert(info, Protocol::P2);
+}
+
+void AnanDiscovery::upsert(const RadioInfo& info, Protocol protocol)
+{
+    auto it = m_seen.find(info.serial);
+    if (it == m_seen.end()) {
+        m_seen.insert(info.serial, Seen{info, protocol, 0});
+        emit protocolDetected(info.serial, static_cast<int>(protocol));
+        emit radioDiscovered(info);
+        if (protocol == Protocol::P1)
+            emit p1RadioReady(info);
+        return;
+    }
+
+    const Protocol oldProtocol = it.value().protocol;
+    const RadioInfo previous = it.value().info;
+    const bool changed = previous.address != info.address
+                      || previous.port != info.port
+                      || previous.model != info.model
+                      || previous.status != info.status
+                      || previous.version != info.version
+                      || previous.versionLabel != info.versionLabel
+                      || oldProtocol != protocol;
+
+    it.value().info = info;
+    it.value().protocol = protocol;
+    it.value().missedSweeps = 0;
+
+    if (oldProtocol != protocol)
+        emit protocolDetected(info.serial, static_cast<int>(protocol));
+    if (changed)
+        emit radioUpdated(info);
+    if (protocol == Protocol::P1 && (oldProtocol != protocol || changed))
+        emit p1RadioReady(info);
+}
+
+QString AnanDiscovery::p1ModelName(std::uint8_t boardId)
+{
+    //DH1KLM: Protocol 1 board ID 5 is Orion. For Stage 1 the physical Orion
+    //DH1KLM: implementation is exposed as the ANAN-200D picker model.
+    if (boardId == 5)
+        return QStringLiteral("ANAN-200D");
+    return {};
+}
+
+AnanDiscovery::Protocol AnanDiscovery::protocolForSerial(const QString& serial) const noexcept
+{
+    const auto it = m_seen.constFind(serial);
+    return it == m_seen.cend() ? Protocol::Unknown : it.value().protocol;
+}
+
+AnanDiscovery::Protocol AnanDiscovery::protocolForModel(const QString& model) noexcept
+{
+    if (model.compare(QStringLiteral("ANAN-200D"), Qt::CaseInsensitive) == 0)
+        return Protocol::P1;
+    if (model.compare(QStringLiteral("ANAN-G2"), Qt::CaseInsensitive) == 0)
+        return Protocol::P2;
+    return Protocol::Unknown;
+}
+
+QString AnanDiscovery::macToSerial(const std::array<std::uint8_t, 6>& mac)
+{
+    QStringList parts;
+    parts.reserve(6);
+    for (const auto b : mac)
+        parts << QStringLiteral("%1").arg(b, 2, 16, QLatin1Char('0')).toUpper();
+    return parts.join(QLatin1Char(':'));
+}
+
+QString AnanDiscovery::effectiveNickname(const QString& family,
+                                         const QString& serial,
+                                         const QString& fallback)
+{
+    auto& settings = AppSettings::instance();
+    const QString custom = settings.radioFeature(
+        family, serial, QString::fromLatin1(kIdentityFeature))
+        .value(QLatin1String(kNicknameField)).toString().trimmed();
+    return custom.isEmpty() ? fallback : custom;
+}
+
+void AnanDiscovery::setNickname(const QString& family,
+                                const QString& serial,
+                                const QString& name)
+{
+    auto& settings = AppSettings::instance();
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+        settings.removeRadioFeature(family, serial,
+                                     QString::fromLatin1(kIdentityFeature));
+    } else {
+        settings.setRadioFeature(
+            family, serial, QString::fromLatin1(kIdentityFeature), 1,
+            QJsonObject{{QLatin1String(kNicknameField), trimmed}});
+    }
+    settings.save();
+}
+
+} // namespace AetherSDR::anan
