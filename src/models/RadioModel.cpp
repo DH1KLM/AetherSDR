@@ -10,6 +10,7 @@
 #include "core/backends/hl2/Hl2Backend.h"      // aetherd Gap A — HL2 backend (family "hl2")
 #include "models/ConnectStatePolicy.h"
 #include "core/backends/anan/AnanBackend.h"    // aetherd ANAN P2 Phase 1b (family "anan")
+#include "core/backends/anan/AnanDiscovery.h" //DH1KLM: ANAN discovery protocol selection for the connection seam.
 #include "core/backends/anan/AnanSettings.h"   // owned "Anan" settings object (Principle V)
 #include "core/backends/icom/IcomCivBackend.h"  // Icom networked radios (family "icom")
 #include "core/backends/icom/IcomCredentials.h"  // password: keychain, never settings
@@ -647,8 +648,11 @@ void RadioModel::handRestoredStateToBackend()
 // auto-reconnect timer, and a keychain read is async. IcomCredentials keeps a
 // process-lifetime session cache primed by the connect dialog precisely so this
 // call cannot block on the keyring — see its header.
-static void populateFamilyParams(RadioConnectRequest& req, const QString& family)
+//DH1KLM: Pass the complete RadioInfo into the family parameter builder so
+//DH1KLM: ANAN can carry the protocol selected by discovery to its backend.
+static void populateFamilyParams(RadioConnectRequest& req, const RadioInfo& info)
 {
+    const QString& family = info.family;
     // The DDC0 rate and ADC options are connect-time preferences selected in
     // ConnectionPanel's ANAN-only manual-connect rows. Operating state such as
     // frequency is deliberately absent until this backend participates in the
@@ -666,6 +670,16 @@ static void populateFamilyParams(RadioConnectRequest& req, const QString& family
                           anan::AnanSettings::bypassAdc0Filters());
         req.params.insert(QStringLiteral("anan.bypassAdc1Filters"),
                           anan::AnanSettings::bypassAdc1Filters());
+
+        //DH1KLM: Carry the ANAN protocol selected by discovery through the
+        //DH1KLM: generic connection request. Stage 1 maps ANAN-200D/Orion to
+        //DH1KLM: OpenHPSDR Protocol 1 and ANAN-G2/Saturn to Protocol 2.
+        const auto protocol = anan::AnanDiscovery::protocolForModel(info.model);
+        if (protocol != anan::AnanDiscovery::Protocol::Unknown) {
+            req.params.insert(
+                QStringLiteral("anan.protocol"),
+                static_cast<int>(protocol));
+        }
         return;
     }
 
@@ -2580,7 +2594,7 @@ RadioModel::RadioModel(QObject* parent)
                 // The RECONNECT path needs these too. Populating only the
                 // initial connect gives a session that authenticates once and
                 // then fails every automatic retry.
-                populateFamilyParams(req, m_family);
+                populateFamilyParams(req, m_lastInfo);
                 handRestoredStateToBackend();
                 m_backend->connectRadio(req);
             }
@@ -3634,7 +3648,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         req.port   = info.port;
         req.serial = info.serial;
         req.serialIdentity = info.serialIdentity;
-        populateFamilyParams(req, info.family);
+        populateFamilyParams(req, info);
         handRestoredStateToBackend();
         m_backend->connectRadio(req);
     }
@@ -3926,7 +3940,7 @@ bool RadioModel::wakeIcomRadio(int modelId, int address, QString* error)
         request.host = selectedRadio.address.toString();
         request.port = selectedRadio.port;
         request.serial = selectedRadio.serial;
-        populateFamilyParams(request, m_family);
+        populateFamilyParams(request, selectedRadio);
         request.params.insert(QStringLiteral("icom.wakeOnConnect"), false);
         request.params.insert(QStringLiteral("icom.waitingForWake"), true);
         request.params.insert(QStringLiteral("icom.civAddress"), address);
