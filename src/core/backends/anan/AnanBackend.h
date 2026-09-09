@@ -3,6 +3,8 @@
 #include "core/backends/IRadioBackend.h"
 #include "core/backends/anan/AnanRxDsp.h"
 #include "core/backends/anan/P2Client.h"
+//DH1KLM: Protocol 1 transport client for legacy OpenHPSDR/ANAN hardware.
+#include "core/backends/anan/P1Client.h"
 
 #include <QString>
 #include <QThread>
@@ -112,11 +114,24 @@ private:
     // of a second copy. Reads m_rateChanging to decide which connect timeout
     // to pass (see P2Client::start()'s own comment).
     void startP2ClientSession(quint64 generation);
+    //DH1KLM: Starts the Protocol 1 transport after the common DSP chain
+    //DH1KLM: has been configured.
+    void startP1ClientSession(quint64 generation);
+
+    //DH1KLM: Transport protocol selected by ANAN discovery and carried
+    //DH1KLM: through RadioConnectRequest::params as "anan.protocol".
+    enum class Protocol {
+        P1 = 1,
+        P2 = 2
+    };
+    Protocol m_protocol = Protocol::P2;
     // Set by connectRadio() just before beginDspSetup(); read back by
     // finishDspSetup() once AnanRxDsp::configure() completes, so the P2Client
     // session isn't started until the DSP chain that will consume its IQ
     // actually exists.
     P2Client::Params m_pendingParams;
+    //DH1KLM: Pending Protocol 1 connection parameters.
+    P1Client::Params m_pendingP1Params;
     AnanRxDsp::Config m_pendingDspConfig;
     void emitSliceState();
     void emitPanState();
@@ -154,7 +169,10 @@ private:
     void pushModeFilterShift();
 
     QThread* m_ioThread = nullptr;
-    P2Client* m_client = nullptr;    // lives on m_ioThread; nullptr parent (moveToThread requires it)
+    //DH1KLM: Protocol 1 and Protocol 2 use separate concrete transport
+    //DH1KLM: clients because their APIs and wire protocols differ.
+    P1Client* m_p1Client = nullptr; // lives on m_ioThread; nullptr parent
+    P2Client* m_client = nullptr;    // lives on m_ioThread; nullptr parent
     AnanRxDsp* m_dsp = nullptr;      // lives on m_ioThread; nullptr parent
     // Build-only thread for a rate change's background AnanRxDsp::buildChannel()
     // call -- never touches P2Client or the real-time IQ path, so it can never
