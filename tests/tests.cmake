@@ -520,6 +520,40 @@ add_executable(anan_p2_protocol_test
 target_include_directories(anan_p2_protocol_test PRIVATE src)
 add_test(NAME anan_p2_protocol_test COMMAND anan_p2_protocol_test)
 
+#DH1KLM: ANAN Protocol 1 — pure wire encode/decode, standalone.
+#DH1KLM: No Qt, aethercore or live radio is required.
+add_executable(anan_p1_protocol_test
+    tests/anan_p1_protocol_test.cpp
+    src/core/backends/anan/P1Protocol.cpp)
+target_include_directories(anan_p1_protocol_test PRIVATE src)
+add_test(NAME anan_p1_protocol_test COMMAND anan_p1_protocol_test)
+
+#DH1KLM: ANAN Protocol 1 client — socket-free construction and packet generation.
+#DH1KLM: P1Client uses Qt Core/Network but the test does not contact a radio.
+add_executable(anan_p1_client_test
+    tests/anan_p1_client_test.cpp
+    src/core/backends/anan/P1Client.cpp
+    src/core/backends/anan/P1Protocol.cpp)
+target_include_directories(anan_p1_client_test PRIVATE src)
+target_link_libraries(anan_p1_client_test PRIVATE
+    Qt6::Core
+    Qt6::Network)
+add_test(NAME anan_p1_client_test COMMAND anan_p1_client_test)
+
+#DH1KLM: ANAN Protocol 1 discovery identification test.
+#DH1KLM: AnanDiscovery is already part of aethercore.
+#DH1KLM: No physical ANAN radio is required.
+add_executable(anan_discovery_p1_test
+    tests/anan_discovery_p1_test.cpp
+    src/core/backends/anan/P1Protocol.cpp)
+target_include_directories(anan_discovery_p1_test PRIVATE src tests)
+target_link_libraries(anan_discovery_p1_test PRIVATE
+    aethercore
+    Qt6::Core
+    Qt6::Network
+    Qt6::Test)
+add_test(NAME anan_discovery_p1_test COMMAND anan_discovery_p1_test)
+
 # ANAN RX DSP — IQ -> WdspChannel demod + AnanSpectrum. Links aethercore
 # (WDSP+FFTW), unlike anan_p2_protocol_test above. *** READ HERMES.md §16
 # and this file's own header comment before touching expected values here —
