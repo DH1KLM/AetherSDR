@@ -113,7 +113,7 @@ struct DiscoveryReply {
     // and must not decide what the backend does; the capability bytes and
     // firmware version are the load-bearing fields for that. This predicate
     // only answers "should a radio picker show this reply as an ANAN-G2".
-    [[nodiscard]] constexpr bool isSaturn() const noexcept { return boardId == 10; }
+    [[nodiscard]] constexpr bool isAnan() const noexcept { return boardId == 5 || boardId == 10; }
 };
 
 // Byte 22 decoded per its OWN spec meaning (p.45): zero is the sentinel for
@@ -211,7 +211,11 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(int ddc0RateKsps = 48, int numAd
 // bits of its own in that table -- it is a single, dedicated jack, not a
 // software-selected one -- so there is nothing here for ANT2/ANT3-style
 // params to apply to.
-std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0FreqWord,
+//DH1KLM: Pass the exact requested DDC0 frequency separately from the phase word.
+// The phase word is quantized; deriving the ALEX filter frequency back from it can
+// move an exact relay threshold, for example 14.350 MHz, slightly below the boundary.
+std::array<std::uint8_t, 1444> buildHighPriority(bool run, double ddc0FreqHz,
+                                                  std::uint32_t ddc0FreqWord,
                                                   bool bypassAdc0Filters = true,
                                                   bool bypassAdc1Filters = true) noexcept;
 

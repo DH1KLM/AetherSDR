@@ -156,6 +156,9 @@ private:
     bool m_discoveryInfoSent = false;
 
     QHostAddress m_host;
+	//DH1KLM: Keep the exact requested frequency for ALEX threshold selection.
+	// The phase word is quantized and is retained separately for wire encoding.
+	double m_ddc0FreqHz = 0.0;
     std::uint32_t m_ddc0FreqWord = 0;   // last value sent; the keepalive resends this
     // Set once from Params at start(); every buildHighPriority() call for
     // the rest of this session (the keepalive tick included) carries these

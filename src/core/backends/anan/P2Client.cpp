@@ -53,6 +53,8 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     if (m_host.isNull())
         return false;   // not a parseable IPv4/IPv6 literal -- fail fast, no hostname lookup here
 
+    //DH1KLM: Reset both the exact DDC0 frequency and its quantized wire phase word.
+    m_ddc0FreqHz = 0.0;
     m_ddc0FreqWord = 0;
     m_bypassAdc0Filters = params.bypassAdc0Filters;
     m_bypassAdc1Filters = params.bypassAdc1Filters;
@@ -91,7 +93,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
                            params.ddc0AdcIndex),
           m_host, kDdcSpecificPort);
     sendTo(*m_socket,
-          buildHighPriority(true, m_ddc0FreqWord, m_bypassAdc0Filters, m_bypassAdc1Filters),
+          buildHighPriority(true, m_ddc0FreqHz, m_ddc0FreqWord, m_bypassAdc0Filters, m_bypassAdc1Filters),
           m_host, kHighPriorityPort);
 
     m_keepaliveTimer->start();
@@ -109,7 +111,7 @@ void P2Client::stop()
         // radio before the socket that would carry any further keepalive
         // goes away.
         sendTo(*m_socket,
-              buildHighPriority(false, 0, m_bypassAdc0Filters, m_bypassAdc1Filters),
+              buildHighPriority(false, 0.0, 0, m_bypassAdc0Filters, m_bypassAdc1Filters),
               m_host, kHighPriorityPort);
         m_socket->close();
         m_socket->deleteLater();
@@ -124,10 +126,13 @@ void P2Client::stop()
 
 void P2Client::setDdc0FrequencyHz(double hz)
 {
+    //DH1KLM: Preserve the exact requested frequency for ALEX relay selection.
+    //DH1KLM: The phase word remains separately quantized for P2 wire encoding.
+    m_ddc0FreqHz = hz;
     m_ddc0FreqWord = phaseWord(hz);
     if (m_running && m_socket)
         sendTo(*m_socket,
-              buildHighPriority(true, m_ddc0FreqWord, m_bypassAdc0Filters, m_bypassAdc1Filters),
+              buildHighPriority(true, m_ddc0FreqHz, m_ddc0FreqWord, m_bypassAdc0Filters, m_bypassAdc1Filters),
               m_host, kHighPriorityPort);
 }
 
@@ -138,7 +143,7 @@ void P2Client::onKeepaliveTick()
     // This IS the "any C&C packet" the watchdog needs (p.8) -- no need to
     // also replay General/DDC-Specific on this cadence, same as the spike.
     sendTo(*m_socket,
-          buildHighPriority(true, m_ddc0FreqWord, m_bypassAdc0Filters, m_bypassAdc1Filters),
+          buildHighPriority(true, m_ddc0FreqHz, m_ddc0FreqWord, m_bypassAdc0Filters, m_bypassAdc1Filters),
           m_host, kHighPriorityPort);
 }
 

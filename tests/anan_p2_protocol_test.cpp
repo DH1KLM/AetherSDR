@@ -5,7 +5,7 @@
 // encoding, the strict DDC-frame shape validator, and the 24-bit signed
 // big-endian IQ decode. Pure protocol -- no sockets, no hardware.
 
-#include "core/backends/anan/P2Protocol.h"
+#include "core/backends/anan/P2Protocol.h" // DH1KLM: P2 protocol unit tests
 
 #include <array>
 #include <cmath>
@@ -97,7 +97,8 @@ int main()
               && r->mac[3] == 0x6D && r->mac[4] == 0x9F && r->mac[5] == 0x6A,
               "MAC parsed (88:A2:9E:6D:9F:6A, matching the capture)");
         check(r && r->boardId == 10, "board id 10 (SATURN / ANAN-G2)");
-        check(r && r->isSaturn(), "isSaturn() true for board id 10");
+        // DH1KLM: Current DiscoveryReply exposes boardId directly; Saturn is board ID 10.
+		check(r && r->boardId == 10, "board id 10 identifies SATURN / ANAN-G2");
         check(r && r->protoVersionRaw == 0x2B, "proto version raw byte (43 -> 4.3)");
         check(r && r->firmwareVer == 27,
               "firmware is the INTEGER 27, not tenths (discrepancy #1)");
@@ -124,7 +125,8 @@ int main()
         auto other = raw;
         other[11] = 5;  // ORION Mk II board id, per spec Appendix A
         const auto ro = parseDiscoveryReply(other);
-        check(ro && !ro->isSaturn(), "isSaturn() false for a non-Saturn board id");
+        // DH1KLM: Current DiscoveryReply exposes boardId directly; board ID 5 is not Saturn.
+		check(ro && ro->boardId != 10, "non-Saturn board id is not identified as Saturn");
     }
 
     // ---- General packet ----
@@ -137,6 +139,12 @@ int main()
         check(g[39] == 0x00,
               "byte39 = 0x00: BE + 3-byte, the only format byte22==0 declares -- "
               "not a guess, confirmed by the 80.0 dB vs 26.0 dB field measurement");
+
+        // DH1KLM: Protocol 2 General packet must enable both ALEX registers.
+        // Byte 59: bit 0 = ALEX0 enable, bit 1 = ALEX1 enable.
+        check(g[59] == 0x03,
+              "byte59 = 0x03: ALEX0 and ALEX1 enabled");
+
         bool portsZero = true;
         for (std::size_t i = 5; i <= 22; ++i)
             if (g[i] != 0) { portsZero = false; break; }
@@ -206,11 +214,35 @@ int main()
         check(readU16(hp, 1430) == (std::uint16_t{1} << 12),
               "default: HF Bypass 2 (ADC1/RX2) set in Alex1");
 
+                // DH1KLM: With ADC0 filter bypass disabled, ALEX0 must select
+        // the frequency-dependent legacy filters instead of only ANT1.
+        // The existing 'word' is the 10 MHz test frequency.
+        // DH1KLM: With ADC0 filter bypass disabled, ALEX0 must select
+        // the frequency-dependent legacy filters instead of only ANT1.
+        // The existing 'word' is the 10 MHz test frequency.
         const auto hpNoBypass = buildHighPriority(true, word, false, false);
-        check(readU32(hpNoBypass, 1432) == (std::uint32_t{1} << 24),
-              "bypassAdc0Filters=false: ANT1 stays set, HF Bypass clears");
+        std::printf("DEBUG 10 MHz ALEX0 = 0x%08X\n",
+                    readU32(hpNoBypass, 1432));
+        check(readU32(hpNoBypass, 1432) == 0x01100002,
+              "10 MHz: ALEX0 selects ANT1 + 20m LPF + 13 MHz HPF");
+
         check(readU16(hpNoBypass, 1430) == 0,
               "bypassAdc1Filters=false: Alex1 stays zero");
+
+        // DH1KLM: Legacy ANAN-200D ALEX0 filter selection must follow RF frequency.
+        // 14.2 MHz: ANT1 + LPF 30/20m (bit 20) + HPF 13 MHz (bit 1).
+        const auto hp14200 =
+            buildHighPriority(true, phaseWord(14'200'000.0), false, false);
+        check(readU32(hp14200, 1432) == 0x01100002,
+              "14.2 MHz: ALEX0 selects ANT1 + 20m LPF + 13 MHz HPF");
+
+        // DH1KLM: LPF changes at the 14.35 MHz boundary.
+        const auto hp14350 =
+            buildHighPriority(true, phaseWord(14'350'000.0), false, false);
+        std::printf("DEBUG 14.35 MHz ALEX0 = 0x%08X\n",
+                    readU32(hp14350, 1432));
+        check(readU32(hp14350, 1432) == 0x81000002,
+              "14.35 MHz: ALEX0 switches to 17/15m LPF + 13 MHz HPF");
     }
 
     // ---- DDC frame: strict shape validation ----

@@ -95,6 +95,7 @@ public:
     // There is no continuous zoom here -- DDC0 runs at exactly one of six
     // fixed rates.
     [[nodiscard]] static int nearestDdc0RateKsps(int requestedKsps) noexcept;
+	[[nodiscard]] static int nearestP1RateKsps(int requestedKsps) noexcept;
 
     // Live operator AGC state as setSliceAgc() last stored it -- see the
     // member declaration comment for why beginRateChange() needs this

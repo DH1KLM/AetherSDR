@@ -86,8 +86,13 @@ std::array<std::uint8_t, 60> buildGeneral() noexcept
                      // See buildGeneral()'s header comment for why this stays
                      // on deliberately.
     pkt[39] = 0x00; // BE + 3-byte -- the only format Discovery byte22==0
-                     // declares (p.22, p.45). See discoveryDeclaresBigEndian3Byte().
-    return pkt;
+                // declares (p.22, p.45). See discoveryDeclaresBigEndian3Byte().
+
+	// DH1KLM: Enable both ALEX0 and ALEX1 registers.
+	// Byte 59: bit 0 = ALEX0 enable, bit 1 = ALEX1 enable.
+	pkt[59] = 0x03;
+
+return pkt;
 }
 
 std::array<std::uint8_t, 1444> buildDdcSpecific(int ddc0RateKsps, int numAdcs,
@@ -111,9 +116,10 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(int ddc0RateKsps, int numAdcs,
     return pkt;
 }
 
-std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0FreqWord,
-                                                  bool bypassAdc0Filters,
-                                                  bool bypassAdc1Filters) noexcept
+std::array<std::uint8_t, 1444> buildHighPriority(bool run, double ddc0FreqHz,
+                                                 std::uint32_t ddc0FreqWord,
+                                                 bool bypassAdc0Filters,
+                                                 bool bypassAdc1Filters) noexcept
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length; attenuator fields stay zero
     pkt[4] = run ? 0x01 : 0x00;  // bit[0] = run. Bits[1..4] = PTT0..3 -- there is no
@@ -121,9 +127,57 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0Fre
     writeU32be(&pkt[9], ddc0FreqWord);  // bytes 9-12, DDC0 frequency/phase word
     // Alex0 register, bytes 1432-1435 -- ANT1 (bit 24) always, HF Bypass
     // (bit 12) when requested. See this function's declaration comment.
-    std::uint32_t alex0 = std::uint32_t{1} << 24;
-    if (bypassAdc0Filters)
-        alex0 |= std::uint32_t{1} << 12;
+    // DH1KLM: Legacy ANAN-200D ALEX0 filter selection.
+    // ALEX0 bit 24 = ANT1.
+    // When ADC0 filters are not bypassed, select the legacy HPF/LPF
+    // combination from the DDC0 frequency encoded in the phase word.
+    std::uint32_t alex0 = std::uint32_t{1} << 24;  // ANT1
+
+    if (bypassAdc0Filters) {
+        // DH1KLM: Explicit ADC0 filter bypass.
+        alex0 |= std::uint32_t{1} << 12;  // HF Bypass
+    } else {
+        // DH1KLM: Recover the DDC0 frequency from the P2 phase word.
+        //DH1KLM: Use the exact requested frequency for ALEX relay selection.
+		// Do not reconstruct it from the quantized phase word because exact
+		// relay thresholds can otherwise be classified into the lower band.
+		const double freqMhz = ddc0FreqHz / 1'000'000.0;
+
+        // DH1KLM: Legacy ANAN ALEX0 HPF selection.
+        if (freqMhz < 1.5) {
+            alex0 |= std::uint32_t{1} << 12;  // HPF bypass
+        } else if (freqMhz < 6.5) {
+            alex0 |= std::uint32_t{1} << 6;   // 1.5 MHz HPF
+        } else if (freqMhz < 9.5) {
+            alex0 |= std::uint32_t{1} << 5;   // 6.5 MHz HPF
+        } else if (freqMhz < 13.0) {
+            alex0 |= std::uint32_t{1} << 4;   // 9.5 MHz HPF
+        } else if (freqMhz < 20.0) {
+            alex0 |= std::uint32_t{1} << 1;   // 13 MHz HPF
+        } else if (freqMhz < 50.0) {
+            alex0 |= std::uint32_t{1} << 2;   // 20 MHz HPF
+        } else {
+            alex0 |= std::uint32_t{1} << 3;   // 6 m preamp
+        }
+
+        // DH1KLM: Legacy ANAN ALEX0 LPF selection.
+        if (freqMhz < 2.0) {
+            alex0 |= std::uint32_t{1} << 23;  // 160 m
+        } else if (freqMhz < 4.0) {
+            alex0 |= std::uint32_t{1} << 22;  // 80 m
+        } else if (freqMhz < 7.3) {
+            alex0 |= std::uint32_t{1} << 21;  // 60/40 m
+        } else if (freqMhz < 14.35) {
+            alex0 |= std::uint32_t{1} << 20;  // 30/20 m
+        } else if (freqMhz < 21.45) {
+            alex0 |= std::uint32_t{1} << 31;  // 17/15 m
+        } else if (freqMhz < 29.7) {
+            alex0 |= std::uint32_t{1} << 30;  // 12/10 m
+        } else {
+            alex0 |= std::uint32_t{1} << 29;  // 6 m
+        }
+    }
+
     writeU32be(&pkt[1432], alex0);
     // Alex1 (RX2/BPF2) register, bytes 1430-1431 -- a separate 16-bit word,
     // bit 12 "HF Bypass 2" (p.90-91's own Alex1 bit table).

@@ -200,15 +200,26 @@ void AnanDiscovery::processP2Reply(const QByteArray& data,
     const auto reply = parseDiscoveryReply(
         {reinterpret_cast<const std::uint8_t*>(data.constData()),
          static_cast<std::size_t>(data.size())});
-    if (!reply || !reply->isSaturn())
+    if (!reply || !reply->isAnan())
         return;
 
     RadioInfo info;
     info.family = QStringLiteral("anan");
     info.address = sender;
     info.port = kRadioPort;
+    switch (reply->boardId) {
+case 5:
+    info.model = QStringLiteral("ANAN-200D");
+    break;
+
+case 10:
     info.model = QStringLiteral("ANAN-G2");
-    info.name = info.model;
+    break;
+
+default:
+    return;
+}
+
     info.serial = macToSerial(reply->mac);
     info.nickname = effectiveNickname(QStringLiteral("anan"), info.serial, info.model);
     info.version = QString::number(reply->firmwareVer);

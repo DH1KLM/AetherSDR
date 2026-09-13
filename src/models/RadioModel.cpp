@@ -653,6 +653,7 @@ void RadioModel::handRestoredStateToBackend()
 static void populateFamilyParams(RadioConnectRequest& req, const RadioInfo& info)
 {
     const QString& family = info.family;
+
     // The DDC0 rate and ADC options are connect-time preferences selected in
     // ConnectionPanel's ANAN-only manual-connect rows. Operating state such as
     // frequency is deliberately absent until this backend participates in the
@@ -672,14 +673,32 @@ static void populateFamilyParams(RadioConnectRequest& req, const RadioInfo& info
                           anan::AnanSettings::bypassAdc1Filters());
 
         //DH1KLM: Carry the ANAN protocol selected by discovery through the
-        //DH1KLM: generic connection request. Stage 1 maps ANAN-200D/Orion to
-        //DH1KLM: OpenHPSDR Protocol 1 and ANAN-G2/Saturn to Protocol 2.
-        const auto protocol = anan::AnanDiscovery::protocolForModel(info.model);
+        //DH1KLM: generic connection request. Prefer the actual discovery
+        //DH1KLM: protocol over the model because ANAN-200D supports P1 and P2.
+        anan::AnanDiscovery::Protocol protocol =
+            anan::AnanDiscovery::Protocol::Unknown;
+
+        // The discovery result already carries the wire protocol in versionLabel.
+        if (info.versionLabel.compare(QStringLiteral("P1 Gateware"),
+                                      Qt::CaseInsensitive) == 0) {
+            protocol = anan::AnanDiscovery::Protocol::P1;
+        } else if (info.versionLabel.compare(QStringLiteral("P2 Gateware"),
+                                             Qt::CaseInsensitive) == 0) {
+            protocol = anan::AnanDiscovery::Protocol::P2;
+        }
+
+        // Fallback for manually constructed RadioInfo entries that do not
+        // originate from ANAN discovery.
+        if (protocol == anan::AnanDiscovery::Protocol::Unknown) {
+            protocol = anan::AnanDiscovery::protocolForModel(info.model);
+        }
+
         if (protocol != anan::AnanDiscovery::Protocol::Unknown) {
             req.params.insert(
                 QStringLiteral("anan.protocol"),
                 static_cast<int>(protocol));
         }
+
         return;
     }
 
