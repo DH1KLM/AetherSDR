@@ -980,7 +980,7 @@ int main(int argc, char** argv)
         QMenu* helpMenu = menuBar->addMenu(QStringLiteral("&Help"));   // added after the hand-off
         menuHost.resize(1400, 200);
         menuHost.show();
-        QApplication::setActiveWindow(&menuHost);
+        menuHost.activateWindow();
         app.processEvents();
 
         auto* menuBtn = menuBarHost->findChild<QPushButton*>(QStringLiteral("titleBarAppMenuButton"));
