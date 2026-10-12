@@ -87,7 +87,6 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_adc0AttenuationDb = params.adc0AttenuationDb;
     m_adc1AttenuationDb = params.adc1AttenuationDb;
     m_rxAntenna = (params.rxAntenna >= 1 && params.rxAntenna <= 3) ? params.rxAntenna : 1;
-    m_rxAntenna = (params.rxAntenna >= 1 && params.rxAntenna <= 3) ? params.rxAntenna : 1;
     m_speakerAudioEnabled = params.speakerAudioEnabled;
     m_speakerPending.clear();
     m_speakerPacer.reset();
