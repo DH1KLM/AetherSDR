@@ -33,6 +33,24 @@ particular, Protocol 2 ID 4 is Orion (ANAN-200D), while Protocol 2 ID 5 is the
 Orion MkII family; a Protocol 1 ID 5 identifies Orion, and Protocol 1 ID 10
 identifies Orion MkII. This is a wire-protocol distinction, not a naming choice.
 
+## Current transport blocker before enabling another family
+
+The packet encoder now accepts an explicit physical ADC count and the P2 client
+retains that value when it rebuilds a DDC-Specific packet after a live rate
+change. The regression test covers the one-ADC byte encoding as a wire-format
+unit test only. Saturn remains the only connectable family and defaults to two
+ADCs.
+
+This parameter alone does **not** make Hermes-class radios safe to connect.
+`P2Client::start()` sends Discovery and then immediately sends General,
+DDC-Specific and High-Priority packets; the Discovery reply is parsed for
+diagnostics but is not used to choose the session profile before those packets
+are sent. Before another family can be enabled, the connection path needs an
+explicit, validated board profile supplied from discovery/selection (or a
+separate preflight discovery phase) so the ADC count, DDC assignment, receiver
+count and ALEX behavior are selected together. Do not infer those settings from
+the reported receiver byte alone.
+
 ## Porting order and required evidence
 
 1. **Hermes / Hermes II / HermesC10:** port the Hermes-class DDC assignment
