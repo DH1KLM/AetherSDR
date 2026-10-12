@@ -27,7 +27,7 @@ namespace AetherSDR::anan {
 //   - No NCO/WDSP-shift split: DDC0 retunes on every setSliceFrequency()/
 //     setPanCenter(), so "the shift is ALWAYS exactly -cwBfoHz(mode), because
 //     the NCO IS the slice frequency".
-//   - capabilities()' identity strings are fixed; gateware, DDC count and board
+//   - capabilities()' identity strings are fixed; gateware, reported receiver count and board
 //     id come from this session's Discovery reply once it lands.
 //   - setKeying() is a no-op: canTransmit is false and P2Client has no PTT
 //     (TX is RFC §2.11 Phase 3).
@@ -357,7 +357,7 @@ private:
     bool m_discoveryInfoReceived = false;
     quint8 m_discoveredBoardId = 0;
     quint8 m_discoveredFirmwareVer = 0;
-    quint8 m_discoveredNumDdc = 0;
+    quint8 m_discoveredReceiverCount = 0;
 
     // scheduleTuneApply()'s leading+trailing throttle state. Lives on this
     // object's own thread (the GUI thread), not m_ioThread.
