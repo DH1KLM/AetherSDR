@@ -14,11 +14,11 @@ class QUdpSocket;
 
 namespace AetherSDR::anan {
 
-// openHPSDR Protocol 2 discovery. Emits RadioInfo with family="anan" for the
-// shared radio picker; sweeps periodically and ages out radios that stop
-// answering, like Hl2Discovery. Only isSaturn() replies are listed (RFC §2.11):
-// a picker decision only -- board type must not gate backend behaviour once
-// connected. Status byte 0x03 (streaming to another client) surfaces as "In_Use".
+//DH1KLM: OpenHPSDR Protocol 2 discovery. Emits recognized Thetis/NereusSDR
+// board IDs to the shared radio picker and ages out radios that stop answering.
+// Recognition is deliberately separate from hardware-profile selection: the
+// backend must not apply Saturn ADC/DDC/filter assumptions to another board.
+// Status byte 0x03 (streaming to another client) surfaces as "In_Use".
 class AnanDiscovery : public QObject {
     Q_OBJECT
 
@@ -40,10 +40,8 @@ public:
     // auto-reconnect key and the nickname key.
     static QString macToSerial(const std::array<std::uint8_t, 6>& mac);
 
-    // The operator's custom name, or `fallback`. ANAN-G2 has no on-radio name
-    // store, so the name is persisted client-side by serial in the same
-    // (family, radioId, "Identity") document Hl2Discovery uses (no legacy-key
-    // migration for this family).
+    //DH1KLM: The operator's custom name, or `fallback`. The nickname is
+    // persisted client-side by MAC/serial, independently of the physical board.
     static QString effectiveNickname(const QString& family, const QString& serial,
                                      const QString& fallback);
     // Store (or clear, with an empty name) the client-side nickname.
