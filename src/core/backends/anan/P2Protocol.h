@@ -139,8 +139,9 @@ struct DiscoveryReply {
         }
     }
 
-    //DH1KLM: This is a board-family label, not a SKU guess. Orion MkII
-    // hardware can represent several products; do not silently choose one.
+    //DH1KLM: Board ID 5 is shared by these Thetis model selections. Discovery
+    // cannot distinguish the logical SKU, so present the documented family and
+    // do not silently choose ANAN-7000DLE, ANAN-8000DLE, Anvelina, or Red Pitaya.
     [[nodiscard]] constexpr const char* boardDisplayName() const noexcept
     {
         switch (boardId) {
@@ -149,7 +150,7 @@ struct DiscoveryReply {
         case 2:  return "Hermes II (ANAN-10E / ANAN-100B)";
         case 3:  return "Angelia (ANAN-100D)";
         case 4:  return "Orion (ANAN-200D)";
-        case 5:  return "Orion MkII family (SKU selection required)";
+        case 5:  return "Orion MkII (ANAN-7000DLE/8000DLE, Anvelina Pro 3, Red Pitaya)";
         case 6:  return "Hermes Lite 2";
         case 10: return "Saturn (ANAN-G2 / ANAN-G2 1K)";
         case 11: return "Saturn MkII";
