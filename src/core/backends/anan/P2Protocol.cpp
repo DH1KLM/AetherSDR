@@ -51,18 +51,22 @@ std::uint32_t saturnBpf1RegisterBits(std::uint32_t phaseWord) noexcept
 {
     constexpr double kPhaseScale = static_cast<double>(kDspClockHz) / 4294967296.0;
     const double hz = static_cast<double>(phaseWord) * kPhaseScale;
+    //DH1KLM: The phase word has finite resolution (~0.0286 Hz per step).
+    //Allow half a step around integer-Hz edges so an exact band-edge tune
+    //does not fall through solely because phaseWord() rounded to its neighbour.
+    constexpr double kHalfPhaseStepHz = 0.02;
     std::uint32_t bits = 0;
-    if (hz >= 1'500'000.0 && hz <= 2'099'999.0) {
+    if (hz >= 1'500'000.0 - kHalfPhaseStepHz && hz <= 2'099'999.0 + kHalfPhaseStepHz) {
         bits = std::uint32_t{1} << 6;  // Thetis BPF1 160 m row (0x10)
-    } else if (hz >= 2'100'000.0 && hz <= 5'499'999.0) {
+    } else if (hz >= 2'100'000.0 - kHalfPhaseStepHz && hz <= 5'499'999.0 + kHalfPhaseStepHz) {
         bits = std::uint32_t{1} << 5;  // Thetis BPF1 80/60 m row (0x08)
-    } else if (hz >= 5'500'000.0 && hz <= 10'999'999.0) {
+    } else if (hz >= 5'500'000.0 - kHalfPhaseStepHz && hz <= 10'999'999.0 + kHalfPhaseStepHz) {
         bits = std::uint32_t{1} << 4;  // Thetis BPF1 40/30 m row (0x04)
-    } else if (hz >= 11'000'000.0 && hz <= 21'999'999.0) {
+    } else if (hz >= 11'000'000.0 - kHalfPhaseStepHz && hz <= 21'999'999.0 + kHalfPhaseStepHz) {
         bits = std::uint32_t{1} << 1;  // Thetis BPF1 20/15 m row (0x01)
-    } else if (hz >= 22'000'000.0 && hz <= 34'999'999.0) {
+    } else if (hz >= 22'000'000.0 - kHalfPhaseStepHz && hz <= 34'999'999.0 + kHalfPhaseStepHz) {
         bits = std::uint32_t{1} << 2;  // Thetis BPF1 12/10 m row (0x02)
-    } else if (hz >= 35'000'000.0 && hz <= 61'440'000.0) {
+    } else if (hz >= 35'000'000.0 - kHalfPhaseStepHz && hz <= 61'440'000.0 + kHalfPhaseStepHz) {
         bits = std::uint32_t{1} << 3;  // Thetis BPF1 6 m row (0x40)
     }
     return bits; // zero means Thetis' bypass region (outside configured rows)
