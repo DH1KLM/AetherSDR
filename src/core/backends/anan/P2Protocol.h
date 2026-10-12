@@ -115,13 +115,48 @@ struct DiscoveryReply {
     std::uint8_t p2appBuild = 0;      // byte 23. "Beta version" per spec; p2app overwrites
                                        // it with P2APPVERSION on Saturn
 
-    // Discovery-time PICKER filter only -- NOT for gating backend behaviour
-    // once connected. The RFC is explicit that board type is a runtime
-    // option on this platform (p2app.c:588 accepts -i saturn / -i orionmk2)
-    // and must not decide what the backend does; the capability bytes and
-    // firmware version are the load-bearing fields for that. This predicate
-    // only answers "should a radio picker show this reply as an ANAN-G2".
-    [[nodiscard]] constexpr bool isSaturn() const noexcept { return boardId == 10; }
+    //DH1KLM: Discovery accepts the complete Thetis HPSDRHW board-ID set.
+    // The numeric values below come from Thetis enums.cs / ChannelMaster/network.h
+    // and NereusSDR HpsdrModel.h. Model-specific operation still requires the
+    // matching hardware profile; recognizing a board is not proof that its
+    // ADC/DDC/filter behavior is interchangeable with Saturn.
+    [[nodiscard]] constexpr bool isSupportedOpenHpsdrBoard() const noexcept
+    {
+        switch (boardId) {
+        case 0:  // Atlas / Metis kit
+        case 1:  // Hermes; ANAN-10 / ANAN-100
+        case 2:  // Hermes II; ANAN-10E / ANAN-100B
+        case 3:  // Angelia; ANAN-100D
+        case 4:  // Orion; ANAN-200D
+        case 5:  // Orion MkII family; exact SKU can be ambiguous
+        case 6:  // Hermes Lite 2
+        case 10: // Saturn; ANAN-G2 / G2 1K
+        case 11: // Saturn MkII identifier used by NereusSDR
+        case 20: // HermesC10; ANAN-G2E in Thetis v2.10.3.15
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    //DH1KLM: This is a board-family label, not a SKU guess. Orion MkII
+    // hardware can represent several products; do not silently choose one.
+    [[nodiscard]] constexpr const char* boardDisplayName() const noexcept
+    {
+        switch (boardId) {
+        case 0:  return "Atlas / Metis";
+        case 1:  return "Hermes (ANAN-10 / ANAN-100)";
+        case 2:  return "Hermes II (ANAN-10E / ANAN-100B)";
+        case 3:  return "Angelia (ANAN-100D)";
+        case 4:  return "Orion (ANAN-200D)";
+        case 5:  return "Orion MkII family (SKU selection required)";
+        case 6:  return "Hermes Lite 2";
+        case 10: return "Saturn (ANAN-G2 / ANAN-G2 1K)";
+        case 11: return "Saturn MkII";
+        case 20: return "HermesC10 (ANAN-G2E)";
+        default: return "Unknown OpenHPSDR board";
+        }
+    }
 };
 
 // Byte 22 per spec p.45: ZERO means big-endian 3-byte I&Q (not "none", not
