@@ -147,6 +147,21 @@ int main()
         const auto unknownReply = parseDiscoveryReply(unknown);
         check(unknownReply && !unknownReply->isSupportedOpenHpsdrBoard(),
               "unknown P2 board ID is not classified as a supported board");
+
+        //DH1KLM: A board's presence in the registry must not grant it the Saturn
+        // session profile. Unknown/manual targets still have to identify as Saturn.
+        check(discoveryMatchesVerifiedAnanProfile(10, -1),
+              "manual target is accepted only when Discovery identifies Saturn");
+        check(discoveryMatchesVerifiedAnanProfile(10, 10),
+              "selected Saturn ID matches the actual Discovery reply");
+        check(!discoveryMatchesVerifiedAnanProfile(4, -1),
+              "recognized Orion board cannot use the Saturn session profile");
+        check(!discoveryMatchesVerifiedAnanProfile(5, 5),
+              "recognized Orion MkII cannot use the Saturn session profile");
+        check(!discoveryMatchesVerifiedAnanProfile(10, 4),
+              "a Saturn reply is rejected when discovery selected a different board");
+        check(!discoveryMatchesVerifiedAnanProfile(99, -1),
+              "unknown board ID cannot use the Saturn session profile");
     }
 
     // ---- General packet ----
