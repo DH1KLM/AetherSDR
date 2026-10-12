@@ -800,6 +800,38 @@ int main()
         check(!p6.catchingUp(), "reset clears catch-up for the next session");
     }
 
+    //DH1KLM: The discovery registry must preserve Thetis wire IDs and
+    // recognize every documented OpenHPSDR family without guessing an SKU.
+    {
+        struct BoardCase { std::uint8_t id; const char* label; };
+        constexpr BoardCase boards[] = {
+            {0, "Atlas / Metis"},
+            {1, "Hermes (ANAN-10 / ANAN-100)"},
+            {2, "Hermes II (ANAN-10E / ANAN-100B)"},
+            {3, "Angelia (ANAN-100D)"},
+            {4, "Orion (ANAN-200D)"},
+            {5, "Orion MkII family (SKU selection required)"},
+            {6, "Hermes Lite 2"},
+            {10, "Saturn (ANAN-G2 / ANAN-G2 1K)"},
+            {11, "Saturn MkII"},
+            {20, "HermesC10 (ANAN-G2E)"},
+        };
+        for (const auto& b : boards) {
+            DiscoveryReply reply;
+            reply.boardId = b.id;
+            check(reply.isSupportedOpenHpsdrBoard(),
+                  "known Thetis/NereusSDR board ID is accepted by discovery");
+            check(std::string(reply.boardDisplayName()) == b.label,
+                  "board ID uses its evidence-backed family label");
+        }
+        DiscoveryReply unknown;
+        unknown.boardId = 7;
+        check(!unknown.isSupportedOpenHpsdrBoard(),
+              "reserved/unknown board IDs are not silently classified");
+        check(std::string(unknown.boardDisplayName()) == "Unknown OpenHPSDR board",
+              "unknown board IDs receive an explicit label");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "anan_p2_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;
