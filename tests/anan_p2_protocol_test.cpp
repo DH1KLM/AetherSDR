@@ -213,9 +213,10 @@ int main()
         check((hp[4] & 0x1E) == 0 && (hpOff[4] & 0x1E) == 0,
               "PTT bits (byte4 bits 1-4) are never set -- no parameter exists to set them");
 
-        // Alex0 (bytes 1432-1435): ANT1 (bit 24) always set; HF Bypass
-        // (bit 12) tracks bypassAdc0Filters. Alex1 (bytes 1430-1431):
-        // HF Bypass 2 (bit 12 of that 16-bit word) tracks bypassAdc1Filters.
+        // Alex0 (bytes 1432-1435): ANT1 (bit 24) plus Thetis' Saturn
+        // BPF1 row selected from DDC0's phase word, unless bypass is requested.
+        // Alex1 (bytes 1430-1431): HF Bypass 2 (bit 12) tracks the separate
+        // bypassAdc1Filters argument.
         const auto readU32 = [](const std::array<std::uint8_t, 1444>& p, std::size_t i) {
             return (static_cast<std::uint32_t>(p[i]) << 24) | (static_cast<std::uint32_t>(p[i + 1]) << 16)
                  | (static_cast<std::uint32_t>(p[i + 2]) << 8) | p[i + 3];
@@ -223,14 +224,23 @@ int main()
         const auto readU16 = [](const std::array<std::uint8_t, 1444>& p, std::size_t i) {
             return static_cast<std::uint16_t>((static_cast<std::uint16_t>(p[i]) << 8) | p[i + 1]);
         };
-        check(readU32(hp, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 12)),
-              "default: ANT1 + HF Bypass (ADC0) both set in Alex0");
+        check(readU32(hp, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 4)),
+              "10 MHz default selects Thetis Saturn BPF1 40/30 m row plus ANT1");
+        const auto hp160m = buildHighPriority(true, phaseWord(1'900'000.0));
+        check(readU32(hp160m, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 6)),
+              "1.9 MHz selects Thetis Saturn BPF1 160 m row");
+        const auto hp20m = buildHighPriority(true, phaseWord(14'200'000.0));
+        check(readU32(hp20m, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 1)),
+              "14.2 MHz selects Thetis Saturn BPF1 20/15 m row");
+        const auto hpOutOfBand = buildHighPriority(true, phaseWord(1'000'000.0));
+        check(readU32(hpOutOfBand, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 12)),
+              "below Thetis BPF1 rows, Alex0 uses bypass");
         check(readU16(hp, 1430) == (std::uint16_t{1} << 12),
               "default: HF Bypass 2 (ADC1/RX2) set in Alex1");
 
         const auto hpNoBypass = buildHighPriority(true, word, false, false);
-        check(readU32(hpNoBypass, 1432) == (std::uint32_t{1} << 24),
-              "bypassAdc0Filters=false: ANT1 stays set, HF Bypass clears");
+        check(readU32(hpNoBypass, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 4)),
+              "bypassAdc0Filters=false: ANT1 stays set and frequency-selected BPF1 is enabled");
         check(readU16(hpNoBypass, 1430) == 0,
               "bypassAdc1Filters=false: Alex1 stays zero");
 
