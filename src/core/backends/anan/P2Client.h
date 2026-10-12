@@ -265,6 +265,7 @@ private:
     int m_adc0AttenuationDb = 0;
     int m_adc1AttenuationDb = 0;
     int m_rxAntenna = 1;
+    int m_numAdcs = 2; //DH1KLM: board profile; defaults to the currently supported Saturn family.
 
     // The session's resolved DDC list and the dither/random flags that went
     // with it, RETAINED (rather than consumed and dropped in start()) so
