@@ -579,6 +579,7 @@ RestoredRadioState AnanBackend::currentOperatingState() const
 
 void AnanBackend::connectRadio(const RadioConnectRequest& request)
 {
+    m_rxAntenna = AnanSettings::rxAntenna();
     const QHostAddress hostAddr(request.host);
     if (hostAddr.isNull()) {
         emit connectionError(QStringLiteral("ANAN: invalid host '%1'").arg(request.host));
@@ -1470,6 +1471,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         }
         m_rxAntenna = antenna;
         m_pendingParams.rxAntenna = antenna;
+        AnanSettings::setRxAntenna(antenna);
         if (m_client && m_connected) {
             QMetaObject::invokeMethod(m_client, "setRxAntenna", Qt::QueuedConnection,
                                       Q_ARG(int, antenna));
