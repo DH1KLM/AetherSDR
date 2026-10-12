@@ -175,7 +175,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   bool bypassAdc0Filters,
                                                   bool bypassAdc1Filters,
                                                   int adc0AttenuationDb,
-                                                  int adc1AttenuationDb) noexcept
+                                                  int adc1AttenuationDb,
+                                                  int rxAntenna) noexcept
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length
     pkt[4] = run ? 0x01 : 0x00;  // bit[0] = run. Bits[1..4] = PTT0..3 -- there is no
@@ -186,11 +187,13 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
         std::min(ddcFreqWords.size(), static_cast<std::size_t>(kMaxDdcs));
     for (std::size_t n = 0; n < count; ++n)
         writeU32be(&pkt[9 + 4 * n], ddcFreqWords[n]);
-    // Alex0 register, bytes 1432-1435. ANT1 is the current Saturn-only
-    // backend's selected antenna. Apply Thetis' Saturn BPF1 selection from the
-    // tuned phase word unless the caller explicitly requests bypass; outside
-    // Thetis' configured 1.5-61.44 MHz rows, the correct result is bypass.
-    std::uint32_t alex0 = std::uint32_t{1} << 24;
+    // Alex0 register, bytes 1432-1435. Thetis netInterface.c maps RX ANT1,
+    // ANT2, ANT3 to bits 24, 25, 26 respectively. Invalid values fail safe to
+    // ANT1 rather than emitting no antenna selection.
+    std::uint32_t alex0 = std::uint32_t{1} << (23 + ((rxAntenna >= 1 && rxAntenna <= 3)
+                                                     ? rxAntenna : 1));
+    // Apply Thetis' Saturn BPF1 selection from the tuned phase word unless the
+    // caller explicitly requests bypass; outside the configured rows, bypass.
     const std::uint32_t bpfBits = saturnBpf1RegisterBits(
         count > 0 ? ddcFreqWords[0] : 0);
     if (bypassAdc0Filters || bpfBits == 0)
@@ -214,7 +217,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0Fre
                                                   bool bypassAdc0Filters,
                                                   bool bypassAdc1Filters,
                                                   int adc0AttenuationDb,
-                                                  int adc1AttenuationDb) noexcept
+                                                  int adc1AttenuationDb,
+                                                  int rxAntenna) noexcept
 {
     // Delegates, same reasoning as buildDdcSpecific()'s single-DDC overload:
     // one implementation of the row layout, and byte-identical output to
