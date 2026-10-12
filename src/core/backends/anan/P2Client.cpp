@@ -200,7 +200,7 @@ void P2Client::stop()
         // goes away.
         sendTo(*m_socket,
               buildHighPriority(false, 0, m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                m_adc0AttenuationDb, m_adc1AttenuationDb),
+                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
               m_host, kHighPriorityPort, m_txBytes);
         m_socket->close();
         m_socket->deleteLater();
