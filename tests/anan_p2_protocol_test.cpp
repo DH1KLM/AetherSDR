@@ -249,15 +249,16 @@ int main()
         // are clamped to the spec range at both ends.
         check(hp[1443] == 0 && hp[1442] == 0,
               "default: both step attenuators at 0 dB");
+        const auto hpBypass = buildHighPriority(true, word, true, true);
         const auto hpAtt = buildHighPriority(true, word, true, true, 12, 20);
         check(hpAtt[1443] == 12, "adc0AttenuationDb=12 -> byte 1443 = 12");
         check(hpAtt[1442] == 20, "adc1AttenuationDb=20 -> byte 1442 = 20");
         const auto hpClamp = buildHighPriority(true, word, true, true, 40, -5);
         check(hpClamp[1443] == 31, "attenuation above 31 dB clamps to 31");
         check(hpClamp[1442] == 0, "negative attenuation clamps to 0");
-        check(readU32(hpAtt, 1432) == readU32(hp, 1432)
-                  && readU16(hpAtt, 1430) == readU16(hp, 1430)
-                  && hpAtt[4] == hp[4],
+        check(readU32(hpAtt, 1432) == readU32(hpBypass, 1432)
+                  && readU16(hpAtt, 1430) == readU16(hpBypass, 1430)
+                  && hpAtt[4] == hpBypass[4],
               "attenuation touches no other field (Alex0/Alex1/run unchanged)");
         const std::array<std::uint32_t, 1> oneWord{word};
         check(buildHighPriority(true, oneWord, true, true, 12, 20) == hpAtt,
