@@ -31,7 +31,7 @@ namespace AetherSDR::anan {
 // still sends its own Discovery first: every radio->PC stream goes to "the Source
 // Port of the Host that initiated the Discovery Packet" (spec p.43, p.51, p.54),
 // so it must come from THIS socket. The reply is not awaited; if it arrives it is
-// parsed for gateware version, DDC count and board id (discoveryInfoReceived()).
+// parsed for gateware version, reported receiver count and board id (discoveryInfoReceived()).
 class P2Client : public QObject {
     Q_OBJECT
 
@@ -181,7 +181,7 @@ signals:
     // This session's own Discovery reply (see the class comment). At most once per
     // start(), unordered relative to linkUp(); AnanBackend reports capabilities from
     // it (field meanings: P2Protocol.h's DiscoveryReply).
-    void discoveryInfoReceived(quint8 boardId, quint8 firmwareVer, quint8 numDdc);
+    void discoveryInfoReceived(quint8 boardId, quint8 firmwareVer, quint8 reportedReceivers);
     // One status packet's supply-rail reading, raw counts
     // (HighPriorityStatus::supplyRailCounts), once per packet: every 200 ms
     // while receiving. Unsmoothed; AnanBackend averages it before publishing.
