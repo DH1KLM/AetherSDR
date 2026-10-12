@@ -14,11 +14,11 @@ class QUdpSocket;
 
 namespace AetherSDR::anan {
 
-//DH1KLM: OpenHPSDR Protocol 2 discovery. Emits recognized Thetis/NereusSDR
-// board IDs to the shared radio picker and ages out radios that stop answering.
-// Recognition is deliberately separate from hardware-profile selection: the
-// backend must not apply Saturn ADC/DDC/filter assumptions to another board.
-// Status byte 0x03 (streaming to another client) surfaces as "In_Use".
+//DH1KLM: OpenHPSDR Protocol 2 discovery. The parser recognizes the Thetis
+// board-ID registry, but this picker currently emits only Saturn (board ID 10),
+// the sole family with a verified AetherSDR hardware profile. Other recognized
+// boards must not be advertised as connectable until their ADC/DDC/filter profile
+// is ported and tested. Status byte 0x03 surfaces as "In_Use".
 class AnanDiscovery : public QObject {
     Q_OBJECT
 
