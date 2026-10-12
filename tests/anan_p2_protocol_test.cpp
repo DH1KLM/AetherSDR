@@ -106,7 +106,7 @@ int main()
         check(r && r->protoVersionRaw == 0x2B, "proto version raw byte (43 -> 4.3)");
         check(r && r->firmwareVer == 27,
               "firmware is the INTEGER 27, not tenths (discrepancy #1)");
-        check(r && r->numDdc == 4, "4 DDCs advertised");
+        check(r && r->reportedReceivers == 4, "4 DDCs advertised");
         check(r && r->freqIsPhaseWord, "byte21=1 -> phase word, not Hz");
         check(r && r->endianByteRaw == 0, "byte22 raw is 0");
         check(r && discoveryDeclaresBigEndian3Byte(r->endianByteRaw),
