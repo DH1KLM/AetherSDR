@@ -810,7 +810,7 @@ int main()
             {2, "Hermes II (ANAN-10E / ANAN-100B)"},
             {3, "Angelia (ANAN-100D)"},
             {4, "Orion (ANAN-200D)"},
-            {5, "Orion MkII family (SKU selection required)"},
+            {5, "Orion MkII (ANAN-7000DLE/8000DLE, Anvelina Pro 3, Red Pitaya)"},
             {6, "Hermes Lite 2"},
             {10, "Saturn (ANAN-G2 / ANAN-G2 1K)"},
             {11, "Saturn MkII"},
