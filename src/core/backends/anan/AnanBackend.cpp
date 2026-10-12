@@ -648,10 +648,13 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         request.params.value(QStringLiteral("anan.randomEnabled"), true).toBool();
     m_pendingParams.ddc0AdcIndex =
         request.params.value(QStringLiteral("anan.ddc0AdcIndex"), 0).toInt() == 1 ? 1 : 0;
+    //DH1KLM: Thetis Saturn BPF1 is frequency-selected by default; explicit
+    //configuration can still request bypass.
     m_pendingParams.bypassAdc0Filters =
-        request.params.value(QStringLiteral("anan.bypassAdc0Filters"), true).toBool();
+        request.params.value(QStringLiteral("anan.bypassAdc0Filters"), false).toBool();
     m_pendingParams.bypassAdc1Filters =
         request.params.value(QStringLiteral("anan.bypassAdc1Filters"), true).toBool();
+    m_pendingParams.rxAntenna = m_rxAntenna;
     // FALSE by default, unlike the options above, and for the opposite reason:
     // their default is the hardware's shipped state, while this one's is "the
     // operator has not asked for an outbound stream". A connect that never
@@ -1449,6 +1452,36 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
     Q_UNUSED(arg);
+    //DH1KLM: ALEX RX antenna control is deliberately an explicit extension;
+    //the P2 client applies only the verified Saturn Alex0 bit mapping.
+    if (ns == QLatin1String("anan") && verb == QLatin1String("rx-antenna.get")) {
+        if (requestId != 0) {
+            emit extensionResult(requestId, QVariantMap{
+                {QStringLiteral("antenna"), m_rxAntenna},
+            });
+        }
+        return;
+    }
+    if (ns == QLatin1String("anan") && verb == QLatin1String("rx-antenna.set")) {
+        bool ok = false;
+        const int antenna = arg.toInt(&ok);
+        if (!ok || antenna < 1 || antenna > 3) {
+            emit extensionError(requestId, QStringLiteral("RX antenna must be 1 (ANT1), 2 (ANT2), or 3 (ANT3)"));
+            return;
+        }
+        m_rxAntenna = antenna;
+        m_pendingParams.rxAntenna = antenna;
+        if (m_client && m_connected) {
+            QMetaObject::invokeMethod(m_client, "setRxAntenna", Qt::QueuedConnection,
+                                      Q_ARG(int, antenna));
+        }
+        if (requestId != 0) {
+            emit extensionResult(requestId, QVariantMap{
+                {QStringLiteral("antenna"), m_rxAntenna},
+            });
+        }
+        return;
+    }
     if (ns == QLatin1String("anan") && verb == QLatin1String("nb.get")) {
         if (requestId != 0) {
             const AnanRxDsp::NoiseBlankerState applied = m_dsp
