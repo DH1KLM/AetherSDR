@@ -27,11 +27,10 @@ namespace AetherSDR::anan {
 // IQ ingest. Lives on AnanBackend's I/O thread (like MetisClient for HL2) so a
 // GUI stall cannot starve the radio's watchdog.
 // RX-ONLY: no PTT exists here or in buildHighPriority() (TX is RFC §2.11 Phase 3).
-// The caller resolves the host (AnanDiscovery or a manual probe), but start()
-// still sends its own Discovery first: every radio->PC stream goes to "the Source
-// Port of the Host that initiated the Discovery Packet" (spec p.43, p.51, p.54),
-// so it must come from THIS socket. The reply is not awaited; if it arrives it is
-// parsed for gateware version, reported receiver count and board id (discoveryInfoReceived()).
+// The caller resolves the host, but this socket sends Discovery and validates the
+// physical board ID before any board-profile-specific session packets. Every
+// radio->PC stream goes to the source port of the Discovery packet (spec p.43, p.51,
+// p.54), so Discovery must originate from THIS socket.
 class P2Client : public QObject {
     Q_OBJECT
 
@@ -41,6 +40,9 @@ public:
 
     struct Params {
         QString host;
+        //DH1KLM: -1 means a manual/unidentified target; otherwise require the
+        //Discovery reply to match the exact P2 board ID selected by discovery.
+        int expectedBoardId = -1;
         // Valid rates: 48/96/192/384/768/1536 (spec p.24). Not validated here
         // -- P2Protocol::buildDdcSpecific() is the single place that would
         // reject or clamp one, and it does neither yet; an invalid value is
@@ -251,6 +253,10 @@ private:
     // (unlikely, but this parses unauthenticated UDP) must not re-fire it
     // repeatedly for the life of the session.
     bool m_discoveryInfoSent = false;
+    //DH1KLM: No Saturn-profile packets are sent until this session's reply
+    //confirms board ID 10 and any discovery-selected ID also matches.
+    bool m_discoveryValidated = false;
+    int m_expectedBoardId = -1;
 
     QHostAddress m_host;
     std::uint32_t m_ddc0FreqWord = 0;   // last value sent; the keepalive resends this
