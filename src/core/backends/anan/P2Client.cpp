@@ -500,7 +500,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
             if (!m_discoveryInfoSent) {
                 m_discoveryInfoSent = true;
                 emit discoveryInfoReceived(reply->boardId, reply->firmwareVer,
-                                           reply->numDdc);
+                                           reply->reportedReceivers);
             }
             return;
         }
