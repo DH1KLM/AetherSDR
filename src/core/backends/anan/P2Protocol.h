@@ -161,6 +161,16 @@ struct DiscoveryReply {
     }
 };
 
+//DH1KLM: The currently implemented ANAN session wire profile is Saturn-only.
+//expectedBoardId < 0 means the caller connected by address without discovery metadata;
+//the actual board must still be Saturn. Recognition in Discovery is not enough.
+[[nodiscard]] constexpr bool discoveryMatchesVerifiedAnanProfile(
+    std::uint8_t boardId, int expectedBoardId) noexcept
+{
+    return boardId == 10
+        && (expectedBoardId < 0 || expectedBoardId == static_cast<int>(boardId));
+}
+
 // Byte 22 per spec p.45: ZERO means big-endian 3-byte I&Q (not "none", not
 // little-endian); nonzero is a bitmask with bit 0 = BE. A real G2 sends 0 and
 // decodes BE at 80.0 dB SNR vs 26.0 dB byte-swapped (WWV 10 MHz); buildGeneral()
