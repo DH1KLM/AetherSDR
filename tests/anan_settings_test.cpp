@@ -57,6 +57,7 @@ int main(int argc, char** argv)
     check(AnanSettings::ditherEnabled() && AnanSettings::randomEnabled(),
           "dither/random default on");
     check(AnanSettings::ddc0AdcIndex() == 0, "default ADC selection is ADC0");
+    check(AnanSettings::rxAntenna() == 1, "default RX antenna is ANT1");
     check(!AnanSettings::bypassAdc0Filters() && AnanSettings::bypassAdc1Filters(),
           "ADC0 Saturn BPF1 auto-selects by frequency; ADC1 bypass defaults on");
 
@@ -68,6 +69,10 @@ int main(int argc, char** argv)
     check(!AnanSettings::ditherEnabled() && !AnanSettings::randomEnabled(),
           "dither/random round-trip off");
     check(AnanSettings::ddc0AdcIndex() == 1, "ADC1/RX2 selection round-trips");
+    AnanSettings::setRxAntenna(3);
+    check(AnanSettings::rxAntenna() == 3, "RX antenna ANT3 selection round-trips");
+    AnanSettings::setRxAntenna(9);
+    check(AnanSettings::rxAntenna() == 3, "invalid RX antenna does not overwrite saved selection");
     check(!AnanSettings::bypassAdc0Filters() && !AnanSettings::bypassAdc1Filters(),
           "both bypass options round-trip off");
 
