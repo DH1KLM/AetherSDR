@@ -3432,17 +3432,28 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             const auto reply = anan::parseDiscoveryReply(
                 std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t*>(d.constData()), std::size_t(d.size())));
-            // Board type 10 (SATURN) only -- this project supports the G2
-            // bring-up radio and no other Protocol 2 board (RFC §2.11), same
-            // predicate AnanDiscovery applies to broadcast replies.
-            if (!reply || !reply->isSaturn())
+            //DH1KLM: Discovery can identify several Thetis board families, but
+            // this backend still uses Saturn-specific packet/rate assumptions.
+            // Fail closed here: only board ID 10 has the validated G2 path today.
+            if (!reply || !reply->isSupportedOpenHpsdrBoard())
                 continue;
+            if (reply->boardId != 10) {
+                setManualMessage(
+                    QStringLiteral("Detected %1 at %2, but AetherSDR's ANAN backend "
+                                   "does not yet have a verified hardware profile for it.")
+                        .arg(QString::fromLatin1(reply->boardDisplayName()), dest.toString()),
+                    true);
+                reportStartupProbeFailure(
+                    QStringLiteral("Detected unsupported OpenHPSDR board ID %1 at %2.")
+                        .arg(reply->boardId).arg(dest.toString()));
+                return AnanProbeResult::Answered;
+            }
 
             RadioInfo info;
             info.family   = QString::fromLatin1(kFamilyAnan);
             info.address  = dest;
             info.port     = anan::kRadioPort;
-            info.model    = QStringLiteral("ANAN-G2");
+            info.model    = QString::fromLatin1(reply->boardDisplayName());
             info.name     = info.model;
             info.serial   = anan::AnanDiscovery::macToSerial(reply->mac);
             info.nickname = anan::AnanDiscovery::effectiveNickname(info.family, info.serial,
