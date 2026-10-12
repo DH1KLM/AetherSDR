@@ -228,8 +228,9 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(std::span<const DdcConfig> ddcs,
 // there is no PTT parameter. `ddc0FreqWord` sets bytes 9-12 (p.32). Must be
 // re-sent at least once a second (100 ms recommended, p.8) to stay in RUN;
 // P2Client owns that cadence.
-// Alex0 (bytes 1432-1435, p.35, p.90-91) is always written: ANT1 (bit 24)
-// plus Thetis' Saturn BPF1 relay selected from DDC0's phase word. The explicit
+// Alex0 (bytes 1432-1435, p.35, p.90-91) is always written: RX antenna
+// selection ANT1/2/3 (bits 24/25/26) plus Thetis' Saturn BPF1 relay selected
+// from DDC0's phase word. Invalid antenna values fall back to ANT1. The explicit
 // `bypassAdc0Filters` option forces bypass; frequencies outside Thetis' configured
 // 1.5-61.44 MHz rows also bypass. This is Saturn-only; other board families
 // remain gated until their profiles are ported. `bypassAdc1Filters` sets bit 12
@@ -240,7 +241,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0Fre
                                                   bool bypassAdc0Filters = false,
                                                   bool bypassAdc1Filters = true,
                                                   int adc0AttenuationDb = 0,
-                                                  int adc1AttenuationDb = 0) noexcept;
+                                                  int adc1AttenuationDb = 0,
+                                                  int rxAntenna = 1) noexcept;
 
 // Multi-DDC form: one 4-byte frequency/phase word per DDC at 9 + 4*n (p.32),
 // N capped at kMaxDdcs, excess ignored. Still RX-only (no PTT; byte 4 is bit[0]
@@ -250,7 +252,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   bool bypassAdc0Filters = false,
                                                   bool bypassAdc1Filters = true,
                                                   int adc0AttenuationDb = 0,
-                                                  int adc1AttenuationDb = 0) noexcept;
+                                                  int adc1AttenuationDb = 0,
+                                                  int rxAntenna = 1) noexcept;
 
 // The step attenuators' range (spec pp.34,36), shared by the encoder's clamp and
 // by the backend that offers the control.
