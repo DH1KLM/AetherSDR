@@ -50,7 +50,7 @@ public:
         bool ditherEnabled = true;
         bool randomEnabled = true;
         int ddc0AdcIndex = 0;          // 0 = ADC0, 1 = ADC1/RX2
-        bool bypassAdc0Filters = true;
+        bool bypassAdc0Filters = false; //DH1KLM: use Thetis Saturn BPF1 by default
         bool bypassAdc1Filters = true;
         // Receive step attenuators, 0-31 dB (buildHighPriority()). Unlike the
         // options above these ARE live: setStepAttenuationDb() changes them
@@ -252,7 +252,7 @@ private:
     // the rest of this session (the keepalive tick included) carries these
     // same values, since there is no live setter for either (see Params'
     // own comment on why these are connect-time-only).
-    bool m_bypassAdc0Filters = true;
+    bool m_bypassAdc0Filters = false; //DH1KLM: use Thetis Saturn BPF1 by default
     bool m_bypassAdc1Filters = true;
     // Step attenuation per ADC, seeded from Params at start() and changed
     // live by setStepAttenuationDb(); every buildHighPriority() carries it.
