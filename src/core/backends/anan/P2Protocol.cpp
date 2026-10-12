@@ -92,6 +92,21 @@ std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> 
     if (data[4] != 0x02 && data[4] != 0x03)
         return std::nullopt;
 
+    //DH1KLM: High-Priority Status is also 60 bytes and can share sequence
+    // zero plus command-looking byte 4. Require plausible Discovery identity
+    // fields before treating a datagram as a board reply; otherwise a status
+    // packet could accidentally authorize a Saturn-profile session.
+    bool macAllZero = true;
+    bool macAllOnes = true;
+    for (std::size_t i = 5; i <= 10; ++i) {
+        macAllZero = macAllZero && data[i] == 0;
+        macAllOnes = macAllOnes && data[i] == 0xFF;
+    }
+    if (macAllZero || macAllOnes || (data[5] & 0x01) != 0
+        || data[12] < 10 || data[12] > 99) {
+        return std::nullopt;
+    }
+
     DiscoveryReply r;
     r.streaming = data[4] == 0x03;
     for (std::size_t i = 0; i < r.mac.size(); ++i)
