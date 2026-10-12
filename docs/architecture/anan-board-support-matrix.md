@@ -37,32 +37,29 @@ identifies Orion MkII. This is a wire-protocol distinction, not a naming choice.
 
 ## Current transport blocker before enabling another family
 
-The packet encoder now accepts an explicit physical ADC count and the P2 client
-retains that value when it rebuilds a DDC-Specific packet after a live rate
-change. The regression test covers the one-ADC byte encoding as a wire-format
-unit test only. Saturn remains the only connectable family and defaults to two
-ADCs.
+The P2 client now sends Discovery first and waits for a structurally plausible
+reply before sending any Saturn-specific General, DDC-Specific or High-Priority
+packet. The reply must identify board ID 10 (Saturn), and when the picker
+provided a numeric board ID, that ID must match the reply. A manual-address
+connect without picker metadata is still permitted only if the actual reply
+identifies Saturn. An invalid or missing reply fails closed; the stop path does
+not send a Saturn-encoded run=0 packet before profile validation.
 
-This parameter alone does **not** make Hermes-class radios safe to connect.
-`P2Client::start()` sends Discovery and then immediately sends General,
-DDC-Specific and High-Priority packets; the Discovery reply is parsed for
-diagnostics but is not used to choose the session profile before those packets
-are sent. Before another family can be enabled, the connection path needs an
-explicit, validated board profile supplied from discovery/selection (or a
-separate preflight discovery phase) so the ADC count, DDC assignment, receiver
-count and ALEX behavior are selected together. Do not infer those settings from
-the reported receiver byte alone.
+This gate is intentionally narrower than the discovery registry: Atlas,
+Hermes, Hermes II, Angelia, Orion, Orion MkII, Hermes Lite, Saturn MkII and
+HermesC10 remain recognized but not connectable. Their packet layouts are not
+inferred from the receiver-count byte or from a display model name.
 
 ## Connection-profile safety gate
 
-The explicit ADC-count parameter is groundwork only. `P2Client::start()` sends
-Discovery and then immediately sends General, DDC-Specific and High-Priority
-packets; the Discovery reply is parsed for diagnostics but does not select the
-session profile before those packets are sent. Before enabling another family,
-the connection path must supply an explicit, validated board profile from
-discovery/selection (or use a separate preflight discovery phase). That profile
-must jointly select ADC count, DDC assignment, receiver count, frequency
-representation and ALEX/filter behavior. Do not infer those settings from the
+The transport gate is now implemented, but a complete multi-family profile
+system is not. It prevents the current Saturn encoder from starting against
+another physical board; it does not yet select a different board's ADC count,
+DDC assignment, receiver count, frequency representation or ALEX/filter path.
+Before another family can be enabled, those properties must be assembled into
+an explicit profile sourced from Thetis and independently checked against the
+corresponding NereusSDR implementation. Add byte-level regression tests for
+each profile before changing the discovery gate. Do not infer settings from the
 reported receiver byte alone.
 
 Thetis source verification for the physical P2 board-ID enum was performed
