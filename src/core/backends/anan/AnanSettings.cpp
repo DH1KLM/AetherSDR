@@ -18,6 +18,7 @@ constexpr const char* kFieldDdc0RateKsps      = "ddc0RateKsps";
 constexpr const char* kFieldDither            = "dither";
 constexpr const char* kFieldRandom            = "random";
 constexpr const char* kFieldDdc0AdcIndex      = "ddc0AdcIndex";
+constexpr const char* kFieldRxAntenna          = "rxAntenna";
 constexpr const char* kFieldBypassAdc0Filters = "bypassAdc0Filters";
 constexpr const char* kFieldSpeakerAudioEnabled = "speakerAudioEnabled";
 constexpr const char* kFieldBypassAdc1Filters = "bypassAdc1Filters";
@@ -90,6 +91,21 @@ void AnanSettings::setDdc0AdcIndex(int index)
 {
     QJsonObject obj = readObj();
     obj[QLatin1String(kFieldDdc0AdcIndex)] = (index == 1 ? 1 : 0);
+    writeObj(obj);
+}
+
+int AnanSettings::rxAntenna()
+{
+    const int v = readObj().value(QLatin1String(kFieldRxAntenna)).toInt(1);
+    return (v >= 1 && v <= 3) ? v : 1;
+}
+
+void AnanSettings::setRxAntenna(int antenna)
+{
+    if (antenna < 1 || antenna > 3)
+        return;
+    QJsonObject obj = readObj();
+    obj[QLatin1String(kFieldRxAntenna)] = antenna;
     writeObj(obj);
 }
 
