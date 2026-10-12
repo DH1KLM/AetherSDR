@@ -436,7 +436,7 @@ bool P2Client::setDdcRateLive(int ddcIndex, int rateKsps)
     // AnanBackend retries this call at 60/140 ms for UDP loss, and those
     // retries must not no-op after the first write (#5547).
     sendTo(*m_socket,
-          buildDdcSpecific(m_activeDdcs, /*numAdcs=*/2,
+          buildDdcSpecific(m_activeDdcs, m_numAdcs,
                            m_ditherEnabled, m_randomEnabled),
           m_host, kDdcSpecificPort, m_txBytes);
 
