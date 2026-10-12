@@ -168,6 +168,9 @@ void AnanDiscovery::onReadyRead()
 
         RadioInfo info;
         info.family   = QStringLiteral("anan");
+        //DH1KLM: Carry the numeric P2 board ID as data; downstream connection
+        // setup must not reverse-engineer it from info.model.
+        info.boardId   = reply->boardId;
         info.address  = dg.senderAddress();
         info.port     = kRadioPort;
         //DH1KLM: Show the reported physical board family. Orion MkII is
