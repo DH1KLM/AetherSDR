@@ -225,7 +225,7 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0Fre
     // what this built before (pinned by the existing tests).
     return buildHighPriority(run, std::span<const std::uint32_t>(&ddc0FreqWord, 1),
                              bypassAdc0Filters, bypassAdc1Filters,
-                             adc0AttenuationDb, adc1AttenuationDb);
+                             adc0AttenuationDb, adc1AttenuationDb, rxAntenna);
 }
 
 std::array<std::uint8_t, kSpeakerPacketBytes> buildSpeakerAudio(
