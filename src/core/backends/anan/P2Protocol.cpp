@@ -68,7 +68,7 @@ std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> 
     r.boardId = data[11];
     r.protoVersionRaw = data[12];
     r.firmwareVer = data[13];
-    r.numDdc = data[20];
+    r.reportedReceivers = data[20];
     r.freqIsPhaseWord = data[21] != 0;
     r.endianByteRaw = data[22];
     r.p2appBuild = data[23];
