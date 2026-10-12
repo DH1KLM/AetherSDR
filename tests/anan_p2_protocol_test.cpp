@@ -244,6 +244,18 @@ int main()
         const auto hpOutOfBand = buildHighPriority(true, phaseWord(1'000'000.0));
         check(readU32(hpOutOfBand, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 12)),
               "below Thetis BPF1 rows, Alex0 uses bypass");
+        const auto hpAnt2 = buildHighPriority(true, phaseWord(14'200'000.0),
+                                              false, true, 0, 0, 2);
+        check(readU32(hpAnt2, 1432) == ((std::uint32_t{1} << 25) | (std::uint32_t{1} << 1)),
+              "ANT2 selects Alex0 bit 25 while retaining the 20/15 m BPF1 row");
+        const auto hpAnt3 = buildHighPriority(true, phaseWord(14'200'000.0),
+                                              false, true, 0, 0, 3);
+        check(readU32(hpAnt3, 1432) == ((std::uint32_t{1} << 26) | (std::uint32_t{1} << 1)),
+              "ANT3 selects Alex0 bit 26 while retaining the 20/15 m BPF1 row");
+        const auto hpInvalidAnt = buildHighPriority(true, phaseWord(14'200'000.0),
+                                                    false, true, 0, 0, 9);
+        check(readU32(hpInvalidAnt, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 1)),
+              "invalid antenna value fails safe to ANT1");
         check(readU16(hp, 1430) == (std::uint16_t{1} << 12),
               "default: HF Bypass 2 (ADC1/RX2) set in Alex1");
 
