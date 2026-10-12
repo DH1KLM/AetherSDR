@@ -57,8 +57,8 @@ int main(int argc, char** argv)
     check(AnanSettings::ditherEnabled() && AnanSettings::randomEnabled(),
           "dither/random default on");
     check(AnanSettings::ddc0AdcIndex() == 0, "default ADC selection is ADC0");
-    check(AnanSettings::bypassAdc0Filters() && AnanSettings::bypassAdc1Filters(),
-          "both bypass options default on");
+    check(!AnanSettings::bypassAdc0Filters() && AnanSettings::bypassAdc1Filters(),
+          "ADC0 Saturn BPF1 auto-selects by frequency; ADC1 bypass defaults on");
 
     AnanSettings::setDitherEnabled(false);
     AnanSettings::setRandomEnabled(false);
