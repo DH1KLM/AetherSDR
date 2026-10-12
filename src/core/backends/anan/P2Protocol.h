@@ -237,7 +237,7 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(std::span<const DdcConfig> ddcs,
 // `adc0AttenuationDb`/`adc1AttenuationDb`: step attenuators, byte 1443 (ADC0) and
 // 1442 (ADC1), 0-31 dB in 1 dB steps (p.34, p.36), clamped; 0 = none.
 std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0FreqWord,
-                                                  bool bypassAdc0Filters = true,
+                                                  bool bypassAdc0Filters = false,
                                                   bool bypassAdc1Filters = true,
                                                   int adc0AttenuationDb = 0,
                                                   int adc1AttenuationDb = 0) noexcept;
