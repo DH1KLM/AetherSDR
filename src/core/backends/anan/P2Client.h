@@ -50,6 +50,8 @@ public:
         bool ditherEnabled = true;
         bool randomEnabled = true;
         int ddc0AdcIndex = 0;          // 0 = ADC0, 1 = ADC1/RX2
+        //DH1KLM: Physical ADC count is a board-profile property; Saturn remains 2.
+        int numAdcs = 2;
         bool bypassAdc0Filters = false; //DH1KLM: use Thetis Saturn BPF1 by default
         bool bypassAdc1Filters = true;
         // Receive step attenuators, 0-31 dB (buildHighPriority()). Unlike the
