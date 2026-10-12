@@ -1,0 +1,63 @@
+# ANAN / OpenHPSDR board-support matrix
+
+Status: implementation planning and guardrails for `anan-openhpsdr-all-models`.
+This document separates **recognition** from **safe connection**. A discovery
+board ID is not, by itself, evidence that the current packet builder is valid
+for that board.
+
+## Wire IDs and implementation state
+
+| Protocol 2 board ID | Thetis physical family / examples | Evidence-backed distinction | AetherSDR status |
+|---:|---|---|---|
+| 0 | Atlas / Metis | Legacy OpenHPSDR family; not an ANAN SKU | Recognized in the registry; not connectable through this ANAN profile |
+| 1 | Hermes — ANAN-10 / ANAN-100 | Hermes-class P2 DDC assignment; 1-ADC family in NereusSDR's Thetis-derived profile | Recognized; not connectable |
+| 2 | Hermes II — ANAN-10E / ANAN-100B | Separate Thetis board ID; Hermes-class P2 DDC assignment | Recognized; not connectable |
+| 3 | Angelia — ANAN-100D | 2-ADC family; must not inherit Hermes-class DDC placement | Recognized; not connectable |
+| 4 | Orion — ANAN-200D | 2-ADC family; P2 ID differs from its Protocol 1 board ID | Recognized; not connectable |
+| 5 | Orion MkII family — ANAN-7000DLE / 8000DLE, Anvelina Pro 3, Red Pitaya | Thetis uses one physical ID for several logical SKUs; MkII BPF1/preselector behavior differs from legacy ALEX HPF assumptions | Recognized as a family only; not connectable |
+| 6 | Hermes Lite 2 | Distinct board and protocol implementation; do not assume it shares ANAN ALEX or attenuator behavior | Recognized; not connectable through this P2 profile |
+| 10 | Saturn — ANAN-G2 / G2 1K | Saturn-specific P2 profile; phase-word tuning and BPF1 behavior | **Only currently connectable profile**; one DDC is driven |
+| 11 | Saturn MkII | Separate registry ID; its capabilities must be verified independently of Saturn | Recognized; not connectable |
+| 20 | HermesC10 — ANAN-G2E | Single-ADC, Hermes-class four-DDC receive layout; shares the G2-family BPF/preselector routing but not the G2's dual-ADC capabilities | Recognized; not connectable |
+
+The table is deliberately conservative. “Recognized” means the discovery parser
+can label the reported family; it does not imply that the current
+`buildDdcSpecific()`, `buildHighPriority()`, ADC selection, filter map, or
+receiver-port demultiplexing is correct for it.
+
+## Protocol 1 IDs are not Protocol 2 IDs
+
+Never reuse a board-ID switch across protocols without translating the enum.
+Thetis' Protocol 1 model IDs differ from the Protocol 2 discovery IDs. In
+particular, Protocol 2 ID 4 is Orion (ANAN-200D), while Protocol 2 ID 5 is the
+Orion MkII family; a Protocol 1 ID 5 identifies Orion, and Protocol 1 ID 10
+identifies Orion MkII. This is a wire-protocol distinction, not a naming choice.
+
+## Porting order and required evidence
+
+1. **Hermes / Hermes II / HermesC10:** port the Hermes-class DDC assignment
+   from Thetis' `Console/console.cs` (`GetDDC` / `UpdateDDCs`) and the
+   corresponding NereusSDR `P2CodecHermes` behavior. Keep the single-ADC
+   family separate from the 2-ADC layout.
+2. **Angelia / Orion / Orion MkII:** implement the verified 2-ADC DDC and
+   packet layout from Thetis' `ChannelMaster/network.c` and
+   `Console/console.cs`; use the exact family-specific ALEX/preselector path.
+   Do not infer a SKU from shared discovery ID 5.
+3. **Hermes Lite 2, Atlas/Metis and Saturn MkII:** verify the protocol and
+   exact hardware path independently before making any of these IDs
+   connectable in this backend.
+4. For each family, add packet-byte regression tests for discovery, DDC
+   assignment, ADC count, frequency representation, ALEX/filter registers and
+   stream-port routing before changing the discovery gate.
+5. Build and run the ANAN protocol/settings tests, then test on hardware for
+   each family. A passing test suite for Saturn does not certify another board.
+
+## Source provenance
+
+- Thetis physical board enums: [ChannelMaster/network.h](https://github.com/ramdor/Thetis/blob/master/Project%20Files/Source/ChannelMaster/network.h) and [Console/enums.cs](https://github.com/ramdor/Thetis/blob/master/Project%20Files/Source/Console/enums.cs).
+- Thetis model-specific hardware behavior: [Console/clsHardwareSpecific.cs](https://github.com/ramdor/Thetis/blob/master/Project%20Files/Source/Console/clsHardwareSpecific.cs), [Console/console.cs](https://github.com/ramdor/Thetis/blob/master/Project%20Files/Source/Console/console.cs), and [ChannelMaster/network.c](https://github.com/ramdor/Thetis/blob/master/Project%20Files/Source/ChannelMaster/network.c).
+- NereusSDR's Thetis-derived P2 family split: [P2CodecHermes.h](https://github.com/boydsoftprez/NereusSDR/blob/main/src/core/codec/P2CodecHermes.h), [P2CodecOrionMkII.h](https://github.com/boydsoftprez/NereusSDR/blob/main/src/core/codec/P2CodecOrionMkII.h), [P2CodecSaturn.cpp](https://github.com/boydsoftprez/NereusSDR/blob/main/src/core/codec/P2CodecSaturn.cpp), and [BoardCapabilities.cpp](https://github.com/boydsoftprez/NereusSDR/blob/main/src/core/BoardCapabilities.cpp).
+
+These references are evidence for porting and test design, not permission to
+copy code without checking each source file's licence and AetherSDR's
+clean-room/provenance rules.
