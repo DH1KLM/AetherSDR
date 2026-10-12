@@ -1000,27 +1000,18 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     connect(m_manualAnanRandomCheck, &QCheckBox::toggled,
             this, [](bool on) { anan::AnanSettings::setRandomEnabled(on); });
 
-    // Alex0/Alex1's own HF Bypass relays (spec Appendix D p.90-91), one per
-    // ADC's filter bank. Default on, and for now this is NOT a selectivity
-    // trade-off despite the name: this backend has no per-band filter
-    // selection yet (02-working-plan.md Step 3, not started), so nothing
-    // ever picks one of the bank's narrow filters. With Bypass off AND no
-    // filter selected, the relay chain has no closed path through it at
-    // all -- not "filtered but attenuated", literally disconnected. Bypass
-    // stays the only way to receive anything on this ADC until Step 3 adds
-    // real band-filter selection to choose between.
+    //DH1KLM: Saturn BPF1 is now selected from DDC0's tuned frequency using
+    //Thetis' setBPF1ForOrionIISaturn mapping. ADC0 bypass is therefore opt-in:
+    //it deliberately routes around that selected filter. ADC1's separate
+    //filter bank still defaults to bypass until its own selector is ported.
     m_manualAnanBypassAdc0Check = new QCheckBox(tr("ADC0 RF filter bypass"), manualGroup);
     m_manualAnanBypassAdc0Check->setObjectName(QStringLiteral("connectionManualAnanBypassAdc0"));
     m_manualAnanBypassAdc0Check->setAccessibleDescription(
-        tr("Routes ADC0's antenna signal around its front-end filter bank instead of "
-           "through a specific band filter. Leave this checked: no band filter is ever "
-           "selected in this version, so with it unchecked nothing reaches the ADC at "
-           "all, not just a less selective receiver."));
+        tr("Forces ADC0 around the Saturn BPF1 filter selected for the tuned frequency. "
+           "Normally leave this unchecked to use Thetis-compatible automatic band selection."));
     m_manualAnanBypassAdc0Check->setToolTip(
-        tr("Routes ADC0's antenna signal around its front-end filter bank instead\n"
-           "of through a specific band filter. Leave this checked: no band filter\n"
-           "is ever selected in this version, so unchecked means nothing reaches\n"
-           "the ADC at all -- not just a less selective receiver."));
+        tr("Forces ADC0 around the Saturn BPF1 filter selected for the tuned frequency.\n"
+           "Normally leave this unchecked to use automatic band selection."));
     m_manualAnanBypassAdc0Check->setChecked(anan::AnanSettings::bypassAdc0Filters());
     AetherSDR::ThemeManager::instance().applyStyleSheet(m_manualAnanBypassAdc0Check, lowBandwidthCheckStyle);
     m_manualAnanBypassAdc0Row = addManualRow(QStringLiteral(""), m_manualAnanBypassAdc0Check);
