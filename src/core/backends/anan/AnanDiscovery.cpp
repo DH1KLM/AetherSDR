@@ -159,14 +159,20 @@ void AnanDiscovery::onReadyRead()
         const auto reply = parseDiscoveryReply(
             {reinterpret_cast<const std::uint8_t*>(data.constData()),
              static_cast<std::size_t>(data.size())});
-        if (!reply || !reply->isSaturn())
-            continue;   // not an ANAN-G2 (or not a discovery reply at all)
+        //DH1KLM: Accept only board IDs defined by Thetis/NereusSDR.
+        // Recognition does not yet select a hardware profile; unknown IDs are
+        // ignored rather than being treated as Saturn by default.
+        if (!reply || !reply->isSupportedOpenHpsdrBoard())
+            continue;
 
         RadioInfo info;
         info.family   = QStringLiteral("anan");
         info.address  = dg.senderAddress();
         info.port     = kRadioPort;
-        info.model    = QStringLiteral("ANAN-G2");
+        //DH1KLM: Show the reported physical board family. Orion MkII is
+        // intentionally not mislabeled as one specific ANAN SKU because
+        // Red Pitaya and AnvelinaPro3 can share this board family.
+        info.model    = QString::fromLatin1(reply->boardDisplayName());
         info.name     = info.model;
         info.serial   = macToSerial(reply->mac);
         info.nickname = effectiveNickname(QStringLiteral("anan"), info.serial, info.model);
