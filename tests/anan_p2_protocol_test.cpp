@@ -126,6 +126,15 @@ int main()
         // Non-discovery bytes rejected.
         const std::array<std::uint8_t, 24> junk{0x01, 0x02, 0x03, 0x04};
         check(!parseDiscoveryReply(junk).has_value(), "non-zero seq bytes rejected");
+        const std::array<std::uint8_t, 60> zeroMacReply{
+            0x00, 0x00, 0x00, 0x00, 0x02
+        };
+        check(!parseDiscoveryReply(zeroMacReply).has_value(),
+              "status-shaped packet with zero MAC cannot validate a Discovery session");
+        auto invalidVersion = raw;
+        invalidVersion[12] = 0;
+        check(!parseDiscoveryReply(invalidVersion).has_value(),
+              "Discovery reply with impossible zero protocol version is rejected");
 
         //DH1KLM: Keep the P2 physical-board registry pinned independently
         // from the current Saturn-only connection gate in AnanDiscovery.
