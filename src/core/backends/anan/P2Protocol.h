@@ -228,12 +228,12 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(std::span<const DdcConfig> ddcs,
 // there is no PTT parameter. `ddc0FreqWord` sets bytes 9-12 (p.32). Must be
 // re-sent at least once a second (100 ms recommended, p.8) to stay in RUN;
 // P2Client owns that cadence.
-// Alex0 (bytes 1432-1435, p.35, p.90-91) is always written: ANT1 (bit 24), plus
-// HF Bypass (bit 12) when `bypassAdc0Filters`. Power-on Alex is all zero (p.79),
-// and the RX1 BPF bank sits in series before the ADC (p.90), so with neither a
-// band filter nor Bypass energised there is no signal path. ANT2/3 and per-band
-// BPF are not exposed. `bypassAdc1Filters` sets bit 12 ("HF Bypass 2") of Alex1
-// (bytes 1430-1431); RX2 is a single dedicated jack with no antenna select.
+// Alex0 (bytes 1432-1435, p.35, p.90-91) is always written: ANT1 (bit 24)
+// plus Thetis' Saturn BPF1 relay selected from DDC0's phase word. The explicit
+// `bypassAdc0Filters` option forces bypass; frequencies outside Thetis' configured
+// 1.5-61.44 MHz rows also bypass. This is Saturn-only; other board families
+// remain gated until their profiles are ported. `bypassAdc1Filters` sets bit 12
+// ("HF Bypass 2") of Alex1 (bytes 1430-1431); RX2 is a dedicated jack.
 // `adc0AttenuationDb`/`adc1AttenuationDb`: step attenuators, byte 1443 (ADC0) and
 // 1442 (ADC1), 0-31 dB in 1 dB steps (p.34, p.36), clamped; 0 = none.
 std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0FreqWord,
@@ -247,7 +247,7 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0Fre
 // run only). Alex0/Alex1 are per-ADC, written as in the single-DDC overload.
 std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   std::span<const std::uint32_t> ddcFreqWords,
-                                                  bool bypassAdc0Filters = true,
+                                                  bool bypassAdc0Filters = false,
                                                   bool bypassAdc1Filters = true,
                                                   int adc0AttenuationDb = 0,
                                                   int adc1AttenuationDb = 0) noexcept;
