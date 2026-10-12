@@ -197,9 +197,11 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(int ddc0RateKsps = 48, int numAd
                                                 int ddc0AdcIndex = 0) noexcept;
 
 // ---- Multi-DDC ----
-// Codec safety bound on DDC count: a real G2 reports 4 (p2app's DiscoveryReply[]
-// hardcodes it, though gateware VNUMDDC is 10); callers still clamp to the
-// Discovery value. The one-byte enable bitmap caps the format at 8.
+// Codec safety bound for this Saturn-only client: a real G2 reports four
+// receivers in Discovery byte 20 (Thetis calls it NumRxs). The current client
+// conservatively uses that value as its active-stream ceiling; do not generalize
+// this assumption to other board families without checking their gateware.
+// The one-byte enable bitmap caps the format at 8.
 inline constexpr int kMaxDdcs = 4;
 
 // One DDC's slot in the DDC-Specific packet. `rateKsps` must be one of
