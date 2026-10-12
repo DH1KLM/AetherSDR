@@ -32,7 +32,8 @@ To reach it across a VPN or another subnet, use **Connect by IP** with **Radio t
 | **Sample rate:** | 48 ksps | DDC0 sample rate: 48, 96, 192, 384, 768 or 1536 ksps. It is also the starting width of the panadapter. Higher rates use more of the radio's Ethernet link. |
 | **Select ADC:** | ADC0 (ANT1/2/3) | Which receive chain feeds the receiver: **ADC0 (ANT1/2/3)**, behind the switched antenna relays, or **ADC1 (RX2)**, wired straight to the RX2 jack. |
 | **Dither** / **Random** | On | The ADC's linearisation bits. Leave them on unless you are testing. |
-| **ADC0 RF filter bypass** / **ADC1 RF filter bypass** | On | Routes the antenna around the front-end filter bank. **Leave these checked:** no band filter is selected in this version, so unchecked means nothing reaches the ADC. |
+| **ADC0 RF filter bypass** | Off | Saturn BPF1 is selected automatically from the tuned frequency using the Thetis-compatible band map. Check this only to force ADC0 around that filter. |
+| **ADC1 RF filter bypass** | On | RX2/ADC1's separate filter bank still uses bypass; automatic ADC1 band selection is not implemented yet. |
 | **Send RX audio to the radio's speaker** | Off | Also plays receive audio through the G2's own speaker and headphone jack. Takes effect on the next connect. |
 
 ## Receiving with the G2
@@ -79,11 +80,11 @@ Controls the G2 cannot honour are dimmed with a reason, or refuse with a notice;
 
 ### Nothing is received at all
 
-An **RF filter bypass** box is unchecked. No band filter is selected, so an unchecked bypass means nothing reaches the ADC.
+If the signal path is wrong after changing RF filter options, first restore the Saturn BPF1 selection.
 
 1. Disconnect from the G2.
 2. Open **Connect by IP** with **Radio type:** set to **ANAN-G2**.
-3. Tick **ADC0 RF filter bypass** and **ADC1 RF filter bypass**, then connect again.
+3. Uncheck **ADC0 RF filter bypass** so the tuned-frequency BPF1 selection is active. Keep **ADC1 RF filter bypass** checked when using RX2 until its separate filter selector is implemented.
 
 ### No audio from the radio's own speaker
 
