@@ -87,6 +87,8 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_adc0AttenuationDb = params.adc0AttenuationDb;
     m_adc1AttenuationDb = params.adc1AttenuationDb;
     m_rxAntenna = (params.rxAntenna >= 1 && params.rxAntenna <= 3) ? params.rxAntenna : 1;
+    //DH1KLM: Keep the advertised hardware ADC count with the session; never infer it from the DDC count.
+    m_numAdcs = (params.numAdcs >= 1 && params.numAdcs <= 2) ? params.numAdcs : 2;
     m_speakerAudioEnabled = params.speakerAudioEnabled;
     m_speakerPending.clear();
     m_speakerPacer.reset();
@@ -157,7 +159,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     // kDdcSpecificPort/kHighPriorityPort's comment. p2app tells these two
     // packet types apart by which port they arrive on.
     sendTo(*m_socket,
-          buildDdcSpecific(ddcs, /*numAdcs=*/2,
+          buildDdcSpecific(ddcs, m_numAdcs,
                            params.ditherEnabled, params.randomEnabled),
           m_host, kDdcSpecificPort, m_txBytes);
     sendTo(*m_socket,
