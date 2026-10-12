@@ -47,6 +47,8 @@ When the operating system adds or removes an audio device, an **Audio Device Det
 - **Mute button:** single-click mutes or unmutes this slice; double-click mutes or unmutes all of your slices. **Radio Setup → Appearance & Behavior → Single-Click Delay** sets how long AetherSDR waits to tell a single click from a double click (0 makes single clicks instant and turns off the double-click action).
 - Slice mute belongs to the radio, so it is not restored by AetherSDR on reconnect.
 - **Title-bar speaker icon and master slider** always show the path you are actually hearing. With **PC Audio** on, they show and control the computer's mute and level. With PC Audio off, they show the radio's Line Out mute and level, including changes made by another Multi-Flex client.
+- **Clicking the title-bar speaker** mutes or unmutes this computer's output and, on a radio with a line out AetherSDR can control, the radio's Line Out as well. On a radio with no such line out and PC Audio off, there is nothing to mute: the click is refused and the icon stays as it was.
+- The volume keyboard shortcuts, FlexControl and HID controllers, and TCI `volume` all adjust the same level the master slider shows: the computer's level with PC Audio on, the radio's Line Out level with it off. MIDI **Master Volume** has its own rules; see [MIDI Controller Mapping](./midi-controller-mapping.md#using-midi-with-non-flex-radios).
 - The title-bar headphone controls follow the radio's headphone output, and are dimmed on radios that have none.
 
 ## Recording QSOs
