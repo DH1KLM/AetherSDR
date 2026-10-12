@@ -585,6 +585,20 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         emit connectionError(QStringLiteral("ANAN: invalid host '%1'").arg(request.host));
         return;
     }
+    //DH1KLM: A discovered physical board ID is authoritative metadata. Until
+    //a complete profile exists, reject any explicitly identified board except
+    //Saturn (10); never let a future picker expansion silently use Saturn's
+    //two-ADC/DDC and ALEX packet profile for different hardware.
+    if (request.params.contains(QStringLiteral("anan.boardId"))) {
+        bool boardIdOk = false;
+        const int boardId = request.params.value(QStringLiteral("anan.boardId")).toInt(&boardIdOk);
+        if (!boardIdOk || boardId != 10) {
+            emit connectionError(QStringLiteral(
+                "ANAN: board ID %1 has no verified connection profile; only Saturn (10) is enabled")
+                .arg(boardIdOk ? QString::number(boardId) : QStringLiteral("invalid")));
+            return;
+        }
+    }
     if (m_connected)
         disconnectRadio();
 
