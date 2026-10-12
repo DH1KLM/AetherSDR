@@ -378,7 +378,7 @@ void P2Client::setDdc0FrequencyHz(double hz)
         sendTo(*m_socket,
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                m_adc0AttenuationDb, m_adc1AttenuationDb),
+                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
               m_host, kHighPriorityPort, m_txBytes);
 }
 
@@ -412,7 +412,7 @@ void P2Client::setStepAttenuationDb(int adcIndex, int db)
         sendTo(*m_socket,
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                m_adc0AttenuationDb, m_adc1AttenuationDb),
+                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
               m_host, kHighPriorityPort, m_txBytes);
     }
 }
@@ -459,7 +459,7 @@ void P2Client::onKeepaliveTick()
     sendTo(*m_socket,
           buildHighPriority(true, sharedFreqWords(),
                             m_bypassAdc0Filters, m_bypassAdc1Filters,
-                            m_adc0AttenuationDb, m_adc1AttenuationDb),
+                            m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
           m_host, kHighPriorityPort, m_txBytes);
 }
 
