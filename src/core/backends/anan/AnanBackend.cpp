@@ -1451,7 +1451,6 @@ QString AnanBackend::applyDroopTables(const QMap<int, DroopCorrectionTable>& tab
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
-    Q_UNUSED(arg);
     //DH1KLM: ALEX RX antenna control is deliberately an explicit extension;
     //the P2 client applies only the verified Saturn Alex0 bit mapping.
     if (ns == QLatin1String("anan") && verb == QLatin1String("rx-antenna.get")) {
