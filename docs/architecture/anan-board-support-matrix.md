@@ -23,7 +23,9 @@ for that board.
 The table is deliberately conservative. “Recognized” means the discovery parser
 can label the reported family; it does not imply that the current
 `buildDdcSpecific()`, `buildHighPriority()`, ADC selection, filter map, or
-receiver-port demultiplexing is correct for it.
+receiver-port demultiplexing is correct for it. Invalid ADC counts (anything other than 1 or 2) are rejected by
+`P2Client::start()` before a session socket starts; they no longer silently
+fall back to the two-ADC Saturn default.
 
 ## Protocol 1 IDs are not Protocol 2 IDs
 
@@ -50,6 +52,26 @@ explicit, validated board profile supplied from discovery/selection (or a
 separate preflight discovery phase) so the ADC count, DDC assignment, receiver
 count and ALEX behavior are selected together. Do not infer those settings from
 the reported receiver byte alone.
+
+## Connection-profile safety gate
+
+The explicit ADC-count parameter is groundwork only. `P2Client::start()` sends
+Discovery and then immediately sends General, DDC-Specific and High-Priority
+packets; the Discovery reply is parsed for diagnostics but does not select the
+session profile before those packets are sent. Before enabling another family,
+the connection path must supply an explicit, validated board profile from
+discovery/selection (or use a separate preflight discovery phase). That profile
+must jointly select ADC count, DDC assignment, receiver count, frequency
+representation and ALEX/filter behavior. Do not infer those settings from the
+reported receiver byte alone.
+
+Thetis source verification for the physical P2 board-ID enum was performed
+against commit `852bf0ef0b4f3886a13fc2846489aee16f361872`:
+`Project Files/Source/ChannelMaster/network.h`, enum `HPSDRHW`, lines 414-425.
+That enum explicitly assigns Atlas 0, Hermes 1, HermesII 2, Angelia 3, Orion 4,
+OrionMKII 5, HermesLite 6, Saturn 10, SaturnMKII 11 and HermesC10 20. The
+shared ID 5 comment lists several logical SKUs, so discovery alone cannot
+distinguish them.
 
 ## Porting order and required evidence
 
