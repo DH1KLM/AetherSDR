@@ -650,6 +650,10 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     }
 
     m_pendingParams.host = request.host;
+    //DH1KLM: Keep discovery's numeric board identity through to the P2
+    // client so it can reject a target that differs from the selected radio.
+    m_pendingParams.expectedBoardId =
+        request.params.value(QStringLiteral("anan.boardId"), -1).toInt();
     m_pendingParams.ddc0RateKsps =
         request.params.value(QStringLiteral("anan.ddc0RateKsps"), 48).toInt();
     // Connect-time-only ADC options -- see P2Client::Params' own comment
