@@ -318,12 +318,13 @@ private slots:
     {
         auto& tm = ThemeManager::instance();
         const ThemeRestore restoreTheme;
-        const QColor engagedRed(0x8b, 0x00, 0x00);
         QStringList failures;
         for (const char* theme : {"Default Dark", "Default Light"}) {
             QVERIFY2(tm.setActiveTheme(QLatin1String(theme)), theme);
             const QString unavailable =
                 tm.color(QStringLiteral("color.control.unavailable")).name();
+            // The engaged Mute's border is drawn in the danger token, solid.
+            const QColor engagedRed = tm.color(QStringLiteral("color.accent.danger"));
 
             RadioModel hl2;
             NoCommandPlaneBackend* backend = installConnected(hl2, QStringLiteral("hl2"));
@@ -376,7 +377,9 @@ private slots:
                     failures << where + QStringLiteral(": regions differ in size");
                 else if (diff == 0)
                     failures << where + QStringLiteral(": dimmed renders as live");
-                if (!p.dimmed->styleSheet().contains(unavailable, Qt::CaseInsensitive))
+                // The window's canon sheet paints a disabled label, value and
+                // Mute in the unavailable token: its color is in the render.
+                if (pixelsOfColour(dimmed, QColor(unavailable)) <= 0)
                     failures << where + QStringLiteral(": not the unavailable token ")
                                     + unavailable;
             }

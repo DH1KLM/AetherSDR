@@ -25,6 +25,10 @@ Several menu items open Radio Setup straight at the right page:
 - **Settings → USB Cables...** → USB Cables
 - **Tools → Configure KiwiSDR...** → Antennas
 
+The window has no title bar. Drag any empty part of it to move it, and drag its top or bottom edge to make it taller or shorter; its width is fixed. It reopens at the height and place you left it. Close it with the round **✕** in the top-right corner, **Esc** or **Ctrl+W** (**⌘W** on macOS). It's a window of its own, with its own taskbar entry, so you can minimize it from the taskbar or park it on another monitor. **View → Frameless Window** does not apply to it.
+
+On/off buttons (**Enabled** / **Disabled**) fill green when on. Where you pick one of a set (**DHCP** / **Static**, **Radio Side** / **Client Side**, **CWU** / **CWL**), the chosen one fills cyan. A control the connected radio cannot use is dimmed, never hidden.
+
 ## Finding a setting
 
 Radio Setup is a searchable browser: a categorised tree of pages on the left and the selected page on the right.
@@ -75,7 +79,7 @@ Radio Setup is a searchable browser: a categorised tree of pages on the left and
 
 | Page | What it covers |
 |------|----------------|
-| **Appearance & Behavior** | Slice Letter Display (see [Multi-Flex](./multi-flex.md)), slice colours (see [Slice Colors](./slice-colors.md)), Single-click delay and mouse-wheel behaviour. Themes are under **View → Theme**. See [Themes and Theme Editor](./themes-and-theme-editor.md). |
+| **Appearance & Behavior** | Slice Letter Display (see [Multi-Flex](./multi-flex.md)), slice colors (see [Slice Colors](./slice-colors.md)), Single-Click Delay and mouse-wheel behavior. Themes are under **View → Theme**. See [Themes and Theme Editor](./themes-and-theme-editor.md). |
 | **SmartLink** | Pinned SmartLink certificates. See [SmartLink Setup](./smartlink-setup.md). |
 | **QRZ & Callsigns** | QRZ.com account and lookup cache. See [Callsign Lookup](./callsign-lookup.md). |
 
