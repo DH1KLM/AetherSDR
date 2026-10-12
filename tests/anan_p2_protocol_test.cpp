@@ -232,6 +232,15 @@ int main()
         const auto hp20m = buildHighPriority(true, phaseWord(14'200'000.0));
         check(readU32(hp20m, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 1)),
               "14.2 MHz selects Thetis Saturn BPF1 20/15 m row");
+        const auto hp22m = buildHighPriority(true, phaseWord(22'000'000.0));
+        check(readU32(hp22m, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 2)),
+              "22 MHz selects Thetis Saturn BPF1 12/10 m row");
+        const auto hp35m = buildHighPriority(true, phaseWord(35'000'000.0));
+        check(readU32(hp35m, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 3)),
+              "35 MHz selects Thetis Saturn BPF1 6 m row");
+        const auto hp61m = buildHighPriority(true, phaseWord(61'440'000.0));
+        check(readU32(hp61m, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 3)),
+              "61.44 MHz upper edge selects Thetis Saturn BPF1 6 m row");
         const auto hpOutOfBand = buildHighPriority(true, phaseWord(1'000'000.0));
         check(readU32(hpOutOfBand, 1432) == ((std::uint32_t{1} << 24) | (std::uint32_t{1} << 12)),
               "below Thetis BPF1 rows, Alex0 uses bypass");
