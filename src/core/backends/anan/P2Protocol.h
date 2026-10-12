@@ -107,9 +107,10 @@ struct DiscoveryReply {
     std::uint8_t firmwareVer = 0;     // byte 13, an INTEGER gateware/build number, NOT
                                        // tenths despite the spec's worked example implying
                                        // one -- p2app writes GetFirmwareVersion() here
-    std::uint8_t numDdc = 0;          // byte 20 -- CLAMP TO THIS, never probe past it. The
-                                       // gateware may carry more DDC registers (VNUMDDC 10)
-                                       // than p2app advertises (RFC Gap C).
+    std::uint8_t reportedReceivers = 0; // byte 20: Thetis calls this NumRxs.
+                                         // Saturn's current client uses it as a conservative
+                                         // active-stream/DDC ceiling, but it is NOT a universal
+                                         // physical DDC-count field for other board families.
     bool freqIsPhaseWord = false;     // byte 21: 0 = Hz, 1 = phase word
     std::uint8_t endianByteRaw = 0;   // byte 22, RAW -- see discoveryDeclaresBigEndian3Byte()
     std::uint8_t p2appBuild = 0;      // byte 23. "Beta version" per spec; p2app overwrites
