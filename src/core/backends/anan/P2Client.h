@@ -57,6 +57,8 @@ public:
         // mid-session. The values here are what the session starts with.
         int adc0AttenuationDb = 0;
         int adc1AttenuationDb = 0;
+        //DH1KLM: RX antenna number 1..3 maps to Thetis Alex0 bits 24..26.
+        int rxAntenna = 1;
 
         // Send demodulated RX audio to the radio's own speaker (DDC Audio,
         // kSpeakerAudioPort). DEFAULT OFF: it is the one option that originates a
@@ -90,6 +92,8 @@ public:
     // 100 ms, so a value held anywhere else would be overwritten by the next
     // tick. An out-of-range adcIndex is ignored.
     Q_INVOKABLE void setStepAttenuationDb(int adcIndex, int db);
+    //DH1KLM: Change the selected Saturn RX antenna without restarting P2.
+    Q_INVOKABLE void setRxAntenna(int antenna);
 
     // Hand over demodulated receiver audio for the radio's speaker: L,R,... int16 in
     // HOST order at kSpeakerSampleRateHz (buildSpeakerAudio() byte-swaps). One call
@@ -258,6 +262,7 @@ private:
     // live by setStepAttenuationDb(); every buildHighPriority() carries it.
     int m_adc0AttenuationDb = 0;
     int m_adc1AttenuationDb = 0;
+    int m_rxAntenna = 1;
 
     // The session's resolved DDC list and the dither/random flags that went
     // with it, RETAINED (rather than consumed and dropped in start()) so
