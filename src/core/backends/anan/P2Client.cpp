@@ -86,6 +86,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_bypassAdc1Filters = params.bypassAdc1Filters;
     m_adc0AttenuationDb = params.adc0AttenuationDb;
     m_adc1AttenuationDb = params.adc1AttenuationDb;
+    m_rxAntenna = (params.rxAntenna >= 1 && params.rxAntenna <= 3) ? params.rxAntenna : 1;
     m_speakerAudioEnabled = params.speakerAudioEnabled;
     m_speakerPending.clear();
     m_speakerPacer.reset();
@@ -161,7 +162,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
           m_host, kDdcSpecificPort, m_txBytes);
     sendTo(*m_socket,
           buildHighPriority(true, freqWords, m_bypassAdc0Filters, m_bypassAdc1Filters,
-                            m_adc0AttenuationDb, m_adc1AttenuationDb),
+                            m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
           m_host, kHighPriorityPort, m_txBytes);
 
     m_keepaliveTimer->start();
@@ -379,6 +380,21 @@ void P2Client::setDdc0FrequencyHz(double hz)
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
                                 m_adc0AttenuationDb, m_adc1AttenuationDb),
               m_host, kHighPriorityPort, m_txBytes);
+}
+
+//DH1KLM: Apply ANT1/ANT2/ANT3 through Thetis' Alex0 antenna bits.
+void P2Client::setRxAntenna(int antenna)
+{
+    if (antenna < 1 || antenna > 3)
+        return;
+    m_rxAntenna = antenna;
+    if (m_running && m_socket) {
+        sendTo(*m_socket,
+              buildHighPriority(true, sharedFreqWords(),
+                                m_bypassAdc0Filters, m_bypassAdc1Filters,
+                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
+              m_host, kHighPriorityPort, m_txBytes);
+    }
 }
 
 void P2Client::setStepAttenuationDb(int adcIndex, int db)
