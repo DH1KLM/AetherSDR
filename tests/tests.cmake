@@ -3525,6 +3525,19 @@ target_include_directories(waveform_upload_state_test PRIVATE src)
 target_link_libraries(waveform_upload_state_test PRIVATE Qt6::Core)
 add_test(NAME waveform_upload_state_test COMMAND waveform_upload_state_test)
 
+# Status-bar firmware-currency verdict: version comparison, software-index parse
+# and the Flex published-release cache. No widgets; it constructs a FlexBackend
+# (whose connection thread starts but never dials) and opens no socket.
+add_executable(firmware_currency_test
+    tests/firmware_currency_test.cpp
+)
+# PRIVATE src tests: the target needs tests/ for TestSettingsProfile.h, which
+# isolates the settings store the published-release cache test writes to.
+target_include_directories(firmware_currency_test PRIVATE src tests)
+target_link_libraries(firmware_currency_test PRIVATE aethercore Qt6::Core Qt6::Network)
+set_target_properties(firmware_currency_test PROPERTIES AUTOMOC ON)
+add_test(NAME firmware_currency_test COMMAND firmware_currency_test)
+
 # #5572 — socket-free firmware upload lifecycle. The injected writer exercises
 # production queue accounting and terminal handlers without a radio peer.
 add_executable(firmware_uploader_test
@@ -3558,6 +3571,7 @@ set_tests_properties(client_chain_audio_path_test PROPERTIES
 add_executable(firmware_close_dialog_test
     tests/firmware_close_dialog_test.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3582,6 +3596,7 @@ set_tests_properties(firmware_close_dialog_test PROPERTIES
 add_executable(flex_control_visibility_test
     tests/flex_control_visibility_test.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3617,6 +3632,7 @@ set_tests_properties(flex_control_visibility_test PROPERTIES
 add_executable(radio_setup_region_field_test
     tests/radio_setup_region_field_test.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3646,6 +3662,7 @@ set_tests_properties(radio_setup_region_field_test PROPERTIES
 add_executable(radio_setup_label_theme_token_test
     tests/radio_setup_label_theme_token_test.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3669,6 +3686,7 @@ set_tests_properties(radio_setup_label_theme_token_test PROPERTIES
 add_executable(radio_setup_window_size_test
     tests/radio_setup_window_size_test.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3692,6 +3710,7 @@ set_tests_properties(radio_setup_window_size_test PROPERTIES
 add_executable(radio_setup_pair_grid_test
     tests/radio_setup_pair_grid_test.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3721,6 +3740,7 @@ set_tests_properties(radio_setup_pair_grid_test PROPERTIES
 add_executable(radio_setup_max_power_field_test
     tests/radio_setup_max_power_field_test.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3747,6 +3767,7 @@ set_tests_properties(radio_setup_max_power_field_test PROPERTIES
 add_executable(radio_setup_tx_timing_fields_test
     tests/radio_setup_tx_timing_fields_test.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3774,6 +3795,7 @@ set_tests_properties(radio_setup_tx_timing_fields_test PROPERTIES
 add_executable(radio_setup_recording_mode_dim_test
     tests/radio_setup_recording_mode_dim_test.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3802,6 +3824,7 @@ set_tests_properties(radio_setup_recording_mode_dim_test PROPERTIES
 add_executable(radio_setup_headphone_output_gate_test
     tests/radio_setup_headphone_output_gate_test.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3829,6 +3852,7 @@ add_executable(radio_setup_show_tx_waterfall_test
     tests/radio_setup_show_tx_waterfall_test.cpp
     src/gui/CanonWindow.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
@@ -4993,6 +5017,7 @@ add_executable(peripheral_auth_dialog_test
     tests/peripheral_auth_dialog_test.cpp
     tests/fakes/PeripheralAuthStoreFake.cpp
     src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp

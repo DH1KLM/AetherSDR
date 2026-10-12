@@ -317,24 +317,8 @@ constexpr int kPanadapterSliceCapacityStatusMs = 4000;
 // shared between the constructor timer setup here and MainWindow_SwrSweep.cpp.
 constexpr const char* kSuppressAudioDeviceNotificationsKey =
     "SuppressAudioDeviceNotifications";
-constexpr const char* kStatusBarCompactLabelObjectName = "statusBarCompactLabel";
-
-QString statusBarCompactLabelStyle(const QString& color)
-{
-    return QStringLiteral(
-        "QLabel#statusBarCompactLabel { color: %1; font-size: 12px; background: transparent; }")
-        .arg(color);
-}
-
-void applyStatusBarCompactLabelStyle(QLabel* label, const QString& color)
-{
-    if (!label) {
-        return;
-    }
-
-    label->setObjectName(kStatusBarCompactLabelObjectName);
-    AetherSDR::ThemeManager::instance().applyStyleSheet(label, statusBarCompactLabelStyle(color));
-}
+// statusBarCompactLabelStyle()/applyStatusBarCompactLabelStyle() live in
+// MainWindowHelpers, shared with MainWindow_Session.cpp's firmware verdict.
 
 int statusBarCompactTextWidth(const QStringList& samples, int horizontalPadding)
 {
@@ -6128,6 +6112,12 @@ void MainWindow::buildUI()
     m_radioVersionLabel = new QLabel("");
     applyStatusBarCompactLabelStyle(m_radioVersionLabel, QStringLiteral("{{color.text.secondary}}"));
     m_radioVersionLabel->setAlignment(Qt::AlignCenter);
+    // Only out-of-date firmware is actionable, but the row is wired once here
+    // rather than as the verdict changes: openFirmwareReleaseNotes() checks
+    // m_radioFirmwareCurrency and does nothing otherwise, and
+    // applyFirmwareCurrencyToVersionLabel() drops the tab stop it does not need.
+    m_radioVersionLabel->installEventFilter(this);
+    keyboardOperable(m_radioVersionLabel);
     radioVbox->addWidget(m_radioInfoLabel);
     radioVbox->addWidget(m_radioVersionLabel);
     hbox->addWidget(radioStack);
@@ -7910,6 +7900,7 @@ void MainWindow::refreshRadioIdentityLabels()
     m_radioMakeLabel->setVisible(showMake);
     m_radioInfoLabel->setVisible(!model.isEmpty());
     m_radioVersionLabel->setVisible(!m_radioVersionLabel->text().isEmpty());
+    applyFirmwareCurrencyToVersionLabel();
     updateStatusBarMinimumWidth();
 }
 
