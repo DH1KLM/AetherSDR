@@ -102,7 +102,10 @@ int main()
               && r->mac[3] == 0x6D && r->mac[4] == 0x9F && r->mac[5] == 0x6A,
               "MAC parsed (88:A2:9E:6D:9F:6A, matching the capture)");
         check(r && r->boardId == 10, "board id 10 (SATURN / ANAN-G2)");
-        check(r && r->isSaturn(), "isSaturn() true for board id 10");
+        check(r && r->isSupportedOpenHpsdrBoard(),
+              "board id 10 is in the recognized OpenHPSDR board registry");
+        check(r && std::string(r->boardDisplayName()).find("Saturn") != std::string::npos,
+              "board id 10 has the Saturn family display name");
         check(r && r->protoVersionRaw == 0x2B, "proto version raw byte (43 -> 4.3)");
         check(r && r->firmwareVer == 27,
               "firmware is the INTEGER 27, not tenths (discrepancy #1)");
@@ -124,12 +127,26 @@ int main()
         const std::array<std::uint8_t, 24> junk{0x01, 0x02, 0x03, 0x04};
         check(!parseDiscoveryReply(junk).has_value(), "non-zero seq bytes rejected");
 
-        // isSaturn() is false for any other board id -- a picker filter, not
-        // a behaviour gate (see the field's own comment in P2Protocol.h).
-        auto other = raw;
-        other[11] = 5;  // ORION Mk II board id, per spec Appendix A
-        const auto ro = parseDiscoveryReply(other);
-        check(ro && !ro->isSaturn(), "isSaturn() false for a non-Saturn board id");
+        //DH1KLM: Keep the P2 physical-board registry pinned independently
+        // from the current Saturn-only connection gate in AnanDiscovery.
+        // These are Thetis/Nereus HPSDRHW IDs, not the different P1 byte map.
+        constexpr std::array<std::uint8_t, 10> supportedBoardIds{
+            0, 1, 2, 3, 4, 5, 6, 10, 11, 20
+        };
+        for (const std::uint8_t id : supportedBoardIds) {
+            auto other = raw;
+            other[11] = id;
+            const auto parsed = parseDiscoveryReply(other);
+            check(parsed && parsed->isSupportedOpenHpsdrBoard(),
+                  "known P2 board ID is recognized");
+            check(parsed && std::string(parsed->boardDisplayName()) != "Unknown OpenHPSDR board",
+                  "known P2 board ID has a display name");
+        }
+        auto unknown = raw;
+        unknown[11] = 99;
+        const auto unknownReply = parseDiscoveryReply(unknown);
+        check(unknownReply && !unknownReply->isSupportedOpenHpsdrBoard(),
+              "unknown P2 board ID is not classified as a supported board");
     }
 
     // ---- General packet ----
