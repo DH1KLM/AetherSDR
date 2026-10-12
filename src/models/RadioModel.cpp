@@ -2666,6 +2666,9 @@ RadioModel::RadioModel(QObject* parent)
                 // initial connect gives a session that authenticates once and
                 // then fails every automatic retry.
                 populateFamilyParams(req, m_family, m_lastInfo.sessionBindAddress);
+                //DH1KLM: Preserve the discovered P2 board identity on automatic reconnect.
+                if (m_family == QLatin1String("anan") && m_lastInfo.boardId >= 0)
+                    req.params.insert(QStringLiteral("anan.boardId"), m_lastInfo.boardId);
                 handRestoredStateToBackend();
                 m_backend->connectRadio(req);
             }
@@ -3789,6 +3792,11 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         req.serial = info.serial;
         req.serialIdentity = info.serialIdentity;
         populateFamilyParams(req, info.family, info.sessionBindAddress);
+        //DH1KLM: Carry the discovery protocol's numeric board ID into the backend;
+        //never reconstruct a hardware profile from the display model string.
+        if (info.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) == 0
+            && info.boardId >= 0)
+            req.params.insert(QStringLiteral("anan.boardId"), info.boardId);
         handRestoredStateToBackend();
         m_backend->connectRadio(req);
     }
@@ -4083,6 +4091,9 @@ bool RadioModel::wakeIcomRadio(int modelId, int address, QString* error)
         request.port = selectedRadio.port;
         request.serial = selectedRadio.serial;
         populateFamilyParams(request, m_family, selectedRadio.sessionBindAddress);
+        //DH1KLM: Keep ANAN's discovery identity intact if this reconnect path is reused.
+        if (m_family == QLatin1String("anan") && selectedRadio.boardId >= 0)
+            request.params.insert(QStringLiteral("anan.boardId"), selectedRadio.boardId);
         request.params.insert(QStringLiteral("icom.wakeOnConnect"), false);
         request.params.insert(QStringLiteral("icom.waitingForWake"), true);
         request.params.insert(QStringLiteral("icom.civAddress"), address);
