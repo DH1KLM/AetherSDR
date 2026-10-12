@@ -225,6 +225,8 @@ private:
     // session isn't started until the DSP chain that will consume its IQ
     // actually exists.
     P2Client::Params m_pendingParams;
+    //DH1KLM: Retain ANT1/2/3 across P2 session restarts.
+    int m_rxAntenna = 1;
     AnanRxDsp::Config m_pendingDspConfig;
     // Panadapter points from the panel width (setPanPixelWidth()). Kept here
     // as well as in AnanRxDsp so a connect that happens after the width
