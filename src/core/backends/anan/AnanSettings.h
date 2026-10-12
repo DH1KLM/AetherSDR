@@ -34,6 +34,9 @@ public:
     // directly to its own RX2 jack (Appendix D block diagram, spec p.90).
     static int ddc0AdcIndex();
     static void setDdc0AdcIndex(int index);
+    // RX antenna selection for ADC0's switched ANT1/2/3 input bank.
+    static int rxAntenna();
+    static void setRxAntenna(int antenna);
     static bool bypassAdc0Filters();
     static void setBypassAdc0Filters(bool on);
     static bool bypassAdc1Filters();
