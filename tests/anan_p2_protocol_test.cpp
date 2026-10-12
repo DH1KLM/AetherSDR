@@ -182,6 +182,12 @@ int main()
         check((static_cast<int>(d96[18]) << 8 | d96[19]) == 96, "rate field honours the argument");
         check(d96[4] == 1, "numAdcs argument is honoured");
 
+        //DH1KLM: Keep the one-ADC Hermes-class wire field testable separately
+        // from Saturn; this validates encoding only, not a connectable profile.
+        const auto dHermes = buildDdcSpecific(48, 1, true, true, 0);
+        check(dHermes[4] == 1 && dHermes[7] == 0x01 && dHermes[17] == 0,
+              "one-ADC profile advertises one ADC and keeps DDC0 on ADC0");
+
         // Dither/Random (bytes 5/6) default on, both ADC0 and ADC1 bits
         // together -- one control on this radio, not a per-ADC pair.
         check(d[5] == 0x03 && d[6] == 0x03,
