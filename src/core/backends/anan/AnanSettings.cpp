@@ -95,7 +95,8 @@ void AnanSettings::setDdc0AdcIndex(int index)
 
 bool AnanSettings::bypassAdc0Filters()
 {
-    return readObj().value(QLatin1String(kFieldBypassAdc0Filters)).toBool(true);
+    //DH1KLM: Saturn BPF1 is selected from the tuned frequency unless the operator opts into bypass.
+    return readObj().value(QLatin1String(kFieldBypassAdc0Filters)).toBool(false);
 }
 
 void AnanSettings::setBypassAdc0Filters(bool on)
