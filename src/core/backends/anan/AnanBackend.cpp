@@ -316,16 +316,16 @@ AnanBackend::AnanBackend(QObject* parent)
         }
     }, Qt::DirectConnection);
     connect(m_client, &P2Client::discoveryInfoReceived, this,
-            [this](quint8 boardId, quint8 firmwareVer, quint8 numDdc) {
+            [this](quint8 boardId, quint8 firmwareVer, quint8 reportedReceivers) {
         // See capabilities()'s own comment for where these surface. Reported
         // real, not hardcoded -- the working plan's Step 2 exit item this
         // closes -- but this phase still only ever DRIVES one DDC regardless
-        // of what numDdc says, so nothing here may touch maxSlices/
+        // of what reportedReceivers says, so nothing here may touch maxSlices/
         // maxPanadapters; that stays a Phase 1b scope decision, not a
         // capability the radio gets to raise on our behalf.
         m_discoveredBoardId = boardId;
         m_discoveredFirmwareVer = firmwareVer;
-        m_discoveredNumDdc = numDdc;
+        m_discoveredReceiverCount = reportedReceivers;
         m_discoveryInfoReceived = true;
         // The shipped droop defaults are derived from one gateware's filter
         // (AnanDroopDefaults.h) and still applied on a mismatch, so say so. Logged here
@@ -528,12 +528,12 @@ RadioCapabilities AnanBackend::capabilities() const
     c.extensionNamespaces = {QStringLiteral("anan")};  // "droop.apply" -- see invokeExtension()
     // From this session's own Discovery reply (P2Client::discoveryInfoReceived()).
     // Absent until it lands ("not reported yet", like tuningMinHz/MaxHz);
-    // capabilitiesChanged() fires when it does. numDdc is informational:
+    // capabilitiesChanged() fires when it does. reportedReceivers is informational:
     // maxSlices/maxPanadapters stay 1 because only DDC0 is driven.
     if (m_discoveryInfoReceived) {
         QVariantMap anan;
         anan[QStringLiteral("gatewareVersion")] = m_discoveredFirmwareVer;
-        anan[QStringLiteral("numDdc")] = m_discoveredNumDdc;
+        anan[QStringLiteral("reportedReceivers")] = m_discoveredReceiverCount;
         anan[QStringLiteral("boardId")] = m_discoveredBoardId;
         c.extensions[QStringLiteral("anan")] = anan;
     }
@@ -593,7 +593,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     m_discoveryInfoReceived = false;
     m_discoveredBoardId = 0;
     m_discoveredFirmwareVer = 0;
-    m_discoveredNumDdc = 0;
+    m_discoveredReceiverCount = 0;
 
     // Per-radio identity for RadioSettingsScope (droop calibration -- see
     // invokeExtension()'s "droop.apply" handler). Set BEFORE the seed load
