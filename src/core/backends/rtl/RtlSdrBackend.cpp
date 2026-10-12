@@ -17,6 +17,7 @@
 #include <cmath>
 #include <chrono>
 #include <utility>
+#include <variant>
 
 namespace AetherSDR::rtl {
 
@@ -772,6 +773,18 @@ bool RtlSdrBackend::hasAcceptedSlice(int sliceId) const
         && std::ranges::any_of(m_lastPublished->receivers, [sliceId](const auto& receiver) {
             return receiver.passband.stableId == sliceId;
         });
+}
+
+ReceiveDispatch RtlSdrBackend::requestSliceControl(int sliceId, const SliceControlRequest& request)
+{
+    if (sliceId < 0 || !request.valid()
+        || request.field != SliceControlRequest::Field::ActiveSlice) {
+        return ReceiveDispatch::Unsupported;
+    }
+    if (!std::get<bool>(request.value)) { return ReceiveDispatch::LocalOnly; }
+    if (!hasAcceptedSlice(sliceId)) { return ReceiveDispatch::Unsupported; }
+    setActiveSlice(sliceId);
+    return ReceiveDispatch::Dispatched;
 }
 
 void RtlSdrBackend::setActiveSlice(int sliceId)
