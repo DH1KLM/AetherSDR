@@ -41,6 +41,33 @@ int signExtend24(std::int32_t raw) noexcept
     return raw;
 }
 
+//DH1KLM: Thetis console.cs setBPF1ForOrionIISaturn() defaults, with
+//the exact 1.5/2.1/5.5/11/22/35/61.44 MHz edges. Thetis' selection byte
+//is mapped to the Orion-MkII/Saturn Alex0 register by network.c:
+//0x10->bit6, 0x08->bit5, 0x04->bit4, 0x01->bit1, 0x02->bit2,
+//0x40->bit3. This is intentionally only the Saturn BPF1 selection;
+//other boards remain gated from connection until their profiles are ported.
+std::uint32_t saturnBpf1RegisterBits(std::uint32_t phaseWord) noexcept
+{
+    constexpr double kPhaseScale = static_cast<double>(kDspClockHz) / 4294967296.0;
+    const double hz = static_cast<double>(phaseWord) * kPhaseScale;
+    std::uint32_t bits = 0;
+    if (hz >= 1'500'000.0 && hz <= 2'099'999.0) {
+        bits = std::uint32_t{1} << 6;  // Thetis BPF1 160 m row (0x10)
+    } else if (hz >= 2'100'000.0 && hz <= 5'499'999.0) {
+        bits = std::uint32_t{1} << 5;  // Thetis BPF1 80/60 m row (0x08)
+    } else if (hz >= 5'500'000.0 && hz <= 10'999'999.0) {
+        bits = std::uint32_t{1} << 4;  // Thetis BPF1 40/30 m row (0x04)
+    } else if (hz >= 11'000'000.0 && hz <= 21'999'999.0) {
+        bits = std::uint32_t{1} << 1;  // Thetis BPF1 20/15 m row (0x01)
+    } else if (hz >= 22'000'000.0 && hz <= 34'999'999.0) {
+        bits = std::uint32_t{1} << 2;  // Thetis BPF1 12/10 m row (0x02)
+    } else if (hz >= 35'000'000.0 && hz <= 61'440'000.0) {
+        bits = std::uint32_t{1} << 3;  // Thetis BPF1 6 m row (0x40)
+    }
+    return bits; // zero means Thetis' bypass region (outside configured rows)
+}
+
 }  // namespace
 
 std::array<std::uint8_t, 60> buildDiscovery() noexcept
@@ -155,11 +182,17 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
         std::min(ddcFreqWords.size(), static_cast<std::size_t>(kMaxDdcs));
     for (std::size_t n = 0; n < count; ++n)
         writeU32be(&pkt[9 + 4 * n], ddcFreqWords[n]);
-    // Alex0 register, bytes 1432-1435 -- ANT1 (bit 24) always, HF Bypass
-    // (bit 12) when requested. See this function's declaration comment.
+    // Alex0 register, bytes 1432-1435. ANT1 is the current Saturn-only
+    // backend's selected antenna. Apply Thetis' Saturn BPF1 selection from the
+    // tuned phase word unless the caller explicitly requests bypass; outside
+    // Thetis' configured 1.5-61.44 MHz rows, the correct result is bypass.
     std::uint32_t alex0 = std::uint32_t{1} << 24;
-    if (bypassAdc0Filters)
+    const std::uint32_t bpfBits = saturnBpf1RegisterBits(
+        count > 0 ? ddcFreqWords[0] : 0);
+    if (bypassAdc0Filters || bpfBits == 0)
         alex0 |= std::uint32_t{1} << 12;
+    else
+        alex0 |= bpfBits;
     writeU32be(&pkt[1432], alex0);
     // Alex1 (RX2/BPF2) register, bytes 1430-1431 -- a separate 16-bit word,
     // bit 12 "HF Bypass 2" (p.90-91's own Alex1 bit table).
