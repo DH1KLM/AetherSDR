@@ -3445,7 +3445,7 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
                     true);
                 reportStartupProbeFailure(
                     QStringLiteral("Detected unsupported OpenHPSDR board ID %1 at %2.")
-                        .arg(reply->boardId).arg(dest.toString()));
+                        .arg(static_cast<int>(reply->boardId)).arg(dest.toString()));
                 return AnanProbeResult::Answered;
             }
 
