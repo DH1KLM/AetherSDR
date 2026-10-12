@@ -119,6 +119,8 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_warnedForeignSender = false;
     m_linkUp = false;
     m_discoveryInfoSent = false;
+    m_discoveryValidated = false;
+    m_expectedBoardId = params.expectedBoardId;
 
     m_socket = new QUdpSocket(this);
     if (!m_socket->bind(QHostAddress::AnyIPv4, 0)) {
@@ -130,17 +132,10 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
 
     m_running = true;
 
-    // No artificial delay between these -- MetisClient::start() sends its
-    // own startup sequence back-to-back too, and nothing in the spike's
-    // proven session flow needed one either.
-    //
-    // Discovery FIRST, from this socket -- see the class comment for why:
-    // it is the source port of THIS packet that decides where the radio
-    // sends DDC0 IQ, not the source port of General/DDC-Specific/High-
-    // Priority below. The reply (if any arrives here) is not parsed;
-    // onReadyRead() already drops anything that isn't DDC0-shaped.
+    //DH1KLM: Send only Discovery initially. Until its reply proves this is
+    // Saturn (and matches the selected board ID, when known), do not send
+    // General/DDC-Specific/High-Priority packets encoded for Saturn hardware.
     sendTo(*m_socket, buildDiscovery(), m_host, kRadioPort, m_txBytes);
-    sendTo(*m_socket, buildGeneral(), m_host, kRadioPort, m_txBytes);
 
     // Resolve the session's DDC list ONCE: either the caller's explicit
     // multi-DDC list, or a one-element list from the DDC0 shorthand. See
@@ -163,28 +158,11 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     // three High Priority senders cannot disagree (#5547).
     std::vector<std::uint32_t> freqWords(ddcs.size(), m_ddc0FreqWord);
 
-    // Destination ports below are NOT interchangeable with kRadioPort -- see
-    // kDdcSpecificPort/kHighPriorityPort's comment. p2app tells these two
-    // packet types apart by which port they arrive on.
-    sendTo(*m_socket,
-          buildDdcSpecific(ddcs, m_numAdcs,
-                           params.ditherEnabled, params.randomEnabled),
-          m_host, kDdcSpecificPort, m_txBytes);
-    sendTo(*m_socket,
-          buildHighPriority(true, freqWords, m_bypassAdc0Filters, m_bypassAdc1Filters,
-                            m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
-          m_host, kHighPriorityPort, m_txBytes);
-
-    m_keepaliveTimer->start();
-    m_linkCountersTimer->start();
-    if (m_speakerAudioEnabled) {
-        // Started from zero at the same moment as the drain, so the pacer's
-        // first advance() measures from the first tick rather than from
-        // whenever this object happened to be constructed.
-        m_speakerClock.restart();
-        m_speakerDrainTimer->start();
-    }
+    //DH1KLM: The resolved DDC list and flags are retained in m_activeDdcs
+    // above until Discovery validates the board. No profile-specific packet
+    // is emitted in start().
     m_activeConnectTimeoutMs = connectTimeoutMs;
+    m_linkCountersTimer->start();
     m_connectTimeoutTimer->start(connectTimeoutMs);
     return true;
 }
@@ -205,13 +183,14 @@ void P2Client::stop()
     m_speakerUnderflowReports = 0;
     m_lastSpeakerFifoLevel = 0;
     if (m_socket) {
-        // The clean-stop packet, mirroring metisStop(): run=0 reaches the
-        // radio before the socket that would carry any further keepalive
-        // goes away.
-        sendTo(*m_socket,
-              buildHighPriority(false, 0, m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
-              m_host, kHighPriorityPort, m_txBytes);
+        //DH1KLM: Only send a Saturn-encoded stop packet after the Discovery
+        // reply validated that the remote board actually is Saturn.
+        if (m_discoveryValidated) {
+            sendTo(*m_socket,
+                  buildHighPriority(false, 0, m_bypassAdc0Filters, m_bypassAdc1Filters,
+                                    m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
+                  m_host, kHighPriorityPort, m_txBytes);
+        }
         m_socket->close();
         m_socket->deleteLater();
         m_socket = nullptr;
@@ -475,9 +454,17 @@ void P2Client::onKeepaliveTick()
 
 void P2Client::onConnectTimeout()
 {
-    if (!m_linkUp)
+    if (m_linkUp)
+        return;
+    if (!m_discoveryValidated) {
         emit connectionError(QStringLiteral(
-            "no DDC0 IQ from the radio within %1 ms of start").arg(m_activeConnectTimeoutMs));
+            "ANAN: no valid P2 Discovery reply from the radio within %1 ms; "
+            "no board-specific session packets were sent").arg(m_activeConnectTimeoutMs));
+        stop();
+        return;
+    }
+    emit connectionError(QStringLiteral(
+        "no DDC0 IQ from the radio within %1 ms of start").arg(m_activeConnectTimeoutMs));
 }
 
 void P2Client::onReadyRead()
@@ -527,6 +514,46 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 m_discoveryInfoSent = true;
                 emit discoveryInfoReceived(reply->boardId, reply->firmwareVer,
                                            reply->reportedReceivers);
+            }
+            if (!m_discoveryValidated) {
+                //DH1KLM: This backend currently has a verified Saturn profile
+                // only. A recognized board ID is not enough to reuse that profile.
+                if (reply->boardId != 10
+                    || (m_expectedBoardId >= 0
+                        && static_cast<int>(reply->boardId) != m_expectedBoardId)) {
+                    const QString expected = m_expectedBoardId >= 0
+                        ? QString::number(m_expectedBoardId)
+                        : QStringLiteral("Saturn (10)");
+                    emit connectionError(QStringLiteral(
+                        "ANAN: Discovery reports board ID %1, but this connection "
+                        "requires %2; no board-specific session packets were sent")
+                        .arg(reply->boardId).arg(expected));
+                    stop();
+                    return;
+                }
+
+                m_discoveryValidated = true;
+                if (m_socket) {
+                    sendTo(*m_socket, buildGeneral(), m_host, kRadioPort, m_txBytes);
+                    sendTo(*m_socket,
+                          buildDdcSpecific(m_activeDdcs, m_numAdcs,
+                                           m_ditherEnabled, m_randomEnabled),
+                          m_host, kDdcSpecificPort, m_txBytes);
+                    sendTo(*m_socket,
+                          buildHighPriority(true, sharedFreqWords(),
+                                            m_bypassAdc0Filters, m_bypassAdc1Filters,
+                                            m_adc0AttenuationDb, m_adc1AttenuationDb,
+                                            m_rxAntenna),
+                          m_host, kHighPriorityPort, m_txBytes);
+                    m_keepaliveTimer->start();
+                    if (m_speakerAudioEnabled) {
+                        m_speakerClock.restart();
+                        m_speakerDrainTimer->start();
+                    }
+                    // Discovery latency must not consume the DDC stream's
+                    // entire connect window.
+                    m_connectTimeoutTimer->start(m_activeConnectTimeoutMs);
+                }
             }
             return;
         }
