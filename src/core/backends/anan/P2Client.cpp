@@ -152,12 +152,6 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_ditherEnabled = params.ditherEnabled;
     m_randomEnabled = params.randomEnabled;
 
-    // Every DDC gets the shared m_ddc0FreqWord: there is no per-DDC tuning setter
-    // yet (setDdc0FrequencyHz() moves DDC0 only). The keepalive and
-    // setDdc0FrequencyHz() send the same shared word for the same count, so the
-    // three High Priority senders cannot disagree (#5547).
-    std::vector<std::uint32_t> freqWords(ddcs.size(), m_ddc0FreqWord);
-
     //DH1KLM: The resolved DDC list and flags are retained in m_activeDdcs
     // above until Discovery validates the board. No profile-specific packet
     // is emitted in start().
@@ -363,7 +357,7 @@ void P2Client::onSpeakerDrainTick()
 void P2Client::setDdc0FrequencyHz(double hz)
 {
     m_ddc0FreqWord = phaseWord(hz);
-    if (m_running && m_socket)
+    if (m_running && m_socket && m_discoveryValidated)
         sendTo(*m_socket,
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
@@ -377,7 +371,7 @@ void P2Client::setRxAntenna(int antenna)
     if (antenna < 1 || antenna > 3)
         return;
     m_rxAntenna = antenna;
-    if (m_running && m_socket) {
+    if (m_running && m_socket && m_discoveryValidated) {
         sendTo(*m_socket,
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
@@ -397,7 +391,7 @@ void P2Client::setStepAttenuationDb(int adcIndex, int db)
     }
     // Now rather than on the next keepalive: the operator is moving a
     // control and should hear the change, not wait up to 100 ms for it.
-    if (m_running && m_socket) {
+    if (m_running && m_socket && m_discoveryValidated) {
         sendTo(*m_socket,
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
@@ -408,7 +402,7 @@ void P2Client::setStepAttenuationDb(int adcIndex, int db)
 
 bool P2Client::setDdcRateLive(int ddcIndex, int rateKsps)
 {
-    if (!m_running || !m_socket)
+    if (!m_running || !m_socket || !m_discoveryValidated)
         return false;
     if (ddcIndex < 0 || ddcIndex >= static_cast<int>(m_activeDdcs.size()))
         return false;
@@ -441,7 +435,7 @@ bool P2Client::setDdcRateLive(int ddcIndex, int rateKsps)
 
 void P2Client::onKeepaliveTick()
 {
-    if (!m_running || !m_socket)
+    if (!m_running || !m_socket || !m_discoveryValidated)
         return;
     // This IS the "any C&C packet" the watchdog needs (p.8) -- no need to
     // also replay General/DDC-Specific on this cadence, same as the spike.
@@ -518,9 +512,8 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
             if (!m_discoveryValidated) {
                 //DH1KLM: This backend currently has a verified Saturn profile
                 // only. A recognized board ID is not enough to reuse that profile.
-                if (reply->boardId != 10
-                    || (m_expectedBoardId >= 0
-                        && static_cast<int>(reply->boardId) != m_expectedBoardId)) {
+                if (!discoveryMatchesVerifiedAnanProfile(
+                        reply->boardId, m_expectedBoardId)) {
                     const QString expected = m_expectedBoardId >= 0
                         ? QString::number(m_expectedBoardId)
                         : QStringLiteral("Saturn (10)");
