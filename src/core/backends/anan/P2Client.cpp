@@ -520,7 +520,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                     emit connectionError(QStringLiteral(
                         "ANAN: Discovery reports board ID %1, but this connection "
                         "requires %2; no board-specific session packets were sent")
-                        .arg(reply->boardId).arg(expected));
+                        .arg(static_cast<int>(reply->boardId)).arg(expected));
                     stop();
                     return;
                 }
