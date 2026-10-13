@@ -1,6 +1,7 @@
 #include "core/backends/anan/AnanBackend.h"
 #include "core/AppActivity.h"
 #include "core/backends/anan/AnanDroopCalibrator.h"
+#include "core/backends/anan/AnanSettings.h"
 #include "core/backends/anan/AnanDroopDefaults.h"
 #include "core/backends/WdspNoiseBlanker.h"
 #include "core/AppSettings.h"
