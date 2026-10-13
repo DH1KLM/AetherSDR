@@ -6265,6 +6265,15 @@ target_include_directories(hl2_unkey_hold_test PRIVATE src)
 target_link_libraries(hl2_unkey_hold_test PRIVATE aethercore Qt6::Core Qt6::Network)
 add_test(NAME hl2_unkey_hold_test COMMAND hl2_unkey_hold_test)
 
+# #5998: the HL2's own PTT/key input is an observation: transmit state and receive
+# mute, never a key. Socket-free; EP6 status frames are fed to the backend's own
+# MetisClient. One leg waits out the 2 s silence timeout.
+add_executable(hl2_hardware_ptt_state_test tests/hl2_hardware_ptt_state_test.cpp)
+target_include_directories(hl2_hardware_ptt_state_test PRIVATE src tests)
+target_link_libraries(hl2_hardware_ptt_state_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME hl2_hardware_ptt_state_test COMMAND hl2_hardware_ptt_state_test)
+set_tests_properties(hl2_hardware_ptt_state_test PROPERTIES TIMEOUT 60)
+
 # HL2 RQST/ACK state machine (docs/HERMES.md §13 item 13, oracle §5) — pure
 # policy, standalone (no Qt, no socket, no radio). The clock is EP6 frames.
 add_executable(hl2_rqst_ack_test
