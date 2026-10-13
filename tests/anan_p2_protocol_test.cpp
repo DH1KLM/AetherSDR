@@ -221,6 +221,15 @@ int main()
 
         //DH1KLM: Keep the one-ADC Hermes-class wire field testable separately
         // from Saturn; this validates encoding only, not a connectable profile.
+        const auto dOneAdc = buildDdcSpecific(48, 1, true, true, 0);
+        check(dOneAdc[5] == 0x01 && dOneAdc[6] == 0x01,
+              "one-ADC board enables dither/random for ADC0 only");
+        const auto dTwoAdcs = buildDdcSpecific(48, 2, true, true, 0);
+        check(dTwoAdcs[5] == 0x03 && dTwoAdcs[6] == 0x03,
+              "two-ADC Saturn retains both dither/random bits");
+        const auto dOneAdcOff = buildDdcSpecific(48, 1, false, false, 0);
+        check(dOneAdcOff[5] == 0 && dOneAdcOff[6] == 0,
+              "disabled one-ADC dither/random has no active bits");
         const auto dHermes = buildDdcSpecific(48, 1, true, true, 0);
         check(dHermes[4] == 1 && dHermes[7] == 0x01 && dHermes[17] == 0,
               "one-ADC profile advertises one ADC and keeps DDC0 on ADC0");
