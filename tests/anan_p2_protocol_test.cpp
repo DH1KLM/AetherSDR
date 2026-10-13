@@ -163,6 +163,19 @@ int main()
               "manual target is accepted only when Discovery identifies Saturn");
         check(discoveryMatchesVerifiedAnanProfile(10, 10),
               "selected Saturn ID matches the actual Discovery reply");
+        // Every recognized non-Saturn board must remain fail-closed until its
+        // own byte-verified session profile is implemented. Check both manual
+        // connects and matching picker metadata, not just Orion examples.
+        for (const std::uint8_t id : supportedBoardIds) {
+            if (id == 10)
+                continue;
+            check(!discoveryMatchesVerifiedAnanProfile(id, -1),
+                  "non-Saturn P2 board is rejected for manual connection");
+            check(!discoveryMatchesVerifiedAnanProfile(id, static_cast<int>(id)),
+                  "non-Saturn P2 board is rejected even with matching picker ID");
+        }
+        check(!discoveryMatchesVerifiedAnanProfile(10, 20),
+              "Saturn reply cannot satisfy a selected HermesC10");
         check(!discoveryMatchesVerifiedAnanProfile(4, -1),
               "recognized Orion board cannot use the Saturn session profile");
         check(!discoveryMatchesVerifiedAnanProfile(5, 5),
