@@ -197,8 +197,9 @@ std::array<std::uint8_t, 60> buildGeneral() noexcept;
 
 // 1444-byte DDC-Specific packet enabling DDC0 only at `ddc0RateKsps`
 // (48/96/192/384/768/1536, p.24). `numAdcs` = 2, the G2's phase-synchronous ADCs.
-// `ditherEnabled`/`randomEnabled` set bytes 5/6 (bit N = ADCn, p.25) for BOTH
-// ADCs in lockstep -- the radio exposes one control. `ddc0AdcIndex` sets byte 17
+// `ditherEnabled`/`randomEnabled` set bytes 5/6 (bit N = ADCn, p.25)
+// for the physically present ADCs only (0x01 for one ADC, 0x03 for two).
+// `ddc0AdcIndex` sets byte 17
 // (p.25): 0 = ADC0 behind the Ant1/2/3 relay bank, 1 = ADC1 on its own RX2 jack
 // (Appendix D, p.90).
 std::array<std::uint8_t, 1444> buildDdcSpecific(int ddc0RateKsps = 48, int numAdcs = 2,
