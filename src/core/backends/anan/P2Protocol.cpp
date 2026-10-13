@@ -144,11 +144,12 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(std::span<const DdcConfig> ddcs,
                                             // stay zero/disabled
     pkt[4] = static_cast<std::uint8_t>(numAdcs);  // "number of ADCs the hardware
                                                    // supports" (p.25)
-    // Bytes 5/6: one Dither/Random control on this radio, not a per-ADC
-    // pair, so both ADC0 and ADC1 bits track it together regardless of
-    // which ADC any given DDC actually selects.
-    pkt[5] = ditherEnabled ? 0x03 : 0x00;
-    pkt[6] = randomEnabled ? 0x03 : 0x00;
+    // Bytes 5/6 are per-ADC bitmaps (protocol p.25). Never enable a
+    // nonexistent ADC1 on a one-ADC board. The two-ADC Saturn encoding
+    // remains byte-identical (0x03 when enabled).
+    const std::uint8_t adcMask = numAdcs == 1 ? 0x01 : 0x03;
+    pkt[5] = ditherEnabled ? adcMask : 0x00;
+    pkt[6] = randomEnabled ? adcMask : 0x00;
 
     // Clamp rather than trust the caller: writing rows for more DDCs than
     // kMaxDdcs would keep landing inside this 1444-byte packet (the spec has
