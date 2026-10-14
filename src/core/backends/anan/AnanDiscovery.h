@@ -14,11 +14,8 @@ class QUdpSocket;
 
 namespace AetherSDR::anan {
 
-//DH1KLM: OpenHPSDR Protocol 2 discovery. The parser recognizes the Thetis
-// board-ID registry, but this picker currently emits only Saturn (board ID 10),
-// the sole family with a verified AetherSDR hardware profile. Other recognized
-// boards must not be advertised as connectable until their ADC/DDC/filter profile
-// is ported and tested. Status byte 0x03 surfaces as "In_Use".
+//DH1KLM: OpenHPSDR P1/P2 discovery with normalized board identities.
+// Only implemented receive profiles are advertised. Status 0x03 means in use.
 class AnanDiscovery : public QObject {
     Q_OBJECT
 
@@ -66,6 +63,7 @@ private:
     struct Seen {
         RadioInfo info;
         int missedSweeps = 0;
+        int preferredProtocolMissedSweeps = 0;
     };
 
     QUdpSocket* m_socket = nullptr;

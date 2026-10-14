@@ -13,6 +13,7 @@
 #include "core/backends/anan/AnanSettings.h"
 
 #include <QCoreApplication>
+#include <QJsonObject>
 
 #include <cstdio>
 
@@ -35,6 +36,28 @@ int main(int argc, char** argv)
     TestSettingsProfile profile(QStringLiteral("anan-settings-test"));
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
+
+    //DH1KLM: Logical hardware selection is exact-radio scoped, not inherited.
+    const QString rp = QStringLiteral("88:A2:9E:6D:9F:6A");
+    const QString other = QStringLiteral("88:A2:9E:6D:9F:6B");
+    check(!AnanSettings::redPitayaP1ForRadio(rp), "absent model override is standard");
+    check(!AnanSettings::setRedPitayaP1ForRadio({}, true), "unknown identity cannot write family default");
+    check(AnanSettings::setRedPitayaP1ForRadio(rp, true), "explicit Red Pitaya profile persists");
+    check(AnanSettings::redPitayaP1ForRadio(rp) && !AnanSettings::redPitayaP1ForRadio(other),
+          "Red Pitaya profile cannot affect a second radio");
+    auto& settings = AppSettings::instance();
+    check(settings.setRadioFeature(QStringLiteral("anan"), {}, QStringLiteral("HardwareProfile"), 1,
+                                   QJsonObject{{QStringLiteral("redPitayaP1"), true}}), "test family default written");
+    check(!AnanSettings::redPitayaP1ForRadio(other), "family-wide model override is never inherited");
+    check(settings.setRadioFeature(QStringLiteral("anan"), rp, QStringLiteral("HardwareProfile"), 1,
+        QJsonObject{{QStringLiteral("redPitayaP1"), true}, {QStringLiteral("otherField"), 42}}), "test extra profile field");
+    check(AnanSettings::setRedPitayaP1ForRadio(rp, false), "standard profile can be restored explicitly");
+    check(settings.radioFeatureExact(QStringLiteral("anan"), rp, QStringLiteral("HardwareProfile"))
+        .value(QStringLiteral("otherField")).toInt() == 42, "profile setter preserves other fields");
+    check(settings.setRadioFeature(QStringLiteral("anan"), rp, QStringLiteral("HardwareProfile"), 2,
+                                   QJsonObject{{QStringLiteral("redPitayaP1"), true}}), "test future schema");
+    check(!AnanSettings::setRedPitayaP1ForRadio(rp, false), "newer profile schema is not downgraded");
+    check(!AnanSettings::redPitayaP1ForRadio(rp), "unknown future schema cannot enable hardware override");
 
     // ---- defaults on an empty document -------------------------------------
     AnanSettings::reset();

@@ -49,7 +49,12 @@ public:
     static bool speakerAudioEnabled();
     static void setSpeakerAudioEnabled(bool on);
 
-    // Restore every field to its default.
+    //DH1KLM: Explicit logical-model choice belongs to this radio's MAC,
+    // never a global default inherited by another radio sharing the board ID.
+    static bool redPitayaP1ForRadio(const QString& serial);
+    static bool setRedPitayaP1ForRadio(const QString& serial, bool enabled);
+
+    // Restore global connection defaults; exact-radio hardware choices remain.
     static void reset();
 
 private:

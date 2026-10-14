@@ -5,7 +5,7 @@
 #include "core/backends/anan/AnanSliceAudio.h"
 #include "core/Resampler.h"
 #include "core/backends/anan/AnanDroopCalibrator.h"
-#include "core/backends/anan/P2Client.h"
+#include "core/backends/anan/AnanClient.h"
 #include "core/dsp/WdspSMeter.h"
 
 #include <QElapsedTimer>
@@ -22,7 +22,7 @@
 namespace AetherSDR::anan {
 
 //DH1KLM: IRadioBackend for Saturn and Orion MkII RX profiles (Protocol 2).
-// Owns one P2Client and one AnanRxDsp on a dedicated I/O thread, like Hl2Backend with MetisClient +
+// Owns one AnanClient dispatcher and one AnanRxDsp on a dedicated I/O thread, like Hl2Backend with MetisClient +
 // Hl2RxDsp. Scope: one DDC, RX only.
 //   - No NCO/WDSP-shift split: DDC0 retunes on every setSliceFrequency()/
 //     setPanCenter(), so "the shift is ALWAYS exactly -cwBfoHz(mode), because
@@ -226,7 +226,8 @@ private:
     // finishDspSetup() once AnanRxDsp::configure() completes, so the P2Client
     // session isn't started until the DSP chain that will consume its IQ
     // actually exists.
-    P2Client::Params m_pendingParams;
+    [[nodiscard]] int nearestSessionRateKsps(int requestedKsps) const noexcept;
+    AnanClient::Params m_pendingParams;
     //DH1KLM: Retain ANT1/2/3 across P2 session restarts.
     int m_rxAntenna = 1;
     AnanRxDsp::Config m_pendingDspConfig;
@@ -336,7 +337,7 @@ private:
     void pushModeFilterShift();
 
     QThread* m_ioThread = nullptr;
-    P2Client* m_client = nullptr;    // lives on m_ioThread; nullptr parent (moveToThread requires it)
+    AnanClient* m_client = nullptr;    // lives on m_ioThread; nullptr parent (moveToThread requires it)
     AnanRxDsp* m_dsp = nullptr;      // lives on m_ioThread; nullptr parent
     // Build-only thread for a rate change's background AnanRxDsp::buildChannel()
     // call -- never touches P2Client or the real-time IQ path, so it can never

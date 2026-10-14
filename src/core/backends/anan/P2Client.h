@@ -43,6 +43,8 @@ public:
         //DH1KLM: -1 means a manual/unidentified target; otherwise require the
         //Discovery reply to match the exact P2 board ID selected by discovery.
         int expectedBoardId = -1;
+        //DH1KLM: Explicit per-radio P1 model override; ignored by P2 transport.
+        bool redPitayaP1 = false;
         // Valid rates: 48/96/192/384/768/1536 (spec p.24). Not validated here
         // -- P2Protocol::buildDdcSpecific() is the single place that would
         // reject or clamp one, and it does neither yet; an invalid value is

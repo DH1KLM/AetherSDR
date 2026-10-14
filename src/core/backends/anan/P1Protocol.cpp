@@ -33,7 +33,8 @@ bool validConfig(const ReceiveConfig& c) noexcept
         && c.frequencyHz <= 61'440'000
         && c.adc0AttenuationDb >= 0 && c.adc0AttenuationDb <= 31
         && c.adc1AttenuationDb >= 0 && c.adc1AttenuationDb <= 31
-        && (c.receiveFilterBits & 0x80) == 0 && (c.lowPassBits & 0x80) == 0;
+        && (c.receiveFilterBits & 0x80) == 0 && (c.adc1ReceiveFilterBits & 0x80) == 0
+        && (c.lowPassBits & 0x80) == 0;
 }
 
 std::optional<Control> receiveControl(std::uint8_t address,
@@ -79,7 +80,7 @@ std::optional<Control> receiveControl(std::uint8_t address,
         break; // CW engine disabled.
     case 0x24:
         if (c.numAdcs == 2)
-            bytes[1] = c.receiveFilterBits;
+            bytes[1] = c.adc1ReceiveFilterBits;
         break;
     default:
         return std::nullopt;
@@ -117,6 +118,17 @@ std::optional<DiscoveryReply> parseDiscovery(std::span<const std::uint8_t> bytes
     reply.firmware = bytes[9];
     reply.boardId = bytes[10];
     return reply;
+}
+
+std::optional<int> normalizedBoardId(int wireBoardId) noexcept
+{
+    switch (wireBoardId) {
+    case 0: case 1: case 2: case 6: case 20: return wireBoardId;
+    case 4: return 3;
+    case 5: return 4;
+    case 10: return 5;
+    default: return std::nullopt;
+    }
 }
 
 std::optional<Packet> speakerAndControl(std::uint32_t sequence,

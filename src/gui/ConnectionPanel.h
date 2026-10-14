@@ -327,6 +327,8 @@ private:
     // backend through populateFamilyParams() the same way Icom's CI-V
     // address does, not through RadioInfo -- see that function's own comment.
     QWidget*     m_manualAnanRateRow{nullptr};
+    QWidget*     m_manualAnanProfileRow{nullptr};
+    QComboBox*   m_manualAnanProfileCombo{nullptr};
     QComboBox*   m_manualAnanRateCombo{nullptr};
     QWidget*     m_manualAnanAdcRow{nullptr};
     QComboBox*   m_manualAnanAdcCombo{nullptr};

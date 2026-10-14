@@ -30,6 +30,7 @@ struct ReceiveConfig {
     int adc1AttenuationDb = 0;
     // P1 filter-bank bits, not the P2 Alex-word bit positions.
     std::uint8_t receiveFilterBits = 0x20;
+    std::uint8_t adc1ReceiveFilterBits = 0x20;
     std::uint8_t lowPassBits = 0x10;
 };
 
@@ -51,6 +52,9 @@ struct DiscoveryReply {
 };
 [[nodiscard]] std::optional<DiscoveryReply> parseDiscovery(
     std::span<const std::uint8_t> bytes) noexcept;
+//DH1KLM: P1 wire IDs differ from the common Thetis/P2 registry: 4=Angelia,
+// 5=Orion, 10=Orion MkII. Unknown IDs must not inherit a P2 interpretation.
+[[nodiscard]] std::optional<int> normalizedBoardId(int wireBoardId) noexcept;
 
 // Encodes controls internally: callers cannot insert arbitrary keying bytes.
 // The speaker payload is L,R int16 BE; all transmit-IQ slots stay zero.

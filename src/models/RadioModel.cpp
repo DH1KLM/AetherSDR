@@ -729,6 +729,8 @@ static void populateFamilyParams(RadioConnectRequest& req, const QString& family
     if (family.compare(QLatin1String("anan"), Qt::CaseInsensitive) == 0) {
         req.params.insert(QStringLiteral("anan.ddc0RateKsps"),
                           anan::AnanSettings::ddc0RateKsps());
+        req.params.insert(QStringLiteral("anan.redPitayaP1"),
+                          anan::AnanSettings::redPitayaP1ForRadio(req.serial));
         req.params.insert(QStringLiteral("anan.ditherEnabled"),
                           anan::AnanSettings::ditherEnabled());
         req.params.insert(QStringLiteral("anan.randomEnabled"),
@@ -2666,9 +2668,13 @@ RadioModel::RadioModel(QObject* parent)
                 // initial connect gives a session that authenticates once and
                 // then fails every automatic retry.
                 populateFamilyParams(req, m_family, m_lastInfo.sessionBindAddress);
-                //DH1KLM: Preserve the discovered P2 board identity on automatic reconnect.
-                if (m_family == QLatin1String("anan") && m_lastInfo.boardId >= 0)
-                    req.params.insert(QStringLiteral("anan.boardId"), m_lastInfo.boardId);
+                //DH1KLM: Preserve the normalized board and actual wire protocol on reconnect.
+                if (m_family == QLatin1String("anan")) {
+                    if (m_lastInfo.boardId >= 0)
+                        req.params.insert(QStringLiteral("anan.boardId"), m_lastInfo.boardId);
+                    req.params.insert(QStringLiteral("anan.protocol"),
+                                      m_lastInfo.hpsdrProtocol == 1 ? 1 : 2);
+                }
                 handRestoredStateToBackend();
                 m_backend->connectRadio(req);
             }
@@ -3794,9 +3800,12 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         populateFamilyParams(req, info.family, info.sessionBindAddress);
         //DH1KLM: Carry the discovery protocol's numeric board ID into the backend;
         //never reconstruct a hardware profile from the display model string.
-        if (info.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) == 0
-            && info.boardId >= 0)
-            req.params.insert(QStringLiteral("anan.boardId"), info.boardId);
+        if (info.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) == 0) {
+            if (info.boardId >= 0)
+                req.params.insert(QStringLiteral("anan.boardId"), info.boardId);
+            req.params.insert(QStringLiteral("anan.protocol"),
+                              info.hpsdrProtocol == 1 ? 1 : 2);
+        }
         handRestoredStateToBackend();
         m_backend->connectRadio(req);
     }
@@ -4092,8 +4101,12 @@ bool RadioModel::wakeIcomRadio(int modelId, int address, QString* error)
         request.serial = selectedRadio.serial;
         populateFamilyParams(request, m_family, selectedRadio.sessionBindAddress);
         //DH1KLM: Keep ANAN's discovery identity intact if this reconnect path is reused.
-        if (m_family == QLatin1String("anan") && selectedRadio.boardId >= 0)
-            request.params.insert(QStringLiteral("anan.boardId"), selectedRadio.boardId);
+        if (m_family == QLatin1String("anan")) {
+            if (selectedRadio.boardId >= 0)
+                request.params.insert(QStringLiteral("anan.boardId"), selectedRadio.boardId);
+            request.params.insert(QStringLiteral("anan.protocol"),
+                              selectedRadio.hpsdrProtocol == 1 ? 1 : 2);
+        }
         request.params.insert(QStringLiteral("icom.wakeOnConnect"), false);
         request.params.insert(QStringLiteral("icom.waitingForWake"), true);
         request.params.insert(QStringLiteral("icom.civAddress"), address);

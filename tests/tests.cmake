@@ -1162,11 +1162,18 @@ add_executable(anan_p1_protocol_test
 target_include_directories(anan_p1_protocol_test PRIVATE src)
 add_test(NAME anan_p1_protocol_test COMMAND anan_p1_protocol_test)
 
+#DH1KLM: Injected P1 datagrams and sends; no sockets or simulated radio peer.
+add_executable(anan_p1_transport_test tests/anan_p1_transport_test.cpp)
+target_include_directories(anan_p1_transport_test PRIVATE src)
+target_link_libraries(anan_p1_transport_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME anan_p1_transport_test COMMAND anan_p1_transport_test)
+
 # ANAN P2 protocol — pure wire encode/decode, standalone (no Qt / aethercore).
 # Direct port of the live-validated anan/spike/phase1a.py spike (aetherd ANAN
 # P2 Phase 1a), run against a real ANAN-G2 on the bench.
 add_executable(anan_p2_protocol_test
     tests/anan_p2_protocol_test.cpp
+    src/core/backends/anan/P1Protocol.cpp
     src/core/backends/anan/P2Protocol.cpp)
 target_include_directories(anan_p2_protocol_test PRIVATE src)
 add_test(NAME anan_p2_protocol_test COMMAND anan_p2_protocol_test)

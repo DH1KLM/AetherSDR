@@ -189,7 +189,7 @@ AnanBackend::AnanBackend(QObject* parent)
         }
         publishDroopStatus();
     });
-    m_client = new P2Client(nullptr);   // nullptr parent: moveToThread requires it
+    m_client = new AnanClient(nullptr);   // nullptr parent: moveToThread requires it
     m_dsp = new AnanRxDsp(nullptr);
 
     // Leading+trailing throttle for setSliceFrequency()'s expensive side
@@ -230,7 +230,7 @@ AnanBackend::AnanBackend(QObject* parent)
     // explicit to document intent and match Hl2Backend's own explicit
     // DirectConnection on the equivalent wire-to-DSP wiring: no queue, no
     // event-loop hop for the sample path.
-    connect(m_client, &P2Client::ddc0IqReady, m_dsp, &AnanRxDsp::processIqBlock,
+    connect(m_client, &AnanClient::ddc0IqReady, m_dsp, &AnanRxDsp::processIqBlock,
             Qt::DirectConnection);
 
     // Everything below crosses from the I/O thread to whichever thread this
@@ -238,7 +238,7 @@ AnanBackend::AnanBackend(QObject* parent)
     // why AnanRxDsp's constructor registers std::vector<float> as a Qt
     // metatype (P2Client's ddc0IqReady never needs that: it is only ever
     // DirectConnection'd, above).
-    connect(m_client, &P2Client::linkUp, this, [this] {
+    connect(m_client, &AnanClient::linkUp, this, [this] {
         m_connected = true;
         // See m_rateChanging's declaration comment: a live rate change is a
         // real stop+restart of this session, but the operator only asked to
@@ -266,7 +266,7 @@ AnanBackend::AnanBackend(QObject* parent)
         // on every linkUp; bounds are capabilities().sampleRatesHz's endpoints.
         emit panBandwidthLimitsChanged(kPanId,
                                       kDdc0RatesKsps.front() * 1000.0 / 1.0e6,
-                                      kDdc0RatesKsps.back() * 1000.0 / 1.0e6);
+                                      nearestSessionRateKsps(kDdc0RatesKsps.back()) * 1000.0 / 1.0e6);
         // The RF Gain slider IS the step attenuator: -31..0 dB in 1 dB steps.
         // Same every linkUp, for the same reason as the limits above.
         emit panRfGainInfoChanged(kPanId, -kMaxStepAttenuationDb, 0, 1);
@@ -288,7 +288,7 @@ AnanBackend::AnanBackend(QObject* parent)
             retryPendingRateChange();
         }
     });
-    connect(m_client, &P2Client::linkDown, this, [this] {
+    connect(m_client, &AnanClient::linkDown, this, [this] {
         m_connected = false;
         if (!m_rateChanging) {
             m_droopCalibrator.stop(false);
@@ -296,27 +296,27 @@ AnanBackend::AnanBackend(QObject* parent)
             emit disconnected();
         }
     });
-    connect(m_client, &P2Client::connectionError, this,
+    connect(m_client, &AnanClient::connectionError, this,
             [this](const QString& reason) { emit connectionError(reason); });
     // Drops reach the readout through the counters snapshot below, which
     // carries the same total on a fixed cadence. Not wired per-drop: the
     // LinkStats tick is deliberately periodic rather than event-driven, so a
     // link that has gone silent still reports.
-    connect(m_client, &P2Client::linkCountersUpdated, this,
+    connect(m_client, &AnanClient::linkCountersUpdated, this,
             &AnanBackend::onLinkCounters);
     // Queued onto this thread, like the snapshot above: the meter seam's
     // signals are emitted from the backend's own thread.
-    connect(m_client, &P2Client::supplyRailSampled, this,
+    connect(m_client, &AnanClient::supplyRailSampled, this,
             &AnanBackend::onSupplyRailCounts);
     // Only DDC0 feeds this DSP. Like ddc0IqReady above, notification and
     // processing run directly on the I/O thread, with the DSP as context.
     // Invalidate its partial FFT before the discontinuous block arrives.
-    connect(m_client, &P2Client::ddcSequenceGap, m_dsp, [dsp = m_dsp](int ddcIndex) {
+    connect(m_client, &AnanClient::ddcSequenceGap, m_dsp, [dsp = m_dsp](int ddcIndex) {
         if (ddcIndex == 0) {
             dsp->onSequenceGap();
         }
     }, Qt::DirectConnection);
-    connect(m_client, &P2Client::discoveryInfoReceived, this,
+    connect(m_client, &AnanClient::discoveryInfoReceived, this,
             [this](quint8 boardId, quint8 firmwareVer, quint8 reportedReceivers) {
         // See capabilities()'s own comment for where these surface. Reported
         // real, not hardcoded -- the working plan's Step 2 exit item this
@@ -330,7 +330,8 @@ AnanBackend::AnanBackend(QObject* parent)
         m_discoveryInfoReceived = true;
         //DH1KLM: Also cover address-only connections after the board is known.
         const auto profile = receiveProfile(boardId);
-        seedDroopCorrectionTables(profile && profile->saturnDroopDefaults);
+        seedDroopCorrectionTables(m_pendingParams.protocol == 2
+                                 && profile && profile->saturnDroopDefaults);
         //DH1KLM: Shipped droop tables are Saturn-specific. Warn about other
         // Saturn gateware versions, but never apply these tables to Orion MkII.
         if (boardId == 10 && firmwareVer != kDefaultsGatewareVersion) {
@@ -459,7 +460,9 @@ RadioCapabilities AnanBackend::capabilities() const
     c.hasAgcThreshold = true; // Host receiver DSP implements threshold/off gain.
     c.manufacturer = QStringLiteral("Apache Labs");
     //DH1KLM: Discovery identifies a family, not an individual Orion MkII SKU.
-    c.model = m_discoveryInfoReceived && m_discoveredBoardId != 10
+    c.model = m_pendingParams.protocol == 1 && m_pendingParams.redPitayaP1
+        ? QStringLiteral("Red Pitaya")
+        : m_discoveryInfoReceived && m_discoveredBoardId != 10
         ? QString::fromLatin1(DiscoveryReply{.boardId = m_discoveredBoardId}.boardDisplayName())
         : QStringLiteral("ANAN-G2");
     // ---- PA telemetry ----
@@ -469,8 +472,8 @@ RadioCapabilities AnanBackend::capabilities() const
     // the input is not the one the spec calls "supply voltage".
     //DH1KLM: Do not generalize the measured 5 V slow-ADC scaling to
     // Hermes/Angelia's 3.3 V hardware before its telemetry is qualified.
-    c.hasSupplyVoltageTelemetry = !m_discoveryInfoReceived
-        || m_discoveredBoardId == 5 || m_discoveredBoardId == 10;
+    c.hasSupplyVoltageTelemetry = m_pendingParams.protocol == 2
+        && (!m_discoveryInfoReceived || m_discoveredBoardId == 5 || m_discoveredBoardId == 10);
     //
     // There is NO PA temperature in this protocol. The radio's whole analog
     // payload is six fields and none of them is a temperature, so the readout
@@ -482,8 +485,10 @@ RadioCapabilities AnanBackend::capabilities() const
     c.canCreateSlices = false;
     c.maxSlices = 1;
     c.maxPanadapters = 1;
-    for (const int ksps : kDdc0RatesKsps)
-        c.sampleRatesHz.append(ksps * 1000);
+    for (const int ksps : kDdc0RatesKsps) {
+        if (m_pendingParams.protocol == 2 || ksps <= (m_pendingParams.redPitayaP1 ? 384 : 192))
+            c.sampleRatesHz.append(ksps * 1000);
+    }
     // Not reported -- no verified G2 tuning range (RFC: "I have not fetched
     // the Apache Labs G2 manual"). RadioCapabilities.h's own convention:
     // both zero means "not reported", not a guess.
@@ -500,7 +505,8 @@ RadioCapabilities AnanBackend::capabilities() const
     c.receiveAudioExport = std::nullopt; // native DAX export not qualified for this backend
     c.receivePanCenterControl = std::nullopt; // center also retunes the slice
     c.receivePanBandwidthControl = ReceivePanRangeControl{SliceFrequencyControl::Authority::Engine,
-                                                         48'000, 1'536'000};
+        48'000, m_pendingParams.protocol == 1
+            ? (m_pendingParams.redPitayaP1 ? 384'000 : 192'000) : 1'536'000};
     c.canTransmit = false;         // P2Client has no PTT capability -- see class comment
     c.txPowerMaxWatts = 0.0;
     c.hostModulates = true;        // client-side WDSP, like the HL2
@@ -530,8 +536,7 @@ RadioCapabilities AnanBackend::capabilities() const
     c.clientSettingsDomains = RadioCapabilities::ClientSettingsDomain::RfGain
                               | RadioCapabilities::ClientSettingsDomain::Tuning
                               | RadioCapabilities::ClientSettingsDomain::ReceiveOutputLevel;
-    c.hostDroopCalibration = true; // AnanDroopCorrection.h -- real DDC0 roll-off,
-                                    // corrected client-side via AnanDroopCalibrator
+    c.hostDroopCalibration = m_pendingParams.protocol == 2; // P2 sweep rate ladder only.
     c.extensionNamespaces = {QStringLiteral("anan")};  // "droop.apply" -- see invokeExtension()
     // From this session's own Discovery reply (P2Client::discoveryInfoReceived()).
     // Absent until it lands ("not reported yet", like tuningMinHz/MaxHz);
@@ -542,6 +547,7 @@ RadioCapabilities AnanBackend::capabilities() const
         anan[QStringLiteral("gatewareVersion")] = m_discoveredFirmwareVer;
         anan[QStringLiteral("reportedReceivers")] = m_discoveredReceiverCount;
         anan[QStringLiteral("boardId")] = m_discoveredBoardId;
+        anan[QStringLiteral("protocol")] = m_pendingParams.protocol;
         c.extensions[QStringLiteral("anan")] = anan;
     }
     return c;
@@ -595,6 +601,10 @@ void AnanBackend::seedDroopCorrectionTables(bool useSaturnDefaults)
         // AnanRxDsp::clearDroopCorrectionTables().
         QMetaObject::invokeMethod(m_dsp, "clearDroopCorrectionTables",
                                   Qt::QueuedConnection);
+        //DH1KLM: A P2 noise sweep is not a P1 decimator calibration. Clear
+        // both defaults and saved tables when the same radio connects via P1.
+        if (m_pendingParams.protocol == 1)
+            return;
 
         auto pushTable = [this](int rateKsps, const DroopCorrectionTable& t) {
             QMetaObject::invokeMethod(m_dsp, "setDroopCorrectionTable", Qt::QueuedConnection,
@@ -662,10 +672,19 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     // just below, and before anything else in this function needs it,
     // matching Hl2Backend's own m_radioSerial assignment ordering.
     m_radioSerial = request.serial;
+    //DH1KLM: Select the wire protocol from discovery, never from the model name.
+    m_pendingParams.protocol = request.params.value(QStringLiteral("anan.protocol"), 2).toInt();
+    m_pendingParams.redPitayaP1 = m_pendingParams.protocol == 1
+        && request.params.value(QStringLiteral("anan.redPitayaP1"), false).toBool();
+    if (m_pendingParams.protocol != 1 && m_pendingParams.protocol != 2) {
+        emit connectionError(QStringLiteral("Unsupported OpenHPSDR protocol selection."));
+        return;
+    }
     //DH1KLM: Saturn-derived tables must never be applied to Orion MkII.
     const auto profile = receiveProfile(
         request.params.value(QStringLiteral("anan.boardId"), -1).toInt());
-    seedDroopCorrectionTables(profile && profile->saturnDroopDefaults);
+    seedDroopCorrectionTables(m_pendingParams.protocol == 2
+                             && profile && profile->saturnDroopDefaults);
 
     //DH1KLM: Physical ADC count comes from the selected board profile.
     // Unknown address-only targets resolve it in P2Client after Discovery.
@@ -676,7 +695,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     m_pendingParams.expectedBoardId =
         request.params.value(QStringLiteral("anan.boardId"), -1).toInt();
     m_pendingParams.ddc0RateKsps =
-        request.params.value(QStringLiteral("anan.ddc0RateKsps"), 48).toInt();
+        nearestSessionRateKsps(request.params.value(QStringLiteral("anan.ddc0RateKsps"), 48).toInt());
     // Connect-time-only ADC options -- see P2Client::Params' own comment
     // for why none of these have a live setter. Defaults match
     // AnanSettings' own defaults, so a caller that never populated these
@@ -714,6 +733,11 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         m_sliceFreqHz = m_restoredFreqHz;
     } else {
         m_sliceFreqHz = kFirstConnectFrequencyHz;
+    }
+    if (m_pendingParams.protocol == 1
+        && (!std::isfinite(m_sliceFreqHz) || m_sliceFreqHz < 0 || m_sliceFreqHz > 61'440'000)) {
+        emit connectionError(QStringLiteral("The P1 receive frequency must be within 0–61.44 MHz."));
+        return;
     }
     // Before m_pendingDspConfig is built below, which reads m_mode. No restored
     // mode means the default, never the previous radio's m_mode. The passband
@@ -828,7 +852,7 @@ void AnanBackend::startP2ClientSession(quint64 generation)
     // stream, so carrying that state across would ring the tail of the old rate
     // into the head of the new one.
     resetSpeakerResamplers();
-    const P2Client::Params params = m_pendingParams;
+    const AnanClient::Params params = m_pendingParams;
     const bool isRateChange = m_rateChanging;
     QMetaObject::invokeMethod(m_client, [this, generation, params, isRateChange]() {
         const bool started = isRateChange
@@ -936,6 +960,10 @@ void AnanBackend::pushModeFilterShift()
 void AnanBackend::setSliceFrequency(int sliceId, double hz)
 {
     Q_UNUSED(sliceId);   // one slice in this phase
+    if (m_pendingParams.protocol == 1 && (!std::isfinite(hz) || hz < 0 || hz > 61'440'000)) {
+        emitSliceState();
+        return;
+    }
     m_sliceFreqHz = hz;
     // Digit readout / slice model: unthrottled. Cheap (no radio round trip,
     // no pan re-layout), and it is what makes a drag gesture feel like it is
@@ -1147,6 +1175,13 @@ int AnanBackend::nearestDdc0RateKsps(int requestedKsps) noexcept
     return best;
 }
 
+int AnanBackend::nearestSessionRateKsps(int requestedKsps) const noexcept
+{
+    const int rate = nearestDdc0RateKsps(requestedKsps);
+    return m_pendingParams.protocol == 1
+        ? std::min(rate, m_pendingParams.redPitayaP1 ? 384 : 192) : rate;
+}
+
 void AnanBackend::setPanBandwidth(const QString& panId, double hz)
 {
     Q_UNUSED(panId);   // one pan in this phase
@@ -1154,7 +1189,7 @@ void AnanBackend::setPanBandwidth(const QString& panId, double hz)
         return;
 
     const int requestedKsps = static_cast<int>(hz / 1000.0 + 0.5);
-    const int snappedKsps = nearestDdc0RateKsps(requestedKsps);
+    const int snappedKsps = nearestSessionRateKsps(requestedKsps);
 
     if (snappedKsps == m_pendingParams.ddc0RateKsps) {
         // Already at the closest rate: republish so an optimistic GUI span snaps back

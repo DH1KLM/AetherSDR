@@ -57,10 +57,13 @@ struct RadioInfo {
     // (Hermes-Lite 2, from HPSDR discovery / the manual HL2 path). RadioModel
     // routes the connect through the matching backend based on this.
     QString family{QStringLiteral("flex")};
-    //DH1KLM: Preserve the protocol-native physical board ID from HPSDR
-    // discovery. -1 means the discovery source did not report one; do not
+    //DH1KLM: Preserve the physical board family in the Thetis/P2 registry;
+    // P1 discovery normalizes its different wire IDs. -1 means unreported; do not
     // infer a board profile from the human-readable model string.
     int boardId{-1};
+    //DH1KLM: Actual discovery wire protocol, separate from the normalized
+    // board family. 0 is unspecified, 1/2 are OpenHPSDR P1/P2.
+    int hpsdrProtocol{0};
     QString name;           // e.g. "FLEX-6600"
     QString model;
     QString serial;

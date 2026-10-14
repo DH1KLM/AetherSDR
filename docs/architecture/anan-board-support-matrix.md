@@ -14,7 +14,7 @@ for that board.
 | 2 | Hermes II — ANAN-10E / ANAN-100B | Separate Thetis board ID; Hermes-class P2 DDC assignment | Experimental P2 RX profile; hardware validation pending |
 | 3 | Angelia — ANAN-100D | 2-ADC family; must not inherit Hermes-class DDC placement | Experimental P2 RX profile; hardware validation pending |
 | 4 | Orion — ANAN-200D | 2-ADC family; P2 ID differs from its Protocol 1 board ID | Experimental P2 RX profile; hardware validation pending |
-| 5 | Orion MkII family — ANAN-7000DLE / 8000DLE, Anvelina Pro 3, Red Pitaya | Thetis uses one physical ID for several logical SKUs; MkII BPF1/preselector behavior differs from legacy ALEX HPF assumptions | Experimental RX profile targeting ANAN-7000DLE; hardware validation pending |
+| 5 | Orion MkII family — ANAN-7000DLE / 8000DLE, Anvelina Pro 3, Red Pitaya | Thetis uses one physical ID for several logical SKUs; MkII BPF1/preselector behavior differs from legacy ALEX HPF assumptions | P2 RX confirmed on ANAN-7000DLE; other shared-ID hardware pending |
 | 6 | Hermes Lite 2 | Distinct board and protocol implementation; do not assume it shares ANAN ALEX or attenuator behavior | Recognized; not connectable through this P2 profile |
 | 10 | Saturn — ANAN-G2 / G2 1K | Saturn-specific P2 profile; phase-word tuning and BPF1 behavior | **Bench-qualified RX profile**; one DDC is driven |
 | 11 | Saturn MkII | Separate registry ID; its capabilities must be verified independently of Saturn | Recognized; not connectable |
@@ -34,6 +34,25 @@ Thetis' Protocol 1 model IDs differ from the Protocol 2 discovery IDs. In
 particular, Protocol 2 ID 4 is Orion (ANAN-200D), while Protocol 2 ID 5 is the
 Orion MkII family; a Protocol 1 ID 5 identifies Orion, and Protocol 1 ID 10
 identifies Orion MkII. This is a wire-protocol distinction, not a naming choice.
+
+## Protocol 1 receive implementation
+
+| P1 wire ID | Normalized board ID | Family | Stream slots | RX1 slot | Status |
+|---:|---:|---|---:|---:|---|
+| 1 | 1 | Hermes | 4 | 0 | Implemented; hardware qualification pending |
+| 2 | 2 | Hermes II | 2 | 0 | Implemented; hardware qualification pending |
+| 4 | 3 | Angelia | 5 | 0 | Implemented; hardware qualification pending |
+| 5 | 4 | Orion | 5 | 0 | Implemented; hardware qualification pending |
+| 10 | 5 | Orion MkII | 5 | 0 | Implemented; hardware qualification pending |
+| 20 | 20 | HermesC10 | 4 | 0 | Implemented; hardware qualification pending |
+
+These standard profiles expose 48/96/192 ksps. An explicitly selected Red
+Pitaya P1 profile also supports 384 ksps, with five slots and two ADCs; its
+choice is stored per MAC. A shared discovery ID alone does not enable it.
+HL2 P1 remains on its existing
+backend. Atlas/Metis and unverified P1 identities are not advertised through
+the ANAN path. See [P1 codec and transport](anan-p1-codec.md) for pinned
+sources, receive-only boundaries and remaining logical-model overrides.
 
 ## Implemented receive profiles
 
@@ -147,9 +166,9 @@ path: the 5 V slow-ADC scale is not generalized to 3.3 V families.
 Saturn droop defaults are never applied to another family. Per-radio
 measured tables remain usable.
 
-This stage implements P2 RX only. The independently implemented
-[P1 receive codec](anan-p1-codec.md) has packet tests but is not connected to
-the backend. P1 discovery/session/codec integration,
+P1 discovery and receive sessions now use a separate
+[RX codec and transport](anan-p1-codec.md) behind the existing backend.
+Packet/transport tests pass; independent P1 hardware qualification,
 logical SKU selection for shared physical IDs, and independent qualification
 of Atlas/Metis, Hermes Lite P2 and Saturn MkII remain open. The existing
 Hermes-Lite 2 P1 backend is unchanged.

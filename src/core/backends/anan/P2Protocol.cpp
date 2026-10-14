@@ -5,6 +5,27 @@
 
 namespace AetherSDR::anan {
 
+std::optional<DiscoveryReply> parseOpenHpsdrDiscoveryReply(
+    std::span<const std::uint8_t> data) noexcept
+{
+    if (const auto p2 = parseDiscoveryReply(data))
+        return p2;
+    const auto p1 = p1::parseDiscovery(data);
+    if (!p1)
+        return std::nullopt;
+    const auto board = p1::normalizedBoardId(p1->boardId);
+    if (!board)
+        return std::nullopt;
+    DiscoveryReply result;
+    result.wireProtocol = 1;
+    result.streaming = p1->streaming;
+    result.mac = p1->mac;
+    result.boardId = static_cast<std::uint8_t>(*board);
+    result.firmwareVer = p1->firmware;
+    result.reportedReceivers = data.size() > 20 ? data[20] : 0;
+    return result;
+}
+
 namespace {
 
 std::uint16_t readU16be(const std::uint8_t* p) noexcept
