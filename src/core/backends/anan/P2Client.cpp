@@ -90,6 +90,10 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     }
 
     m_ddc0FreqWord = 0;
+    m_firstDdcIndex = 0;
+    m_selectReceiveLpf = false;
+    m_receiveFilterKind = ReceiveFilterKind::MkIIBpf;
+    m_swapSpeakerChannels = false;
     m_bypassAdc0Filters = params.bypassAdc0Filters;
     m_bypassAdc1Filters = params.bypassAdc1Filters;
     m_adc0AttenuationDb = params.adc0AttenuationDb;
@@ -133,8 +137,8 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_running = true;
 
     //DH1KLM: Send only Discovery initially. Until its reply proves this is
-    // Saturn (and matches the selected board ID, when known), do not send
-    // General/DDC-Specific/High-Priority packets encoded for Saturn hardware.
+    // a supported RX board (matching the selected ID when known), do not
+    // send any board-specific General/DDC-Specific/High-Priority packets.
     sendTo(*m_socket, buildDiscovery(), m_host, kRadioPort, m_txBytes);
 
     // Resolve the session's DDC list ONCE: either the caller's explicit
@@ -177,12 +181,18 @@ void P2Client::stop()
     m_speakerUnderflowReports = 0;
     m_lastSpeakerFifoLevel = 0;
     if (m_socket) {
-        //DH1KLM: Only send a Saturn-encoded stop packet after the Discovery
-        // reply validated that the remote board actually is Saturn.
+        //DH1KLM: Only send the selected profile's stop after its identity
+        // was validated. Preserve physical DDC mapping through teardown.
         if (m_discoveryValidated) {
+            //DH1KLM: Retain Orion MkII filter selection during stop; keep
+            // the existing all-zero Saturn frequency words unchanged.
+            const std::vector<std::uint32_t> stopWords = m_selectReceiveLpf
+                ? sharedFreqWords()
+                : std::vector<std::uint32_t>(static_cast<std::size_t>(m_activeDdcCount), 0);
             sendTo(*m_socket,
-                  buildHighPriority(false, 0, m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                    m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
+                  buildHighPriority(false, stopWords, m_bypassAdc0Filters, m_bypassAdc1Filters,
+                                    m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
+                                    m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs),
                   m_host, kHighPriorityPort, m_txBytes);
         }
         m_socket->close();
@@ -329,7 +339,7 @@ void P2Client::onSpeakerDrainTick()
     for (; toSend > 0; --toSend) {
         const std::span<const std::int16_t> block(m_speakerPending.data() + consumed,
                                                   kPacketSamples);
-        const auto pkt = buildSpeakerAudio(m_speakerSequence, block);
+        const auto pkt = buildSpeakerAudio(m_speakerSequence, block, m_swapSpeakerChannels);
         const qint64 sent = m_socket->writeDatagram(
             reinterpret_cast<const char*>(pkt.data()),
             static_cast<qint64>(pkt.size()), m_host, kSpeakerAudioPort);
@@ -361,7 +371,8 @@ void P2Client::setDdc0FrequencyHz(double hz)
         sendTo(*m_socket,
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
+                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
+                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs),
               m_host, kHighPriorityPort, m_txBytes);
 }
 
@@ -375,7 +386,8 @@ void P2Client::setRxAntenna(int antenna)
         sendTo(*m_socket,
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
+                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
+                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs),
               m_host, kHighPriorityPort, m_txBytes);
     }
 }
@@ -395,7 +407,8 @@ void P2Client::setStepAttenuationDb(int adcIndex, int db)
         sendTo(*m_socket,
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
+                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
+                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs),
               m_host, kHighPriorityPort, m_txBytes);
     }
 }
@@ -418,7 +431,7 @@ bool P2Client::setDdcRateLive(int ddcIndex, int rateKsps)
     // retries must not no-op after the first write (#5547).
     sendTo(*m_socket,
           buildDdcSpecific(m_activeDdcs, m_numAdcs,
-                           m_ditherEnabled, m_randomEnabled),
+                           m_ditherEnabled, m_randomEnabled, m_firstDdcIndex),
           m_host, kDdcSpecificPort, m_txBytes);
 
     // The stream's sample cadence changes underneath us from here, so the
@@ -442,7 +455,8 @@ void P2Client::onKeepaliveTick()
     sendTo(*m_socket,
           buildHighPriority(true, sharedFreqWords(),
                             m_bypassAdc0Filters, m_bypassAdc1Filters,
-                            m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna),
+                            m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
+                            m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs),
           m_host, kHighPriorityPort, m_txBytes);
 }
 
@@ -504,39 +518,65 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
         // Discovery reply. Parse the reply on EVERY datagram (notify once): skipping it
         // would let a duplicate reply fall through and decode as a phantom underflow.
         if (const auto reply = parseDiscoveryReply(bytes)) {
-            if (!m_discoveryInfoSent) {
-                m_discoveryInfoSent = true;
-                emit discoveryInfoReceived(reply->boardId, reply->firmwareVer,
-                                           reply->reportedReceivers);
-            }
             if (!m_discoveryValidated) {
-                //DH1KLM: This backend currently has a verified Saturn profile
-                // only. A recognized board ID is not enough to reuse that profile.
+                //DH1KLM: Require an implemented RX profile and matching board ID.
+                // A recognized family alone does not authorize session packets.
                 if (!discoveryMatchesVerifiedAnanProfile(
                         reply->boardId, m_expectedBoardId)) {
                     const QString expected = m_expectedBoardId >= 0
                         ? QString::number(m_expectedBoardId)
-                        : QStringLiteral("Saturn (10)");
+                        : QStringLiteral("an implemented receive profile");
                     emit connectionError(QStringLiteral(
                         "ANAN: Discovery reports board ID %1, but this connection "
-                        "requires %2; no board-specific session packets were sent")
+                        "requires a supported matching RX profile (%2); no board-specific session packets were sent")
                         .arg(static_cast<int>(reply->boardId)).arg(expected));
                     stop();
                     return;
                 }
 
+                //DH1KLM: Select the physical RX layout from the actual reply,
+                // not from the reported receiver count or the display name.
+                const ReceiveProfile profile = *receiveProfile(reply->boardId);
+                const bool invalidDdc = std::any_of(m_activeDdcs.begin(), m_activeDdcs.end(),
+                    [&profile](const DdcConfig& ddc) {
+                        return ddc.adcIndex < 0 || ddc.adcIndex >= profile.numAdcs
+                            || std::find(kDdc0RatesKsps.begin(), kDdc0RatesKsps.end(), ddc.rateKsps)
+                                == kDdc0RatesKsps.end();
+                    });
+                //DH1KLM: An address-only caller cannot know the ADC count;
+                // derive it from the actual board's explicit profile.
+                if (m_expectedBoardId < 0) {
+                    m_numAdcs = profile.numAdcs;
+                }
+                if (profile.firstDdcIndex + m_activeDdcCount > profile.physicalDdcLimit
+                    || m_numAdcs != profile.numAdcs || invalidDdc) {
+                    emit connectionError(QStringLiteral("ANAN: DDC/ADC configuration exceeds the selected board profile"));
+                    stop();
+                    return;
+                }
+                m_firstDdcIndex = profile.firstDdcIndex;
+                m_selectReceiveLpf = profile.selectReceiveLpf;
+                m_receiveFilterKind = profile.filterKind;
+                m_swapSpeakerChannels = profile.swapSpeakerChannels;
                 m_discoveryValidated = true;
+                //DH1KLM: Publish identity only after profile validation, so the
+                // backend never seeds defaults or capabilities for a rejected board.
+                if (!m_discoveryInfoSent) {
+                    m_discoveryInfoSent = true;
+                    emit discoveryInfoReceived(reply->boardId, reply->firmwareVer,
+                                               reply->reportedReceivers);
+                }
                 if (m_socket) {
-                    sendTo(*m_socket, buildGeneral(), m_host, kRadioPort, m_txBytes);
+                    sendTo(*m_socket, buildGeneral(profile.alexEnableMask, profile.disablePa), m_host, kRadioPort, m_txBytes);
                     sendTo(*m_socket,
                           buildDdcSpecific(m_activeDdcs, m_numAdcs,
-                                           m_ditherEnabled, m_randomEnabled),
+                                           m_ditherEnabled, m_randomEnabled, m_firstDdcIndex),
                           m_host, kDdcSpecificPort, m_txBytes);
                     sendTo(*m_socket,
                           buildHighPriority(true, sharedFreqWords(),
                                             m_bypassAdc0Filters, m_bypassAdc1Filters,
                                             m_adc0AttenuationDb, m_adc1AttenuationDb,
-                                            m_rxAntenna),
+                                            m_rxAntenna, m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs),
                           m_host, kHighPriorityPort, m_txBytes);
                     m_keepaliveTimer->start();
                     if (m_speakerAudioEnabled) {
@@ -563,8 +603,14 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
     // Which DDC sent this. The IQ packet carries no DDC index of its
     // own, so the sender port is the only discriminator -- see
     // ddcIndexForSenderPort()'s comment for how that is verified.
+    //DH1KLM: A pending session must not link up on stale DDC0 traffic
+    // before Discovery has selected its physical receiver layout.
+    if (m_running && !m_discoveryValidated) {
+        return;
+    }
     const auto ddcIndex = ddcIndexForSenderPort(
-        static_cast<std::uint16_t>(senderPort), m_activeDdcCount);
+        static_cast<std::uint16_t>(senderPort), m_activeDdcCount,
+        static_cast<std::uint16_t>(kDdc0DefaultPort + m_firstDdcIndex));
     if (!ddcIndex) {
         // DDC-shaped but from a port this session did not enable (another client, or a
         // DDC left running): drop it without counting a drop. Warn once per port, since
@@ -575,8 +621,8 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
             qCWarning(lcAnanP2).nospace()
                 << "ANAN: dropping DDC-shaped datagram from unexpected "
                    "sender port " << senderPort << " (expected "
-                << kDdc0DefaultPort << ".."
-                << (kDdc0DefaultPort + m_activeDdcCount - 1)
+                << (kDdc0DefaultPort + m_firstDdcIndex) << ".."
+                << (kDdc0DefaultPort + m_firstDdcIndex + m_activeDdcCount - 1)
                 << " for " << m_activeDdcCount
                 << " active DDC(s)) -- not counted as a drop";
         }
@@ -600,7 +646,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
     }
     m_expectedSeq[slot] = frame->seq + 1;
 
-    // linkUp stays keyed on DDC0: it is the receiver every session has,
+    //DH1KLM: linkUp stays keyed on logical RX0 (DDC0 Saturn, DDC2 MkII):
     // and the connect timeout's message says "no DDC0 IQ". A session
     // whose DDC1 streamed but whose DDC0 never did is a real failure,
     // not a connected session.

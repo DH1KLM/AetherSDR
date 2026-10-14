@@ -1,18 +1,38 @@
 ---
-title: "ANAN-G2"
+title: "ANAN / OpenHPSDR Protocol 2"
 slug: "/anan-g2"
-description: "AetherSDR can receive with an Apache Labs ANAN-G2 over openHPSDR Protocol 2."
+description: "Experimental openHPSDR Protocol 2 reception with ANAN-G2 and an ANAN-7000DLE receive profile."
 status: "Experimental, receive-only"
-applies_to: ["ANAN-G2"]
+applies_to: ["ANAN-G2", "ANAN-7000DLE", "ANAN-10/100", "ANAN-10E/100B", "ANAN-100D", "ANAN-200D", "ANAN-G2E"]
 ---
 
 :::info[Status]
 
-**Status:** Experimental, receive-only · **Applies to:** ANAN-G2
+**Status:** Experimental, receive-only · **Applies to:** ANAN-G2, ANAN-7000DLE, ANAN-10/100, ANAN-10E/100B, ANAN-100D, ANAN-200D, ANAN-G2E
 
 :::
 
 AetherSDR can receive with an Apache Labs **ANAN-G2** over openHPSDR Protocol 2. Support is **experimental and receive-only**: one receiver, one panadapter, no transmit yet. FlexRadio remains the supported target (see [Supported Radios](./supported-radios.md)). An **EXPERIMENTAL** badge shows in the title bar while a G2 is connected.
+
+The **ANAN-7000DLE** has an experimental Orion MkII receive profile. It uses
+physical DDC2, two ADCs, and Thetis-compatible ADC0 BPF1 and antenna-chain
+LPF selection. Discovery displays the Orion MkII family because board ID 5
+is shared by several models. This profile has protocol and transport test
+coverage; reception on an ANAN-7000DLE has been confirmed by the operator.
+It provides one receiver and one panadapter, with transmit unavailable.
+
+Additional experimental P2 RX profiles cover **ANAN-10/100 (Hermes)**,
+**ANAN-10E/100B (Hermes II)**, **ANAN-100D (Angelia)**,
+**ANAN-200D (Orion)** and **ANAN-G2E (HermesC10)**. Packet and transport
+tests cover these profiles; reception on their hardware is not yet confirmed.
+The radio must run Protocol 2 firmware.
+
+On Hermes, Hermes II and HermesC10 select **ADC0 (ANT1/2/3)**: these boards
+have one ADC, and ADC1 is refused. Legacy boards use their ALEX HPF table;
+HermesC10 uses MkII BPF selection. All use frequency-selected antenna-chain
+LPFs. The application still provides one receiver and one panadapter.
+Hermes/Hermes-II radio-speaker channels follow Thetis' stereo swap.
+Supply voltage for these additional profiles is not reported until qualified.
 
 ## Where to go next
 
@@ -25,14 +45,16 @@ AetherSDR can receive with an Apache Labs **ANAN-G2** over openHPSDR Protocol 2.
 
 The G2 is found automatically on your LAN: open **File → Connect to Radio...** → **On This Network**, select it and click **Connect Selected Radio**.
 
-To reach it across a VPN or another subnet, use **Connect by IP** with **Radio type:** set to **ANAN-G2** (see [Manual Connection](./manual-connection.md)). That form also holds the G2's connection options, which apply on both paths:
+To reach it across a VPN or another subnet, use **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P2)** (see [Manual Connection](./manual-connection.md)). For the ANAN-7000DLE, use the same **ANAN / OpenHPSDR (P2)** radio-type entry;
+Discovery selects the Orion MkII receive layout automatically. The form's
+connection options apply on both paths:
 
 | Option | Default | What it does |
 |--------|---------|--------------|
-| **Sample rate:** | 48 ksps | DDC0 sample rate: 48, 96, 192, 384, 768 or 1536 ksps. It is also the starting width of the panadapter. Higher rates use more of the radio's Ethernet link. |
+| **Sample rate:** | 48 ksps | Receiver sample rate (G2 DDC0, 7000DLE DDC2): 48, 96, 192, 384, 768 or 1536 ksps. It is also the starting width of the panadapter. Higher rates use more of the radio's Ethernet link. |
 | **Select ADC:** | ADC0 (ANT1/2/3) | Which receive chain feeds the receiver: **ADC0 (ANT1/2/3)**, behind the switched antenna relays, or **ADC1 (RX2)**, wired straight to the RX2 jack. |
 | **Dither** / **Random** | On | The ADC's linearisation bits. Leave them on unless you are testing. |
-| **ADC0 RF filter bypass** | Off | Saturn BPF1 is selected automatically from the tuned frequency using the Thetis-compatible band map. Check this only to force ADC0 around that filter. |
+| **ADC0 RF filter bypass** | Off | MkII/Saturn BPF1 is selected automatically from the tuned frequency using the Thetis-compatible band map. Check this only to force ADC0 around that filter. |
 | **ADC1 RF filter bypass** | On | RX2/ADC1's separate filter bank still uses bypass; automatic ADC1 band selection is not implemented yet. |
 | **Send RX audio to the radio's speaker** | Off | Also plays receive audio through the G2's own speaker and headphone jack. Takes effect on the next connect. |
 
@@ -51,7 +73,7 @@ The panadapter is not dBm-calibrated: its levels are relative.
 
 ## Droop Correction
 
-The G2's DDC loses a little amplitude near the edges of the displayed span. AetherSDR applies a correction derived from the radio's own (Saturn) gateware automatically.
+The G2's DDC loses a little amplitude near the edges of the displayed span. AetherSDR applies a correction derived from Saturn gateware automatically on the G2. These shipped tables are not applied to the ANAN-7000DLE; it can use a sweep measured and saved for that radio.
 
 To measure your own radio instead, open **Settings → Radio Setup... → Droop Correction** while connected:
 
@@ -83,7 +105,7 @@ Controls the G2 cannot honour are dimmed with a reason, or refuse with a notice;
 If the signal path is wrong after changing RF filter options, first restore the Saturn BPF1 selection.
 
 1. Disconnect from the G2.
-2. Open **Connect by IP** with **Radio type:** set to **ANAN-G2**.
+2. Open **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P2)**.
 3. Uncheck **ADC0 RF filter bypass** so the tuned-frequency BPF1 selection is active. Keep **ADC1 RF filter bypass** checked when using RX2 until its separate filter selector is implemented.
 
 ### No audio from the radio's own speaker

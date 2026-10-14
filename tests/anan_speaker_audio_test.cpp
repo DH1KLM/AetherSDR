@@ -333,6 +333,10 @@ int main(int argc, char** argv)
         // field at all, so nothing here may be read as an underflow.
         std::vector<std::uint8_t> reply(kHighPriorityStatusBytes, 0);
         reply[4] = 0x03;             // Discovery reply, radio streaming
+        //DH1KLM: Satisfy the current Discovery identity checks.
+        reply[5] = 0x88;
+        reply[10] = 0x6A;
+        reply[12] = 43;
         reply[11] = 10;              // board id
         reply[13] = 27;              // firmware
         reply[20] = 1;               // one DDC

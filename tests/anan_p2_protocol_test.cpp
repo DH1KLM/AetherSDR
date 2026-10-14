@@ -137,7 +137,7 @@ int main()
               "Discovery reply with impossible zero protocol version is rejected");
 
         //DH1KLM: Keep the P2 physical-board registry pinned independently
-        // from the current Saturn-only connection gate in AnanDiscovery.
+        // from the implemented receive-profile gate in AnanDiscovery.
         // These are Thetis/Nereus HPSDRHW IDs, not the different P1 byte map.
         constexpr std::array<std::uint8_t, 10> supportedBoardIds{
             0, 1, 2, 3, 4, 5, 6, 10, 11, 20
@@ -158,32 +158,148 @@ int main()
               "unknown P2 board ID is not classified as a supported board");
 
         //DH1KLM: A board's presence in the registry must not grant it the Saturn
-        // session profile. Unknown/manual targets still have to identify as Saturn.
+        // session profile. Unknown/manual targets still need an implemented RX profile.
         check(discoveryMatchesVerifiedAnanProfile(10, -1),
               "manual target is accepted only when Discovery identifies Saturn");
         check(discoveryMatchesVerifiedAnanProfile(10, 10),
               "selected Saturn ID matches the actual Discovery reply");
-        // Every recognized non-Saturn board must remain fail-closed until its
+        // Every unimplemented board must remain fail-closed until its
         // own byte-verified session profile is implemented. Check both manual
         // connects and matching picker metadata, not just Orion examples.
         for (const std::uint8_t id : supportedBoardIds) {
-            if (id == 10)
+            if (receiveProfile(id))
                 continue;
             check(!discoveryMatchesVerifiedAnanProfile(id, -1),
-                  "non-Saturn P2 board is rejected for manual connection");
+                  "unimplemented P2 board is rejected for manual connection");
             check(!discoveryMatchesVerifiedAnanProfile(id, static_cast<int>(id)),
-                  "non-Saturn P2 board is rejected even with matching picker ID");
+                  "unimplemented P2 board is rejected even with matching picker ID");
         }
         check(!discoveryMatchesVerifiedAnanProfile(10, 20),
               "Saturn reply cannot satisfy a selected HermesC10");
-        check(!discoveryMatchesVerifiedAnanProfile(4, -1),
-              "recognized Orion board cannot use the Saturn session profile");
-        check(!discoveryMatchesVerifiedAnanProfile(5, 5),
-              "recognized Orion MkII cannot use the Saturn session profile");
+        check(discoveryMatchesVerifiedAnanProfile(4, -1),
+              "Orion selects its own legacy-ALEX DDC2 profile");
+        check(discoveryMatchesVerifiedAnanProfile(5, 5),
+              "selected Orion MkII has its own receive profile");
+        check(discoveryMatchesVerifiedAnanProfile(5, -1),
+              "manual Orion MkII selects its own physical receive profile");
+        check(!discoveryMatchesVerifiedAnanProfile(5, 10),
+              "Orion MkII reply cannot satisfy a selected Saturn");
         check(!discoveryMatchesVerifiedAnanProfile(10, 4),
               "a Saturn reply is rejected when discovery selected a different board");
         check(!discoveryMatchesVerifiedAnanProfile(99, -1),
               "unknown board ID cannot use the Saturn session profile");
+    }
+
+    //DH1KLM: ANAN-7000DLE RX layout from Thetis UpdateDDCs/GetDDC,
+    // clsHardwareSpecific.cs and ChannelMaster CmdRx/CmdHighPriority.
+    {
+        const auto profile = receiveProfile(5);
+        check(profile && profile->numAdcs == 2 && profile->firstDdcIndex == 2,
+              "Orion MkII has two ADCs and normal RX1 on physical DDC2");
+        check(profile && !profile->saturnDroopDefaults,
+              "Orion MkII cannot inherit Saturn gateware droop defaults");
+        const auto general = buildGeneral(3, true);
+        check(general[37] == 8 && general[58] == 1 && general[59] == 3,
+              "Orion MkII requests phase words, disables PA and enables both ALEX words");
+        const std::array<DdcConfig, 1> ddcs{{{192, 0}}};
+        const auto rx = buildDdcSpecific(ddcs, 2, true, true, 2);
+        check(rx[4] == 2 && rx[5] == 3 && rx[6] == 3 && rx[7] == 4,
+              "Orion MkII enables only physical DDC2 and both physical ADC linearisation bits");
+        check(rx[29] == 0 && rx[30] == 0 && rx[31] == 192 && rx[34] == 24,
+              "DDC2 rate, ADC selection and sample width occupy bytes 29..34");
+        bool unusedRowsZero = true;
+        for (std::size_t i = 17; i < 29; ++i) {
+            unusedRowsZero = unusedRowsZero && rx[i] == 0;
+        }
+        check(unusedRowsZero, "Orion MkII leaves DDC0 and DDC1 rows disabled and zero");
+        const std::array<std::uint32_t, 1> words{{phaseWord(14'200'000)}};
+        const auto hp = buildHighPriority(true, words, false, true, 7, 9, 2, 2, true);
+        check(hp[17] == (words[0] >> 24) && hp[18] == ((words[0] >> 16) & 255)
+              && hp[19] == ((words[0] >> 8) & 255) && hp[20] == (words[0] & 255),
+              "Orion MkII tune occupies DDC2 bytes 17..20");
+        bool unusedWordsZero = true;
+        for (std::size_t i = 9; i < 17; ++i) {
+            unusedWordsZero = unusedWordsZero && hp[i] == 0;
+        }
+        check(unusedWordsZero, "DDC2 tuning does not accidentally tune DDC0/1");
+        check(hp[1432] == 2 && hp[1433] == 0x10 && hp[1434] == 0 && hp[1435] == 2,
+              "14.2 MHz ANT2 selects Thetis 20/15 m BPF1 and 30/20 m LPF");
+        check(hp[1443] == 7 && hp[1442] == 9 && hp[4] == 1,
+              "Orion MkII preserves per-ADC attenuation without PTT");
+        check(ddcIndexForSenderPort(1037, 1, 1037) == 0
+              && !ddcIndexForSenderPort(1035, 1, 1037)
+              && !ddcIndexForSenderPort(1038, 1, 1037),
+              "physical DDC2 port maps to logical RX0, other ports are rejected");
+        constexpr std::array<double, 7> bandHz{{1'900'000, 3'600'000, 7'100'000,
+            14'200'000, 18'100'000, 28'400'000, 50'100'000}};
+        constexpr std::array<std::uint32_t, 7> lpfBits{{1u << 23, 1u << 22,
+            1u << 21, 1u << 20, 1u << 31, 1u << 30, 1u << 29}};
+        constexpr std::uint32_t lpfMask = 0xE0F00000u;
+        for (std::size_t n = 0; n < bandHz.size(); ++n) {
+            const std::array<std::uint32_t, 1> tune{{phaseWord(bandHz[n])}};
+            const auto packet = buildHighPriority(true, tune, false, true, 0, 0, 1, 2, true);
+            const std::uint32_t alex = (std::uint32_t(packet[1432]) << 24)
+                | (std::uint32_t(packet[1433]) << 16)
+                | (std::uint32_t(packet[1434]) << 8) | packet[1435];
+            check((alex & lpfMask) == lpfBits[n], "Orion MkII selects exactly one Thetis LPF relay");
+            check((alex & (1u << 27)) == 0 && packet[4] == 1 && packet[345] == 0,
+                  "Orion MkII filter switching leaves T/R relay, PTT and drive inactive");
+        }
+        check(buildDdcSpecific(ddcs, 2, true, true, -1)[7] == 0
+              && buildDdcSpecific(ddcs, 2, true, true, 4)[7] == 0,
+              "invalid physical DDC offsets cannot enable a receiver");
+    }
+
+    //DH1KLM: Thetis clsHardwareSpecific/GetDDC and Nereus P2CodecHermes.
+    {
+        constexpr std::array<int, 5> ids{{1, 2, 3, 4, 20}};
+        constexpr std::array<int, 5> adcCounts{{1, 1, 2, 2, 1}};
+        constexpr std::array<int, 5> ddcOffsets{{0, 0, 2, 2, 0}};
+        for (std::size_t n = 0; n < ids.size(); ++n) {
+            const ReceiveProfile profile = *receiveProfile(ids[n]);
+            check(profile.numAdcs == adcCounts[n] && profile.firstDdcIndex == ddcOffsets[n],
+                  "new receive family has Thetis physical ADC/DDC assignment");
+            const std::array<DdcConfig, 1> ddcs{{{48, 0}}};
+            const auto rx = buildDdcSpecific(ddcs, profile.numAdcs, true, true, profile.firstDdcIndex);
+            check(rx[4] == adcCounts[n] && rx[5] == (adcCounts[n] == 1 ? 1 : 3)
+                  && rx[6] == rx[5] && rx[7] == (1 << ddcOffsets[n]),
+                  "new receive family enables its actual ADCs and RX1 DDC only");
+            const std::array<std::uint32_t, 1> tune{{phaseWord(7'100'000)}};
+            const auto hp = buildHighPriority(true, tune, false, true, 4, 11, 1,
+                profile.firstDdcIndex, profile.selectReceiveLpf, profile.filterKind, profile.numAdcs);
+            check(hp[1435] == (ids[n] == 20 ? 0x10 : 0x20),
+                  "7.1 MHz distinguishes HermesC10 MkII BPF from legacy ALEX HPF");
+            check(hp[1433] == 0x20 && hp[1432] == 1,
+                  "new profile selects 60/40 m LPF and ANT1 in reception");
+            if (profile.numAdcs == 1) {
+                check(hp[1430] == 0 && hp[1431] == 0 && hp[1442] == 0,
+                      "single-ADC profile writes no nonexistent ADC1 filter/attenuator");
+            }
+            check(hp[4] == 1 && hp[345] == 0 && (hp[1432] & 8) == 0,
+                  "new profile's filter packet cannot key or drive TX");
+        }
+        check(receiveProfile(2)->physicalDdcLimit == 2,
+              "Hermes II cannot be assigned physical DDC2 or DDC3");
+        const std::array<std::int16_t, 2> lr{{0x1234, 0x2345}};
+        const auto swapped = buildSpeakerAudio(0, lr, true);
+        check(swapped[4] == 0x23 && swapped[5] == 0x45
+              && swapped[6] == 0x12 && swapped[7] == 0x34,
+              "Hermes codec speaker channels match Thetis LRAudioSwap");
+        const std::array<std::int16_t, 1> one{{0x1234}};
+        const auto shortSwapped = buildSpeakerAudio(0, one, true);
+        check(shortSwapped[4] == 0 && shortSwapped[5] == 0
+              && shortSwapped[6] == 0x12 && shortSwapped[7] == 0x34,
+              "short swapped speaker input preserves its unpaired sample without out-of-bounds access");
+        constexpr std::array<double, 7> hpfHz{{1'799'999, 1'800'000, 6'500'000,
+            9'500'000, 13'000'000, 20'000'000, 50'000'000}};
+        constexpr std::array<std::uint16_t, 7> hpfBits{{0x1000, 0x40, 0x20, 0x10, 2, 4, 8}};
+        for (std::size_t n = 0; n < hpfHz.size(); ++n) {
+            const std::array<std::uint32_t, 1> tune{{phaseWord(hpfHz[n])}};
+            const auto hp = buildHighPriority(true, tune, false, true, 0, 0, 1,
+                0, true, ReceiveFilterKind::LegacyHpf, 1);
+            check((std::uint16_t(hp[1434]) << 8 | hp[1435]) == hpfBits[n],
+                  "legacy ALEX uses exact Thetis HPF boundaries and bypass");
+        }
     }
 
     // ---- General packet ----
@@ -668,6 +784,12 @@ int main()
         // requirement is visible from the test, not only from a comment.
         std::vector<std::uint8_t> reply(kHighPriorityStatusBytes, 0);
         reply[4] = 0x02;
+        //DH1KLM: Use a plausible identity so this fixture passes Discovery
+        // validation as well as the intentionally overlapping status parser.
+        reply[5] = 0x88;
+        reply[10] = 0x6A;
+        reply[11] = 10;
+        reply[12] = 43;
         check(parseDiscoveryReply(reply).has_value()
               && parseHighPriorityStatus(reply).has_value(),
               "a discovery reply satisfies both parsers, so reply-first ordering matters");

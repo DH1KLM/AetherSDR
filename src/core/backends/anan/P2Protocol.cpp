@@ -45,8 +45,8 @@ int signExtend24(std::int32_t raw) noexcept
 //the exact 1.5/2.1/5.5/11/22/35/61.44 MHz edges. Thetis' selection byte
 //is mapped to the Orion-MkII/Saturn Alex0 register by network.c:
 //0x10->bit6, 0x08->bit5, 0x04->bit4, 0x01->bit1, 0x02->bit2,
-//0x40->bit3. This is intentionally only the Saturn BPF1 selection;
-//other boards remain gated from connection until their profiles are ported.
+//0x40->bit3. Thetis selects the same BPF1 on Orion MkII and Saturn;
+//legacy ALEX HPF boards remain gated until their own profiles are ported.
 std::uint32_t saturnBpf1RegisterBits(std::uint32_t phaseWord) noexcept
 {
     constexpr double kPhaseScale = static_cast<double>(kDspClockHz) / 4294967296.0;
@@ -70,6 +70,51 @@ std::uint32_t saturnBpf1RegisterBits(std::uint32_t phaseWord) noexcept
         bits = std::uint32_t{1} << 3;  // Thetis BPF1 6 m row (0x40)
     }
     return bits; // zero means Thetis' bypass region (outside configured rows)
+}
+
+//DH1KLM: Thetis setAlexHPF / setup.designer.cs defaults, in Hz.
+// Legacy 1.5 MHz HPF starts at 1.8 MHz, not the MkII BPF's 1.5 MHz.
+std::uint32_t legacyHpfRegisterBits(std::uint32_t word) noexcept
+{
+    const double hz = static_cast<double>(word) * kDspClockHz / 4294967296.0;
+    struct HpfBand { double lowHz; double highHz; int bit; };
+    constexpr std::array<HpfBand, 6> bands{{
+        {1'800'000, 6'499'999, 6}, {6'500'000, 9'499'999, 5},
+        {9'500'000, 12'999'999, 4}, {13'000'000, 19'999'999, 1},
+        {20'000'000, 49'999'999, 2}, {50'000'000, 61'440'000, 3}
+    }};
+    constexpr double kHalfPhaseStepHz = 0.02;
+    for (const HpfBand& band : bands) {
+        if (hz >= band.lowHz - kHalfPhaseStepHz && hz <= band.highHz + kHalfPhaseStepHz) {
+            return std::uint32_t{1} << band.bit;
+        }
+    }
+    return 0; // Thetis' bypass region
+}
+
+//DH1KLM: Thetis setup.designer.cs LPF defaults, console.cs setAlexLPF,
+// and network.h rbpfilter relay positions. Only the Orion MkII RX profile
+// selects these; the qualified Saturn packet bytes stay unchanged.
+std::uint32_t receiveLpfRegisterBits(std::uint32_t word) noexcept
+{
+    const double hz = static_cast<double>(word) * kDspClockHz / 4294967296.0;
+    struct LpfBand { double lowHz; double highHz; int bit; };
+    constexpr std::array<LpfBand, 7> bands{{
+        {0, 2'500'000, 23},
+        {2'500'001, 5'000'000, 22},
+        {5'000'001, 8'000'000, 21},
+        {8'000'001, 16'500'000, 20},
+        {16'500'001, 24'000'000, 31},
+        {24'000'001, 35'600'000, 30},
+        {35'600'001, 61'440'000, 29}
+    }};
+    constexpr double kHalfPhaseStepHz = 0.02;
+    for (const LpfBand& band : bands) {
+        if (hz >= band.lowHz - kHalfPhaseStepHz && hz <= band.highHz + kHalfPhaseStepHz) {
+            return std::uint32_t{1} << band.bit;
+        }
+    }
+    return std::uint32_t{1} << 29; // Thetis' out-of-band/bypass fallback: 6 m LPF
 }
 
 }  // namespace
@@ -121,7 +166,7 @@ std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> 
     return r;
 }
 
-std::array<std::uint8_t, 60> buildGeneral() noexcept
+std::array<std::uint8_t, 60> buildGeneral(int alexEnableMask, bool disablePa) noexcept
 {
     std::array<std::uint8_t, 60> pkt{};
     pkt[4] = 0x00;  // Command byte for the General Packet (spec p.19)
@@ -134,11 +179,16 @@ std::array<std::uint8_t, 60> buildGeneral() noexcept
                      // on deliberately.
     pkt[39] = 0x00; // BE + 3-byte -- the only format Discovery byte22==0
                      // declares (p.22, p.45). See discoveryDeclaresBigEndian3Byte().
+    //DH1KLM: Thetis CmdGeneral enables the two ALEX words in byte 59.
+    // Orion MkII RX also disables the PA in byte 58; no TX path exists here.
+    pkt[58] = disablePa ? 0x01 : 0x00;
+    pkt[59] = static_cast<std::uint8_t>(alexEnableMask & 0x03);
     return pkt;
 }
 
 std::array<std::uint8_t, 1444> buildDdcSpecific(std::span<const DdcConfig> ddcs, int numAdcs,
-                                                bool ditherEnabled, bool randomEnabled) noexcept
+                                                bool ditherEnabled, bool randomEnabled,
+                                                int firstDdcIndex) noexcept
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length (80 DDCs); unused DDCs
                                             // stay zero/disabled
@@ -150,21 +200,27 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(std::span<const DdcConfig> ddcs,
     const std::uint8_t adcMask = numAdcs == 1 ? 0x01 : 0x03;
     pkt[5] = ditherEnabled ? adcMask : 0x00;
     pkt[6] = randomEnabled ? adcMask : 0x00;
+    //DH1KLM: Logical receiver 0 may occupy physical DDC2. Disabled rows
+    // remain zero; never enable DDC0/1 just to reach the Orion MkII RX row.
+    if (firstDdcIndex < 0 || firstDdcIndex >= kMaxDdcs) {
+        return pkt;
+    }
 
     // Clamp rather than trust the caller: writing rows for more DDCs than
     // kMaxDdcs would keep landing inside this 1444-byte packet (the spec has
     // room for 80), so this is not a buffer guard -- it is a refusal to
     // enable hardware receivers the rest of this backend is not driving.
     const std::size_t count =
-        std::min(ddcs.size(), static_cast<std::size_t>(kMaxDdcs));
+        std::min(ddcs.size(), static_cast<std::size_t>(kMaxDdcs - firstDdcIndex));
 
     std::uint8_t enableBits = 0;
     for (std::size_t n = 0; n < count; ++n) {
-        enableBits |= static_cast<std::uint8_t>(1u << n);
+        const std::size_t physicalDdc = n + static_cast<std::size_t>(firstDdcIndex);
+        enableBits |= static_cast<std::uint8_t>(1u << physicalDdc);
         // One 6-byte row per DDC: ADC select, 2-byte rate, CIC1, CIC2,
         // sample size. Offsets confirmed against the single-DDC layout this
         // replaced (DDC0: 17 / 18-19 / 20-21 / 22), which is bench-proven.
-        const std::size_t row = 17 + 6 * n;
+        const std::size_t row = 17 + 6 * physicalDdc;
         pkt[row] = static_cast<std::uint8_t>(ddcs[n].adcIndex);
         writeU16be(&pkt[row + 1], static_cast<std::uint16_t>(ddcs[n].rateKsps));
         // row+3, row+4 = CIC1/CIC2, "For Future use" (p.25) -- left zero.
@@ -192,17 +248,24 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   bool bypassAdc1Filters,
                                                   int adc0AttenuationDb,
                                                   int adc1AttenuationDb,
-                                                  int rxAntenna) noexcept
+                                                  int rxAntenna,
+                                                  int firstDdcIndex,
+                                                  bool selectReceiveLpf,
+                                                  ReceiveFilterKind filterKind,
+                                                  int numAdcs) noexcept
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length
     pkt[4] = run ? 0x01 : 0x00;  // bit[0] = run. Bits[1..4] = PTT0..3 -- there is no
                                   // parameter to set them; see this header's own comment.
     // One 4-byte frequency/phase word per DDC at 9 + 4*n (p.32). Same
     // clamp-and-ignore contract as buildDdcSpecific().
-    const std::size_t count =
-        std::min(ddcFreqWords.size(), static_cast<std::size_t>(kMaxDdcs));
-    for (std::size_t n = 0; n < count; ++n)
-        writeU32be(&pkt[9 + 4 * n], ddcFreqWords[n]);
+    const bool validOffset = firstDdcIndex >= 0 && firstDdcIndex < kMaxDdcs;
+    const std::size_t count = validOffset
+        ? std::min(ddcFreqWords.size(), static_cast<std::size_t>(kMaxDdcs - firstDdcIndex))
+        : 0;
+    for (std::size_t n = 0; n < count; ++n) {
+        writeU32be(&pkt[9 + 4 * (n + static_cast<std::size_t>(firstDdcIndex))], ddcFreqWords[n]);
+    }
     // Alex0 register, bytes 1432-1435. Thetis netInterface.c maps RX ANT1,
     // ANT2, ANT3 to bits 24, 25, 26 respectively. Invalid values fail safe to
     // ANT1 rather than emitting no antenna selection.
@@ -210,22 +273,29 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                      ? rxAntenna : 1));
     // Apply Thetis' Saturn BPF1 selection from the tuned phase word unless the
     // caller explicitly requests bypass; outside the configured rows, bypass.
-    const std::uint32_t bpfBits = saturnBpf1RegisterBits(
-        count > 0 ? ddcFreqWords[0] : 0);
+    //DH1KLM: Select the board's HPF/BPF table independently of DDC placement.
+    const std::uint32_t rxWord = count > 0 ? ddcFreqWords[0] : 0;
+    const std::uint32_t bpfBits = filterKind == ReceiveFilterKind::LegacyHpf
+        ? legacyHpfRegisterBits(rxWord) : saturnBpf1RegisterBits(rxWord);
     if (bypassAdc0Filters || bpfBits == 0)
         alex0 |= std::uint32_t{1} << 12;
     else
         alex0 |= bpfBits;
+    if (selectReceiveLpf) {
+        //DH1KLM: Select the antenna-chain LPF as well as the ADC0 BPF1.
+        alex0 |= receiveLpfRegisterBits(count > 0 ? ddcFreqWords[0] : 0);
+    }
     writeU32be(&pkt[1432], alex0);
     // Alex1 (RX2/BPF2) register, bytes 1430-1431 -- a separate 16-bit word,
     // bit 12 "HF Bypass 2" (p.90-91's own Alex1 bit table).
-    if (bypassAdc1Filters)
+    if (numAdcs > 1 && bypassAdc1Filters) {
         writeU16be(&pkt[1430], std::uint16_t{1} << 12);
+    }
     // Step attenuators, pp.34,36: byte 1443 = ADC0, byte 1442 = ADC1, 0-31 dB.
     pkt[1443] = static_cast<std::uint8_t>(
         std::clamp(adc0AttenuationDb, 0, kMaxStepAttenuationDb));
-    pkt[1442] = static_cast<std::uint8_t>(
-        std::clamp(adc1AttenuationDb, 0, kMaxStepAttenuationDb));
+    pkt[1442] = numAdcs > 1 ? static_cast<std::uint8_t>(
+        std::clamp(adc1AttenuationDb, 0, kMaxStepAttenuationDb)) : 0;
     return pkt;
 }
 
@@ -245,7 +315,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0Fre
 }
 
 std::array<std::uint8_t, kSpeakerPacketBytes> buildSpeakerAudio(
-    std::uint32_t sequence, std::span<const std::int16_t> interleavedLr) noexcept
+    std::uint32_t sequence, std::span<const std::int16_t> interleavedLr,
+    bool swapChannels) noexcept
 {
     std::array<std::uint8_t, kSpeakerPacketBytes> pkt{};
     writeU32be(pkt.data(), sequence);
@@ -254,13 +325,17 @@ std::array<std::uint8_t, kSpeakerPacketBytes> buildSpeakerAudio(
     // silence is the right answer here and a refusal is not.
     constexpr std::size_t kMaxSamples = kSpeakerSampleBytes / sizeof(std::int16_t);
     const std::size_t count = std::min(interleavedLr.size(), kMaxSamples);
-    for (std::size_t i = 0; i < count; ++i) {
+    for (std::size_t i = 0; i < kMaxSamples; ++i) {
         // Reinterpreted through the unsigned type, not shifted as signed: a
         // right shift of a negative value is implementation-defined, and every
         // sample below -1 dBFS is negative half the time. The two's-complement
         // bit pattern is what the wire wants and what the cast produces.
-        writeU16be(pkt.data() + 4 + i * sizeof(std::int16_t),
-                   static_cast<std::uint16_t>(interleavedLr[i]));
+        //DH1KLM: Thetis LRAudioSwap exchanges Hermes/Hermes-II codec channels.
+        const std::size_t source = swapChannels ? (i ^ std::size_t{1}) : i;
+        if (source < count) {
+            writeU16be(pkt.data() + 4 + i * sizeof(std::int16_t),
+                       static_cast<std::uint16_t>(interleavedLr[source]));
+        }
     }
     return pkt;
 }
