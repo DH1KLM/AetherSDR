@@ -161,13 +161,51 @@ struct DiscoveryReply {
     }
 };
 
-//DH1KLM: The currently implemented ANAN session wire profile is Saturn-only.
-//expectedBoardId < 0 means the caller connected by address without discovery metadata;
-//the actual board must still be Saturn. Recognition in Discovery is not enough.
+//DH1KLM: Physical RX layout from Thetis console.cs UpdateDDCs/GetDDC and
+// clsHardwareSpecific.cs. Saturn keeps its bench-qualified DDC0 path;
+// Orion MkII (ANAN-7000DLE target) receives on DDC2 without diversity/PS.
+//DH1KLM: Legacy ALEX HPFs and MkII BPFs have different frequency tables.
+enum class ReceiveFilterKind { MkIIBpf, LegacyHpf };
+
+struct ReceiveProfile {
+    int numAdcs;
+    int firstDdcIndex;
+    int alexEnableMask;
+    bool selectReceiveLpf;
+    bool saturnDroopDefaults;
+    ReceiveFilterKind filterKind = ReceiveFilterKind::MkIIBpf;
+    int physicalDdcLimit = 4;
+    bool swapSpeakerChannels = false;
+    bool disablePa = false;
+};
+
+[[nodiscard]] constexpr std::optional<ReceiveProfile> receiveProfile(int boardId) noexcept
+{
+    switch (boardId) {
+    case 1: //DH1KLM: Thetis Hermes/ANAN-10/100; normal RX1 is DDC0.
+        return ReceiveProfile{1, 0, 3, true, false, ReceiveFilterKind::LegacyHpf, 4, true, true};
+    case 2: //DH1KLM: Hermes II has only two physical DDC slots.
+        return ReceiveProfile{1, 0, 3, true, false, ReceiveFilterKind::LegacyHpf, 2, true, true};
+    case 3: //DH1KLM: Angelia/ANAN-100D uses legacy ALEX with RX1 on DDC2.
+    case 4: //DH1KLM: Orion/ANAN-200D has P2 ID 4, distinct from P1 ID 5.
+        return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::LegacyHpf, 4, false, true};
+    case 5:
+        return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::MkIIBpf, 4, false, true};
+    case 10:
+        return ReceiveProfile{2, 0, 0, false, true};
+    case 20: //DH1KLM: ANAN-G2E/HermesC10 is single-ADC with MkII filtering.
+        return ReceiveProfile{1, 0, 3, true, false, ReceiveFilterKind::MkIIBpf, 4, false, true};
+    default:
+        return std::nullopt;
+    }
+}
+
+//DH1KLM: Recognition alone never authorizes a session. The physical reply
+// must have a receive profile and match picker metadata when supplied.
 [[nodiscard]] constexpr bool discoveryMatchesVerifiedAnanProfile(
     std::uint8_t boardId, int expectedBoardId) noexcept
 {
-    return boardId == 10
+    return receiveProfile(boardId).has_value()
         && (expectedBoardId < 0 || expectedBoardId == static_cast<int>(boardId));
 }
 
@@ -191,7 +229,8 @@ std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> 
 // hardware watchdog ON (p.8: without a C&C packet at least every second the
 // radio drops out of RUN), which self-heals an abandoned session (a `kill -9`d
 // client recovers cleanly). Byte 39 = 0x00 (BE + 3-byte, per byte 22 == 0).
-std::array<std::uint8_t, 60> buildGeneral() noexcept;
+std::array<std::uint8_t, 60> buildGeneral(int alexEnableMask = 0,
+                                       bool disablePa = false) noexcept;
 
 // ---- DDC-Specific Packet (spec p.23-26) ----
 
@@ -208,11 +247,9 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(int ddc0RateKsps = 48, int numAd
                                                 int ddc0AdcIndex = 0) noexcept;
 
 // ---- Multi-DDC ----
-// Codec safety bound for this Saturn-only client: a real G2 reports four
-// receivers in Discovery byte 20 (Thetis calls it NumRxs). The current client
-// conservatively uses that value as its active-stream ceiling; do not generalize
-// this assumption to other board families without checking their gateware.
-// The one-byte enable bitmap caps the format at 8.
+//DH1KLM: Bound the codec to physical DDC0..3. Orion MkII maps normal
+// RX1/RX2 to DDC2/3; the retained Saturn path maps logical RX0 to DDC0.
+// Discovery NumRxs does not determine this profile limit.
 inline constexpr int kMaxDdcs = 4;
 
 // One DDC's slot in the DDC-Specific packet. `rateKsps` must be one of
@@ -223,7 +260,8 @@ struct DdcConfig {
     int adcIndex = 0;
 };
 
-// Multi-DDC form: enables DDC 0..N-1 (N capped at kMaxDdcs; excess IGNORED),
+//DH1KLM: Enables physical DDC firstDdcIndex..firstDdcIndex+N-1,
+// capped at kMaxDdcs (excess ignored),
 // setting byte-7 enable bits and one 6-byte row per DDC at 17 + 6*n (ADC select,
 // 2-byte rate, CIC1/CIC2 = 0 "for future use", sample size). An EMPTY span
 // disables all DDCs -- how a session stops streaming without teardown. The
@@ -231,7 +269,8 @@ struct DdcConfig {
 std::array<std::uint8_t, 1444> buildDdcSpecific(std::span<const DdcConfig> ddcs,
                                                 int numAdcs = 2,
                                                 bool ditherEnabled = true,
-                                                bool randomEnabled = true) noexcept;
+                                                bool randomEnabled = true,
+                                                int firstDdcIndex = 0) noexcept;
 
 // ---- High Priority to Hardware (spec p.31-34) ----
 
@@ -243,8 +282,8 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(std::span<const DdcConfig> ddcs,
 // selection ANT1/2/3 (bits 24/25/26) plus Thetis' Saturn BPF1 relay selected
 // from DDC0's phase word. Invalid antenna values fall back to ANT1. The explicit
 // `bypassAdc0Filters` option forces bypass; frequencies outside Thetis' configured
-// 1.5-61.44 MHz rows also bypass. This is Saturn-only; other board families
-// remain gated until their profiles are ported. `bypassAdc1Filters` sets bit 12
+// 1.5-61.44 MHz rows also bypass. Orion MkII shares this BPF1 relay map.
+// `bypassAdc1Filters` sets bit 12
 // ("HF Bypass 2") of Alex1 (bytes 1430-1431); RX2 is a dedicated jack.
 // `adc0AttenuationDb`/`adc1AttenuationDb`: step attenuators, byte 1443 (ADC0) and
 // 1442 (ADC1), 0-31 dB in 1 dB steps (p.34, p.36), clamped; 0 = none.
@@ -256,7 +295,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0Fre
                                                   int rxAntenna = 1) noexcept;
 
 // Multi-DDC form: one 4-byte frequency/phase word per DDC at 9 + 4*n (p.32),
-// N capped at kMaxDdcs, excess ignored. Still RX-only (no PTT; byte 4 is bit[0]
+//DH1KLM: firstDdcIndex offsets physical tuning rows. selectReceiveLpf
+// enables Thetis LPF selection for Orion MkII only. Still RX-only (byte 4 bit[0]
 // run only). Alex0/Alex1 are per-ADC, written as in the single-DDC overload.
 std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   std::span<const std::uint32_t> ddcFreqWords,
@@ -264,7 +304,11 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   bool bypassAdc1Filters = true,
                                                   int adc0AttenuationDb = 0,
                                                   int adc1AttenuationDb = 0,
-                                                  int rxAntenna = 1) noexcept;
+                                                  int rxAntenna = 1,
+                                                  int firstDdcIndex = 0,
+                                                  bool selectReceiveLpf = false,
+                                                  ReceiveFilterKind filterKind = ReceiveFilterKind::MkIIBpf,
+                                                  int numAdcs = 2) noexcept;
 
 // The step attenuators' range (spec pp.34,36), shared by the encoder's clamp and
 // by the backend that offers the control.
@@ -287,7 +331,8 @@ inline constexpr int kSpeakerPacketIntervalUs = 1333;    // 64 / 48000
 // stall the FIFO, and an unfilled tail would replay the previous 1.3 ms. Excess
 // samples are ignored.
 std::array<std::uint8_t, kSpeakerPacketBytes> buildSpeakerAudio(
-    std::uint32_t sequence, std::span<const std::int16_t> interleavedLr) noexcept;
+    std::uint32_t sequence, std::span<const std::int16_t> interleavedLr,
+    bool swapChannels = false) noexcept;
 
 // ---- High Priority Status, radio -> PC (spec p.47) ----
 // 60 bytes: 4-byte BE sequence, then hardware state. The two speaker-stream

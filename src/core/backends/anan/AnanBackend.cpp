@@ -328,12 +328,12 @@ AnanBackend::AnanBackend(QObject* parent)
         m_discoveredFirmwareVer = firmwareVer;
         m_discoveredReceiverCount = reportedReceivers;
         m_discoveryInfoReceived = true;
-        // The shipped droop defaults are derived from one gateware's filter
-        // (AnanDroopDefaults.h) and still applied on a mismatch, so say so. Logged here
-        // because connectRadio() zeroes m_discoveredFirmwareVer and the reply fills it
-        // later. Keyed on firmwareVer only (board type must not gate behaviour), so a
-        // non-Saturn board on the same build number goes unflagged. Informational.
-        if (firmwareVer != kDefaultsGatewareVersion) {
+        //DH1KLM: Also cover address-only connections after the board is known.
+        const auto profile = receiveProfile(boardId);
+        seedDroopCorrectionTables(profile && profile->saturnDroopDefaults);
+        //DH1KLM: Shipped droop tables are Saturn-specific. Warn about other
+        // Saturn gateware versions, but never apply these tables to Orion MkII.
+        if (boardId == 10 && firmwareVer != kDefaultsGatewareVersion) {
             qCWarning(lcAnanDefaults).nospace()
                 << "ANAN: radio reports gateware " << firmwareVer
                 << ", shipped droop defaults were derived against "
@@ -458,13 +458,19 @@ RadioCapabilities AnanBackend::capabilities() const
     c.panSpanModel = span;
     c.hasAgcThreshold = true; // Host receiver DSP implements threshold/off gain.
     c.manufacturer = QStringLiteral("Apache Labs");
-    c.model = QStringLiteral("ANAN-G2");
+    //DH1KLM: Discovery identifies a family, not an individual Orion MkII SKU.
+    c.model = m_discoveryInfoReceived && m_discoveredBoardId != 10
+        ? QString::fromLatin1(DiscoveryReply{.boardId = m_discoveredBoardId}.boardDisplayName())
+        : QStringLiteral("ANAN-G2");
     // ---- PA telemetry ----
     // The DC supply rail, published as RAD:+13.8A from every status packet's
     // count (onSupplyRailCounts()). Claimed on a bench measurement, not on the
     // input's label: see kSupplyRailVoltsPerCount for the reading and for why
     // the input is not the one the spec calls "supply voltage".
-    c.hasSupplyVoltageTelemetry = true;
+    //DH1KLM: Do not generalize the measured 5 V slow-ADC scaling to
+    // Hermes/Angelia's 3.3 V hardware before its telemetry is qualified.
+    c.hasSupplyVoltageTelemetry = !m_discoveryInfoReceived
+        || m_discoveredBoardId == 5 || m_discoveredBoardId == 10;
     //
     // There is NO PA temperature in this protocol. The radio's whole analog
     // payload is six fields and none of them is a temperature, so the readout
@@ -578,6 +584,47 @@ RestoredRadioState AnanBackend::currentOperatingState() const
     return state;
 }
 
+void AnanBackend::seedDroopCorrectionTables(bool useSaturnDefaults)
+{
+    if (m_dsp) {
+        // Forget the PREVIOUS radio's tables before seeding this one's. The
+        // seed below only inserts, and m_dsp is constructed once for the
+        // lifetime of this backend -- so without this, connecting a second,
+        // uncalibrated G2 in the same session renders it through the first
+        // one's per-bin corrections. See
+        // AnanRxDsp::clearDroopCorrectionTables().
+        QMetaObject::invokeMethod(m_dsp, "clearDroopCorrectionTables",
+                                  Qt::QueuedConnection);
+
+        auto pushTable = [this](int rateKsps, const DroopCorrectionTable& t) {
+            QMetaObject::invokeMethod(m_dsp, "setDroopCorrectionTable", Qt::QueuedConnection,
+                Q_ARG(int, rateKsps),
+                Q_ARG(std::vector<float>, std::vector<float>(t.begin(), t.end())));
+        };
+
+        // Shipped defaults FIRST, so an uncalibrated radio is corrected on first
+        // connect (one gateware-derived curve for all rates, AnanDroopDefaults.h). Both
+        // lists come from kDdc0RatesKsps, so the null test is a structural guard only.
+        if (useSaturnDefaults) {
+            for (const int rateKsps : defaultDroopRatesKsps()) {
+                if (const DroopCorrectionTable* t = defaultDroopTableForRate(rateKsps)) {
+                    pushTable(rateKsps, *t);
+                }
+            }
+        }
+
+        // Then THIS radio's own bench calibration on top, per rate. An
+        // operator who measured their own hardware always outranks a shipped
+        // default, and a partial sweep only overrides the rates it actually
+        // covered rather than wiping the rest back to the default.
+        const auto tables = AnanDroopCalibrator::loadTables(
+            RadioSettingsScope(QStringLiteral("anan"), m_radioSerial));
+        for (auto it = tables.constBegin(); it != tables.constEnd(); ++it) {
+            pushTable(it.key(), it.value());
+        }
+    }
+}
+
 void AnanBackend::connectRadio(const RadioConnectRequest& request)
 {
     m_rxAntenna = AnanSettings::rxAntenna();
@@ -587,15 +634,14 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         return;
     }
     //DH1KLM: A discovered physical board ID is authoritative metadata. Until
-    //a complete profile exists, reject any explicitly identified board except
-    //Saturn (10); never let a future picker expansion silently use Saturn's
-    //two-ADC/DDC and ALEX packet profile for different hardware.
+    //a receive profile exists, reject an explicitly identified board. Orion
+    //MkII and Saturn have separate physical DDC and ALEX settings.
     if (request.params.contains(QStringLiteral("anan.boardId"))) {
         bool boardIdOk = false;
         const int boardId = request.params.value(QStringLiteral("anan.boardId")).toInt(&boardIdOk);
-        if (!boardIdOk || boardId != 10) {
+        if (!boardIdOk || !receiveProfile(boardId)) {
             emit connectionError(QStringLiteral(
-                "ANAN: board ID %1 has no verified connection profile; only Saturn (10) is enabled")
+                "ANAN: board ID %1 has no verified connection profile; an explicit receive profile is required")
                 .arg(boardIdOk ? QString::number(boardId) : QStringLiteral("invalid")));
             return;
         }
@@ -616,40 +662,14 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     // just below, and before anything else in this function needs it,
     // matching Hl2Backend's own m_radioSerial assignment ordering.
     m_radioSerial = request.serial;
-    if (m_dsp) {
-        // Forget the PREVIOUS radio's tables before seeding this one's. The
-        // seed below only inserts, and m_dsp is constructed once for the
-        // lifetime of this backend -- so without this, connecting a second,
-        // uncalibrated G2 in the same session renders it through the first
-        // one's per-bin corrections. See
-        // AnanRxDsp::clearDroopCorrectionTables().
-        QMetaObject::invokeMethod(m_dsp, "clearDroopCorrectionTables",
-                                  Qt::QueuedConnection);
+    //DH1KLM: Saturn-derived tables must never be applied to Orion MkII.
+    const auto profile = receiveProfile(
+        request.params.value(QStringLiteral("anan.boardId"), -1).toInt());
+    seedDroopCorrectionTables(profile && profile->saturnDroopDefaults);
 
-        auto pushTable = [this](int rateKsps, const DroopCorrectionTable& t) {
-            QMetaObject::invokeMethod(m_dsp, "setDroopCorrectionTable", Qt::QueuedConnection,
-                Q_ARG(int, rateKsps),
-                Q_ARG(std::vector<float>, std::vector<float>(t.begin(), t.end())));
-        };
-
-        // Shipped defaults FIRST, so an uncalibrated radio is corrected on first
-        // connect (one gateware-derived curve for all rates, AnanDroopDefaults.h). Both
-        // lists come from kDdc0RatesKsps, so the null test is a structural guard only.
-        for (const int rateKsps : defaultDroopRatesKsps()) {
-            if (const DroopCorrectionTable* t = defaultDroopTableForRate(rateKsps))
-                pushTable(rateKsps, *t);
-        }
-
-        // Then THIS radio's own bench calibration on top, per rate. An
-        // operator who measured their own hardware always outranks a shipped
-        // default, and a partial sweep only overrides the rates it actually
-        // covered rather than wiping the rest back to the default.
-        const auto tables = AnanDroopCalibrator::loadTables(
-            RadioSettingsScope(QStringLiteral("anan"), m_radioSerial));
-        for (auto it = tables.constBegin(); it != tables.constEnd(); ++it)
-            pushTable(it.key(), it.value());
-    }
-
+    //DH1KLM: Physical ADC count comes from the selected board profile.
+    // Unknown address-only targets resolve it in P2Client after Discovery.
+    m_pendingParams.numAdcs = profile ? profile->numAdcs : 2;
     m_pendingParams.host = request.host;
     //DH1KLM: Keep discovery's numeric board identity through to the P2
     // client so it can reject a target that differs from the selected radio.
@@ -1429,7 +1449,7 @@ QVariantMap AnanBackend::droopStatus() const
         // because the calibrator holds them for the session.
         const DroopCorrectionTable* table =
             isMeasured ? &it.value()
-                       : (m_connected ? defaultDroopTableForRate(rateKsps) : nullptr);
+                       : (m_connected && m_discoveredBoardId == 10 ? defaultDroopTableForRate(rateKsps) : nullptr);
         if (!table)
             continue;
         const auto [lo, hi] = std::minmax_element(table->begin(), table->end());
@@ -1668,6 +1688,10 @@ void AnanBackend::onSupplyRailCounts(int counts)
 
 void AnanBackend::onSupplyRailCountsAt(int counts, qint64 nowMs)
 {
+    //DH1KLM: Publish only for the hardware families with the qualified scale.
+    if (m_discoveryInfoReceived && m_discoveredBoardId != 5 && m_discoveredBoardId != 10) {
+        return;
+    }
     // A 12-bit ADC reads 0..4095. Anything else means the field is not this
     // input, and no reading is better than a plausible wrong voltage.
     if (counts < 0 || counts > 4095)

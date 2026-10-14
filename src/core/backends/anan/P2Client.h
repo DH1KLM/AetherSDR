@@ -71,7 +71,8 @@ public:
 
         // Multi-DDC session. EMPTY (default) = single DDC0 built from ddc0RateKsps/
         // ddc0AdcIndex. Non-empty is authoritative and those two fields are ignored;
-        // entry n configures DDC n, capped at kMaxDdcs by the packet builders.
+        //DH1KLM: Entry n configures logical RX n at the selected profile's
+        // physical DDC offset. The validated range must fit within kMaxDdcs.
         std::vector<DdcConfig> activeDdcs;
     };
 
@@ -82,7 +83,8 @@ public:
     Q_INVOKABLE bool start(const Params& params, int connectTimeoutMs = kConnectTimeoutMs);
     Q_INVOKABLE void stop();
 
-    // Retune DDC0. No frequency is set by start() itself (see the class
+    //DH1KLM: Retune logical RX0 (physical DDC0 Saturn, DDC2 Orion MkII).
+    // No frequency is set by start() itself (see the class
     // comment on connectRadio()/setSliceFrequency() being separate seam
     // calls) -- a caller retunes immediately after a successful start if it
     // wants a specific frequency, the same connect-then-tune shape used
@@ -164,8 +166,8 @@ signals:
     // Mic Data / Status traffic, which onReadyRead() rejects and does not
     // count as a connection).
     void connectionError(const QString& reason);
-    // DDC0's decoded IQ. Kept as its own signal because DDC0 is the one
-    // receiver every session always has, and it is what linkUp()/the connect
+    //DH1KLM: Logical RX0's decoded IQ (physical DDC2 on Orion MkII).
+    // RX0 is the receiver every session has, and it is what linkUp()/the connect
     // timeout are keyed on. Emitted for ddcIndex 0 only; ddcIqReady() below
     // fires for the same block as well.
     void ddc0IqReady(const std::vector<std::complex<float>>& block);
@@ -188,7 +190,7 @@ signals:
     void ddcSequenceGap(int ddcIndex);
     // This session's own Discovery reply (see the class comment). At most once per
     // start(), unordered relative to linkUp(); AnanBackend reports capabilities from
-    // it (field meanings: P2Protocol.h's DiscoveryReply).
+    // it after profile validation (field meanings: P2Protocol.h's DiscoveryReply).
     void discoveryInfoReceived(quint8 boardId, quint8 firmwareVer, quint8 reportedReceivers);
     // One status packet's supply-rail reading, raw counts
     // (HighPriorityStatus::supplyRailCounts), once per packet: every 200 ms
@@ -253,10 +255,15 @@ private:
     // (unlikely, but this parses unauthenticated UDP) must not re-fire it
     // repeatedly for the life of the session.
     bool m_discoveryInfoSent = false;
-    //DH1KLM: No Saturn-profile packets are sent until this session's reply
-    //confirms board ID 10 and any discovery-selected ID also matches.
+    //DH1KLM: No profile packets are sent until this session's reply
+    // identifies an implemented RX profile and matches any selected board ID.
     bool m_discoveryValidated = false;
     int m_expectedBoardId = -1;
+    //DH1KLM: Stream indices stay logical; packet rows/ports use this RX offset.
+    int m_firstDdcIndex = 0;
+    bool m_selectReceiveLpf = false;
+    ReceiveFilterKind m_receiveFilterKind = ReceiveFilterKind::MkIIBpf;
+    bool m_swapSpeakerChannels = false;
 
     QHostAddress m_host;
     std::uint32_t m_ddc0FreqWord = 0;   // last value sent; the keepalive resends this

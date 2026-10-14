@@ -10,15 +10,15 @@ for that board.
 | Protocol 2 board ID | Thetis physical family / examples | Evidence-backed distinction | AetherSDR status |
 |---:|---|---|---|
 | 0 | Atlas / Metis | Legacy OpenHPSDR family; not an ANAN SKU | Recognized in the registry; not connectable through this ANAN profile |
-| 1 | Hermes — ANAN-10 / ANAN-100 | Hermes-class P2 DDC assignment; 1-ADC family in NereusSDR's Thetis-derived profile | Recognized; not connectable |
-| 2 | Hermes II — ANAN-10E / ANAN-100B | Separate Thetis board ID; Hermes-class P2 DDC assignment | Recognized; not connectable |
-| 3 | Angelia — ANAN-100D | 2-ADC family; must not inherit Hermes-class DDC placement | Recognized; not connectable |
-| 4 | Orion — ANAN-200D | 2-ADC family; P2 ID differs from its Protocol 1 board ID | Recognized; not connectable |
-| 5 | Orion MkII family — ANAN-7000DLE / 8000DLE, Anvelina Pro 3, Red Pitaya | Thetis uses one physical ID for several logical SKUs; MkII BPF1/preselector behavior differs from legacy ALEX HPF assumptions | Recognized as a family only; not connectable |
+| 1 | Hermes — ANAN-10 / ANAN-100 | Hermes-class P2 DDC assignment; 1-ADC family in NereusSDR's Thetis-derived profile | Experimental P2 RX profile; hardware validation pending |
+| 2 | Hermes II — ANAN-10E / ANAN-100B | Separate Thetis board ID; Hermes-class P2 DDC assignment | Experimental P2 RX profile; hardware validation pending |
+| 3 | Angelia — ANAN-100D | 2-ADC family; must not inherit Hermes-class DDC placement | Experimental P2 RX profile; hardware validation pending |
+| 4 | Orion — ANAN-200D | 2-ADC family; P2 ID differs from its Protocol 1 board ID | Experimental P2 RX profile; hardware validation pending |
+| 5 | Orion MkII family — ANAN-7000DLE / 8000DLE, Anvelina Pro 3, Red Pitaya | Thetis uses one physical ID for several logical SKUs; MkII BPF1/preselector behavior differs from legacy ALEX HPF assumptions | Experimental RX profile targeting ANAN-7000DLE; hardware validation pending |
 | 6 | Hermes Lite 2 | Distinct board and protocol implementation; do not assume it shares ANAN ALEX or attenuator behavior | Recognized; not connectable through this P2 profile |
-| 10 | Saturn — ANAN-G2 / G2 1K | Saturn-specific P2 profile; phase-word tuning and BPF1 behavior | **Only currently connectable profile**; one DDC is driven |
+| 10 | Saturn — ANAN-G2 / G2 1K | Saturn-specific P2 profile; phase-word tuning and BPF1 behavior | **Bench-qualified RX profile**; one DDC is driven |
 | 11 | Saturn MkII | Separate registry ID; its capabilities must be verified independently of Saturn | Recognized; not connectable |
-| 20 | HermesC10 — ANAN-G2E | Single-ADC, Hermes-class four-DDC receive layout; shares the G2-family BPF/preselector routing but not the G2's dual-ADC capabilities | Recognized; not connectable |
+| 20 | HermesC10 — ANAN-G2E | Single-ADC, Hermes-class four-DDC receive layout; shares the G2-family BPF/preselector routing but not the G2's dual-ADC capabilities | Experimental P2 RX profile; hardware validation pending |
 
 The table is deliberately conservative. “Recognized” means the discovery parser
 can label the reported family; it does not imply that the current
@@ -35,32 +35,52 @@ particular, Protocol 2 ID 4 is Orion (ANAN-200D), while Protocol 2 ID 5 is the
 Orion MkII family; a Protocol 1 ID 5 identifies Orion, and Protocol 1 ID 10
 identifies Orion MkII. This is a wire-protocol distinction, not a naming choice.
 
-## Current transport blocker before enabling another family
+## Implemented receive profiles
 
-The P2 client now sends Discovery first and waits for a structurally plausible
-reply before sending any Saturn-specific General, DDC-Specific or High-Priority
-packet. The reply must identify board ID 10 (Saturn), and when the picker
-provided a numeric board ID, that ID must match the reply. A manual-address
-connect without picker metadata is still permitted only if the actual reply
-identifies Saturn. An invalid or missing reply fails closed; the stop path does
-not send a Saturn-encoded run=0 packet before profile validation.
+Discovery still reports physical families rather than selecting a logical SKU.
+The current target for board ID 5 is the operator-confirmed ANAN-7000DLE.
+Other logical models sharing that ID are not independently hardware-qualified.
 
-This gate is intentionally narrower than the discovery registry: Atlas,
-Hermes, Hermes II, Angelia, Orion, Orion MkII, Hermes Lite, Saturn MkII and
-HermesC10 remain recognized but not connectable. Their packet layouts are not
-inferred from the receiver-count byte or from a display model name.
+| Property | Saturn (10) | Orion MkII (5), ANAN-7000DLE target |
+|---|---|---|
+| Physical ADCs | 2 | 2 |
+| Normal single RX physical DDC | DDC0 (retained bench path) | DDC2 (Thetis `UpdateDDCs` / `GetDDC`) |
+| RX enable byte 7 | `0x01` | `0x04` |
+| RX row | bytes 17–22 | bytes 29–34 |
+| Tuning word | bytes 9–12 | bytes 17–20 |
+| IQ source port | 1035 | 1037 |
+| General ALEX enable byte 59 | 0 (retained bench path) | 3 (both words enabled) |
+| General PA-disable byte 58 | 0 (retained bench path) | 1 |
+| ADC0 filtering | Thetis MkII/Saturn BPF1 | Thetis MkII BPF1 plus frequency-selected RX LPF |
+| Shipped Saturn droop correction | Enabled | Disabled; per-radio measured tables remain usable |
 
-## Connection-profile safety gate
+The transport sends only Discovery until the reply identifies an implemented
+receive profile and matches any board ID selected by the picker. Profile
+selection never uses the reported receiver count. Before session packets are
+sent, the physical DDC offset and ADC count are checked against the resolved
+configuration. Unsupported boards and mismatched identities fail closed.
+The stop path sends no board-specific packet before profile validation.
 
-The transport gate is now implemented, but a complete multi-family profile
-system is not. It prevents the current Saturn encoder from starting against
-another physical board; it does not yet select a different board's ADC count,
-DDC assignment, receiver count, frequency representation or ALEX/filter path.
-Before another family can be enabled, those properties must be assembled into
-an explicit profile sourced from Thetis and independently checked against the
-corresponding NereusSDR implementation. Add byte-level regression tests for
-each profile before changing the discovery gate. Do not infer settings from the
-reported receiver byte alone.
+The P2 client's stream indices remain logical: physical DDC2 is delivered as
+logical RX0 to the existing DSP and link-up path. The physical offset applies
+to initial RX configuration, all tuning/keepalive/stop packets, live rate
+changes and IQ source-port demultiplexing. DDC0/1 remain disabled for normal
+Orion MkII reception. This is still one receiver and one panadapter in the
+backend; no diversity, PureSignal or TX is enabled.
+
+The Orion MkII LPF ranges come from Thetis `setup.designer.cs` defaults:
+0–2.5, 2.500001–5, 5.000001–8, 8.000001–16.5, 16.500001–24,
+24.000001–35.6 and 35.600001–61.44 MHz. Relay positions come from
+`ChannelMaster/network.h`; frequency words use the 122.88 MHz clock in
+`Console/HPSDR/NetworkIO.cs:Freq2PhaseWord`; the out-of-range fallback is the 6 m LPF,
+as in `console.cs:setAlexLPF`. BPF1 uses the already sourced MkII/Saturn
+map. ADC1 filtering still uses the existing explicit bypass option.
+
+Protocol-byte tests and socket-free injected-transport tests cover the new
+profile. They are not evidence of successful reception on real hardware.
+The operator confirmed the native Windows build, ANAN-7000DLE reception
+and corrected model label on 2026-10-14. The additional families remain
+hardware-unqualified.
 
 Thetis source verification for the physical P2 board-ID enum was performed
 against commit `852bf0ef0b4f3886a13fc2846489aee16f361872`:
@@ -98,3 +118,38 @@ distinguish them.
 These references are evidence for porting and test design, not permission to
 copy code without checking each source file's licence and AetherSDR's
 clean-room/provenance rules.
+
+## Additional P2 profiles
+
+| P2 ID | Family | ADCs | RX1 physical DDC | DDC limit | ADC0 RF filter | Speaker channels |
+|---:|---|---:|---:|---:|---|---|
+| 1 | Hermes (ANAN-10/100) | 1 | 0 | 4 | Legacy ALEX HPF + LPF | Swapped |
+| 2 | Hermes II (ANAN-10E/100B) | 1 | 0 | 2 | Legacy ALEX HPF + LPF | Swapped |
+| 3 | Angelia (ANAN-100D) | 2 | 2 | 4 | Legacy ALEX HPF + LPF | Normal |
+| 4 | Orion (ANAN-200D) | 2 | 2 | 4 | Legacy ALEX HPF + LPF | Normal |
+| 20 | HermesC10 (ANAN-G2E) | 1 | 0 | 4 | MkII BPF1 + LPF | Normal |
+
+Source: Thetis `clsHardwareSpecific.cs`, `console.cs:GetDDC/UpdateDDCs`,
+`setup.designer.cs` and `network.c`. The pinned Thetis commit remains the
+one cited above. NereusSDR `P2CodecHermes.h` independently confirms the
+Hermes/Hermes-II DDC split (blob `7cc9e6807ca4c5de35f216bbbb135bfdfeb53d0c`).
+The speaker swap is Thetis' `lr_audio_swap` in the RX audio output path.
+
+Legacy HPF ranges are 1.8–6.499999, 6.5–9.499999, 9.5–12.999999,
+13–19.999999, 20–49.999999 and 50–61.44 MHz; outside them the bank
+is bypassed. They must not inherit MkII BPF boundaries. Single-ADC
+profiles leave ADC1 filter and attenuation bytes zero. Address-only
+sessions derive their ADC count from the actual physical board profile;
+picker-selected IDs must still match. Hermes II rejects DDC2/3.
+
+Supply-rail telemetry remains restricted to the existing Orion MkII/Saturn
+path: the 5 V slow-ADC scale is not generalized to 3.3 V families.
+Saturn droop defaults are never applied to another family. Per-radio
+measured tables remain usable.
+
+This stage implements P2 RX only. The independently implemented
+[P1 receive codec](anan-p1-codec.md) has packet tests but is not connected to
+the backend. P1 discovery/session/codec integration,
+logical SKU selection for shared physical IDs, and independent qualification
+of Atlas/Metis, Hermes Lite P2 and Saturn MkII remain open. The existing
+Hermes-Lite 2 P1 backend is unchanged.

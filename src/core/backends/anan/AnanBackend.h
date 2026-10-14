@@ -21,13 +21,13 @@
 
 namespace AetherSDR::anan {
 
-// IRadioBackend for the ANAN-G2 (openHPSDR Protocol 2). Owns one P2Client and
-// one AnanRxDsp on a dedicated I/O thread, like Hl2Backend with MetisClient +
+//DH1KLM: IRadioBackend for Saturn and Orion MkII RX profiles (Protocol 2).
+// Owns one P2Client and one AnanRxDsp on a dedicated I/O thread, like Hl2Backend with MetisClient +
 // Hl2RxDsp. Scope: one DDC, RX only.
 //   - No NCO/WDSP-shift split: DDC0 retunes on every setSliceFrequency()/
 //     setPanCenter(), so "the shift is ALWAYS exactly -cwBfoHz(mode), because
 //     the NCO IS the slice frequency".
-//   - capabilities()' identity strings are fixed; gateware, reported receiver count and board
+//   - capabilities() reports the physical board family; gateware, receiver count and board
 //     id come from this session's Discovery reply once it lands.
 //   - setKeying() is a no-op: canTransmit is false and P2Client has no PTT
 //     (TX is RFC §2.11 Phase 3).
@@ -209,6 +209,8 @@ public:
     [[nodiscard]] double sMeterDbmForTest() const noexcept { return m_sMeter.value(); }
 
 private:
+    //DH1KLM: Shipped defaults are valid only for the Saturn RX profile.
+    void seedDroopCorrectionTables(bool useSaturnDefaults);
     friend class AnanNoiseBlankerTestAccess;
     friend class AnanLinkStatsTestAccess;
     friend class AnanSupplyRailTestAccess;

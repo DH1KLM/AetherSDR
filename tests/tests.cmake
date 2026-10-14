@@ -1155,6 +1155,13 @@ add_executable(hl2_io_board_policy_test
 target_include_directories(hl2_io_board_policy_test PRIVATE src)
 add_test(NAME hl2_io_board_policy_test COMMAND hl2_io_board_policy_test)
 
+#DH1KLM: ANAN P1 RX-only wire codec; no sockets or radio hardware.
+add_executable(anan_p1_protocol_test
+    tests/anan_p1_protocol_test.cpp
+    src/core/backends/anan/P1Protocol.cpp)
+target_include_directories(anan_p1_protocol_test PRIVATE src)
+add_test(NAME anan_p1_protocol_test COMMAND anan_p1_protocol_test)
+
 # ANAN P2 protocol — pure wire encode/decode, standalone (no Qt / aethercore).
 # Direct port of the live-validated anan/spike/phase1a.py spike (aetherd ANAN
 # P2 Phase 1a), run against a real ANAN-G2 on the bench.
@@ -1163,6 +1170,12 @@ add_executable(anan_p2_protocol_test
     src/core/backends/anan/P2Protocol.cpp)
 target_include_directories(anan_p2_protocol_test PRIVATE src)
 add_test(NAME anan_p2_protocol_test COMMAND anan_p2_protocol_test)
+
+#DH1KLM: Socket-free injected-transport coverage for physical RX DDC profiles.
+add_executable(anan_receive_profile_test tests/anan_receive_profile_test.cpp)
+target_include_directories(anan_receive_profile_test PRIVATE src)
+target_link_libraries(anan_receive_profile_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME anan_receive_profile_test COMMAND anan_receive_profile_test)
 
 # ANAN RX DSP — IQ -> WdspChannel demod + AnanPanAnalyzer (WDSP analyzer). Links aethercore
 # (WDSP+FFTW), unlike anan_p2_protocol_test above. *** READ HERMES.md §16

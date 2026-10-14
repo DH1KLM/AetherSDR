@@ -160,10 +160,9 @@ void AnanDiscovery::onReadyRead()
             {reinterpret_cast<const std::uint8_t*>(data.constData()),
              static_cast<std::size_t>(data.size())});
         //DH1KLM: The registry knows all physical board IDs documented by
-        // Thetis/NereusSDR, but this backend still implements only the verified
-        // Saturn (ID 10) transport/profile. Do not advertise another board as
-        // connectable until its DDC, ADC, packet and filter profile is ported.
-        if (!reply || !reply->isSupportedOpenHpsdrBoard() || reply->boardId != 10)
+        // Thetis/NereusSDR. Advertise only families with an implemented RX
+        // profile; the session still validates its own Discovery reply.
+        if (!reply || !reply->isSupportedOpenHpsdrBoard() || !receiveProfile(reply->boardId))
             continue;
 
         RadioInfo info;

@@ -771,7 +771,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     AetherSDR::applyComboStyle(m_manualRadioTypeCombo, comboExtraRules);
     m_manualRadioTypeCombo->addItem(tr("FlexRadio"), QString::fromLatin1(kFamilyFlex));
     m_manualRadioTypeCombo->addItem(tr("Hermes-Lite 2"), QString::fromLatin1(kFamilyHl2));
-    m_manualRadioTypeCombo->addItem(tr("ANAN-G2"), QString::fromLatin1(kFamilyAnan));
+    m_manualRadioTypeCombo->addItem(tr("ANAN / OpenHPSDR (P2)"), QString::fromLatin1(kFamilyAnan));
     m_manualRadioTypeCombo->addItem(tr("Icom (network)"), QString::fromLatin1(kFamilyIcom));
 #ifdef AETHER_BACKEND_RTL
     m_manualRadioTypeCombo->addItem(tr("RTL-SDR (USB)"), QString::fromLatin1(kFamilyRtl));
@@ -919,7 +919,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     // shape for this backend's owned config.
     m_manualAnanRateCombo = new QComboBox(manualGroup);
     m_manualAnanRateCombo->setObjectName(QStringLiteral("connectionManualAnanRateCombo"));
-    m_manualAnanRateCombo->setAccessibleName(tr("ANAN-G2 sample rate"));
+    m_manualAnanRateCombo->setAccessibleName(tr("OpenHPSDR P2 sample rate"));
     m_manualAnanRateCombo->setAccessibleDescription(
         tr("DDC0 sample rate, in ksps -- also the starting width of the panadapter span. "
            "Higher rates use more of the radio's Ethernet link."));
@@ -947,7 +947,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     // signal paths into the same DDC, not a cosmetic label swap.
     m_manualAnanAdcCombo = new QComboBox(manualGroup);
     m_manualAnanAdcCombo->setObjectName(QStringLiteral("connectionManualAnanAdcCombo"));
-    m_manualAnanAdcCombo->setAccessibleName(tr("ANAN-G2 ADC select"));
+    m_manualAnanAdcCombo->setAccessibleName(tr("OpenHPSDR P2 ADC select"));
     m_manualAnanAdcCombo->setAccessibleDescription(
         tr("Which receive chain feeds DDC0: ADC0, behind the switched Ant1/2/3 "
            "relay bank, or ADC1, wired directly to its own RX2 jack."));
@@ -1007,10 +1007,10 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualAnanBypassAdc0Check = new QCheckBox(tr("ADC0 RF filter bypass"), manualGroup);
     m_manualAnanBypassAdc0Check->setObjectName(QStringLiteral("connectionManualAnanBypassAdc0"));
     m_manualAnanBypassAdc0Check->setAccessibleDescription(
-        tr("Forces ADC0 around the Saturn BPF1 filter selected for the tuned frequency. "
+        tr("Forces ADC0 around the RF filter selected for the tuned frequency. "
            "Normally leave this unchecked to use Thetis-compatible automatic band selection."));
     m_manualAnanBypassAdc0Check->setToolTip(
-        tr("Forces ADC0 around the Saturn BPF1 filter selected for the tuned frequency.\n"
+        tr("Forces ADC0 around the RF filter selected for the tuned frequency.\n"
            "Normally leave this unchecked to use automatic band selection."));
     m_manualAnanBypassAdc0Check->setChecked(anan::AnanSettings::bypassAdc0Filters());
     AetherSDR::ThemeManager::instance().applyStyleSheet(m_manualAnanBypassAdc0Check, lowBandwidthCheckStyle);
@@ -1752,7 +1752,9 @@ void ConnectionPanel::saveLowBandwidthPreference(bool enabled)
 QString ConnectionPanel::formatLocalRadioLabel(const RadioInfo& radio) const
 {
     QString title = radio.model.trimmed();
-    if (!radio.nickname.trimmed().isEmpty())
+    //DH1KLM: Discovery's model-name fallback is not a distinct nickname.
+    if (!radio.nickname.trimmed().isEmpty()
+        && radio.nickname.trimmed().compare(radio.model.trimmed(), Qt::CaseInsensitive) != 0)
         title += QStringLiteral("  %1").arg(radio.nickname.trimmed());
     if (!radio.callsign.trimmed().isEmpty())
         title += QStringLiteral("  %1").arg(radio.callsign.trimmed());
@@ -3424,11 +3426,11 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
                 std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t*>(d.constData()), std::size_t(d.size())));
             //DH1KLM: Discovery can identify several Thetis board families, but
-            // this backend still uses Saturn-specific packet/rate assumptions.
-            // Fail closed here: only board ID 10 has the validated G2 path today.
+            // only implemented RX profiles may proceed to the session. Discovery
+            // still labels the physical family rather than guessing a SKU.
             if (!reply || !reply->isSupportedOpenHpsdrBoard())
                 continue;
-            if (reply->boardId != 10) {
+            if (!anan::receiveProfile(reply->boardId)) {
                 setManualMessage(
                     QStringLiteral("Detected %1 at %2, but AetherSDR's ANAN backend "
                                    "does not yet have a verified hardware profile for it.")
@@ -3442,6 +3444,8 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
 
             RadioInfo info;
             info.family   = QString::fromLatin1(kFamilyAnan);
+            //DH1KLM: Keep the physical identity on the manual-connect path too.
+            info.boardId  = reply->boardId;
             info.address  = dest;
             info.port     = anan::kRadioPort;
             info.model    = QString::fromLatin1(reply->boardDisplayName());
@@ -3469,18 +3473,18 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
                 // openHPSDR Protocol 2 is single-client, same as Protocol 1.
                 // Fail closed rather than wedging both clients.
                 setManualMessage(
-                    QStringLiteral("The ANAN-G2 at %1 is already in use by another client "
+                    QStringLiteral("The OpenHPSDR radio at %1 is already in use by another client "
                                    "and can't be shared.").arg(ip),
                     true);
                 reportStartupProbeFailure(
-                    QStringLiteral("The ANAN-G2 at %1 is in use by another client.").arg(ip));
+                    QStringLiteral("The OpenHPSDR radio at %1 is in use by another client.").arg(ip));
                 return AnanProbeResult::Answered;
             }
 
             saveManualProfile(ip, bindSettings, info.sessionBindAddress);
             rememberManualIp(ip);
             setManualMessage(
-                QStringLiteral("Found an ANAN-G2 at %1 — connecting.").arg(ip), false);
+                QStringLiteral("Found an OpenHPSDR radio at %1 — connecting.").arg(ip), false);
             clearPendingIcomCredentials();
             finishManualProbe(info);
             return AnanProbeResult::Answered;
