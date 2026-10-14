@@ -2,6 +2,8 @@
 
 #include "core/AppSettings.h"
 #include "core/backends/anan/P2Protocol.h"
+#include "core/backends/anan/AnanSettings.h"
+#include "core/backends/anan/AnanDiscoveryPolicy.h"
 
 #include <QJsonObject>
 #include <QNetworkDatagram>
@@ -133,6 +135,10 @@ void AnanDiscovery::sweepNow()
     m_socket->writeDatagram(reinterpret_cast<const char*>(pkt.data()),
                             static_cast<qint64>(pkt.size()),
                             QHostAddress::Broadcast, kRadioPort);
+    const auto legacy = p1::discoveryRequest();
+    m_socket->writeDatagram(reinterpret_cast<const char*>(legacy.data()),
+                            static_cast<qint64>(legacy.size()),
+                            QHostAddress::Broadcast, kRadioPort);
 }
 
 void AnanDiscovery::onSweepTimer()
@@ -140,6 +146,7 @@ void AnanDiscovery::onSweepTimer()
     // Age out anything that missed too many consecutive sweeps before
     // probing again, so a radio that is unplugged disappears from the picker.
     for (auto it = m_seen.begin(); it != m_seen.end();) {
+        ++it.value().preferredProtocolMissedSweeps;
         if (++it.value().missedSweeps > kMissedSweepsBeforeLost) {
             const QString serial = it.key();
             it = m_seen.erase(it);
@@ -156,7 +163,7 @@ void AnanDiscovery::onReadyRead()
     while (m_socket && m_socket->hasPendingDatagrams()) {
         const QNetworkDatagram dg = m_socket->receiveDatagram();
         const QByteArray data = dg.data();
-        const auto reply = parseDiscoveryReply(
+        const auto reply = parseOpenHpsdrDiscoveryReply(
             {reinterpret_cast<const std::uint8_t*>(data.constData()),
              static_cast<std::size_t>(data.size())});
         //DH1KLM: The registry knows all physical board IDs documented by
@@ -170,6 +177,7 @@ void AnanDiscovery::onReadyRead()
         //DH1KLM: Carry the numeric P2 board ID as data; downstream connection
         // setup must not reverse-engineer it from info.model.
         info.boardId   = reply->boardId;
+        info.hpsdrProtocol = reply->wireProtocol;
         info.address  = dg.senderAddress();
         info.port     = kRadioPort;
         //DH1KLM: Show the reported physical board family. Orion MkII is
@@ -178,12 +186,18 @@ void AnanDiscovery::onReadyRead()
         info.model    = QString::fromLatin1(reply->boardDisplayName());
         info.name     = info.model;
         info.serial   = macToSerial(reply->mac);
+        if (info.hpsdrProtocol == 1 && AnanSettings::redPitayaP1ForRadio(info.serial)
+            && (info.boardId == 1 || info.boardId == 5)) {
+            info.model = QStringLiteral("Red Pitaya");
+            info.name = info.model;
+        }
         info.nickname = effectiveNickname(QStringLiteral("anan"), info.serial, info.model);
         info.version  = QString::number(reply->firmwareVer);
         // A bare integer is not self-describing in a status bar -- and this
         // one especially: it is a gateware bitstream number, not a software
         // version (discrepancy #1, see P2Protocol.h's DiscoveryReply).
-        info.versionLabel = QStringLiteral("Gateware");
+        info.versionLabel = reply->wireProtocol == 1 ? QStringLiteral("P1 Gateware")
+                                                     : QStringLiteral("P2 Gateware");
         // A radio already streaming to another client answers with 0x03.
         // Show it as present-but-taken rather than hiding it.
         info.inUse    = reply->streaming;
@@ -196,11 +210,24 @@ void AnanDiscovery::onReadyRead()
             emit radioDiscovered(info);
         } else {
             it.value().missedSweeps = 0;
+            const int preferredProtocol = AnanSettings::redPitayaP1ForRadio(info.serial) ? 1 : 2;
+            if (info.hpsdrProtocol == preferredProtocol)
+                it.value().preferredProtocolMissedSweeps = 0;
             // Only re-emit when something the picker displays actually changed.
             const RadioInfo& prev = it.value().info;
+            //DH1KLM: One row per MAC. Prefer P2 unless the operator explicitly
+            // chose Red Pitaya P1 for this MAC; stale preferences age out.
+            if (!acceptsDiscoveryProtocolUpdate(prev.hpsdrProtocol, info.hpsdrProtocol,
+                    preferredProtocol, it.value().preferredProtocolMissedSweeps)) {
+                it.value().missedSweeps = 0;
+                continue;
+            }
             const bool changed = prev.address != info.address
                               || prev.status  != info.status
-                              || prev.version != info.version;
+                              || prev.version != info.version
+                              || prev.hpsdrProtocol != info.hpsdrProtocol
+                              || prev.model != info.model
+                              || prev.nickname != info.nickname;
             it.value().info = info;
             if (changed)
                 emit radioUpdated(info);

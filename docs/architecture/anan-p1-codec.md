@@ -2,8 +2,9 @@
 
 `src/core/backends/anan/P1Protocol.*` implements socket-free wire primitives.
 It is compiled into `aethercore` and covered by `anan_p1_protocol_test`.
-It is not yet connected to discovery or `AnanBackend`; the confirmed Protocol
-2 receive path and the Hermes-Lite 2 backend do not call it.
+It is connected through `P1Client` and the backend-private `AnanClient`
+dispatcher. Both P1 and P2 transports use the existing ANAN IO thread. The
+Hermes-Lite 2 backend remains separate and unchanged.
 
 ## Scope
 
@@ -19,7 +20,8 @@ one or two ADCs, ANT1/2/3 and 0–31 dB step attenuation. These are wire bounds,
 not claims that every board supports every combination. The transport must
 validate its selected board profile before constructing a configuration.
 Filter bytes are P1 bank-local bits; P2 Alex word masks cannot be substituted.
-They remain explicit inputs until logical-model filter policy is integrated.
+The transport supplies them from the existing verified Thetis frequency tables;
+P2 relay positions are translated to P1 bank-local bits before encoding.
 
 EP6 decoding checks the exact 1032-byte length, endpoint 6 and both frame
 syncs. Each 512-byte frame has `floor(504 / (6 * receivers + 2))` complete
@@ -54,16 +56,78 @@ facts and behavioral differences:
   discovery offsets, and the application's IQ normalization convention.
   No HL2 gain, I2C, EADDR or transmit encoder is reused.
 
-## Remaining integration
+## Receive session integration
 
-P1 sessions need board/model-specific slot selection, filter selection,
-discovery identity/protocol propagation, sender validation, start/stop and
-timeout handling, EP2 pacing, and transport integration on the existing ANAN
-IO thread. P1 has four rate codes; it must not expose P2's 768/1536 ksps rates.
-Shared board IDs cannot choose a logical SKU automatically. Socket-free
-transport tests must precede making P1 devices connectable.
+`P1Client` accepts only its configured IPv4 sender and UDP source port 1024.
+It requires an idle discovery reply with a supported board profile and matching
+selected identity before priming RX control banks and starting IQ. Busy radios
+are rejected without sending stream or control packets. RX1 is P1 frame slot 0.
+The known Thetis layouts are four slots for Hermes/HermesC10, two for Hermes II,
+and five for Angelia/Orion/Orion MkII. Only RX1 is decoded into the existing DSP.
 
-Tests cover exact control bytes, unsupported/TX address rejection, all accepted
-addresses keeping MOX clear, speaker swap including odd short input, zero TX
-payload, one-to-seven-slot EP6 framing, signed IQ extremes, every truncated
-EP6 length, both frame syncs, and malformed configuration/geometry.
+P1 wire IDs normalize into the existing board registry: 4 → Angelia 3,
+5 → Orion 4, 10 → Orion MkII 5. In particular P1 ID 10 never becomes Saturn.
+The normalization matches NereusSDR `RadioDiscovery.cpp` at the pinned revision.
+Standard P1 sessions expose 48/96/192 ksps, matching `BoardCapabilities.cpp`
+`sampleRatesFor` and Thetis `setup.cs` (847–849 at the pinned Thetis revision).
+An explicit Red Pitaya P1 model override additionally exposes 384 ksps
+(rate code 3), including live zoom. It uses five slots, two ADCs, unswapped
+speaker channels and legacy HPF policy, even if discovery reports Hermes.
+The generic P1 profiles do not advertise or send 384 ksps.
+
+Thetis `clsHardwareSpecific.cs` at the pinned revision (185–190) selects two
+ADCs, legacy filter policy and no speaker swap for Red Pitaya.
+`NetworkIO.cs` accepts Hermes or Orion MkII identity for that model.
+Thetis `setup.cs` (847–849) explicitly includes the extra 384 ksps P1 rate
+for Red Pitaya; NereusSDR `BoardCapabilities.cpp:sampleRatesFor` confirms it.
+
+The manual receive-profile selector writes an exact-radio `HardwareProfile`
+version-1 document through `AnanSettings` after discovery supplies the MAC.
+It never writes an unknown identity/family default, never inherits a family
+model override, preserves other fields, and refuses corrupt/unavailable/newer
+schemas. The next manual attempt defaults back to saved profile use.
+Initial connect and automatic reconnect read the override for that exact MAC;
+P2 ignores this P1-only choice.
+
+EP2 control/audio continues at 48 kHz even with speaker audio disabled: speaker
+slots contain silence and transmit-IQ slots always contain zero. A 5 ms precise
+timer accumulates fractional 126-frame packet credit, bounded to four packets
+per tick after a stall. Speaker playout primes 4096 samples and consumes only
+whole packets so DSP block tails are retained rather than padded every block.
+The audio queue retains at most 8192 samples. A refused
+send terminates the session and does not inflate transmitted-byte counters.
+
+The dispatcher forwards only the selected transport's signals. P2 remains the
+default when discovery protocol is unspecified. Discovery emits one row per MAC
+and prefers a responding P2 interface unless this MAC has the explicit
+Red Pitaya P1 choice. A missing preferred protocol ages out after two sweeps
+rather than retaining stale identity forever. The preference policy has
+socket-free tests for both directions. Selecting Red Pitaya in the manual
+form sends only a P1 probe; it does not race a P2 reply against that choice.
+Initial connect, automatic reconnect and the retained wake path carry protocol
+and normalized board ID through the existing connection request.
+
+P1 does not apply saved P2 droop tables or Saturn defaults, and it does not
+advertise the P2 calibration sweep or P2 voltage telemetry. P1 rate limits also
+bound the panadapter's live zoom. The protocol comes from the reply, not the
+model display string.
+
+## Remaining qualification
+
+Hardware qualification is required before calling these P1 profiles verified.
+Shared physical board IDs cannot distinguish Red Pitaya or Anvelina from
+standard ANAN hardware. Red Pitaya P1 therefore requires the explicit choice
+above; Anvelina-specific and Red Pitaya P2 overrides remain to be added.
+Atlas/Metis, Saturn MkII and a separate Hermes-Lite P2 path are not activated by
+this step. No radio firmware is changed automatically.
+
+## Validation
+
+`anan_p1_protocol_test` covers exact bytes, RX-only control boundaries, channel
+swap, signed IQ, malformed packets, and truncation at every EP6 length.
+`anan_p1_transport_test` injects datagrams and captures sends without a socket
+or simulated radio. It covers each normalized board/layout, sender validation,
+busy/profile rejection before any control, slot-0 RX1, bounded pacing/queues,
+failed writes, live rate refusal, duplicate discovery, sequence wrap/gaps and
+inactive-transport suppression. Existing P2 packet/profile/audio/telemetry tests
+remain regression checks.

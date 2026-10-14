@@ -8,6 +8,7 @@
 #include "core/backends/anan/P2Protocol.h"
 #include "core/backends/anan/AnanSliceAudio.h"
 #include "core/backends/anan/AnanSpeakerPacing.h"
+#include "core/backends/anan/AnanDiscoveryPolicy.h"
 
 #include <array>
 #include <cmath>
@@ -17,6 +18,7 @@
 #include <limits>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace AetherSDR::anan;
@@ -63,6 +65,38 @@ static std::vector<std::uint8_t> makeDdcFrame(std::uint32_t seq, int n)
 
 int main()
 {
+    for (const int preferred : {1, 2}) {
+        const int other = 3 - preferred;
+        check(!acceptsDiscoveryProtocolUpdate(preferred, other, preferred, 0),
+              "second format cannot duplicate/downgrade a responding preferred interface");
+        check(!acceptsDiscoveryProtocolUpdate(preferred, other, preferred, 1),
+              "one missed preferred sweep is tolerated");
+        check(acceptsDiscoveryProtocolUpdate(preferred, other, preferred, 2),
+              "protocol preference ages out after firmware change");
+        check(acceptsDiscoveryProtocolUpdate(other, preferred, preferred, 0),
+              "explicit Red Pitaya P1 or default P2 preference wins");
+    }
+    //DH1KLM: The same wire ID has different meanings in P1 and P2.
+    {
+        std::array<std::uint8_t, 60> legacy{};
+        legacy[0] = 0xef; legacy[1] = 0xfe; legacy[2] = 2;
+        legacy[3] = 0x88; legacy[8] = 0x6a; legacy[9] = 27;
+        for (const auto& [wire, normalized] : std::array<std::pair<int, int>, 8>{{
+            {0, 0}, {1, 1}, {2, 2}, {4, 3}, {5, 4}, {6, 6}, {10, 5}, {20, 20}}}) {
+            legacy[10] = static_cast<std::uint8_t>(wire);
+            const auto parsed = parseOpenHpsdrDiscoveryReply(legacy);
+            check(parsed && parsed->wireProtocol == 1 && parsed->boardId == normalized,
+                  "P1 IDs normalize without borrowing P2 meanings");
+        }
+        legacy[10] = 3;
+        check(!parseOpenHpsdrDiscoveryReply(legacy), "unknown P1 ID cannot become P2 Angelia");
+        std::array<std::uint8_t, 60> modern{};
+        modern[4] = 2; modern[5] = 0x88; modern[10] = 0x6a;
+        modern[11] = 10; modern[12] = 43; modern[13] = 27;
+        const auto parsed = parseOpenHpsdrDiscoveryReply(modern);
+        check(parsed && parsed->wireProtocol == 2 && parsed->boardId == 10,
+              "P2 ID 10 remains Saturn, not P1 Orion MkII");
+    }
     // ---- phase word: delta = 2^32 * F / Fdsp ----
     {
         check(phaseWord(10'000'000.0) == 0x14D55555u,

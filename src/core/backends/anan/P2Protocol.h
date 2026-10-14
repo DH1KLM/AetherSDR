@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/backends/anan/P1Protocol.h"
+
 #include <array>
 #include <complex>
 #include <cstddef>
@@ -99,6 +101,8 @@ constexpr std::uint32_t phaseWord(double freqHz, std::uint32_t dspClockHz = kDsp
 std::array<std::uint8_t, 60> buildDiscovery() noexcept;
 
 struct DiscoveryReply {
+    //DH1KLM: Normalized identity can originate from either discovery format.
+    int wireProtocol = 2;
     bool streaming = false;           // byte 4 == 0x03: hardware already has a session
     std::array<std::uint8_t, 6> mac{};// bytes 5-10, MSB first (p.43)
     std::uint8_t boardId = 0;         // byte 11; 10 = SATURN (ANAN-G2)
@@ -160,6 +164,10 @@ struct DiscoveryReply {
         }
     }
 };
+
+//DH1KLM: Normalize P1 wire board IDs into the existing Thetis/P2 registry.
+[[nodiscard]] std::optional<DiscoveryReply> parseOpenHpsdrDiscoveryReply(
+    std::span<const std::uint8_t> data) noexcept;
 
 //DH1KLM: Physical RX layout from Thetis console.cs UpdateDDCs/GetDDC and
 // clsHardwareSpecific.cs. Saturn keeps its bench-qualified DDC0 path;

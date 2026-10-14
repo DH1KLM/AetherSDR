@@ -771,7 +771,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     AetherSDR::applyComboStyle(m_manualRadioTypeCombo, comboExtraRules);
     m_manualRadioTypeCombo->addItem(tr("FlexRadio"), QString::fromLatin1(kFamilyFlex));
     m_manualRadioTypeCombo->addItem(tr("Hermes-Lite 2"), QString::fromLatin1(kFamilyHl2));
-    m_manualRadioTypeCombo->addItem(tr("ANAN / OpenHPSDR (P2)"), QString::fromLatin1(kFamilyAnan));
+    m_manualRadioTypeCombo->addItem(tr("ANAN / OpenHPSDR (P1/P2)"), QString::fromLatin1(kFamilyAnan));
     m_manualRadioTypeCombo->addItem(tr("Icom (network)"), QString::fromLatin1(kFamilyIcom));
 #ifdef AETHER_BACKEND_RTL
     m_manualRadioTypeCombo->addItem(tr("RTL-SDR (USB)"), QString::fromLatin1(kFamilyRtl));
@@ -917,9 +917,24 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     // have to zoom out by hand every time. Persisted via AnanSettings
     // (Principle V), not a bare AppSettings key, matching IcomSettings'
     // shape for this backend's owned config.
+    //DH1KLM: This choice is saved only after discovery supplies this radio's MAC.
+    m_manualAnanProfileCombo = new QComboBox(manualGroup);
+    m_manualAnanProfileCombo->setObjectName(QStringLiteral("connectionManualAnanProfileCombo"));
+    m_manualAnanProfileCombo->setAccessibleName(tr("OpenHPSDR receive profile"));
+    m_manualAnanProfileCombo->setAccessibleDescription(
+        tr("Use the saved profile, or explicitly select Red Pitaya P1 reception with up to 384 ksps."));
+    m_manualAnanProfileCombo->setToolTip(
+        tr("Saved per radio. Select Red Pitaya only for that hardware. Applies to Protocol 1; "
+           "Protocol 2 keeps its board profile."));
+    AetherSDR::applyComboStyle(m_manualAnanProfileCombo, comboExtraRules);
+    m_manualAnanProfileCombo->addItem(tr("Saved / standard profile"), -1);
+    m_manualAnanProfileCombo->addItem(tr("Standard ANAN profile"), 0);
+    m_manualAnanProfileCombo->addItem(tr("Red Pitaya (P1, up to 384 ksps)"), 1);
+    m_manualAnanProfileRow = addManualRow(QStringLiteral("Receive profile:"), m_manualAnanProfileCombo);
+
     m_manualAnanRateCombo = new QComboBox(manualGroup);
     m_manualAnanRateCombo->setObjectName(QStringLiteral("connectionManualAnanRateCombo"));
-    m_manualAnanRateCombo->setAccessibleName(tr("OpenHPSDR P2 sample rate"));
+    m_manualAnanRateCombo->setAccessibleName(tr("OpenHPSDR sample rate"));
     m_manualAnanRateCombo->setAccessibleDescription(
         tr("DDC0 sample rate, in ksps -- also the starting width of the panadapter span. "
            "Higher rates use more of the radio's Ethernet link."));
@@ -947,7 +962,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     // signal paths into the same DDC, not a cosmetic label swap.
     m_manualAnanAdcCombo = new QComboBox(manualGroup);
     m_manualAnanAdcCombo->setObjectName(QStringLiteral("connectionManualAnanAdcCombo"));
-    m_manualAnanAdcCombo->setAccessibleName(tr("OpenHPSDR P2 ADC select"));
+    m_manualAnanAdcCombo->setAccessibleName(tr("OpenHPSDR ADC select"));
     m_manualAnanAdcCombo->setAccessibleDescription(
         tr("Which receive chain feeds DDC0: ADC0, behind the switched Ant1/2/3 "
            "relay bank, or ADC1, wired directly to its own RX2 jack."));
@@ -2570,6 +2585,8 @@ void ConnectionPanel::updateManualFamilyHints()
 
     if (m_manualAnanRateRow)
         m_manualAnanRateRow->setVisible(anan);
+    if (m_manualAnanProfileRow)
+        m_manualAnanProfileRow->setVisible(anan);
     if (m_manualAnanAdcRow)
         m_manualAnanAdcRow->setVisible(anan);
     if (m_manualAnanDitherRow)
@@ -3055,12 +3072,12 @@ void ConnectionPanel::probeRadio(const QString& ip, bool restoreSavedFamily)
         if (probe == AnanProbeResult::NoAnswer) {
             resetManualConnectButton();
             setManualMessage(
-                QStringLiteral("No ANAN-G2 answered at %1. Check the address, and that the "
+                QStringLiteral("No OpenHPSDR radio answered at %1. Check the address, and that the "
                                "radio is powered, idle, and reachable on UDP port 1024.")
                     .arg(trimmedIp),
                 true);
             reportStartupProbeFailure(
-                QStringLiteral("No ANAN-G2 answered at %1.").arg(trimmedIp));
+                QStringLiteral("No OpenHPSDR radio answered at %1.").arg(trimmedIp));
         } else if (probe == AnanProbeResult::NotAttempted) {
             resetManualConnectButton();
         }
@@ -3368,17 +3385,17 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
         } else {
             setManualMessage(
                 QStringLiteral("Could not open a UDP socket to probe for an "
-                               "ANAN-G2: %1").arg(hpsdr.errorString()),
+                               "OpenHPSDR radio: %1").arg(hpsdr.errorString()),
                 true);
         }
         reportStartupProbeFailure(explicitBind
             ? QStringLiteral("The saved source path for this radio is unavailable.")
-            : QStringLiteral("Could not open a UDP socket to reach the ANAN-G2."));
+            : QStringLiteral("Could not open a UDP socket to reach the OpenHPSDR radio."));
         return AnanProbeResult::NotAttempted;
     }
 
     // RESOLVE FIRST -- see probeHermesLite2()'s comment; the same bug shape
-    // applies verbatim to a hostname entered for an ANAN-G2.
+    // applies verbatim to a hostname entered for an OpenHPSDR radio.
     QHostAddress dest(ip);
     if (dest.isNull()) {
         const QHostInfo resolved = QHostInfo::fromName(ip);
@@ -3393,17 +3410,18 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
                 resolved.error() != QHostInfo::NoError
                     ? QStringLiteral("Could not resolve “%1”: %2")
                           .arg(ip, resolved.errorString())
-                    : QStringLiteral("“%1” has no IPv4 address, and an ANAN-G2 "
+                    : QStringLiteral("“%1” has no IPv4 address, and an OpenHPSDR radio "
                                      "is reachable over IPv4 only.").arg(ip),
                 true);
             reportStartupProbeFailure(
-                QStringLiteral("Could not resolve an IPv4 address for the ANAN-G2 at %1.").arg(ip));
+                QStringLiteral("Could not resolve an IPv4 address for the OpenHPSDR radio at %1.").arg(ip));
             return AnanProbeResult::NotAttempted;
         }
     }
 
+    const bool preferP1 = m_manualAnanProfileCombo->currentData().toInt() == 1;
     const auto request = anan::buildDiscovery();
-    if (hpsdr.writeDatagram(reinterpret_cast<const char*>(request.data()),
+    if (!preferP1 && hpsdr.writeDatagram(reinterpret_cast<const char*>(request.data()),
                             qint64(request.size()),
                             dest,
                             anan::kRadioPort) < 0) {
@@ -3416,20 +3434,34 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
         return AnanProbeResult::NotAttempted;
     }
 
+    //DH1KLM: Probe both formats; the reply determines the session protocol.
+    const auto legacyRequest = anan::p1::discoveryRequest();
+    if (hpsdr.writeDatagram(reinterpret_cast<const char*>(legacyRequest.data()),
+                           qint64(legacyRequest.size()), dest, anan::kRadioPort) < 0 && preferP1) {
+        setManualMessage(tr("Could not send a Protocol 1 discovery request."), true);
+        reportStartupProbeFailure(tr("Could not send a Protocol 1 discovery request."));
+        return AnanProbeResult::NotAttempted;
+    }
+
     QDeadlineTimer deadline(600);
     while (!deadline.hasExpired()) {
         if (!hpsdr.waitForReadyRead(static_cast<int>(deadline.remainingTime())))
             break;
         while (hpsdr.hasPendingDatagrams()) {
-            const QByteArray d = hpsdr.receiveDatagram().data();
-            const auto reply = anan::parseDiscoveryReply(
+            const auto datagram = hpsdr.receiveDatagram();
+            if (datagram.senderAddress() != dest || datagram.senderPort() != anan::kRadioPort)
+                continue;
+            const QByteArray d = datagram.data();
+            const auto reply = anan::parseOpenHpsdrDiscoveryReply(
                 std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t*>(d.constData()), std::size_t(d.size())));
             //DH1KLM: Discovery can identify several Thetis board families, but
             // only implemented RX profiles may proceed to the session. Discovery
             // still labels the physical family rather than guessing a SKU.
-            if (!reply || !reply->isSupportedOpenHpsdrBoard())
+            if (!reply || !reply->isSupportedOpenHpsdrBoard()
+                || (preferP1 && reply->wireProtocol != 1))
                 continue;
+            resetManualConnectButton();
             if (!anan::receiveProfile(reply->boardId)) {
                 setManualMessage(
                     QStringLiteral("Detected %1 at %2, but AetherSDR's ANAN backend "
@@ -3446,18 +3478,38 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             info.family   = QString::fromLatin1(kFamilyAnan);
             //DH1KLM: Keep the physical identity on the manual-connect path too.
             info.boardId  = reply->boardId;
+            info.hpsdrProtocol = reply->wireProtocol;
             info.address  = dest;
             info.port     = anan::kRadioPort;
             info.model    = QString::fromLatin1(reply->boardDisplayName());
             info.name     = info.model;
             info.serial   = anan::AnanDiscovery::macToSerial(reply->mac);
+            const int profileChoice = m_manualAnanProfileCombo->currentData().toInt();
+            if (profileChoice >= 0) {
+                if (profileChoice == 1 && info.boardId != 1 && info.boardId != 5) {
+                    setManualMessage(tr("The detected board does not match the Red Pitaya profile."), true);
+                    reportStartupProbeFailure(tr("The detected board does not match the Red Pitaya profile."));
+                    return AnanProbeResult::Answered;
+                }
+                if (!anan::AnanSettings::setRedPitayaP1ForRadio(info.serial, profileChoice == 1)) {
+                    setManualMessage(tr("Could not save this radio's receive profile."), true);
+                    reportStartupProbeFailure(tr("Could not save this radio's receive profile."));
+                    return AnanProbeResult::Answered;
+                }
+                m_manualAnanProfileCombo->setCurrentIndex(0);
+            }
+            if (info.hpsdrProtocol == 1 && anan::AnanSettings::redPitayaP1ForRadio(info.serial)) {
+                info.model = QStringLiteral("Red Pitaya");
+                info.name = info.model;
+            }
             info.nickname = anan::AnanDiscovery::effectiveNickname(info.family, info.serial,
                                                                     info.model);
             info.version  = QString::number(reply->firmwareVer);
             // A bare integer is a gateware bitstream number, not a software
             // version (discrepancy #1, see P2Protocol.h's DiscoveryReply) --
             // same label the broadcast path sets.
-            info.versionLabel = QStringLiteral("Gateware");
+            info.versionLabel = reply->wireProtocol == 1 ? QStringLiteral("P1 Gateware")
+                                                       : QStringLiteral("P2 Gateware");
             info.inUse    = reply->streaming;
             info.status   = reply->streaming ? QStringLiteral("In_Use")
                                              : QStringLiteral("Available");

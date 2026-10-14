@@ -1,6 +1,7 @@
 #include "core/backends/anan/AnanSettings.h"
 
 #include "core/AppSettings.h"
+#include "core/RadioSettingsScope.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -153,6 +154,31 @@ void AnanSettings::setBypassAdc1Filters(bool on)
 void AnanSettings::reset()
 {
     writeObj({});
+}
+
+bool AnanSettings::redPitayaP1ForRadio(const QString& serial)
+{
+    if (serial.trimmed().isEmpty())
+        return false;
+    const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+    int version = 0;
+    const auto doc = scope.featureExact(QStringLiteral("HardwareProfile"), &version);
+    return version <= 1 && doc.value(QStringLiteral("redPitayaP1")).toBool(false);
+}
+
+bool AnanSettings::setRedPitayaP1ForRadio(const QString& serial, bool enabled)
+{
+    if (serial.trimmed().isEmpty())
+        return false;
+    const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("HardwareProfile"), &version, &status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable)
+        return false;
+    doc.insert(QStringLiteral("redPitayaP1"), enabled);
+    return scope.setFeature(QStringLiteral("HardwareProfile"), 1, doc);
 }
 
 }  // namespace AetherSDR::anan

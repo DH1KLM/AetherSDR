@@ -1,7 +1,7 @@
 ---
-title: "ANAN / OpenHPSDR Protocol 2"
+title: "ANAN / OpenHPSDR"
 slug: "/anan-g2"
-description: "Experimental openHPSDR Protocol 2 reception with ANAN-G2 and an ANAN-7000DLE receive profile."
+description: "Experimental OpenHPSDR P1/P2 reception; P2 tested with ANAN-G2 and ANAN-7000DLE."
 status: "Experimental, receive-only"
 applies_to: ["ANAN-G2", "ANAN-7000DLE", "ANAN-10/100", "ANAN-10E/100B", "ANAN-100D", "ANAN-200D", "ANAN-G2E"]
 ---
@@ -45,7 +45,7 @@ Supply voltage for these additional profiles is not reported until qualified.
 
 The G2 is found automatically on your LAN: open **File → Connect to Radio...** → **On This Network**, select it and click **Connect Selected Radio**.
 
-To reach it across a VPN or another subnet, use **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P2)** (see [Manual Connection](./manual-connection.md)). For the ANAN-7000DLE, use the same **ANAN / OpenHPSDR (P2)** radio-type entry;
+To reach it across a VPN or another subnet, use **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P1/P2)** (see [Manual Connection](./manual-connection.md)). For the ANAN-7000DLE, use the same **ANAN / OpenHPSDR (P1/P2)** radio-type entry;
 Discovery selects the Orion MkII receive layout automatically. The form's
 connection options apply on both paths:
 
@@ -57,6 +57,35 @@ connection options apply on both paths:
 | **ADC0 RF filter bypass** | Off | MkII/Saturn BPF1 is selected automatically from the tuned frequency using the Thetis-compatible band map. Check this only to force ADC0 around that filter. |
 | **ADC1 RF filter bypass** | On | RX2/ADC1's separate filter bank still uses bypass; automatic ADC1 band selection is not implemented yet. |
 | **Send RX audio to the radio's speaker** | Off | Also plays receive audio through the G2's own speaker and headphone jack. Takes effect on the next connect. |
+
+## Protocol 1 reception
+
+Discovery and **Connect by IP** also probe Protocol 1. The actual reply selects
+P1 or P2; the model name does not select the protocol. The gateware label shows
+**P1 Gateware** or **P2 Gateware**. One discovery row is retained per MAC address.
+
+Experimental P1 receive profiles are implemented for Hermes, Hermes II,
+Angelia, Orion, Orion MkII and HermesC10. They use the existing receiver DSP,
+with one receiver and panadapter. These P1 paths have packet and transport tests
+but still require hardware qualification. The existing Hermes-Lite 2 connection
+continues to use its own backend.
+
+Standard ANAN P1 profiles use **48, 96 or 192 ksps**.
+**Red Pitaya additionally supports 384 ksps under P1.** In **Connect by IP**,
+choose **Receive profile → Red Pitaya (P1, up to 384 ksps)** once for that
+radio, select **384 ksps**, and connect. The choice is saved for its MAC
+address and used on subsequent discovery/reconnects. Select **Standard ANAN
+profile** to remove that override. A shared board ID never enables it on its
+own. Wider saved P2 rates are limited to the selected P1 profile’s maximum.
+Live zoom observes that same maximum. RF gain and
+ANT1/2/3 control use P1 receive banks; optional radio-speaker audio remains
+48 kHz. A radio already in use is refused.
+
+P1 does not use P2 droop corrections, the P2 calibration sweep or P2 supply
+voltage telemetry. Shared discovery IDs still identify a physical family;
+The Red Pitaya override is explicit and applies only to P1; Anvelina-specific
+overrides and Red Pitaya P2 qualification remain separate work.
+This feature does not change the radio's firmware or enable transmit.
 
 ## Receiving with the G2
 
@@ -105,7 +134,7 @@ Controls the G2 cannot honour are dimmed with a reason, or refuse with a notice;
 If the signal path is wrong after changing RF filter options, first restore the Saturn BPF1 selection.
 
 1. Disconnect from the G2.
-2. Open **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P2)**.
+2. Open **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P1/P2)**.
 3. Uncheck **ADC0 RF filter bypass** so the tuned-frequency BPF1 selection is active. Keep **ADC1 RF filter bypass** checked when using RX2 until its separate filter selector is implemented.
 
 ### No audio from the radio's own speaker
