@@ -42,6 +42,13 @@ public:
         // Install: only on a CTR2-Max its stock firmware has registered
         // (Ctr2MaxRegistration), checked before anything is written.
         bool requireCtr2MaxRegistration{false};
+        // Install, Start: firmware laid out by the device's own partition
+        // table (Ctr2MaxStockFirmware). The table is read first and plan()
+        // supplies the manifest and files; nothing is written if it refuses.
+        using Plan = std::function<bool(const QByteArray& table, quint32 flashSize,
+                                        EspFirmwareManifest* manifest,
+                                        QHash<QString, QByteArray>* files, QString* problem)>;
+        Plan plan;
     };
 
     // A backup's description, kept beside it as <backup>.json, so a restore

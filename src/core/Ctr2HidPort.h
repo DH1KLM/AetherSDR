@@ -80,6 +80,9 @@ public:
     // Link extensions negotiated with the device (ctr2hid::capabilityBit
     // mask); 0 for plain link version 0, and until negotiation finishes.
     quint32 extensions() const { return m_extensions; }
+    // The extensions the device offered (Feature report 0x02), whether or
+    // not the host took them: what it could do on another session.
+    quint32 offeredExtensions() const { return m_offered; }
     // The device's firmware version (Feature report 0x03), read during
     // negotiation; empty for a device without it, and until then.
     const std::optional<ctr2hid::deviceinfo::Info>& firmwareInfo() const { return m_firmwareInfo; }
@@ -96,15 +99,18 @@ signals:
 protected:
     // The firmware version first: extensionsNegotiated() announces both.
     void setExtensions(quint32 extensions,
-                       std::optional<ctr2hid::deviceinfo::Info> info = std::nullopt)
+                       std::optional<ctr2hid::deviceinfo::Info> info = std::nullopt,
+                       quint32 offered = 0)
     {
         m_firmwareInfo = std::move(info);
         m_extensions = extensions;
+        m_offered = offered;
         emit extensionsNegotiated(extensions);
     }
 
 private:
     quint32 m_extensions{0};
+    quint32 m_offered{0};
     std::optional<ctr2hid::deviceinfo::Info> m_firmwareInfo;
 };
 

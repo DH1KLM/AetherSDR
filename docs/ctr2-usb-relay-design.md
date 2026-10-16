@@ -471,6 +471,79 @@ firmware, from releases listed in AetherSDR's firmware catalog
   restores the whole flash; a backup restores only onto the unit it came
   from.
 
+### The CTR2-Max's own firmware
+
+The CTR2 window also installs the CTR2-Max's stock firmware, Lynovation's
+(the **Lynovation** tab). AetherSDR never hosts it.
+
+**From a file.** The operator downloads Lynovation's release (a zip holding
+one merged flash image, or the .bin itself) and opens it.
+`Ctr2MaxStockFirmware` takes it only if:
+
+- the application image is an intact ESP32-S3 image (its appended SHA-256
+  holds);
+- it carries the CTR2-Max firmware's markers.
+
+The install writes that application into app0 and selects it. The unit's own
+partition table lays the install out (`Ctr2MaxStockFirmware::plan`); the
+unit's nvs, otadata, app0 and spiffs rows must match the file's, and
+everything else is protected. The bootloader, the table, the settings files
+and registration (spiffs) and AetherCTR2 are never written. Each version
+opened is kept in AetherSDR's data folder, so it can be installed again.
+
+**From Lynovation's list.** Lynovation may publish its releases for
+AetherSDR to fetch (`Ctr2MaxStockCatalog`):
+
+- `catalog.json` at `https://ctr2.lynovation.com/firmware/catalog.json`,
+  format 1, lists each release's .bin, the same file as the download, by
+  URL, size and SHA-256, newest first:
+
+  ```json
+  { "format": 1,
+    "products": [ { "name": "CTR2-Max firmware", "device": "CTR2-Max", "chip": "ESP32-S3",
+                    "releases": [ { "version": "v1.02.00n",
+                                    "file": "https://ctr2.lynovation.com/.../CTR2-Max_v10200n.bin",
+                                    "size": 1622720,
+                                    "sha256": "<64 hex digits>" } ] } ] }
+  ```
+
+- `catalog.json.sig` beside it is the Ed25519 signature of the catalog's
+  exact bytes, in base64, made with Lynovation's own key:
+
+  ```sh
+  openssl pkeyutl -sign -rawin -inkey lynovation-release.pem -in catalog.json \
+      | base64 -w0 > catalog.json.sig
+  ```
+
+AetherSDR reads only a catalog signed by a Lynovation key built into it
+(`kBuiltInKeys` in `Ctr2MaxStockCatalog.cpp`; none yet), and fetches nothing
+without one. A downloaded .bin must be the size and SHA-256 the catalog
+gives, and the image's own version must be the one the catalog names. It is
+downloaded when the operator presses Install on it, then installed, and kept,
+as a file opened by hand would be.
+
+A build configured with `AETHER_FIRMWARE_DEV_OVERRIDES` (never a release)
+also reads two settings from the environment, so Lynovation can test its own
+catalog before publishing it:
+
+- `AETHER_LYNOVATION_CATALOG`: another catalog URL (a `file://` URL works);
+- `AETHER_LYNOVATION_TRUST_KEYS`: public keys to trust, as hex, separated by
+  commas.
+
+**Restarting without the buttons.** The stock firmware may take two FIRMWARE
+operations on the link, as AetherCTR2 does: SWITCH (`0x05`) into AetherCTR2,
+and BOOTLOADER (`0x06`) into download mode. It offers them like any device:
+
+- **Offer:** bit 4 of Feature report `0x02` (`'C' 'X' 01 00 00 00 00 10`).
+- **Session:** HELLO/READY, then the FIRMWARE message, answered with STATUS.
+- **Not needed:** it needs neither the version report nor the image
+  transfer.
+
+AetherSDR reads the offer when it reads the device's version
+(`Ctr2ProxyModel::usbFirmwareCommands()`). Where it is made, **Restart into**
+and every install from the stock firmware restart the unit on request, with
+no BOOT/RESET. Without it, the window asks the operator for the buttons.
+
 ### Test vectors
 
 Each line is one 8-byte report (after the report ID), in hex.

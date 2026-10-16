@@ -133,6 +133,11 @@ public:
     // for a device that does not report one (any stock CTR2).
     QString usbFirmwareVersion() const;
     bool firmwareUpdateAvailable() const { return static_cast<bool>(m_firmwareOpener); }
+    // Whether the selected USB device takes FIRMWARE commands (restart into
+    // its other firmware or download mode, restartUsbDevice()), as read with
+    // its version. A maker's stock firmware may offer them without taking
+    // updates over the link.
+    bool usbFirmwareCommands() const;
     bool firmwareUpdateRunning() const;
     // Updates the selected USB device with image (Ctr2FirmwareUpdater::readImage).
     // Stops the relay first and starts it again afterwards if it was
@@ -214,6 +219,7 @@ private:
     QPointer<Ctr2HidPort> m_probe;
     QString m_probedPath;      // the device m_probedVersion was read from
     QString m_probedVersion;
+    quint32 m_probedOffers{0};  // the link extensions it offered
     Ctr2FirmwareUpdater* m_firmware{nullptr};
     bool m_restartAfterFirmware{false};
     Ctr2RelaySettings m_settings;

@@ -30,7 +30,7 @@ Result check(const QByteArray& partition, QString* call)
     // the firmware, which has little stack): one check at a time.
     static QMutex lock;
     const QMutexLocker locker(&lock);
-    char buf[32] = {};
+    char buf[80] = {};   // the hashed call is 64 characters
     // The reader only reads through its context.
     void* ctx = const_cast<QByteArray*>(&partition);
     switch (ctr2max_registration(readBytes, ctx, static_cast<uint32_t>(partition.size()), buf,

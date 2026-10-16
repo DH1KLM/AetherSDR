@@ -218,11 +218,12 @@ void Ctr2ProxyModel::probeFirmwareVersion()
     }
     m_probe = port;
     const QString path = device->path;
-    const auto finish = [this, port, path](const QString& version) {
+    const auto finish = [this, port, path](const QString& version, quint32 offers) {
         disconnect(port, nullptr, this, nullptr);
         port->shutdown({});
         m_probe.clear();
         m_probedPath = path;
+        m_probedOffers = offers;
         if (m_probedVersion != version) {
             m_probedVersion = version;
         }
@@ -233,9 +234,9 @@ void Ctr2ProxyModel::probeFirmwareVersion()
     };
     connect(port, &Ctr2HidPort::extensionsNegotiated, this, [port, finish](quint32) {
         const std::optional<ctr2hid::deviceinfo::Info>& info = port->firmwareInfo();
-        finish(info ? info->version() : QString());
+        finish(info ? info->version() : QString(), port->offeredExtensions());
     });
-    connect(port, &Ctr2HidPort::failed, this, [finish](const QString&) { finish(QString()); });
+    connect(port, &Ctr2HidPort::failed, this, [finish](const QString&) { finish(QString(), 0); });
 }
 
 bool Ctr2ProxyModel::setTransport(Transport transport)
@@ -630,6 +631,16 @@ QString Ctr2ProxyModel::usbFirmwareVersion() const
         return info ? info->version() : QString();
     }
     return m_probedPath == m_usbDevicePath ? m_probedVersion : QString();
+}
+
+bool Ctr2ProxyModel::usbFirmwareCommands() const
+{
+    // As usbFirmwareVersion(): from the relay's own port while it runs (the
+    // idle probe never opens a device the relay holds).
+    const quint32 firmware = ctr2hid::capabilityBit(ctr2hid::MessageType::Firmware);
+    if (usbActive() && isRunning())
+        return m_usb->offeredExtensions() & firmware;
+    return m_probedPath == m_usbDevicePath && (m_probedOffers & firmware);
 }
 
 bool Ctr2ProxyModel::firmwareUpdateRunning() const

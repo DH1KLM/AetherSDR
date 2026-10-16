@@ -10,6 +10,8 @@
 
 #include <QCloseEvent>
 #include <QListWidget>
+#include <QLocale>
+#include <QTabWidget>
 #include <QSignalBlocker>
 #include <QFileInfo>
 #include <QDate>
@@ -23,6 +25,8 @@
 #include <QStandardPaths>
 #include <QStyle>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace AetherSDR {
 
@@ -45,6 +49,47 @@ QLabel* wrapped(const QString& text = {})
 
 } // namespace
 
+namespace {
+
+// What a row of a firmware list stands for.
+constexpr int kReleaseRole = Qt::UserRole;        // int: the release's index
+constexpr int kBackupRole = Qt::UserRole + 1;     // QString: the backup's path
+constexpr int kFileRole = Qt::UserRole + 2;       // QString: a kept Lynovation firmware
+constexpr int kDownloadRole = Qt::UserRole + 3;   // int: a release on lynovation.com, not kept yet
+
+bool isStock(const FirmwareInstallModel::Target& target)
+{
+    return target.device == FirmwareInstallModel::Device::Stock;
+}
+
+// Whether getting the unit into download mode takes its buttons: stock
+// firmware, unless it takes the link's commands as AetherCTR2 does.
+bool needsButtons(const FirmwareInstallModel& fw, const FirmwareInstallModel::Target& target)
+{
+    return isStock(target) && !fw.takesCommands(target);
+}
+
+// The unit to act on after the download-mode alert, which says to put it in
+// download mode now: if the operator did, the one device found there.
+FirmwareInstallModel::Target afterAlert(FirmwareInstallModel& fw,
+                                        const FirmwareInstallModel::Target& target)
+{
+    fw.lookAgain();
+    const FirmwareInstallModel::Target now = fw.target();
+    return now.device == FirmwareInstallModel::Device::Bootloader && fw.loaderCount() == 1
+               ? now
+               : target;
+}
+
+QListWidgetItem* note(QListWidget* list, const QString& text)
+{
+    auto* item = new QListWidgetItem(text, list);
+    item->setFlags(Qt::NoItemFlags);   // not a choice
+    return item;
+}
+
+} // namespace
+
 FirmwareInstallDialog::FirmwareInstallDialog(Ctr2ProxyModel* model, QWidget* parent)
     : CanonWindow(tr("CTR2"), parent, Kind::Workspace)
     , m_model(model)
@@ -57,13 +102,19 @@ FirmwareInstallDialog::FirmwareInstallDialog(Ctr2ProxyModel* model, QWidget* par
     applyCanonSheet(bodyWidget(), [] {
         return ModemChrome::styleSheet(ModemChrome::Scale::Dialog, ModemChrome::Look::Canon)
                + QStringLiteral(
-                   "QListWidget#firmwareInstallProduct { background: {{color.canon.nested}};"
+                   "QListWidget#firmwareInstallProduct, QListWidget#firmwareInstallFileList { background: {{color.canon.nested}};"
                    " color: {{color.canon.ink}}; border: 1px solid {{color.canon.line}};"
                    " border-radius: 6px; padding: 4px; outline: 0; }"
-                   "QListWidget#firmwareInstallProduct::item { padding: 5px 8px; border-radius: 4px; }"
-                   "QListWidget#firmwareInstallProduct::item:hover { background: {{color.canon.raised}}; }"
-                   "QListWidget#firmwareInstallProduct::item:selected {"
+                   "QListWidget#firmwareInstallProduct::item, QListWidget#firmwareInstallFileList::item { padding: 5px 8px; border-radius: 4px; }"
+                   "QListWidget#firmwareInstallProduct::item:hover,"
+                   " QListWidget#firmwareInstallFileList::item:hover { background: {{color.canon.raised}}; }"
+                   "QListWidget#firmwareInstallProduct::item:selected,"
+                   " QListWidget#firmwareInstallFileList::item:selected {"
                    " background: {{color.canon.control}}; color: {{color.canon.cyan}}; }"
+                   // Rows that are not a choice: a placeholder, a section's title.
+                   "QListWidget#firmwareInstallProduct::item:disabled,"
+                   " QListWidget#firmwareInstallFileList::item:disabled {"
+                   " color: {{color.canon.muted}}; }"
                    // The status badge; showStatus() picks its tone.
                    "QLabel#firmwareInstallStatus { background: {{color.canon.nested}};"
                    " border: 1px solid {{color.canon.muted}}; color: {{color.canon.muted}};"
@@ -89,7 +140,22 @@ FirmwareInstallDialog::FirmwareInstallDialog(Ctr2ProxyModel* model, QWidget* par
                    "QLabel[tone=\"readout\"] { color: {{color.canon.ink}};"
                    " font-family: \"SF Mono\", \"Menlo\", \"Consolas\", monospace; }"
                    "QLabel[tone=\"warning\"] { color: {{color.canon.sparkGold}}; }"
-                   "QLabel[tone=\"danger\"] { color: {{color.accent.danger}}; }")
+                   "QLabel[tone=\"danger\"] { color: {{color.accent.danger}}; }"
+                   // The firmware tabs, as SpotHub's: text tabs, the selected
+                   // one underlined in cyan, over a raised card.
+                   "QTabWidget#firmwareInstallTabs::pane { background: {{color.canon.raised}};"
+                   " border: 1px solid {{color.canon.line}}; border-radius: 10px; top: -1px; }"
+                   "QTabWidget#firmwareInstallTabs QTabBar::tab { color: {{color.canon.muted}};"
+                   " background: transparent; border: none; border-bottom: 2px solid transparent;"
+                   " padding: 6px 12px; font-weight: 600; }"
+                   "QTabWidget#firmwareInstallTabs QTabBar::tab:hover { color: {{color.canon.ink}}; }"
+                   "QTabWidget#firmwareInstallTabs QTabBar::tab:selected {"
+                   " color: {{color.canon.cyan}}; border-bottom-color: {{color.canon.cyan}}; }"
+                   "QTabWidget#firmwareInstallTabs QTabBar::tab:disabled {"
+                   " color: {{color.canon.muted}}; }"
+                   // The relay's buttons sit in rows of combo boxes: compact,
+                   // so they match the rows' height.
+                   "#ctr2ProxyPanel QPushButton { padding: 4px 14px; }")
                + comboArrowRule();
     });
 
@@ -105,25 +171,85 @@ FirmwareInstallDialog::FirmwareInstallDialog(Ctr2ProxyModel* model, QWidget* par
 
     root->addWidget(makeCanonHeader(tr("CTR2-Max Firmware")));
 
-    root->addWidget(section(tr("1. Firmware")));
+    // One tab per firmware: AetherCTR2 from the release list, or the
+    // CTR2-Max's own (Lynovation's) from a file the operator downloaded.
+    // Each tab holds what applies to it.
+    m_tabs = new QTabWidget;
+    m_tabs->setObjectName(QStringLiteral("firmwareInstallTabs"));
+    m_tabs->setAccessibleName(tr("Firmware to install"));
+    root->addWidget(m_tabs);
+
+    const auto rowOf = [](QBoxLayout* layout) {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(6);
+        layout->addLayout(row);
+        return row;
+    };
+    const auto button = [](QHBoxLayout* row, const QString& text, const QString& name,
+                           const QString& tip) {
+        auto* b = new QPushButton(text);
+        b->setObjectName(name);
+        b->setToolTip(tip);
+        row->addWidget(b);
+        return b;
+    };
+
+    // AetherCTR2: the releases on aethersdr.com.
+    auto* aether = new QWidget;
+    auto* aetherBox = new QVBoxLayout(aether);
+    aetherBox->setContentsMargins(12, 12, 12, 12);
+    aetherBox->setSpacing(8);
     // An inline list, not a drop-down: it stays inside the dialog's sheet.
     m_product = new QListWidget;
     m_product->setObjectName(QStringLiteral("firmwareInstallProduct"));
-    m_product->setAccessibleName(tr("Firmware to install"));
+    m_product->setAccessibleName(tr("AetherCTR2 release to install"));
     m_product->setSelectionMode(QAbstractItemView::SingleSelection);
     m_product->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_product->setFixedHeight(m_product->fontMetrics().height() * 3 + 34);
-    root->addWidget(m_product);
-    showPlaceholder(tr("Looking for firmware…"));
+    // Room for a release and the unit's backups.
+    m_product->setFixedHeight(m_product->fontMetrics().height() * 5 + 46);
+    aetherBox->addWidget(m_product);
     m_release = wrapped();
     m_release->setObjectName(QStringLiteral("firmwareInstallRelease"));
-    root->addWidget(m_release);
+    aetherBox->addWidget(m_release);
+    QHBoxLayout* aetherActions = rowOf(aetherBox);
+    m_install = button(aetherActions, tr("Install…"), QStringLiteral("firmwareInstallInstall"),
+                       tr("Install AetherCTR2 beside what the CTR2-Max already has, or update "
+                          "it over the USB cable."));
+    aetherActions->addStretch(1);
+    aetherBox->addStretch(1);
+    m_tabs->addTab(aether, tr("AetherCTR2"));
 
-    root->addWidget(section(tr("2. Device")));
-    root->addWidget(wrapped(tr(
-        "Connect the CTR2-Max with a USB cable. To install from its stock firmware, put it in "
-        "download mode: hold BOOT (through the hole in the back), press and release RESET, then "
-        "release BOOT. Its screen goes dark until the install restarts it.")));
+    // Lynovation: the file Lynovation publishes, downloaded by the operator.
+    // Laid out as the AetherCTR2 tab: the firmware, what it is, the actions.
+    auto* lyn = new QWidget;
+    auto* lynBox = new QVBoxLayout(lyn);
+    lynBox->setContentsMargins(12, 12, 12, 12);
+    lynBox->setSpacing(8);
+    m_fileList = new QListWidget;
+    m_fileList->setObjectName(QStringLiteral("firmwareInstallFileList"));
+    m_fileList->setAccessibleName(tr("CTR2-Max firmware to install"));
+    m_fileList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_fileList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_fileList->setFixedHeight(m_product->maximumHeight());
+    lynBox->addWidget(m_fileList);
+    m_fileText = new QLabel;
+    m_fileText->setObjectName(QStringLiteral("firmwareInstallFile"));
+    m_fileText->setWordWrap(true);
+    m_fileText->setTextFormat(Qt::RichText);
+    m_fileText->setOpenExternalLinks(true);
+    lynBox->addWidget(m_fileText);
+    QHBoxLayout* lynActions = rowOf(lynBox);
+    m_installFile = button(lynActions, tr("Install…"), QStringLiteral("firmwareInstallInstallFile"),
+                           tr("Install this firmware. Only the firmware itself is written: the "
+                              "CTR2-Max keeps its settings, its registration and AetherCTR2."));
+    m_openFile = button(lynActions, tr("Open File…"), QStringLiteral("firmwareInstallOpenFile"),
+                        tr("Open the CTR2-Max firmware you downloaded from lynovation.com (the "
+                           "zip, or the .bin in it)."));
+    lynActions->addStretch(1);
+    lynBox->addStretch(1);
+    m_tabs->addTab(lyn, tr("Lynovation"));
+
+    root->addWidget(section(tr("Device")));
     // The device's mode as a badge of its own; details in its tooltip.
     auto* statusRow = new QHBoxLayout;
     statusRow->setSpacing(10);
@@ -140,51 +266,22 @@ FirmwareInstallDialog::FirmwareInstallDialog(Ctr2ProxyModel* model, QWidget* par
     root->addSpacing(4);
     root->addLayout(statusRow);
     root->addSpacing(4);
-
-    root->addWidget(section(tr("3. Action")));
-    auto* actions = new QHBoxLayout;
-    actions->setSpacing(6);
-    const auto button = [&](const QString& text, const QString& name, const QString& tip) {
-        auto* b = new QPushButton(text);
-        b->setObjectName(name);
-        b->setToolTip(tip);
-        actions->addWidget(b);
-        return b;
-    };
-    m_install = button(tr("Install…"), QStringLiteral("firmwareInstallInstall"),
-                       tr("Back up the device's whole flash to a file, then install the firmware "
-                          "beside what the device already has."));
-    m_start = button(tr("Start"), QStringLiteral("firmwareInstallStart"),
-                     tr("Restart the device into this firmware, already installed on it. "
-                        "Nothing else is written."));
-    m_backup = button(tr("Back Up…"), QStringLiteral("firmwareInstallBackup"),
-                      tr("Save the device's whole flash to a file."));
-    m_restore = button(tr("Restore…"), QStringLiteral("firmwareInstallRestore"),
-                       tr("Write a backup made here back onto the same device."));
-    actions->addStretch(1);
-    root->addLayout(actions);
-
-    // A CTR2-Max running AetherCTR2 restarts on request: into its stock
-    // firmware, or into download mode for the actions above.
-    auto* restartRow = new QHBoxLayout;
-    restartRow->setSpacing(6);
+    // What the unit starts: the one it runs now is dimmed. The way there is
+    // the cheapest the unit allows (see FirmwareInstallModel::restartInto).
+    QHBoxLayout* restartRow = rowOf(root);
     auto* restartLabel = new QLabel(tr("Restart into"));
     restartLabel->setObjectName(QStringLiteral("SectionLabel"));
     restartRow->addWidget(restartLabel);
-    m_toStock = new QPushButton(tr("Stock Firmware"));
-    m_toStock->setObjectName(QStringLiteral("firmwareInstallToStock"));
-    m_toStock->setToolTip(tr("Restart the CTR2-Max into its stock firmware. AetherCTR2 stays "
-                             "installed; to come back, choose Run AetherCTR2 in the CTR2-Max's "
-                             "Settings menu (v1.02.00 and later), or put it in download mode "
-                             "and press Start."));
-    restartRow->addWidget(m_toStock);
-    m_toBootloader = new QPushButton(tr("Bootloader"));
-    m_toBootloader->setObjectName(QStringLiteral("firmwareInstallToBootloader"));
-    m_toBootloader->setToolTip(tr("Restart the CTR2-Max into download mode, without the BOOT and "
-                                  "RESET buttons, to back it up, restore it or install."));
-    restartRow->addWidget(m_toBootloader);
+    m_toAetherCtr2 = button(restartRow, tr("AetherCTR2"), QStringLiteral("firmwareInstallToAetherCtr2"),
+                            tr("Restart the CTR2-Max into AetherCTR2, already installed on it. "
+                               "Only the boot selection is written."));
+    m_toStock = button(restartRow, tr("Stock Firmware"), QStringLiteral("firmwareInstallToStock"),
+                       tr("Restart the CTR2-Max into its stock firmware. AetherCTR2 stays "
+                          "installed."));
+    m_toBootloader = button(restartRow, tr("Bootloader"),
+                            QStringLiteral("firmwareInstallToBootloader"),
+                            tr("Restart the CTR2-Max into download mode."));
     restartRow->addStretch(1);
-    root->addLayout(restartRow);
 
     m_step = wrapped();
     m_step->setObjectName(QStringLiteral("firmwareInstallStep"));
@@ -211,23 +308,52 @@ FirmwareInstallDialog::FirmwareInstallDialog(Ctr2ProxyModel* model, QWidget* par
     closeRow->addWidget(close);
     root->addLayout(closeRow);
 
-    connect(m_product, &QListWidget::currentRowChanged, m_fw, &FirmwareInstallModel::chooseRelease);
+    connect(m_product, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* item) {
+        if (item && item->data(kReleaseRole).isValid())
+            m_fw->chooseRelease(item->data(kReleaseRole).toInt());
+        syncText();
+    });
+    connect(m_fileList, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* item) {
+        if (item && item->data(kFileRole).isValid()) {
+            QString problem;
+            if (!m_fw->chooseStockFirmware(item->data(kFileRole).toString(), &problem))
+                m_step->setText(problem);
+        }
+        syncText();
+    });
+    connect(m_fw, &FirmwareInstallModel::stockDownloaded, this, [this](const QString& path) {
+        m_step->clear();
+        syncLists();
+        for (int i = 0; i < m_fileList->count(); ++i) {   // the release just kept
+            if (m_fileList->item(i)->data(kFileRole).toString() == path)
+                m_fileList->setCurrentRow(i);
+        }
+        // Install pressed on it: carry on with the install.
+        if (std::exchange(m_installAfterDownload, false))
+            installStockFirmware();
+    });
+    connect(m_fw, &FirmwareInstallModel::stockDownloadFailed, this, [this](const QString& message) {
+        m_installAfterDownload = false;
+        m_step->setText(message);
+        syncText();
+    });
+    connect(m_openFile, &QPushButton::clicked, this, &FirmwareInstallDialog::onOpenFile);
+    connect(m_installFile, &QPushButton::clicked, this, &FirmwareInstallDialog::installStockFirmware);
     connect(m_install, &QPushButton::clicked, this, &FirmwareInstallDialog::onInstall);
-    connect(m_start, &QPushButton::clicked, this, &FirmwareInstallDialog::onStart);
-    connect(m_backup, &QPushButton::clicked, this, &FirmwareInstallDialog::onBackup);
-    connect(m_restore, &QPushButton::clicked, this, &FirmwareInstallDialog::onRestore);
-    connect(m_toStock, &QPushButton::clicked, this, [this] { restartDevice(false); });
-    connect(m_toBootloader, &QPushButton::clicked, this, [this] { restartDevice(true); });
+    connect(m_toAetherCtr2, &QPushButton::clicked, this,
+            [this] { restartInto(int(FirmwareInstallModel::Firmware::AetherCtr2)); });
+    connect(m_toStock, &QPushButton::clicked, this,
+            [this] { restartInto(int(FirmwareInstallModel::Firmware::Stock)); });
+    connect(m_toBootloader, &QPushButton::clicked, this,
+            [this] { restartInto(int(FirmwareInstallModel::Firmware::Bootloader)); });
     connect(m_cancel, &QPushButton::clicked, this, [this] {
-        m_fw->cancel();
+        // Before cancel(): a wait ends at once, and says so.
         m_step->setText(tr("Stopping…"));
+        m_fw->cancel();
     });
     connect(close, &QPushButton::clicked, this, &QWidget::close);
-    connect(m_fw, &FirmwareInstallModel::releasesChanged, this, &FirmwareInstallDialog::syncReleases);
-    connect(m_fw, &FirmwareInstallModel::releaseTextChanged, this, [this] {
-        m_release->setText(m_fw->releaseText());
-        sync();
-    });
+    connect(m_fw, &FirmwareInstallModel::releasesChanged, this, &FirmwareInstallDialog::syncLists);
+    connect(m_fw, &FirmwareInstallModel::releaseTextChanged, this, &FirmwareInstallDialog::syncText);
     connect(m_fw, &FirmwareInstallModel::deviceChanged, this, &FirmwareInstallDialog::syncDevice);
     connect(m_fw, &FirmwareInstallModel::busyChanged, this, &FirmwareInstallDialog::sync);
     connect(m_fw, &FirmwareInstallModel::connected, this,
@@ -251,7 +377,14 @@ FirmwareInstallDialog::FirmwareInstallDialog(Ctr2ProxyModel* model, QWidget* par
         connect(m_model, &Ctr2ProxyModel::firmwareVersionChanged, this,
                 &FirmwareInstallDialog::syncDevice);
 
-    syncDevice();
+    // Every button at its full height: squeezed, the sheet's fixed padding
+    // clips its label. The window's minimum height follows, so it opens (and
+    // restores) tall enough for all of it.
+    for (QPushButton* b : findChildren<QPushButton*>())
+        b->setMinimumHeight(b->sizeHint().height());
+    resize(width(), qMax(height(), sizeHint().height()));
+
+    syncDevice();   // and the lists
     m_fw->begin();
 }
 
@@ -276,23 +409,154 @@ void FirmwareInstallDialog::reject()
     CanonWindow::reject();
 }
 
-void FirmwareInstallDialog::showPlaceholder(const QString& text)
+QString FirmwareInstallDialog::selectedBackup(const QListWidget* list) const
 {
-    const QSignalBlocker block(m_product);
-    m_product->clear();
-    auto* item = new QListWidgetItem(text, m_product);
-    item->setFlags(Qt::NoItemFlags);   // not a choice
+    const QListWidgetItem* item = list->currentItem();
+    return item ? item->data(kBackupRole).toString() : QString();
 }
 
-void FirmwareInstallDialog::syncReleases()
+QString FirmwareInstallDialog::backupText(const QString& path) const
 {
-    if (m_fw->releases().isEmpty()) {
-        showPlaceholder(m_fw->catalogProblem().isEmpty() ? tr("Looking for firmware…")
-                                                         : m_fw->catalogProblem());
-    } else {
+    for (const FirmwareInstallModel::Backup& b : m_fw->backups()) {
+        if (b.path == path)
+            return tr("Restore: puts back this CTR2-Max's whole flash as it was on %1 (both "
+                      "firmwares, its settings and its registration). Anything since is lost.")
+                .arg(QLocale().toString(b.made, QLocale::ShortFormat));
+    }
+    return {};
+}
+
+void FirmwareInstallDialog::syncLists()
+{
+    // Each list: its firmware, then the connected unit's backups, which
+    // install as a restore. The choice made is kept across a refill.
+    const QList<FirmwareInstallModel::Backup> backups = m_fw->backups();
+    const bool severalUnits = m_fw->deviceMac().isEmpty();
+    const auto addBackups = [&](QListWidget* list) {
+        if (backups.isEmpty())
+            return;
+        note(list, severalUnits ? tr("Backups") : tr("Backups of this CTR2-Max"));
+        for (const FirmwareInstallModel::Backup& b : backups) {
+            QString text = tr("Backup %1").arg(QLocale().toString(b.made, QLocale::ShortFormat));
+            if (severalUnits)
+                text += QStringLiteral("  (%1)").arg(b.mac);
+            auto* item = new QListWidgetItem(text, list);
+            item->setData(kBackupRole, b.path);
+        }
+    };
+    const auto keep = [](QListWidget* list) {
+        const QListWidgetItem* item = list->currentItem();
+        return item ? std::pair<QVariant, QVariant>(item->data(kReleaseRole),
+                                                    item->data(kBackupRole))
+                    : std::pair<QVariant, QVariant>();
+    };
+    const auto restore = [](QListWidget* list, const std::pair<QVariant, QVariant>& was) {
+        for (int i = 0; i < list->count(); ++i) {
+            const QListWidgetItem* item = list->item(i);
+            if ((was.first.isValid() && item->data(kReleaseRole) == was.first)
+                || (was.second.isValid() && item->data(kBackupRole) == was.second)) {
+                list->setCurrentRow(i);
+                return;
+            }
+        }
+    };
+
+    {
+        const auto was = keep(m_product);
         const QSignalBlocker block(m_product);
         m_product->clear();
-        m_product->addItems(m_fw->releases());
+        const QStringList releases = m_fw->releases();
+        if (releases.isEmpty()) {
+            note(m_product, m_fw->catalogProblem().isEmpty() ? tr("Looking for firmware…")
+                                                             : m_fw->catalogProblem());
+        }
+        for (int i = 0; i < releases.size(); ++i)
+            (new QListWidgetItem(releases[i], m_product))->setData(kReleaseRole, i);
+        addBackups(m_product);
+        restore(m_product, was);
+    }
+    {
+        // The Lynovation firmware kept from the files opened here, newest
+        // first: an earlier one installs as a downgrade.
+        const auto was = keep(m_fileList);
+        const QSignalBlocker block(m_fileList);
+        m_fileList->clear();
+        // With Lynovation's own list of releases (lynovation.com), merged
+        // by version: one not kept yet downloads when chosen.
+        const QList<FirmwareInstallModel::StoredFirmware> kept = m_fw->storedFirmware();
+        const QList<Ctr2MaxStockCatalog::Release> published = m_fw->stockReleases();
+        struct Row {
+            QString version, text;
+            QVariant file, download;
+        };
+        QList<Row> rows;
+        for (const FirmwareInstallModel::StoredFirmware& f : kept)
+            rows.append({f.version, f.name, f.path, {}});
+        for (int i = 0; i < published.size(); ++i) {
+            const bool have = std::any_of(kept.cbegin(), kept.cend(), [&](const auto& f) {
+                return f.version == published[i].version;
+            });
+            if (!have)
+                rows.append({published[i].version,
+                             tr("CTR2-Max firmware %1  (lynovation.com)").arg(published[i].version),
+                             {}, i});
+        }
+        std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+            return Ctr2MaxStockFirmware::newer(a.version, b.version);
+        });
+        if (rows.isEmpty())
+            note(m_fileList, tr("No firmware file opened"));
+        for (const Row& r : std::as_const(rows)) {
+            auto* item = new QListWidgetItem(r.text, m_fileList);
+            item->setData(kFileRole, r.file);
+            item->setData(kDownloadRole, r.download);
+            if (!was.second.isValid() && r.file.isValid()
+                && r.file.toString() == m_fw->stockFirmwarePath())
+                m_fileList->setCurrentItem(item);
+        }
+        addBackups(m_fileList);
+        restore(m_fileList, was);
+    }
+    syncText();
+}
+
+void FirmwareInstallDialog::syncText()
+{
+    const QString aetherBackup = selectedBackup(m_product);
+    if (!aetherBackup.isEmpty())
+        m_release->setText(backupText(aetherBackup));
+    else if (m_product->currentItem())
+        m_release->setText(m_fw->releaseText());
+    else
+        m_release->clear();
+
+    const QString fileBackup = selectedBackup(m_fileList);
+    const QListWidgetItem* fileItem = m_fileList->currentItem();
+    if (fileItem && fileItem->data(kDownloadRole).isValid()) {
+        m_fileText->setText(
+            (m_fw->downloadingStockRelease()
+                 ? tr("Downloading %1 from lynovation.com…")
+                 : tr("%1 is on lynovation.com: Install downloads it from there first, and keeps "
+                      "it."))
+                .arg(fileItem->text().section(QStringLiteral("  ("), 0, 0))
+                .toHtmlEscaped());
+    } else if (!fileBackup.isEmpty()) {
+        m_fileText->setText(backupText(fileBackup).toHtmlEscaped());
+    } else if (fileItem && m_fw->haveStockFirmware()) {
+        m_fileText->setText(tr("Ready: %1. Install writes only the firmware itself: the CTR2-Max "
+                               "keeps its settings, its registration and AetherCTR2.")
+                                .arg(m_fw->stockFirmwareName())
+                                .toHtmlEscaped());
+    } else if (!m_fw->storedFirmware().isEmpty()) {
+        m_fileText->setText(tr("Choose the firmware to install, or open a newer one from <a "
+                               "href=\"%1\">lynovation.com</a> with Open File…")
+                                .arg(QStringLiteral(
+                                    "https://ctr2.lynovation.com/ctr2-max-firmware/")));
+    } else {
+        m_fileText->setText(
+            tr("Download the CTR2-Max firmware from <a href=\"%1\">lynovation.com</a>, then "
+               "open it here with Open File…")
+                .arg(QStringLiteral("https://ctr2.lynovation.com/ctr2-max-firmware/")));
     }
     sync();
 }
@@ -329,8 +593,9 @@ void FirmwareInstallDialog::syncDevice()
     case FirmwareInstallModel::Device::LinkFirmware: {
         const QString version = m_fw->linkVersion();
         QString detail = mac.isEmpty() ? QString() : mac + QStringLiteral(". ");
-        detail += version.isEmpty() ? tr("Put it in download mode to install.")
-                                    : tr("Running %1; Install updates it over the USB cable.")
+        detail += version.isEmpty() ? tr("Running AetherCTR2.")
+                                    : tr("Running %1; an AetherCTR2 update goes over the USB "
+                                         "cable.")
                                           .arg(version);
         showStatus(m_fw->deviceName(), "cyan", detail);
         break;
@@ -338,13 +603,13 @@ void FirmwareInstallDialog::syncDevice()
     case FirmwareInstallModel::Device::Stock:
         showStatus(tr("Stock firmware"), "sparkGold",
                    (mac.isEmpty() ? QString() : mac + QStringLiteral(". "))
-                       + tr("Put it in download mode to install."));
+                       + tr("Runs its stock firmware."));
         break;
     case FirmwareInstallModel::Device::None:
         showStatus(tr("No CTR2-Max"), "muted", tr("Connect the CTR2-Max with a USB cable."));
         break;
     }
-    sync();
+    syncLists();   // the unit's backups
 }
 
 namespace {
@@ -363,34 +628,41 @@ void FirmwareInstallDialog::sync()
     using Device = FirmwareInstallModel::Device;
     const bool running = m_fw->busy();
     const Device device = m_fw->device();
-    const bool loader = device == Device::Bootloader;
-    // Over the link: firmware that updates itself and reports its version.
-    const bool link = device == Device::LinkFirmware && !m_fw->linkVersion().isEmpty();
-    const bool release = m_fw->haveRelease();
     const QString busy = tr("Unavailable while the current step runs.");
-    const QString noDevice = device == Device::None ? tr("No CTR2-Max is connected.")
-                                                    : tr("Put the CTR2-Max in download mode first.");
-    const QString noRelease = tr("Choose a release first.");
-    offer(m_install, !running && (loader || link) && release,
-          running ? busy : !release ? noRelease : noDevice);
-    offer(m_start, !running && loader && release,
-          running ? busy : !release ? noRelease : noDevice);
-    offer(m_backup, !running && loader, running ? busy : noDevice);
-    offer(m_restore, !running && loader, running ? busy : noDevice);
-    const QString notAetherCtr2 = tr("The CTR2-Max is not running AetherCTR2.");
-    offer(m_toStock, !running && link, running ? busy : notAetherCtr2);
-    offer(m_toBootloader, !running && link, running ? busy : notAetherCtr2);
+    const QString noDevice = tr("No CTR2-Max is connected.");
+    // Every action runs in download mode; the window gets the unit there
+    // (or tells the operator how) when it is not.
+    const bool any = device != Device::None;
+    const bool aetherBackup = !selectedBackup(m_product).isEmpty();
+    const bool release = m_fw->haveRelease() && !aetherBackup && m_product->currentItem();
+    offer(m_install, !running && any && (release || aetherBackup),
+          running ? busy : !any ? noDevice : tr("Choose a release or a backup first."));
+    const bool fileBackup = !selectedBackup(m_fileList).isEmpty();
+    // The kept firmware chosen (not an earlier choice still loaded), a
+    // release to download first, or a backup; not while one downloads.
+    const QListWidgetItem* fileItem = m_fileList->currentItem();
+    const bool downloading = m_fw->downloadingStockRelease();
+    const bool file = !downloading
+                      && ((fileItem && fileItem->data(kFileRole).isValid()
+                           && fileItem->data(kFileRole).toString() == m_fw->stockFirmwarePath()
+                           && m_fw->haveStockFirmware())
+                          || (fileItem && fileItem->data(kDownloadRole).isValid()) || fileBackup);
+    offer(m_installFile, !running && file && any,
+          running ? busy : !file ? tr("Open the firmware file first.") : noDevice);
+    // The firmware it runs now is dimmed.
+    const QString current = tr("The CTR2-Max runs it now.");
+    offer(m_toAetherCtr2, !running && any && device != Device::LinkFirmware,
+          running ? busy : !any ? noDevice : current);
+    offer(m_toStock, !running && any && device != Device::Stock,
+          running ? busy : !any ? noDevice : current);
+    offer(m_toBootloader, !running && any && device != Device::Bootloader,
+          running ? busy : !any ? noDevice : current);
     m_product->setEnabled(!running);
+    m_fileList->setEnabled(!running);
+    offer(m_openFile, !running, busy);
+    m_tabs->tabBar()->setEnabled(!running);
     m_cancel->setVisible(running);
-    m_bar->setVisible(running);
-}
-
-QString FirmwareInstallDialog::suggestBackupPath() const
-{
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    const QString mac = QString(m_fw->deviceMac()).remove(QLatin1Char(':'));
-    return QDir(dir).filePath(QStringLiteral("flash-backup-%1-%2.bin")
-                                  .arg(mac, QDate::currentDate().toString(Qt::ISODate)));
+    m_bar->setVisible(running && !m_fw->waitingForDownloadMode());
 }
 
 void FirmwareInstallDialog::started(bool ok, const QString& problem, const QString& doneText)
@@ -410,47 +682,83 @@ void FirmwareInstallDialog::started(bool ok, const QString& problem, const QStri
     sync();
 }
 
+bool FirmwareInstallDialog::askDownloadMode(bool stock)
+{
+    // Only a unit on its stock firmware needs its buttons: AetherCTR2
+    // restarts into download mode on request, and a unit there already is.
+    if (!stock)
+        return true;
+    ScopedChildWidget<QMessageBox> ask(QMessageBox::Information,
+                                       tr("Put the CTR2-Max in download mode"),
+                                       tr("Put the CTR2-Max in download mode now."),
+                                       QMessageBox::Ok | QMessageBox::Cancel, this);
+    ask.get()->setInformativeText(
+        tr("Hold BOOT (through the hole in the back), press and release RESET, then release "
+           "BOOT. Its screen goes dark; that is normal. AetherSDR carries on by itself once it "
+           "finds it there."));
+    ask.get()->setDefaultButton(QMessageBox::Ok);
+    return ask.get()->exec() == QMessageBox::Ok;
+}
+
+void FirmwareInstallDialog::confirmRestore(const QString& path)
+{
+    FirmwareInstallModel::Target target = m_fw->target();
+    ScopedChildWidget<QMessageBox> ask(QMessageBox::Warning, tr("Restore the backup?"),
+                                       backupText(path), QMessageBox::Cancel, this);
+    ask.get()->setInformativeText(
+        tr("A backup goes back only onto the CTR2-Max it came from, and only if the file is "
+           "unchanged since it was made."));
+    QPushButton* go = ask.get()->addButton(tr("Restore"), QMessageBox::DestructiveRole);
+    ask.get()->exec();
+    if (ask.get()->clickedButton() != go || !askDownloadMode(needsButtons(*m_fw, target)))
+        return;
+    target = afterAlert(*m_fw, target);
+    const QString done = tr("The backup is restored and the CTR2-Max is restarting.");
+    m_step->setText(tr("Connecting…"));
+    m_jobDone = done;
+    QString problem;
+    const bool ok = m_fw->restoreBackup(target, path, &problem);
+    started(ok, problem, done);
+}
+
 void FirmwareInstallDialog::onInstall()
 {
     // The device is the one shown now; the model refuses if it changes
     // while the questions below are open.
-    const FirmwareInstallModel::Target target = m_fw->target();
-    if (target.device == FirmwareInstallModel::Device::LinkFirmware) {
+    FirmwareInstallModel::Target target = m_fw->target();
+    const QString backup = selectedBackup(m_product);
+    if (!backup.isEmpty()) {
+        confirmRestore(backup);
+        return;
+    }
+    if (target.device == FirmwareInstallModel::Device::LinkFirmware
+        && !m_fw->linkVersion().isEmpty()) {
         installOverLink();
         return;
     }
     const QString product = m_fw->releaseProduct();
     const QString version = m_fw->releaseVersion();
-    ScopedChildWidget<QMessageBox> ask(
-        QMessageBox::Question, tr("Install %1?").arg(product),
-        tr("Install %1 %2 on the CTR2-Max %3?").arg(product, version, target.mac),
-        QMessageBox::Cancel, this);
+    const QString folder = QDir::toNativeSeparators(FirmwareInstallModel::backupFolder());
+    ScopedChildWidget<QMessageBox> ask(QMessageBox::Question, tr("Install %1?").arg(product),
+                                       tr("Install %1 %2 on this CTR2-Max?").arg(product, version),
+                                       QMessageBox::Cancel, this);
     ask.get()->setInformativeText(
-        tr("A backup saves the device's whole flash to a file first, so it can be put back exactly "
-           "as it is now; it takes about a minute. Either way, the install writes only what the "
-           "firmware's manifest lists, and never what it protects."));
-    QPushButton* withBackup =
-        ask.get()->addButton(tr("Back Up and Install…"), QMessageBox::AcceptRole);
-    QPushButton* without = ask.get()->addButton(tr("Install Without Backup"), QMessageBox::AcceptRole);
-    ask.get()->setDefaultButton(withBackup);
+        tr("Its whole flash is backed up first, to %1; that takes about a minute. The install "
+           "writes only what the firmware's manifest lists: the stock firmware, its settings and "
+           "its registration are kept.")
+            .arg(folder));
+    QPushButton* go = ask.get()->addButton(tr("Install"), QMessageBox::AcceptRole);
+    ask.get()->setDefaultButton(go);
     ask.get()->exec();
-    QString path;
-    QString done;
-    if (ask.get()->clickedButton() == withBackup) {
-        path = QFileDialog::getSaveFileName(this, tr("Save the backup"), suggestBackupPath(),
-                                            tr("Flash backup (*.bin)"));
-        if (path.isEmpty())
-            return;
-        done = tr("%1 %2 is installed and starting. The backup is in %3.").arg(product, version, path);
-    } else if (ask.get()->clickedButton() == without) {
-        done = tr("%1 %2 is installed and starting.").arg(product, version);
-    } else {
+    if (ask.get()->clickedButton() != go || !askDownloadMode(needsButtons(*m_fw, target)))
         return;
-    }
+    target = afterAlert(*m_fw, target);
+    const QString done =
+        tr("%1 %2 is installed and starting. The backup is in %3.").arg(product, version, folder);
     m_step->setText(tr("Connecting…"));
-    QString problem;
     m_jobDone = done;
-    const bool ok = m_fw->install(target, path, &problem);
+    QString problem;
+    const bool ok = m_fw->installRelease(target, &problem);
     started(ok, problem, done);
 }
 
@@ -484,69 +792,97 @@ void FirmwareInstallDialog::installOverLink()
     started(ok, problem, done);
 }
 
-void FirmwareInstallDialog::restartDevice(bool bootloader)
+void FirmwareInstallDialog::onOpenFile()
 {
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Open the CTR2-Max firmware"), dir,
+        tr("CTR2-Max firmware (*.zip *.bin);;All files (*)"));
+    if (path.isEmpty())
+        return;
+    QString problem;
+    if (!m_fw->openStockFirmware(path, &problem)) {
+        m_step->setText(tr("%1: %2").arg(QFileInfo(path).fileName(), problem));
+        return;
+    }
+    m_step->clear();
+    syncLists();
+    for (int i = 0; i < m_fileList->count(); ++i) {   // the file just opened
+        if (m_fileList->item(i)->data(kFileRole).toString() == m_fw->stockFirmwarePath())
+            m_fileList->setCurrentRow(i);
+    }
+}
+
+void FirmwareInstallDialog::installStockFirmware()
+{
+    using Device = FirmwareInstallModel::Device;
+    FirmwareInstallModel::Target target = m_fw->target();
+    const QString backup = selectedBackup(m_fileList);
+    if (!backup.isEmpty()) {
+        confirmRestore(backup);
+        return;
+    }
+    // A release on lynovation.com: download it, then carry on from here.
+    const QListWidgetItem* item = m_fileList->currentItem();
+    if (item && item->data(kDownloadRole).isValid()) {
+        m_installAfterDownload = true;
+        m_fw->downloadStockRelease(item->data(kDownloadRole).toInt());
+        syncText();
+        return;
+    }
+    const QString name = m_fw->stockFirmwareName();
+    const QString folder = QDir::toNativeSeparators(FirmwareInstallModel::backupFolder());
+    ScopedChildWidget<QMessageBox> ask(QMessageBox::Question, tr("Update the CTR2-Max?"),
+                                       tr("Install %1 on this CTR2-Max?").arg(name),
+                                       QMessageBox::Cancel, this);
+    QString info = tr("Only the firmware itself is written: the CTR2-Max keeps its settings, its "
+                      "registration and AetherCTR2. Its whole flash is backed up first, to %1; "
+                      "that takes about a minute.")
+                       .arg(folder);
+    if (target.device == Device::LinkFirmware)
+        info += QStringLiteral("\n\n")
+                + tr("AetherCTR2 restarts into download mode for the update; the relay stops "
+                     "while it runs.");
+    ask.get()->setInformativeText(info);
+    QPushButton* go = ask.get()->addButton(tr("Update"), QMessageBox::AcceptRole);
+    ask.get()->setDefaultButton(go);
+    ask.get()->exec();
+    if (ask.get()->clickedButton() != go || !askDownloadMode(needsButtons(*m_fw, target)))
+        return;
+    target = afterAlert(*m_fw, target);
     const QString done =
-        bootloader ? tr("The CTR2-Max is restarting into download mode.")
-                   : tr("The CTR2-Max is restarting into its stock firmware. To come back to "
-                        "AetherCTR2, choose Run AetherCTR2 in its Settings menu, or put it in "
-                        "download mode and press Start.");
+        tr("%1 is installed and starting. The backup is in %2.").arg(name, folder);
+    m_step->setText(tr("Connecting…"));
+    m_jobDone = done;
+    QString problem;
+    const bool ok = m_fw->installStockFirmware(target, &problem);
+    started(ok, problem, done);
+}
+
+void FirmwareInstallDialog::restartInto(int which)
+{
+    using Firmware = FirmwareInstallModel::Firmware;
+    const auto firmware = static_cast<Firmware>(which);
+    FirmwareInstallModel::Target target = m_fw->target();
+    // From the stock firmware, download mode takes the unit's buttons: the
+    // alert is all there is to it, and Status follows when it gets there.
+    if (needsButtons(*m_fw, target) && firmware == Firmware::Bootloader) {
+        askDownloadMode(true);
+        m_step->clear();
+        return;
+    }
+    if (firmware != Firmware::Bootloader && !askDownloadMode(needsButtons(*m_fw, target)))
+        return;
+    target = afterAlert(*m_fw, target);
+    const QString done = firmware == Firmware::AetherCtr2
+                             ? tr("The CTR2-Max is restarting into AetherCTR2.")
+                         : firmware == Firmware::Stock
+                             ? tr("The CTR2-Max is restarting into its stock firmware.")
+                             : tr("The CTR2-Max is restarting into download mode.");
     m_step->setText(tr("Asking the CTR2-Max to restart…"));
     m_jobDone = done;
     QString problem;
-    const bool ok = m_fw->restart(m_fw->target(), bootloader, &problem);
-    started(ok, problem, done);
-}
-
-void FirmwareInstallDialog::onStart()
-{
-    const FirmwareInstallModel::Target target = m_fw->target();
-    const QString done = tr("The device is starting %1.").arg(m_fw->releaseProduct());
-    m_step->setText(tr("Connecting…"));
-    m_jobDone = done;
-    QString problem;
-    const bool ok = m_fw->startFirmware(target, &problem);
-    started(ok, problem, done);
-}
-
-void FirmwareInstallDialog::onBackup()
-{
-    const FirmwareInstallModel::Target target = m_fw->target();
-    const QString path = QFileDialog::getSaveFileName(this, tr("Save the backup"), suggestBackupPath(),
-                                                      tr("Flash backup (*.bin)"));
-    if (path.isEmpty())
-        return;
-    const QString done = tr("Backed up to %1. The device is restarting.").arg(path);
-    m_step->setText(tr("Connecting…"));
-    m_jobDone = done;
-    QString problem;
-    const bool ok = m_fw->backup(target, path, &problem);
-    started(ok, problem, done);
-}
-
-void FirmwareInstallDialog::onRestore()
-{
-    const FirmwareInstallModel::Target target = m_fw->target();
-    const QString path = QFileDialog::getOpenFileName(this, tr("Choose a backup"), suggestBackupPath(),
-                                                      tr("Flash backup (*.bin)"));
-    if (path.isEmpty())
-        return;
-    ScopedChildWidget<QMessageBox> ask(
-        QMessageBox::Warning, tr("Restore the backup?"),
-        tr("Write %1 back onto the device %2?").arg(QFileInfo(path).fileName(), target.mac),
-        QMessageBox::Cancel, this);
-    ask.get()->setInformativeText(
-        tr("The device's flash becomes exactly what it was when the backup was made: its firmware, "
-           "settings and data. Anything since is lost."));
-    QPushButton* go = ask.get()->addButton(tr("Restore"), QMessageBox::DestructiveRole);
-    ask.get()->exec();
-    if (ask.get()->clickedButton() != go)
-        return;
-    const QString done = tr("The backup is restored and the device is restarting.");
-    m_step->setText(tr("Connecting…"));
-    m_jobDone = done;
-    QString problem;
-    const bool ok = m_fw->restore(target, path, &problem);
+    const bool ok = m_fw->restartInto(target, firmware, &problem);
     started(ok, problem, done);
 }
 
@@ -565,7 +901,7 @@ void FirmwareInstallDialog::onFinished(bool ok, const QString& message)
                      "the distribution) and log in again.");
 #endif
     m_step->setText(text);
-    sync();
+    syncLists();   // a new backup, or one fewer
 }
 
 } // namespace AetherSDR

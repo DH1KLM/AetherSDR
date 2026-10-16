@@ -1,6 +1,7 @@
 #include "EspFirmwareJob.h"
 
 #include "Ctr2MaxRegistration.h"
+#include "Ctr2MaxStockFirmware.h"
 #include "EspFirmwareInstaller.h"
 #ifdef HAVE_SERIALPORT
 #include "EspFlasher.h"
@@ -183,8 +184,9 @@ void EspFirmwareJob::run(const Request& request)
         case Ctr2MaxRegistration::Result::Registered:
             return true;
         case Ctr2MaxRegistration::Result::NotRegistered:
-            problem = tr("This CTR2-Max is not registered. Start its CTR2-Max firmware, enter "
-                         "your call and registration key, then install again. Nothing was "
+            problem = tr("This CTR2-Max is not registered with CTR2-Max firmware v1.02.00m or "
+                         "later. Update its CTR2-Max firmware if it is older (Open File…), "
+                         "make sure it is registered, then install again. Nothing was "
                          "written.");
             return false;
         case Ctr2MaxRegistration::Result::Unreadable:
@@ -195,6 +197,19 @@ void EspFirmwareJob::run(const Request& request)
         return false;
     };
 
+    // Firmware laid out by the device's own partition table: plan it now,
+    // before anything is written.
+    EspFirmwareManifest manifest = request.manifest;
+    QHash<QString, QByteArray> files = request.files;
+    const auto planned = [&]() -> bool {
+        if (!request.plan)
+            return true;
+        QByteArray table;
+        return flasher.read(Ctr2MaxStockFirmware::kTableOffset, Ctr2MaxStockFirmware::kTableSize,
+                            &table, {}, &problem)
+               && request.plan(table, flasher.flashSize(), &manifest, &files, &problem);
+    };
+
     bool ok = false;
     bool restart = true;
     switch (request.action) {
@@ -202,12 +217,12 @@ void EspFirmwareJob::run(const Request& request)
         ok = backup();
         break;
     case Action::Install:
-        ok = installer.check(request.manifest, &problem) && registered()
+        ok = planned() && installer.check(manifest, &problem) && registered()
              && (request.backupPath.isEmpty() || backup())
-             && installer.install(request.manifest, request.files, &problem);
+             && installer.install(manifest, files, &problem);
         break;
     case Action::Start:
-        ok = installer.start(request.manifest, &problem);
+        ok = planned() && installer.start(manifest, &problem);
         break;
     case Action::Restore: {
         BackupInfo info;

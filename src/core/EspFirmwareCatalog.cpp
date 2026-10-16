@@ -1,5 +1,6 @@
 #include "EspFirmwareCatalog.h"
 
+#include "CappedDownload.h"
 #include "LogManager.h"
 
 #include <QCoreApplication>
@@ -7,9 +8,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
 
 #include <optional>
 #include <utility>
@@ -60,8 +58,23 @@ std::optional<QList<QByteArray>>& keysOverride()
 
 const char* const EspFirmwareCatalog::kCatalogUrl = "https://www.aethersdr.com/firmware/catalog.json";
 
+namespace {
+QUrl& catalogUrlOverride()
+{
+    static QUrl url;
+    return url;
+}
+} // namespace
+
+void EspFirmwareCatalog::setCatalogUrlForTesting(const QUrl& url)
+{
+    catalogUrlOverride() = url;
+}
+
 QUrl EspFirmwareCatalog::catalogUrl()
 {
+    if (catalogUrlOverride().isValid())
+        return catalogUrlOverride();
 #if AETHER_FIRMWARE_DEV_OVERRIDES
     const QByteArray env = qgetenv("AETHER_FIRMWARE_CATALOG");
     if (!env.isEmpty()) {
@@ -181,17 +194,23 @@ bool EspFirmwareCatalog::unpack(const QByteArray& package, QHash<QString, QByteA
 
 bool EspFirmwareCatalog::verify(const QByteArray& manifest, const QByteArray& signature)
 {
+    return verifyWith(trustedKeys(), manifest, signature);
+}
+
+bool EspFirmwareCatalog::verifyWith(const QList<QByteArray>& keys, const QByteArray& message,
+                                    const QByteArray& signature)
+{
     QByteArray sig = signature;
     if (sig.size() != 64)
         sig = QByteArray::fromBase64(signature.trimmed());
     if (sig.size() != 64)
         return false;
-    for (const QByteArray& key : trustedKeys()) {
+    for (const QByteArray& key : keys) {
         if (key.size() == 32
             && crypto_ed25519_check(reinterpret_cast<const uint8_t*>(sig.constData()),
                                     reinterpret_cast<const uint8_t*>(key.constData()),
-                                    reinterpret_cast<const uint8_t*>(manifest.constData()),
-                                    static_cast<size_t>(manifest.size()))
+                                    reinterpret_cast<const uint8_t*>(message.constData()),
+                                    static_cast<size_t>(message.size()))
                    == 0)
             return true;
     }
@@ -200,10 +219,19 @@ bool EspFirmwareCatalog::verify(const QByteArray& manifest, const QByteArray& si
 
 EspFirmwareDownloader::EspFirmwareDownloader(QObject* parent)
     : QObject(parent)
-    , m_nam(new QNetworkAccessManager(this))
+    , m_download(new CappedDownload(this))
 {
-    // A stalled connection fails instead of hanging the install window.
-    m_nam->setTransferTimeout(30000);
+    connect(m_download, &CappedDownload::finished, this, &EspFirmwareDownloader::onFinished);
+    connect(m_download, &CappedDownload::failed, this, &EspFirmwareDownloader::fail);
+    connect(m_download, &CappedDownload::progress, this, [this](qint64 done, qint64 total) {
+        if (m_stage == Stage::Package)
+            emit progress(tr("Downloading %1").arg(m_url.fileName()), done, total);
+    });
+}
+
+bool EspFirmwareDownloader::isBusy() const
+{
+    return m_download->isBusy();
 }
 
 void EspFirmwareDownloader::fetchCatalog(const QUrl& url)
@@ -223,62 +251,17 @@ void EspFirmwareDownloader::fetchRelease(const QUrl& packageUrl, const QString& 
 
 void EspFirmwareDownloader::cancel()
 {
-    if (m_reply) {
-        QNetworkReply* reply = m_reply;
-        m_reply = nullptr;
-        reply->disconnect(this);
-        reply->abort();
-        reply->deleteLater();
-    }
+    m_download->cancel();
     m_stage = Stage::Idle;
 }
 
 void EspFirmwareDownloader::get(const QUrl& url, Stage stage)
 {
     m_stage = stage;
-    QNetworkRequest request(url);
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
-    m_limit = stage == Stage::Catalog ? kMaxCatalogBytes : kMaxPackageBytes;
-    m_body.clear();
-    m_reply = m_nam->get(request);
-    m_reply->setReadBufferSize(64 * 1024);
-    connect(m_reply, &QNetworkReply::metaDataChanged, this, [this] {
-        bool known = false;
-        const qint64 length =
-            m_reply ? m_reply->header(QNetworkRequest::ContentLengthHeader).toLongLong(&known) : 0;
-        if (known && length > m_limit)
-            refuse();
-    });
-    connect(m_reply, &QNetworkReply::readyRead, this, &EspFirmwareDownloader::readBody);
-    connect(m_reply, &QNetworkReply::finished, this, &EspFirmwareDownloader::onFinished);
-    if (stage == Stage::Package) {
-        const QString file = url.fileName();
-        connect(m_reply, &QNetworkReply::downloadProgress, this,
-                [this, file](qint64 done, qint64 total) {
-                    emit progress(tr("Downloading %1").arg(file), done, total);
-                });
-    }
-}
-
-bool EspFirmwareDownloader::readBody()
-{
-    // Never holds more than the limit: one byte past it is enough to refuse.
-    if (m_reply)
-        m_body += m_reply->read(m_limit + 1 - m_body.size());
-    if (m_body.size() <= m_limit)
-        return true;
-    refuse();
-    return false;
-}
-
-void EspFirmwareDownloader::refuse()
-{
-    const Stage stage = m_stage;
-    cancel();
-    m_body.clear();
-    fail(stage == Stage::Catalog ? tr("The firmware catalog is too large.")
-                                 : tr("The firmware package is too large."));
+    if (stage == Stage::Catalog)
+        m_download->get(url, kMaxCatalogBytes, tr("The firmware catalog is too large."));
+    else
+        m_download->get(url, kMaxPackageBytes, tr("The firmware package is too large."));
 }
 
 void EspFirmwareDownloader::fail(const QString& message)
@@ -287,23 +270,9 @@ void EspFirmwareDownloader::fail(const QString& message)
     emit failed(message);
 }
 
-void EspFirmwareDownloader::onFinished()
+void EspFirmwareDownloader::onFinished(const QUrl& url, const QByteArray& body)
 {
-    QNetworkReply* reply = m_reply;
-    if (!reply)
-        return;
-    if (reply->error() == QNetworkReply::NoError && !readBody())
-        return;   // refused: too large
-    m_reply = nullptr;
-    reply->deleteLater();
-    const QUrl url = reply->url();
-    if (reply->error() != QNetworkReply::NoError) {
-        fail(tr("Could not download %1: %2").arg(url.fileName(), reply->errorString()));
-        return;
-    }
-    const QByteArray body = std::exchange(m_body, {});
     QString problem;
-
     switch (m_stage) {
     case Stage::Catalog: {
         EspFirmwareCatalog catalog;

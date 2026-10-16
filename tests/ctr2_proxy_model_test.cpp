@@ -74,6 +74,13 @@ private:
     bool m_open{true};
 };
 
+// A relay port whose device offers link extensions it did not take.
+class OfferPort : public FakePort {
+public:
+    using FakePort::FakePort;
+    void offer(quint32 offered) { setExtensions(0, std::nullopt, offered); }
+};
+
 // Injected firmware-probe port: the test decides when negotiation finishes.
 class ProbePort : public AetherSDR::Ctr2HidPort {
 public:
@@ -91,11 +98,11 @@ public:
         deleteLater();
     }
     QString description() const override { return m_path; }
-    void negotiate(int major)
+    void negotiate(int major, quint32 offered = 0)
     {
         AetherSDR::ctr2hid::deviceinfo::Info info;
         info.major = major;
-        setExtensions(0, info);
+        setExtensions(0, info, offered);
     }
     QString path() const { return m_path; }
 
@@ -409,6 +416,55 @@ void testProbeFollowsSelection()
     check(log->shutdowns == log->opened, "every probe port is closed, including one mid-probe");
 }
 
+// Whether the selected CTR2 takes the link's FIRMWARE commands (restart
+// into its other firmware or download mode): read with its version while
+// idle, and from the relay's own port while the relay holds it, as the idle
+// probe never opens it then.
+void testFirmwareCommandsOffered()
+{
+    using Info = AetherSDR::Ctr2HidPort::DeviceInfo;
+    const quint32 firmware =
+        AetherSDR::ctr2hid::capabilityBit(AetherSDR::ctr2hid::MessageType::Firmware);
+    const Info stock{QStringLiteral("stock"), 0x303A, 0x1001, {}, QStringLiteral("ESP32S3_DEV"), {}};
+    auto log = std::make_shared<PortLog>();
+    auto probes = std::make_shared<std::vector<QPointer<ProbePort>>>();
+    QPointer<OfferPort> relayPort;
+    const auto settle = [] {
+        for (int i = 0; i < 5; ++i)
+            QCoreApplication::processEvents();
+    };
+    Ctr2ProxyModel model;
+    model.setTransport(Ctr2ProxyModel::Transport::Usb);
+    model.setUsbBackend(
+        [stock] { return QList<Info>{stock}; },
+        [log, &relayPort](const Info&, QString*) -> AetherSDR::Ctr2HidPort* {
+            auto* port = new OfferPort(log);
+            relayPort = port;
+            return port;
+        },
+        [log, probes](const Info& d, quint32, QString*) -> AetherSDR::Ctr2HidPort* {
+            auto* port = new ProbePort(d.path, log);
+            probes->push_back(port);
+            return port;
+        });
+    settle();
+    check(!probes->empty() && probes->back(), "the stock unit is probed");
+    if (!probes->empty() && probes->back())
+        probes->back()->negotiate(1, firmware);
+    settle();
+    check(model.usbFirmwareCommands(), "an offer of FIRMWARE is read with the version");
+
+    model.setAetherRadio(QHostAddress(QStringLiteral("192.0.2.10")), 4992,
+                         QStringLiteral("FLEX-8600  192.0.2.10"), {});
+    check(model.start() && relayPort, "the relay starts on the unit");
+    check(!model.usbFirmwareCommands(), "while it runs, its own port is asked, not the probe");
+    if (relayPort)
+        relayPort->offer(firmware);
+    check(model.usbFirmwareCommands(), "and its port's offer counts");
+    model.stop();
+    settle();
+}
+
 // USB is the default mode when the build can open a CTR2, and the first
 // recognized CTR2 is preselected; an explicit choice survives a rescan.
 void testUsbDefaults()
@@ -546,6 +602,7 @@ int main(int argc, char** argv)
     testAutoStart(QStringLiteral("AetherCTR2"));   // names itself
     testAutoStart(QStringLiteral("AETHER_KNOB"));  // the fixed AetherKnob identity
     testDevicesRescanByThemselves();
+    testFirmwareCommandsOffered();
 
     if (g_failures) {
         std::fprintf(stderr, "%d check(s) failed\n", g_failures);

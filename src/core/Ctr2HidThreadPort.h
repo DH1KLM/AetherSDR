@@ -64,7 +64,8 @@ private:
     friend class detail::Ctr2HidIoWorker;
 
     void deliverReceived(const QByteArray& reports);
-    void deliverExtensions(quint32 extensions, std::optional<ctr2hid::deviceinfo::Info> info);
+    void deliverExtensions(quint32 extensions, std::optional<ctr2hid::deviceinfo::Info> info,
+                           quint32 offered);
     void deliverSent(int count, quint64 generation);
     void deliverFailure(const QString& message);
 

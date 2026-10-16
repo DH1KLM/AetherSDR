@@ -1,5 +1,6 @@
-// Ctr2MaxRegistration against synthetic stock-firmware volumes: Reg.txt
-// present (its call sign read back, trimmed), absent, and no volume at all.
+// Ctr2MaxRegistration against synthetic stock-firmware volumes: Reg.txt as
+// v1.02.00m and later write it (hashed, read back trimmed), a plain-text call
+// as earlier versions wrote it (not taken), absent, and no volume at all.
 
 #include "Ctr2MaxRegistrationFixtures.h"
 #include "core/Ctr2MaxRegistration.h"
@@ -34,8 +35,13 @@ int main()
     const QByteArray registered = fixture(Ctr2MaxRegistrationFixtures::kRegistered);
     check(registered.size() == 16 * 4096, "the registered fixture decodes");
     check(Ctr2MaxRegistration::check(registered, &call) == Result::Registered,
-          "a volume with Reg.txt is registered");
-    check(call == QStringLiteral("N0CALL"), "the call sign is read, without its line ending");
+          "a volume with a hashed Reg.txt (v1.02.00m and later) is registered");
+    check(call.size() == 64 && !call.endsWith(QLatin1Char('\n')),
+          "its first line is read, without its line ending");
+
+    const QByteArray plain = fixture(Ctr2MaxRegistrationFixtures::kPlainCall);
+    check(Ctr2MaxRegistration::check(plain, &call) == Result::NotRegistered,
+          "a call in plain text (before v1.02.00m) is not taken as registered");
 
     const QByteArray unregistered = fixture(Ctr2MaxRegistrationFixtures::kUnregistered);
     check(Ctr2MaxRegistration::check(unregistered) == Result::NotRegistered,

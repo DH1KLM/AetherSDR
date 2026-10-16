@@ -475,7 +475,7 @@ set_source_files_properties(tools/ctr2-firmware-reference/ctr2_link.c
 set_property(TARGET ctr2_firmware_updater_test PROPERTY C_STANDARD 99)
 target_include_directories(ctr2_firmware_updater_test PRIVATE
     src tools/ctr2-firmware-reference)
-target_link_libraries(ctr2_firmware_updater_test PRIVATE aethercore Qt6::Core)
+target_link_libraries(ctr2_firmware_updater_test PRIVATE aethercore Qt6::Core Qt6::Network)
 add_test(NAME ctr2_firmware_updater_test COMMAND ctr2_firmware_updater_test)
 set_tests_properties(ctr2_firmware_updater_test PROPERTIES TIMEOUT 120)
 
@@ -501,8 +501,19 @@ target_include_directories(firmware_install_model_test PRIVATE src tests)
 target_link_libraries(firmware_install_model_test PRIVATE aethercore Qt6::Core Qt6::Network)
 add_test(NAME firmware_install_model_test COMMAND firmware_install_model_test)
 
+# The CTR2-Max's own firmware from Lynovation's file: only an intact CTR2-Max
+# image is taken, only app0 and one boot-selection sector are written, laid
+# out by the unit's own table (5 or 8 rows), and the window's flow waits for
+# download mode and backs up first. Synthetic images, in-memory flash.
+add_executable(ctr2max_stock_firmware_test tests/ctr2max_stock_firmware_test.cpp)
+target_include_directories(ctr2max_stock_firmware_test PRIVATE src tests)
+target_link_libraries(ctr2max_stock_firmware_test PRIVATE aethercore aether_monocypher Qt6::Core
+    Qt6::Network)
+add_test(NAME ctr2max_stock_firmware_test COMMAND ctr2max_stock_firmware_test)
+
 # Ctr2MaxRegistration (read-only littlefs) against synthetic stock-firmware
-# volumes: registered, not registered, and no volume.
+# volumes: registered (v1.02.00m's hashed Reg.txt), an earlier plain-text
+# call (not taken), not registered, and no volume.
 add_executable(ctr2max_registration_test tests/ctr2max_registration_test.cpp)
 target_include_directories(ctr2max_registration_test PRIVATE src tests)
 target_link_libraries(ctr2max_registration_test PRIVATE aethercore Qt6::Core)

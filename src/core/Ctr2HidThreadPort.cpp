@@ -128,6 +128,7 @@ private:
     void negotiate()
     {
         quint32 enabled = 0;
+        quint32 offered = 0;
         std::optional<ctr2hid::deviceinfo::Info> info;
         if (m_io.getFeature) {
             std::array<unsigned char, 1 + ctr2hid::deviceinfo::kBytes> buf{};
@@ -148,7 +149,8 @@ private:
             if (n == static_cast<int>(buf.size()) && buf[0] == ctr2hid::capabilities::kReportId) {
                 const QByteArray offer(reinterpret_cast<const char*>(buf.data() + 1),
                                        ctr2hid::capabilities::kBytes);
-                enabled = ctr2hid::capabilities::decode(offer) & m_hostCapabilities;
+                offered = ctr2hid::capabilities::decode(offer);
+                enabled = offered & m_hostCapabilities;
             }
             if (enabled) {
                 const QByteArray accept = ctr2hid::capabilities::encode(enabled);
@@ -159,8 +161,8 @@ private:
                 }
             }
         }
-        QMetaObject::invokeMethod(m_port, [port = m_port, enabled, info] {
-            port->deliverExtensions(enabled, info);
+        QMetaObject::invokeMethod(m_port, [port = m_port, enabled, info, offered] {
+            port->deliverExtensions(enabled, info, offered);
         }, Qt::QueuedConnection);
     }
 
@@ -357,10 +359,11 @@ void Ctr2HidThreadPort::deliverReceived(const QByteArray& reports)
 }
 
 void Ctr2HidThreadPort::deliverExtensions(quint32 extensions,
-                                          std::optional<ctr2hid::deviceinfo::Info> info)
+                                          std::optional<ctr2hid::deviceinfo::Info> info,
+                                          quint32 offered)
 {
     if (m_open) {
-        setExtensions(extensions, std::move(info));
+        setExtensions(extensions, std::move(info), offered);
     }
 }
 

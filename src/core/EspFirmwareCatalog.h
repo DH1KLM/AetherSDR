@@ -9,10 +9,9 @@
 #include <QString>
 #include <QUrl>
 
-class QNetworkAccessManager;
-class QNetworkReply;
-
 namespace AetherSDR {
+
+class CappedDownload;
 
 // Firmware AetherSDR can download and install on ESP32-based controllers.
 // The catalog (one JSON file, at kCatalogUrl) lists products and the
@@ -48,6 +47,8 @@ struct EspFirmwareCatalog {
     // (off by default, never for release) takes AETHER_FIRMWARE_CATALOG from
     // the environment instead, and logs that it did.
     static QUrl catalogUrl();
+    // Tests: another catalog URL (a file:// one keeps them off the network).
+    static void setCatalogUrlForTesting(const QUrl& url);
 
     static bool parse(const QByteArray& json, const QUrl& base, EspFirmwareCatalog* out,
                       QString* problem);
@@ -59,6 +60,10 @@ struct EspFirmwareCatalog {
     // Whether signature (64 bytes, or their base64) is a trusted key's
     // Ed25519 signature of manifest.
     static bool verify(const QByteArray& manifest, const QByteArray& signature);
+    // Whether signature (64 bytes, or their base64) is an Ed25519 signature
+    // of message by one of keys (32 bytes each).
+    static bool verifyWith(const QList<QByteArray>& keys, const QByteArray& message,
+                           const QByteArray& signature);
     // The firmware-release public keys (32 bytes each): those built in. A
     // build configured with AETHER_FIRMWARE_DEV_OVERRIDES also trusts any
     // given as hex in AETHER_FIRMWARE_TRUST_KEYS (comma-separated), for
@@ -82,7 +87,7 @@ public:
     // expectedVersion, when given, must be the manifest's version.
     void fetchRelease(const QUrl& packageUrl, const QString& expectedVersion = {});
     void cancel();
-    bool isBusy() const { return m_reply != nullptr; }
+    bool isBusy() const;
 
 signals:
     void catalogReady(const AetherSDR::EspFirmwareCatalog& catalog);
@@ -95,18 +100,13 @@ private:
     enum class Stage { Idle, Catalog, Package };
 
     void get(const QUrl& url, Stage stage);
-    bool readBody();
-    void refuse();
-    void onFinished();
+    void onFinished(const QUrl& url, const QByteArray& body);
     void openPackage(const QByteArray& package);
     void fail(const QString& message);
 
-    QNetworkAccessManager* m_nam;
-    QNetworkReply* m_reply{nullptr};
+    CappedDownload* m_download;
     Stage m_stage{Stage::Idle};
     QUrl m_url;
-    qint64 m_limit{0};
-    QByteArray m_body;
     QString m_expectedVersion;
 };
 

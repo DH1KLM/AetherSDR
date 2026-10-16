@@ -1026,6 +1026,9 @@ set(CORE_SOURCES
     src/core/TcpByteProxy.cpp
     src/core/Ctr2FirmwareUpdater.cpp
     src/core/Ctr2MaxRegistration.cpp
+    src/core/CappedDownload.cpp
+    src/core/Ctr2MaxStockCatalog.cpp
+    src/core/Ctr2MaxStockFirmware.cpp
     src/core/EspFirmwareCatalog.cpp
     src/core/EspFirmwareInstaller.cpp
     src/core/EspFirmwareJob.cpp

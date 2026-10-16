@@ -745,6 +745,11 @@ std::optional<ctr2hid::deviceinfo::Info> Ctr2UsbRelay::firmwareInfo() const
     return m_port ? m_port->firmwareInfo() : std::nullopt;
 }
 
+quint32 Ctr2UsbRelay::offeredExtensions() const
+{
+    return m_port ? m_port->offeredExtensions() : 0;
+}
+
 void Ctr2UsbRelay::onExtensionsNegotiated(quint32 extensions)
 {
     m_rx.setExtensions(extensions);
