@@ -729,8 +729,9 @@ static void populateFamilyParams(RadioConnectRequest& req, const QString& family
     if (family.compare(QLatin1String("anan"), Qt::CaseInsensitive) == 0) {
         req.params.insert(QStringLiteral("anan.ddc0RateKsps"),
                           anan::AnanSettings::ddc0RateKsps());
-        req.params.insert(QStringLiteral("anan.redPitayaP1"),
-                          anan::AnanSettings::redPitayaP1ForRadio(req.serial));
+        const auto profile = anan::AnanSettings::radioProfile(req.serial);
+        req.params.insert(QStringLiteral("anan.model"),
+                          profile.valid ? static_cast<int>(profile.model) : -100);
         req.params.insert(QStringLiteral("anan.ditherEnabled"),
                           anan::AnanSettings::ditherEnabled());
         req.params.insert(QStringLiteral("anan.randomEnabled"),

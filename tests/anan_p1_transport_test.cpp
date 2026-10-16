@@ -204,9 +204,39 @@ void redPitaya384() {
     p = params(3); p.redPitayaP1 = true;
     check(!P1ClientTestAccess::prepare(client, p, packets), "incompatible board cannot inherit Red Pitaya override");
 }
+void logicalModels() {
+    for (const auto& entry : kAnanModels) {
+        if (entry.model == AnanModel::Automatic) { continue; }
+        std::vector<QByteArray> packets; P1Client client;
+        auto p = params(entry.nativeBoardId); p.model = entry.model;
+        const bool expected = entry.nativeBoardId == 1 || entry.nativeBoardId == 2
+            || entry.nativeBoardId == 3 || entry.nativeBoardId == 4
+            || entry.nativeBoardId == 5 || entry.nativeBoardId == 20;
+        check(P1ClientTestAccess::prepare(client, p, packets) == expected,
+              "only source-backed P1 identities can start");
+        if (!expected) { continue; }
+        const int wire = entry.nativeBoardId == 3 ? 4 : entry.nativeBoardId == 4 ? 5
+            : entry.nativeBoardId == 5 ? 10 : entry.nativeBoardId;
+        P1ClientTestAccess::feed(client, discovery(wire));
+        check(client.isRunning(), "selected P1 model validates against native wire ID");
+        if (entry.model == AnanModel::AnvelinaPro3) {
+            bool extraBank = false;
+            for (const auto& packet : packets) {
+                if (packet.size() != 1032) { continue; }
+                for (const int base : {8, 520}) {
+                    if (static_cast<unsigned char>(packet[base + 3]) == 0x26) {
+                        extraBank = true;
+                        for (int n = 4; n <= 7; ++n) { check(packet[base + n] == 0, "Anvelina extra OC bits stay zero"); }
+                    }
+                }
+            }
+            check(extraBank, "Anvelina-specific RX control bank is included");
+        }
+    }
+}
 }
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
-    profilesAndWire(); refusals(); pacingAndErrors(); dispatch(); redPitaya384();
+    profilesAndWire(); refusals(); pacingAndErrors(); dispatch(); redPitaya384(); logicalModels();
     std::cout << "ANAN P1 transport checks passed\n";
 }

@@ -39,6 +39,7 @@
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSpinBox>
+#include <QStandardItemModel>
 #include <QTcpSocket>
 #include <QHostInfo>
 #include <QUdpSocket>
@@ -922,15 +923,40 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualAnanProfileCombo->setObjectName(QStringLiteral("connectionManualAnanProfileCombo"));
     m_manualAnanProfileCombo->setAccessibleName(tr("OpenHPSDR receive profile"));
     m_manualAnanProfileCombo->setAccessibleDescription(
-        tr("Use the saved profile, or explicitly select Red Pitaya P1 reception with up to 384 ksps."));
-    m_manualAnanProfileCombo->setToolTip(
-        tr("Saved per radio. Select Red Pitaya only for that hardware. Applies to Protocol 1; "
-           "Protocol 2 keeps its board profile."));
+        tr("Select the exact radio model when discovery reports a shared board family. Saved separately for each MAC address."));
+    m_manualAnanProfileCombo->setToolTip(tr("Saved per radio. Automatic keeps the physical-board profile."));
     AetherSDR::applyComboStyle(m_manualAnanProfileCombo, comboExtraRules);
-    m_manualAnanProfileCombo->addItem(tr("Saved / standard profile"), -1);
-    m_manualAnanProfileCombo->addItem(tr("Standard ANAN profile"), 0);
-    m_manualAnanProfileCombo->addItem(tr("Red Pitaya (P1, up to 384 ksps)"), 1);
+    m_manualAnanProfileCombo->addItem(tr("Use saved model"), -100);
+    for (const auto& entry : anan::kAnanModels) {
+        m_manualAnanProfileCombo->addItem(
+            QString::fromLatin1(entry.name.data(), entry.name.size()), static_cast<int>(entry.model));
+        if (entry.model == anan::AnanModel::Hpsdr || entry.model == anan::AnanModel::HermesLite2) {
+            const QString reason = entry.model == anan::AnanModel::HermesLite2
+                ? tr("Use the dedicated Hermes-Lite 2 connection type (P1).")
+                : tr("Atlas/Metis receive control initialization is not yet qualified.");
+            auto* items = qobject_cast<QStandardItemModel*>(m_manualAnanProfileCombo->model());
+            if (items) {
+                auto* item = items->item(m_manualAnanProfileCombo->count() - 1);
+                //DH1KLM: Item accessibility is supplied through model roles.
+                item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+                item->setToolTip(reason);
+                item->setData(reason, Qt::AccessibleDescriptionRole);
+            }
+        }
+    }
     m_manualAnanProfileRow = addManualRow(QStringLiteral("Receive profile:"), m_manualAnanProfileCombo);
+    m_manualAnanProtocolCombo = new QComboBox(manualGroup);
+    m_manualAnanProtocolCombo->setObjectName(QStringLiteral("connectionManualAnanProtocolCombo"));
+    m_manualAnanProtocolCombo->setAccessibleName(tr("OpenHPSDR discovery protocol"));
+    m_manualAnanProtocolCombo->setAccessibleDescription(
+        tr("Use the saved protocol preference, probe both protocols, or explicitly probe P1 or P2. Firmware is not changed."));
+    m_manualAnanProtocolCombo->setToolTip(tr("Select the protocol provided by the installed radio firmware."));
+    AetherSDR::applyComboStyle(m_manualAnanProtocolCombo, comboExtraRules);
+    m_manualAnanProtocolCombo->addItem(tr("Use saved preference"), -1);
+    m_manualAnanProtocolCombo->addItem(tr("Automatic"), 0);
+    m_manualAnanProtocolCombo->addItem(tr("Protocol 1"), 1);
+    m_manualAnanProtocolCombo->addItem(tr("Protocol 2"), 2);
+    m_manualAnanProtocolRow = addManualRow(QStringLiteral("Protocol:"), m_manualAnanProtocolCombo);
 
     m_manualAnanRateCombo = new QComboBox(manualGroup);
     m_manualAnanRateCombo->setObjectName(QStringLiteral("connectionManualAnanRateCombo"));
@@ -2587,6 +2613,8 @@ void ConnectionPanel::updateManualFamilyHints()
         m_manualAnanRateRow->setVisible(anan);
     if (m_manualAnanProfileRow)
         m_manualAnanProfileRow->setVisible(anan);
+    if (m_manualAnanProtocolRow)
+        m_manualAnanProtocolRow->setVisible(anan);
     if (m_manualAnanAdcRow)
         m_manualAnanAdcRow->setVisible(anan);
     if (m_manualAnanDitherRow)
@@ -3419,7 +3447,8 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
         }
     }
 
-    const bool preferP1 = m_manualAnanProfileCombo->currentData().toInt() == 1;
+    const int protocolChoice = m_manualAnanProtocolCombo->currentData().toInt();
+    const bool preferP1 = protocolChoice == 1;
     const auto request = anan::buildDiscovery();
     if (!preferP1 && hpsdr.writeDatagram(reinterpret_cast<const char*>(request.data()),
                             qint64(request.size()),
@@ -3436,7 +3465,7 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
 
     //DH1KLM: Probe both formats; the reply determines the session protocol.
     const auto legacyRequest = anan::p1::discoveryRequest();
-    if (hpsdr.writeDatagram(reinterpret_cast<const char*>(legacyRequest.data()),
+    if (protocolChoice != 2 && hpsdr.writeDatagram(reinterpret_cast<const char*>(legacyRequest.data()),
                            qint64(legacyRequest.size()), dest, anan::kRadioPort) < 0 && preferP1) {
         setManualMessage(tr("Could not send a Protocol 1 discovery request."), true);
         reportStartupProbeFailure(tr("Could not send a Protocol 1 discovery request."));
@@ -3459,7 +3488,8 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             // only implemented RX profiles may proceed to the session. Discovery
             // still labels the physical family rather than guessing a SKU.
             if (!reply || !reply->isSupportedOpenHpsdrBoard()
-                || (preferP1 && reply->wireProtocol != 1))
+                || (preferP1 && reply->wireProtocol != 1)
+                || (protocolChoice == 2 && reply->wireProtocol != 2))
                 continue;
             resetManualConnectButton();
             if (!anan::receiveProfile(reply->boardId)) {
@@ -3484,22 +3514,28 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             info.model    = QString::fromLatin1(reply->boardDisplayName());
             info.name     = info.model;
             info.serial   = anan::AnanDiscovery::macToSerial(reply->mac);
-            const int profileChoice = m_manualAnanProfileCombo->currentData().toInt();
-            if (profileChoice >= 0) {
-                if (profileChoice == 1 && info.boardId != 1 && info.boardId != 5) {
-                    setManualMessage(tr("The detected board does not match the Red Pitaya profile."), true);
-                    reportStartupProbeFailure(tr("The detected board does not match the Red Pitaya profile."));
-                    return AnanProbeResult::Answered;
-                }
-                if (!anan::AnanSettings::setRedPitayaP1ForRadio(info.serial, profileChoice == 1)) {
+            const int modelChoice = m_manualAnanProfileCombo->currentData().toInt();
+            const auto saved = anan::AnanSettings::radioProfile(info.serial);
+            const auto model = modelChoice == -100 ? saved.model : static_cast<anan::AnanModel>(modelChoice);
+            const int desiredProtocol = protocolChoice < 0 ? saved.protocol : protocolChoice;
+            if (desiredProtocol > 0 && desiredProtocol != reply->wireProtocol) { continue; }
+            if ((!saved.valid && modelChoice == -100) || !anan::modelMatchesBoard(model, info.boardId)) {
+                setManualMessage(tr("The selected or saved model does not match this radio's board."), true);
+                reportStartupProbeFailure(tr("The selected or saved model does not match this radio's board."));
+                return AnanProbeResult::Answered;
+            }
+            if (modelChoice != -100 || protocolChoice >= 0) {
+                if (!anan::AnanSettings::setRadioProfile(info.serial, model, desiredProtocol)) {
                     setManualMessage(tr("Could not save this radio's receive profile."), true);
                     reportStartupProbeFailure(tr("Could not save this radio's receive profile."));
                     return AnanProbeResult::Answered;
                 }
                 m_manualAnanProfileCombo->setCurrentIndex(0);
+                m_manualAnanProtocolCombo->setCurrentIndex(0);
             }
-            if (info.hpsdrProtocol == 1 && anan::AnanSettings::redPitayaP1ForRadio(info.serial)) {
-                info.model = QStringLiteral("Red Pitaya");
+            if (model != anan::AnanModel::Automatic) {
+                const auto* descriptor = anan::ananModelInfo(model);
+                if (descriptor) { info.model = QString::fromLatin1(descriptor->name.data(), descriptor->name.size()); }
                 info.name = info.model;
             }
             info.nickname = anan::AnanDiscovery::effectiveNickname(info.family, info.serial,

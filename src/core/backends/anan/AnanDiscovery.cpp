@@ -186,9 +186,11 @@ void AnanDiscovery::onReadyRead()
         info.model    = QString::fromLatin1(reply->boardDisplayName());
         info.name     = info.model;
         info.serial   = macToSerial(reply->mac);
-        if (info.hpsdrProtocol == 1 && AnanSettings::redPitayaP1ForRadio(info.serial)
-            && (info.boardId == 1 || info.boardId == 5)) {
-            info.model = QStringLiteral("Red Pitaya");
+        const auto savedProfile = AnanSettings::radioProfile(info.serial);
+        const auto* model = ananModelInfo(savedProfile.model);
+        if (savedProfile.valid && model && savedProfile.model != AnanModel::Automatic
+            && modelMatchesBoard(savedProfile.model, info.boardId)) {
+            info.model = QString::fromLatin1(model->name.data(), model->name.size());
             info.name = info.model;
         }
         info.nickname = effectiveNickname(QStringLiteral("anan"), info.serial, info.model);
@@ -210,7 +212,7 @@ void AnanDiscovery::onReadyRead()
             emit radioDiscovered(info);
         } else {
             it.value().missedSweeps = 0;
-            const int preferredProtocol = AnanSettings::redPitayaP1ForRadio(info.serial) ? 1 : 2;
+            const int preferredProtocol = savedProfile.valid && savedProfile.protocol == 1 ? 1 : 2;
             if (info.hpsdrProtocol == preferredProtocol)
                 it.value().preferredProtocolMissedSweeps = 0;
             // Only re-emit when something the picker displays actually changed.

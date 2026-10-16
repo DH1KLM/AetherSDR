@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/backends/anan/P1Protocol.h"
+#include "core/backends/anan/AnanModel.h"
 
 #include <array>
 #include <complex>
@@ -206,6 +207,19 @@ struct ReceiveProfile {
     default:
         return std::nullopt;
     }
+}
+
+//DH1KLM: Keep the physical wire layout separate from the operator's logical
+// model. Red Pitaya uses the Orion-class DDC/ADC layout even when it reports Hermes.
+[[nodiscard]] constexpr std::optional<ReceiveProfile> receiveProfile(
+    int boardId, AnanModel model) noexcept
+{
+    if (!modelMatchesBoard(model, boardId)) { return std::nullopt; }
+    if (model == AnanModel::RedPitaya) {
+        return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::LegacyHpf, 4, false, true};
+    }
+    const auto* descriptor = ananModelInfo(model);
+    return receiveProfile(model == AnanModel::Automatic ? boardId : descriptor->nativeBoardId);
 }
 
 //DH1KLM: Recognition alone never authorizes a session. The physical reply

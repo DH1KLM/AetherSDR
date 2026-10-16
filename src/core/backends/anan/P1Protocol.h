@@ -18,6 +18,7 @@ using Control = std::array<std::uint8_t, 5>;
 using Packet = std::array<std::uint8_t, kPacketBytes>;
 
 struct ReceiveConfig {
+    bool anvelinaExtraOc = false;
     int rateKsps = 48;
     int receivers = 1;
     int numAdcs = 1;

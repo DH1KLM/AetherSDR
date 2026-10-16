@@ -82,12 +82,14 @@ Thetis `setup.cs` (847–849) explicitly includes the extra 384 ksps P1 rate
 for Red Pitaya; NereusSDR `BoardCapabilities.cpp:sampleRatesFor` confirms it.
 
 The manual receive-profile selector writes an exact-radio `HardwareProfile`
-version-1 document through `AnanSettings` after discovery supplies the MAC.
+version-2 document through `AnanSettings` after discovery supplies the MAC.
+Version-1 Red Pitaya P1 documents remain readable.
 It never writes an unknown identity/family default, never inherits a family
 model override, preserves other fields, and refuses corrupt/unavailable/newer
 schemas. The next manual attempt defaults back to saved profile use.
 Initial connect and automatic reconnect read the override for that exact MAC;
-P2 ignores this P1-only choice.
+The logical model also selects the P2 receive profile; protocol preference is
+stored separately.
 
 EP2 control/audio continues at 48 kHz even with speaker audio disabled: speaker
 slots contain silence and transmit-IQ slots always contain zero. A 5 ms precise
@@ -100,10 +102,10 @@ send terminates the session and does not inflate transmitted-byte counters.
 The dispatcher forwards only the selected transport's signals. P2 remains the
 default when discovery protocol is unspecified. Discovery emits one row per MAC
 and prefers a responding P2 interface unless this MAC has the explicit
-Red Pitaya P1 choice. A missing preferred protocol ages out after two sweeps
+saved P1 preference. A missing preferred protocol ages out after two sweeps
 rather than retaining stale identity forever. The preference policy has
-socket-free tests for both directions. Selecting Red Pitaya in the manual
-form sends only a P1 probe; it does not race a P2 reply against that choice.
+socket-free tests for both directions. Explicitly selecting Protocol 1 in the manual form sends only a P1 probe;
+Protocol 2 sends only a P2 probe.
 Initial connect, automatic reconnect and the retained wake path carry protocol
 and normalized board ID through the existing connection request.
 
@@ -117,9 +119,10 @@ model display string.
 Hardware qualification is required before calling these P1 profiles verified.
 Shared physical board IDs cannot distinguish Red Pitaya or Anvelina from
 standard ANAN hardware. Red Pitaya P1 therefore requires the explicit choice
-above; Anvelina-specific and Red Pitaya P2 overrides remain to be added.
-Atlas/Metis, Saturn MkII and a separate Hermes-Lite P2 path are not activated by
-this step. No radio firmware is changed automatically.
+above. The logical-model selection and Red Pitaya P2 path are documented in
+[model profiles](anan-model-profiles.md).
+Atlas/Metis, Saturn MkII and Hermes-Lite P2 are not activated by
+this step; HL2 P2 is out of scope. No radio firmware is changed automatically.
 
 ## Validation
 
@@ -131,3 +134,7 @@ busy/profile rejection before any control, slot-0 RX1, bounded pacing/queues,
 failed writes, live rate refusal, duplicate discovery, sequence wrap/gaps and
 inactive-transport suppression. Existing P2 packet/profile/audio/telemetry tests
 remain regression checks.
+
+Logical-model selection now uses the [shared model catalogue](anan-model-profiles.md);
+its schema-2 document also stores a separate protocol preference. Version-1
+Red Pitaya P1 documents remain readable.

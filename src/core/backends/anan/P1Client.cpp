@@ -56,6 +56,7 @@ P1Client::~P1Client() { stop(); }
 
 bool P1Client::prepare(const Params& params)
 {
+    const bool redPitaya = params.redPitayaP1 || params.model == AnanModel::RedPitaya;
     m_host = QHostAddress(params.host);
     if (m_host.protocol() != QAbstractSocket::IPv4Protocol || !params.activeDdcs.empty()
         || params.ddc0AdcIndex < 0 || params.ddc0AdcIndex > 1
@@ -66,13 +67,18 @@ bool P1Client::prepare(const Params& params)
         || params.adc1AttenuationDb < 0 || params.adc1AttenuationDb > 31)
         return false;
     if (params.expectedBoardId >= 0) {
-        const auto selected = profile(params.expectedBoardId, params.redPitayaP1);
+        if (!modelMatchesBoard(params.model, params.expectedBoardId)) { return false; }
+        const int effectiveBoard = params.model == AnanModel::Automatic
+            ? params.expectedBoardId : ananModelInfo(params.model)->nativeBoardId;
+        const auto selected = profile(effectiveBoard, redPitaya);
         if (!selected || params.ddc0AdcIndex >= selected->numAdcs
-            || params.ddc0RateKsps > maximumRateKsps(params.expectedBoardId, params.redPitayaP1))
+            || params.ddc0RateKsps > maximumRateKsps(params.expectedBoardId, redPitaya))
             return false;
     }
     m_params = params;
+    m_params.redPitayaP1 = redPitaya;
     m_config = {};
+    m_config.anvelinaExtraOc = params.model == AnanModel::AnvelinaPro3;
     m_config.rateKsps = params.ddc0RateKsps;
     m_config.antenna = params.rxAntenna;
     m_config.dither = params.ditherEnabled;
@@ -154,8 +160,12 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
         if (!reply)
             return;
         const auto boardId = p1::normalizedBoardId(reply->boardId);
-        m_profile = boardId ? profile(*boardId, m_params.redPitayaP1) : std::nullopt;
-        if (!m_profile || (m_params.expectedBoardId >= 0 && m_params.expectedBoardId != *boardId)
+        const auto* descriptor = ananModelInfo(m_params.model);
+        const int effectiveBoard = m_params.model == AnanModel::Automatic
+            ? boardId.value_or(-1) : (descriptor ? descriptor->nativeBoardId : -1);
+        m_profile = boardId ? profile(effectiveBoard, m_params.redPitayaP1) : std::nullopt;
+        if (!m_profile || !modelMatchesBoard(m_params.model, boardId.value_or(-1))
+            || (m_params.expectedBoardId >= 0 && m_params.expectedBoardId != *boardId)
             || m_params.ddc0AdcIndex >= m_profile->numAdcs
             || m_params.ddc0RateKsps > maximumRateKsps(boardId.value_or(-1), m_params.redPitayaP1)) {
             fail(QStringLiteral("The P1 discovery board/profile does not match this receive session."));
@@ -170,6 +180,7 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
         m_config.adcIndex = m_params.ddc0AdcIndex;
         updateFilters();
         m_addresses = {0, 0x1c, 0x12, 0x14, 0x16, 0x1e, 0x24};
+        if (m_config.anvelinaExtraOc) { m_addresses.push_back(0x26); }
         for (int slot = 0; slot < m_profile->frameSlotCount; ++slot)
             m_addresses.push_back(static_cast<std::uint8_t>(4 + 2 * slot));
         m_validated = true;

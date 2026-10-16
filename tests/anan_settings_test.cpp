@@ -58,6 +58,24 @@ int main(int argc, char** argv)
                                    QJsonObject{{QStringLiteral("redPitayaP1"), true}}), "test future schema");
     check(!AnanSettings::setRedPitayaP1ForRadio(rp, false), "newer profile schema is not downgraded");
     check(!AnanSettings::redPitayaP1ForRadio(rp), "unknown future schema cannot enable hardware override");
+    check(!AnanSettings::radioProfile(rp).valid, "malformed schema-2 model document is refused");
+    check(AnanSettings::setRadioProfile(rp, AnanModel::AnvelinaPro3, 2), "explicit Anvelina P2 choice stored");
+    const auto stored = AnanSettings::radioProfile(rp);
+    check(stored.valid && stored.model == AnanModel::AnvelinaPro3 && stored.protocol == 2,
+          "logical model and protocol round-trip independently");
+    check(AnanSettings::radioProfile(other).model == AnanModel::Automatic,
+          "model choice never leaks into a second MAC or inherits family-wide default");
+    check(AnanSettings::setRedPitayaP1ForRadio(other, true), "legacy RP profile fixture");
+    const auto legacy = AnanSettings::radioProfile(other);
+    check(legacy.valid && legacy.model == AnanModel::RedPitaya && legacy.protocol == 1,
+          "old tested Red Pitaya P1 setting retains model and protocol");
+    check(!AnanSettings::setRadioProfile({}, AnanModel::Anan8000, 2), "model cannot write unknown identity");
+    check(!AnanSettings::setRadioProfile(rp, static_cast<AnanModel>(99), 2), "invalid logical model rejected");
+    check(!AnanSettings::setRadioProfile(rp, AnanModel::Anan8000, 3), "invalid wire preference rejected");
+    check(settings.setRadioFeature(QStringLiteral("anan"), rp, QStringLiteral("HardwareProfile"), 3,
+                                   QJsonObject{{QStringLiteral("model"), 10}}), "future model schema fixture");
+    check(!AnanSettings::setRadioProfile(rp, AnanModel::Anan8000, 2), "future model schema not downgraded");
+    check(!AnanSettings::radioProfile(rp).valid, "future model schema cannot silently choose a board profile");
 
     // ---- defaults on an empty document -------------------------------------
     AnanSettings::reset();
