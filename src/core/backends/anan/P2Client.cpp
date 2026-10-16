@@ -125,6 +125,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_discoveryInfoSent = false;
     m_discoveryValidated = false;
     m_expectedBoardId = params.expectedBoardId;
+    m_model = params.model;
 
     m_socket = new QUdpSocket(this);
     if (!m_socket->bind(QHostAddress::AnyIPv4, 0)) {
@@ -519,10 +520,16 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
         // would let a duplicate reply fall through and decode as a phantom underflow.
         if (const auto reply = parseDiscoveryReply(bytes)) {
             if (!m_discoveryValidated) {
+                if (reply->streaming) {
+                    emit connectionError(QStringLiteral("ANAN: the P2 radio is already in use"));
+                    stop();
+                    return;
+                }
                 //DH1KLM: Require an implemented RX profile and matching board ID.
                 // A recognized family alone does not authorize session packets.
-                if (!discoveryMatchesVerifiedAnanProfile(
-                        reply->boardId, m_expectedBoardId)) {
+                const auto resolvedProfile = receiveProfile(reply->boardId, m_model);
+                if (!resolvedProfile || (m_expectedBoardId >= 0
+                        && reply->boardId != m_expectedBoardId)) {
                     const QString expected = m_expectedBoardId >= 0
                         ? QString::number(m_expectedBoardId)
                         : QStringLiteral("an implemented receive profile");
@@ -536,7 +543,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
 
                 //DH1KLM: Select the physical RX layout from the actual reply,
                 // not from the reported receiver count or the display name.
-                const ReceiveProfile profile = *receiveProfile(reply->boardId);
+                const ReceiveProfile profile = *resolvedProfile;
                 const bool invalidDdc = std::any_of(m_activeDdcs.begin(), m_activeDdcs.end(),
                     [&profile](const DdcConfig& ddc) {
                         return ddc.adcIndex < 0 || ddc.adcIndex >= profile.numAdcs

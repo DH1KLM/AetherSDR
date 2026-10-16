@@ -168,7 +168,10 @@ measured tables remain usable.
 
 P1 discovery and receive sessions now use a separate
 [RX codec and transport](anan-p1-codec.md) behind the existing backend.
-Packet/transport tests pass; independent P1 hardware qualification,
-logical SKU selection for shared physical IDs, and independent qualification
-of Atlas/Metis, Hermes Lite P2 and Saturn MkII remain open. The existing
-Hermes-Lite 2 P1 backend is unchanged.
+[Logical model selection](anan-model-profiles.md) now covers the full Thetis
+model list, including ANAN-8000DLE, G2 1K, Anvelina Pro 3 and Red Pitaya P2.
+The operator confirmed ANAN-7000DLE P2 and Red Pitaya P1/384 ksps with commit
+`2ae00c58`; the additional model/protocol combinations still need hardware
+qualification. Atlas/Metis, G2 P1 identity and planned Saturn MkII remain
+unqualified. Hermes-Lite 2 remains on its existing P1 backend; HL2 P2 is
+excluded at the operator's instruction.

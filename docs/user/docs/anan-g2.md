@@ -3,12 +3,12 @@ title: "ANAN / OpenHPSDR"
 slug: "/anan-g2"
 description: "Experimental OpenHPSDR P1/P2 reception; P2 tested with ANAN-G2 and ANAN-7000DLE."
 status: "Experimental, receive-only"
-applies_to: ["ANAN-G2", "ANAN-7000DLE", "ANAN-10/100", "ANAN-10E/100B", "ANAN-100D", "ANAN-200D", "ANAN-G2E"]
+applies_to: ["ANAN-G2/G2 1K", "ANAN-7000DLE/8000DLE", "ANAN-10/100", "ANAN-10E/100B", "ANAN-100D", "ANAN-200D", "ANAN-G2E", "Anvelina Pro 3", "Red Pitaya"]
 ---
 
 :::info[Status]
 
-**Status:** Experimental, receive-only · **Applies to:** ANAN-G2, ANAN-7000DLE, ANAN-10/100, ANAN-10E/100B, ANAN-100D, ANAN-200D, ANAN-G2E
+**Status:** Experimental, receive-only · **Applies to:** ANAN-G2/G2 1K, ANAN-7000DLE/8000DLE, ANAN-10/100, ANAN-10E/100B, ANAN-100D, ANAN-200D, ANAN-G2E, Anvelina Pro 3, Red Pitaya
 
 :::
 
@@ -70,22 +70,47 @@ with one receiver and panadapter. These P1 paths have packet and transport tests
 but still require hardware qualification. The existing Hermes-Lite 2 connection
 continues to use its own backend.
 
-Standard ANAN P1 profiles use **48, 96 or 192 ksps**.
-**Red Pitaya additionally supports 384 ksps under P1.** In **Connect by IP**,
-choose **Receive profile → Red Pitaya (P1, up to 384 ksps)** once for that
-radio, select **384 ksps**, and connect. The choice is saved for its MAC
-address and used on subsequent discovery/reconnects. Select **Standard ANAN
-profile** to remove that override. A shared board ID never enables it on its
-own. Wider saved P2 rates are limited to the selected P1 profile’s maximum.
-Live zoom observes that same maximum. RF gain and
-ANT1/2/3 control use P1 receive banks; optional radio-speaker audio remains
-48 kHz. A radio already in use is refused.
+Standard ANAN P1 profiles use **48, 96 or 192 ksps**. **Red Pitaya also
+supports 384 ksps under P1**, including live zoom. The operator has confirmed
+ANAN-7000DLE P2 and Red Pitaya P1/384 ksps reception on hardware; the additional
+logical-model choices require their own hardware checks.
 
-P1 does not use P2 droop corrections, the P2 calibration sweep or P2 supply
-voltage telemetry. Shared discovery IDs still identify a physical family;
-The Red Pitaya override is explicit and applies only to P1; Anvelina-specific
-overrides and Red Pitaya P2 qualification remain separate work.
-This feature does not change the radio's firmware or enable transmit.
+### Choose the exact model and protocol
+
+In **Connect by IP**, choose **Radio type → ANAN / OpenHPSDR (P1/P2)**, then:
+
+1. Set **Receive profile** to your exact model. The list includes Hermes,
+   ANAN-10/10E/100/100B/100D/200D, Orion MkII, ANAN-7000DLE/8000DLE,
+   ANAN-G2/G2 1K/G2E, Anvelina Pro 3 and Red Pitaya.
+2. Set **Protocol** to **Protocol 1**, **Protocol 2**, or **Automatic** to
+   accept a responding protocol. This selects discovery; it does not change
+   radio firmware.
+3. Choose **Sample rate** and connect. For Red Pitaya P1, choose **384 ksps**.
+
+The choice is saved per MAC address and used on reconnect. **Use saved model**
+and **Use saved preference** retain the existing choice. To clear a model
+selection, choose **Automatic physical-board profile** and reconnect.
+Discovery labels the exact model only after you have selected it; it cannot
+identify a specific SKU from a shared board ID alone. A mismatched model is
+refused rather than applied to a different board.
+
+Existing Red-Pitaya-P1 settings keep their model, P1 preference and 384 ksps
+ceiling. Red Pitaya P2 is an explicit model choice too: it uses two ADCs,
+Orion-class RX DDC2 and the sourced legacy HPF policy, including when its
+firmware reports a Hermes identity. Its P2 hardware qualification is pending.
+Anvelina P1 includes its additional control bank with extra OC outputs zero;
+P2 also leaves those outputs zero. Transmit and accessory-output control are
+not enabled.
+
+Hermes-Lite 2 remains on the dedicated **Hermes-Lite 2** P1 connection type;
+there is no HL2 P2 integration. Atlas/Metis initialization and the planned
+Saturn-MkII board ID are not enabled. ANAN-G2/G2 1K use the existing P2 path;
+a distinct G2 P1 discovery identity still needs verification.
+
+Wider saved P2 rates are limited to the selected P1 profile's maximum. RF gain
+and ANT1/2/3 use receive controls only. P1 does not load P2 droop tables or
+advertise the P2 calibration sweep or P2 supply-voltage telemetry. The
+application continues to provide one receiver and one panadapter.
 
 ## Receiving with the G2
 

@@ -166,6 +166,43 @@ bool AnanSettings::redPitayaP1ForRadio(const QString& serial)
     return version <= 1 && doc.value(QStringLiteral("redPitayaP1")).toBool(false);
 }
 
+AnanSettings::RadioProfile AnanSettings::radioProfile(const QString& serial)
+{
+    if (serial.trimmed().isEmpty()) { return {}; }
+    const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    const auto doc = scope.featureExact(QStringLiteral("HardwareProfile"), &version, &status);
+    if (status == AppSettings::FeatureReadStatus::Missing) { return {}; }
+    if (status != AppSettings::FeatureReadStatus::Present || version < 1 || version > 2) {
+        return {AnanModel::Automatic, 0, false};
+    }
+    //DH1KLM: Preserve the hardware-tested version-1 Red Pitaya P1 preference.
+    if (version == 1) {
+        return doc.value(QStringLiteral("redPitayaP1")).toBool(false)
+            ? RadioProfile{AnanModel::RedPitaya, 1, true} : RadioProfile{};
+    }
+    const auto model = static_cast<AnanModel>(doc.value(QStringLiteral("model")).toInt(-100));
+    const int protocol = doc.value(QStringLiteral("protocol")).toInt(-1);
+    return {model, protocol, ananModelInfo(model) && protocol >= 0 && protocol <= 2};
+}
+
+bool AnanSettings::setRadioProfile(const QString& serial, AnanModel model, int protocol)
+{
+    if (serial.trimmed().isEmpty() || !ananModelInfo(model) || protocol < 0 || protocol > 2) {
+        return false;
+    }
+    const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("HardwareProfile"), &version, &status);
+    if (version > 2 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
+    doc.insert(QStringLiteral("model"), static_cast<int>(model));
+    doc.insert(QStringLiteral("protocol"), protocol);
+    return scope.setFeature(QStringLiteral("HardwareProfile"), 2, doc);
+}
+
 bool AnanSettings::setRedPitayaP1ForRadio(const QString& serial, bool enabled)
 {
     if (serial.trimmed().isEmpty())

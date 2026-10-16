@@ -460,8 +460,9 @@ RadioCapabilities AnanBackend::capabilities() const
     c.hasAgcThreshold = true; // Host receiver DSP implements threshold/off gain.
     c.manufacturer = QStringLiteral("Apache Labs");
     //DH1KLM: Discovery identifies a family, not an individual Orion MkII SKU.
-    c.model = m_pendingParams.protocol == 1 && m_pendingParams.redPitayaP1
-        ? QStringLiteral("Red Pitaya")
+    const auto* selectedModel = ananModelInfo(m_pendingParams.model);
+    c.model = selectedModel && m_pendingParams.model != AnanModel::Automatic
+        ? QString::fromLatin1(selectedModel->name.data(), selectedModel->name.size())
         : m_discoveryInfoReceived && m_discoveredBoardId != 10
         ? QString::fromLatin1(DiscoveryReply{.boardId = m_discoveredBoardId}.boardDisplayName())
         : QStringLiteral("ANAN-G2");
@@ -674,15 +675,26 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     m_radioSerial = request.serial;
     //DH1KLM: Select the wire protocol from discovery, never from the model name.
     m_pendingParams.protocol = request.params.value(QStringLiteral("anan.protocol"), 2).toInt();
+    m_pendingParams.model = static_cast<AnanModel>(
+        request.params.value(QStringLiteral("anan.model"), -1).toInt());
+    if (!ananModelInfo(m_pendingParams.model)) {
+        emit connectionError(QStringLiteral("Invalid or unsupported saved OpenHPSDR model profile."));
+        return;
+    }
     m_pendingParams.redPitayaP1 = m_pendingParams.protocol == 1
-        && request.params.value(QStringLiteral("anan.redPitayaP1"), false).toBool();
+        && (m_pendingParams.model == AnanModel::RedPitaya
+            || request.params.value(QStringLiteral("anan.redPitayaP1"), false).toBool());
     if (m_pendingParams.protocol != 1 && m_pendingParams.protocol != 2) {
         emit connectionError(QStringLiteral("Unsupported OpenHPSDR protocol selection."));
         return;
     }
     //DH1KLM: Saturn-derived tables must never be applied to Orion MkII.
     const auto profile = receiveProfile(
-        request.params.value(QStringLiteral("anan.boardId"), -1).toInt());
+        request.params.value(QStringLiteral("anan.boardId"), -1).toInt(), m_pendingParams.model);
+    if (request.params.contains(QStringLiteral("anan.boardId")) && !profile) {
+        emit connectionError(QStringLiteral("The selected model does not match this radio's physical board."));
+        return;
+    }
     seedDroopCorrectionTables(m_pendingParams.protocol == 2
                              && profile && profile->saturnDroopDefaults);
 

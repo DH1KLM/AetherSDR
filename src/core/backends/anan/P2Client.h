@@ -45,6 +45,7 @@ public:
         int expectedBoardId = -1;
         //DH1KLM: Explicit per-radio P1 model override; ignored by P2 transport.
         bool redPitayaP1 = false;
+        AnanModel model = AnanModel::Automatic;
         // Valid rates: 48/96/192/384/768/1536 (spec p.24). Not validated here
         // -- P2Protocol::buildDdcSpecific() is the single place that would
         // reject or clamp one, and it does neither yet; an invalid value is
@@ -261,6 +262,7 @@ private:
     // identifies an implemented RX profile and matches any selected board ID.
     bool m_discoveryValidated = false;
     int m_expectedBoardId = -1;
+    AnanModel m_model = AnanModel::Automatic;
     //DH1KLM: Stream indices stay logical; packet rows/ports use this RX offset.
     int m_firstDdcIndex = 0;
     bool m_selectReceiveLpf = false;

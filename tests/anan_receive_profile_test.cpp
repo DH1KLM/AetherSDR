@@ -15,10 +15,11 @@ using namespace AetherSDR::anan;
 
 namespace AetherSDR::anan {
 struct P2ClientTestAccess {
-    static void prepare(P2Client& client, int selectedBoardId)
+    static void prepare(P2Client& client, int selectedBoardId, AnanModel model = AnanModel::Automatic)
     {
         client.m_expectedBoardId = selectedBoardId;
-        const auto profile = receiveProfile(selectedBoardId);
+        client.m_model = model;
+        const auto profile = receiveProfile(selectedBoardId, model);
         client.m_numAdcs = profile ? profile->numAdcs : 2;
         client.m_activeDdcs = {{48, 0}};
         client.m_activeDdcCount = 1;
@@ -184,6 +185,41 @@ int main(int argc, char** argv)
         P2ClientTestAccess::setDdc(client, {48, 1});
         P2ClientTestAccess::feed(client, discovery(1), 1024);
         check(!P2ClientTestAccess::validated(client), "Hermes cannot use nonexistent ADC1");
+    }
+    //DH1KLM: Exercise every source-backed logical model through production validation.
+    for (const auto& entry : kAnanModels) {
+        if (entry.model == AnanModel::Automatic || entry.model == AnanModel::Hpsdr
+            || entry.model == AnanModel::HermesLite2) { continue; }
+        P2Client client;
+        P2ClientTestAccess::prepare(client, entry.nativeBoardId, entry.model);
+        int blocks = 0;
+        QObject::connect(&client, &P2Client::ddc0IqReady, [&](const auto&) { ++blocks; });
+        P2ClientTestAccess::feed(client, discovery(entry.nativeBoardId), 1024);
+        const auto profile = *receiveProfile(entry.nativeBoardId, entry.model);
+        check(P2ClientTestAccess::validated(client), "logical model reaches P2 validated state");
+        P2ClientTestAccess::feed(client, iq(), static_cast<quint16>(1035 + profile.firstDdcIndex));
+        check(blocks == 1, "logical model uses its correct P2 RX port");
+    }
+    for (const int board : {1, 5}) {
+        P2Client client;
+        P2ClientTestAccess::prepare(client, board, AnanModel::RedPitaya);
+        P2ClientTestAccess::feed(client, discovery(board), 1024);
+        check(P2ClientTestAccess::adcs(client) == 2 && P2ClientTestAccess::physicalDdc(client) == 2
+            && P2ClientTestAccess::filters(client) == ReceiveFilterKind::LegacyHpf,
+            "Red Pitaya P2 shared board IDs use dual ADC and legacy filters");
+    }
+    {
+        P2Client client;
+        P2ClientTestAccess::prepare(client, 5, AnanModel::Anan200D);
+        P2ClientTestAccess::feed(client, discovery(5), 1024);
+        check(!P2ClientTestAccess::validated(client), "Orion MkII cannot silently become ANAN-200D");
+    }
+    {
+        P2Client client;
+        P2ClientTestAccess::prepare(client, 5, AnanModel::Anan8000);
+        auto busy = discovery(5); busy[4] = 3;
+        P2ClientTestAccess::feed(client, busy, 1024);
+        check(!P2ClientTestAccess::validated(client), "selected logical model cannot take over a busy P2 radio");
     }
     if (failures == 0) {
         std::puts("anan_receive_profile_test: all checks passed");

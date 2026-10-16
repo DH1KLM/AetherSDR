@@ -51,6 +51,9 @@ std::optional<Control> receiveControl(std::uint8_t address,
         return bytes;
     }
     switch (address) {
+    case 0x26:
+        if (!c.anvelinaExtraOc) { return std::nullopt; }
+        break; //DH1KLM: Anvelina-only extra OC bank remains all-zero in RX.
     case 0x00:
         bytes[1] = c.rateKsps == 48 ? 0 : c.rateKsps == 96 ? 1
             : c.rateKsps == 192 ? 2 : 3;
