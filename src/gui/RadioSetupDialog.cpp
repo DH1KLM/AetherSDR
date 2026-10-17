@@ -21,6 +21,9 @@
 #include "models/XvtrPolicy.h"
 #include "core/AppSettings.h"
 #include "core/AutomationBridgeSettings.h"
+#ifdef HAVE_HIDAPI
+#include "core/HidEncoderManager.h"
+#endif
 #include "core/backends/hl2/Hl2Discovery.h"   // HL2 custom-nickname settings key
 #include "core/backends/hl2/Hl2FreqCal.h"     // manual frequency calibration (Calibration page)
 #include "core/NetworkSettings.h"
@@ -9179,6 +9182,57 @@ QWidget* RadioSetupDialog::buildSerialTab()
             grid->addWidget(combo, i + 1, 1, 1, 2);
             grid->setColumnStretch(1, 1);
         }
+
+        vbox->addWidget(group);
+    }
+
+    // Contour shuttle ring (#5928)
+    {
+        auto* group = new QGroupBox("Shuttle Ring (ShuttleXpress / ShuttlePro)");
+        auto* grid = new QGridLayout(group);
+        grid->setSpacing(6);
+
+        auto* note = new QLabel(
+            "The spring-loaded outer ring tunes continuously while held: a small "
+            "turn creeps, full deflection sweeps the band, letting go stops. "
+            "Full deflection reaches the same sweep speed at each step size.");
+        note->setWordWrap(true);
+        setTone(note, Tone::Hint);
+        grid->addWidget(note, 0, 0, 1, 3);
+
+        // Tuning-like actions only: a held ring on RF power or volume is unsafe.
+        static const struct { const char* id; const char* label; } kShuttleActions[] = {
+            {"WheelFrequency", "Tune Slice"},
+            {"WheelRit",       "RIT (Receive Incremental Tuning)"},
+            {"WheelXit",       "XIT (Transmit Incremental Tuning)"},
+            {"None",           "None"},
+        };
+        static const struct { const char* id; const char* label; } kShuttleSpeeds[] = {
+            {"Slow",   "Slow"},
+            {"Normal", "Normal"},
+            {"Fast",   "Fast"},
+        };
+
+        auto addCombo = [&](int row, const QString& label, const auto& items,
+                            const QString& field, const QString& dflt) {
+            auto* fieldLabel = new QLabel(label);
+            grid->addWidget(fieldLabel, row, 0);
+            auto* combo = new GuardedComboBox;
+            combo->setAccessibleName(QStringLiteral("Shuttle Ring ") + label.chopped(1));
+            combo->setObjectName(QStringLiteral("shuttleRing") + field);
+            fieldLabel->setBuddy(combo);
+            for (const auto& it : items)
+                combo->addItem(QString::fromLatin1(it.label), QString::fromLatin1(it.id));
+            const int idx = combo->findData(HidEncoderManager::shuttleMappingField(field, dflt));
+            combo->setCurrentIndex(idx >= 0 ? idx : 0);
+            connect(combo, &QComboBox::currentIndexChanged, this, [combo, field](int) {
+                HidEncoderManager::setShuttleMappingField(field, combo->currentData().toString());
+            });
+            grid->addWidget(combo, row, 1, 1, 2);
+        };
+        addCombo(1, "Action:", kShuttleActions, "action", "WheelFrequency");
+        addCombo(2, "Speed:", kShuttleSpeeds, "speed", "Normal");
+        grid->setColumnStretch(1, 1);
 
         vbox->addWidget(group);
     }
