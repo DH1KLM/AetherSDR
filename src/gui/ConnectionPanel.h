@@ -329,6 +329,8 @@ private:
     QWidget*     m_manualAnanRateRow{nullptr};
     QWidget*     m_manualAnanProfileRow{nullptr};
     QComboBox*   m_manualAnanProfileCombo{nullptr};
+    QWidget*     m_manualAnanOverrideRow{nullptr};
+    QCheckBox*   m_manualAnanOverrideCheck{nullptr};
     QWidget*     m_manualAnanProtocolRow{nullptr};
     QComboBox*   m_manualAnanProtocolCombo{nullptr};
     QComboBox*   m_manualAnanRateCombo{nullptr};

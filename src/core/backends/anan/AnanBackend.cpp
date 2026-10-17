@@ -329,12 +329,12 @@ AnanBackend::AnanBackend(QObject* parent)
         m_discoveredReceiverCount = reportedReceivers;
         m_discoveryInfoReceived = true;
         //DH1KLM: Also cover address-only connections after the board is known.
-        const auto profile = receiveProfile(boardId);
+        const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
         seedDroopCorrectionTables(m_pendingParams.protocol == 2
                                  && profile && profile->saturnDroopDefaults);
-        //DH1KLM: Shipped droop tables are Saturn-specific. Warn about other
-        // Saturn gateware versions, but never apply these tables to Orion MkII.
-        if (boardId == 10 && firmwareVer != kDefaultsGatewareVersion) {
+        //DH1KLM: Shipped droop tables follow the effective Saturn profile,
+        // including an explicit override. Warn about other gateware versions.
+        if (profile && profile->saturnDroopDefaults && firmwareVer != kDefaultsGatewareVersion) {
             qCWarning(lcAnanDefaults).nospace()
                 << "ANAN: radio reports gateware " << firmwareVer
                 << ", shipped droop defaults were derived against "
@@ -474,7 +474,7 @@ RadioCapabilities AnanBackend::capabilities() const
     //DH1KLM: Do not generalize the measured 5 V slow-ADC scaling to
     // Hermes/Angelia's 3.3 V hardware before its telemetry is qualified.
     c.hasSupplyVoltageTelemetry = m_pendingParams.protocol == 2
-        && (!m_discoveryInfoReceived || m_discoveredBoardId == 5 || m_discoveredBoardId == 10);
+        && (!m_discoveryInfoReceived || effectiveBoardId() == 5 || effectiveBoardId() == 10);
     //
     // There is NO PA temperature in this protocol. The radio's whole analog
     // payload is six fields and none of them is a temperature, so the readout
@@ -677,7 +677,10 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     m_pendingParams.protocol = request.params.value(QStringLiteral("anan.protocol"), 2).toInt();
     m_pendingParams.model = static_cast<AnanModel>(
         request.params.value(QStringLiteral("anan.model"), -1).toInt());
-    if (!ananModelInfo(m_pendingParams.model)) {
+    m_pendingParams.overrideDetection =
+        request.params.value(QStringLiteral("anan.overrideDetection"), false).toBool();
+    if (!ananModelInfo(m_pendingParams.model)
+        || (m_pendingParams.overrideDetection && m_pendingParams.model == AnanModel::Automatic)) {
         emit connectionError(QStringLiteral("Invalid or unsupported saved OpenHPSDR model profile."));
         return;
     }
@@ -688,9 +691,10 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         emit connectionError(QStringLiteral("Unsupported OpenHPSDR protocol selection."));
         return;
     }
-    //DH1KLM: Saturn-derived tables must never be applied to Orion MkII.
+    //DH1KLM: Saturn-derived defaults follow the selected effective profile.
     const auto profile = receiveProfile(
-        request.params.value(QStringLiteral("anan.boardId"), -1).toInt(), m_pendingParams.model);
+        request.params.value(QStringLiteral("anan.boardId"), -1).toInt(), m_pendingParams.model,
+        m_pendingParams.overrideDetection);
     if (request.params.contains(QStringLiteral("anan.boardId")) && !profile) {
         emit connectionError(QStringLiteral("The selected model does not match this radio's physical board."));
         return;
@@ -698,7 +702,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     seedDroopCorrectionTables(m_pendingParams.protocol == 2
                              && profile && profile->saturnDroopDefaults);
 
-    //DH1KLM: Physical ADC count comes from the selected board profile.
+    //DH1KLM: ADC count comes from the selected effective board profile.
     // Unknown address-only targets resolve it in P2Client after Discovery.
     m_pendingParams.numAdcs = profile ? profile->numAdcs : 2;
     m_pendingParams.host = request.host;
@@ -1496,7 +1500,7 @@ QVariantMap AnanBackend::droopStatus() const
         // because the calibrator holds them for the session.
         const DroopCorrectionTable* table =
             isMeasured ? &it.value()
-                       : (m_connected && m_discoveredBoardId == 10 ? defaultDroopTableForRate(rateKsps) : nullptr);
+                       : (m_connected && effectiveBoardId() == 10 ? defaultDroopTableForRate(rateKsps) : nullptr);
         if (!table)
             continue;
         const auto [lo, hi] = std::minmax_element(table->begin(), table->end());
@@ -1726,6 +1730,15 @@ void AnanBackend::onDspMeter(float dbfs)
         emit meterUpdate(QStringLiteral("SLC:LEVEL"), *out);
 }
 
+//DH1KLM: Retain discovery identity separately; an explicit override owns
+// board-dependent telemetry/default selection as well as RX packet encoding.
+int AnanBackend::effectiveBoardId() const
+{
+    const auto* model = ananModelInfo(m_pendingParams.model);
+    return m_pendingParams.overrideDetection && model
+        ? model->nativeBoardId : m_discoveredBoardId;
+}
+
 void AnanBackend::onSupplyRailCounts(int counts)
 {
     if (!m_supplyRailClock.isValid())
@@ -1736,7 +1749,7 @@ void AnanBackend::onSupplyRailCounts(int counts)
 void AnanBackend::onSupplyRailCountsAt(int counts, qint64 nowMs)
 {
     //DH1KLM: Publish only for the hardware families with the qualified scale.
-    if (m_discoveryInfoReceived && m_discoveredBoardId != 5 && m_discoveredBoardId != 10) {
+    if (m_discoveryInfoReceived && effectiveBoardId() != 5 && effectiveBoardId() != 10) {
         return;
     }
     // A 12-bit ADC reads 0..4095. Anything else means the field is not this

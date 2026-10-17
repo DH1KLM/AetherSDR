@@ -19,9 +19,11 @@ public:
         AnanModel model = AnanModel::Automatic;
         int protocol = 0; // 0: prefer P2, with the existing discovery fallback.
         bool valid = true;
+        bool overrideDetection = false;
     };
     static RadioProfile radioProfile(const QString& serial);
-    static bool setRadioProfile(const QString& serial, AnanModel model, int protocol);
+    static bool setRadioProfile(const QString& serial, AnanModel model, int protocol,
+                                bool overrideDetection = false);
     // DDC0 sample rate in ksps -- also the panadapter span. One of the six
     // rates AnanBackend::capabilities().sampleRatesHz declares. Not
     // validated here; AnanBackend::nearestDdc0RateKsps() is the actual

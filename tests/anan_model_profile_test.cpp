@@ -29,6 +29,28 @@ int main()
             check(!receiveProfile(wrong, model), "unrelated/unqualified wire ID cannot inherit model profile");
         }
     }
+    //DH1KLM: The explicit override may cross every implemented ANAN board
+    // family; its effective layout must equal the selected native profile.
+    for (const int board : {1, 2, 3, 4, 5, 10, 20}) {
+        for (const auto& entry : kAnanModels) {
+            if (entry.model == AnanModel::Automatic || !receiveProfile(entry.nativeBoardId)) { continue; }
+            const auto actual = receiveProfile(board, entry.model, true);
+            const auto wanted = receiveProfile(entry.nativeBoardId, entry.model);
+            check(actual && wanted && actual->numAdcs == wanted->numAdcs
+                  && actual->firstDdcIndex == wanted->firstDdcIndex
+                  && actual->filterKind == wanted->filterKind
+                  && actual->physicalDdcLimit == wanted->physicalDdcLimit
+                  && actual->swapSpeakerChannels == wanted->swapSpeakerChannels
+                  && actual->saturnDroopDefaults == wanted->saturnDroopDefaults,
+                  "board override uses the complete explicit model profile");
+        }
+    }
+    check(!receiveProfile(5, AnanModel::Automatic, true), "override requires explicit model");
+    check(!receiveProfile(5, static_cast<AnanModel>(99), true), "override rejects unknown model");
+    for (const int board : {0, 6, 11, 99}) {
+        check(!receiveProfile(board, AnanModel::Anan200D, true), "override cannot authorize unsupported physical board");
+    }
+    check(!receiveProfile(5, AnanModel::HermesLite2, true), "override cannot switch to HL2 P2");
     check(!ananModelInfo(static_cast<AnanModel>(17)), "LAST sentinel is not a model");
     check(!receiveProfile(5, static_cast<AnanModel>(99)), "unknown model rejected");
     check(!receiveProfile(6, AnanModel::HermesLite2), "HL2 P2 is excluded");

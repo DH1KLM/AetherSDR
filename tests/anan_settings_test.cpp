@@ -69,10 +69,29 @@ int main(int argc, char** argv)
     const auto legacy = AnanSettings::radioProfile(other);
     check(legacy.valid && legacy.model == AnanModel::RedPitaya && legacy.protocol == 1,
           "old tested Red Pitaya P1 setting retains model and protocol");
+    check(!legacy.overrideDetection, "schema-1 RP preference never enables free board override");
+    check(settings.setRadioFeature(QStringLiteral("anan"), other, QStringLiteral("HardwareProfile"), 2,
+        QJsonObject{{QStringLiteral("model"), int(AnanModel::Anan7000)}, {QStringLiteral("protocol"), 2},
+                    {QStringLiteral("overrideDetection"), true}}), "schema-2 fixture with unknown sibling field");
+    check(AnanSettings::radioProfile(other).valid && !AnanSettings::radioProfile(other).overrideDetection,
+          "schema-2 defaults override off even if an unowned field is present");
+    check(AnanSettings::setRadioProfile(rp, AnanModel::Anan200D, 2, true), "explicit board override stored");
+    const auto overridden = AnanSettings::radioProfile(rp);
+    check(overridden.valid && overridden.overrideDetection && overridden.model == AnanModel::Anan200D,
+          "override and selected model round-trip together");
+    check(!AnanSettings::radioProfile(other).overrideDetection, "override never leaks to second MAC");
+    check(!AnanSettings::setRadioProfile(rp, AnanModel::Automatic, 2, true), "automatic cannot enable override");
+    check(!AnanSettings::setRadioProfile(rp, AnanModel::HermesLite2, 2, true), "HL2 cannot be a board override");
+    check(AnanSettings::setRadioProfile(rp, AnanModel::Anan200D, 2, false)
+          && !AnanSettings::radioProfile(rp).overrideDetection, "override can be explicitly disabled");
+    check(settings.setRadioFeature(QStringLiteral("anan"), other, QStringLiteral("HardwareProfile"), 3,
+        QJsonObject{{QStringLiteral("model"), int(AnanModel::Anan200D)}, {QStringLiteral("protocol"), 2},
+                    {QStringLiteral("overrideDetection"), QStringLiteral("true")}}), "malformed override fixture");
+    check(!AnanSettings::radioProfile(other).valid, "non-boolean override field fails closed");
     check(!AnanSettings::setRadioProfile({}, AnanModel::Anan8000, 2), "model cannot write unknown identity");
     check(!AnanSettings::setRadioProfile(rp, static_cast<AnanModel>(99), 2), "invalid logical model rejected");
     check(!AnanSettings::setRadioProfile(rp, AnanModel::Anan8000, 3), "invalid wire preference rejected");
-    check(settings.setRadioFeature(QStringLiteral("anan"), rp, QStringLiteral("HardwareProfile"), 3,
+    check(settings.setRadioFeature(QStringLiteral("anan"), rp, QStringLiteral("HardwareProfile"), 4,
                                    QJsonObject{{QStringLiteral("model"), 10}}), "future model schema fixture");
     check(!AnanSettings::setRadioProfile(rp, AnanModel::Anan8000, 2), "future model schema not downgraded");
     check(!AnanSettings::radioProfile(rp).valid, "future model schema cannot silently choose a board profile");

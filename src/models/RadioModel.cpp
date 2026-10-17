@@ -732,6 +732,8 @@ static void populateFamilyParams(RadioConnectRequest& req, const QString& family
         const auto profile = anan::AnanSettings::radioProfile(req.serial);
         req.params.insert(QStringLiteral("anan.model"),
                           profile.valid ? static_cast<int>(profile.model) : -100);
+        req.params.insert(QStringLiteral("anan.overrideDetection"),
+                          profile.valid && profile.overrideDetection);
         req.params.insert(QStringLiteral("anan.ditherEnabled"),
                           anan::AnanSettings::ditherEnabled());
         req.params.insert(QStringLiteral("anan.randomEnabled"),

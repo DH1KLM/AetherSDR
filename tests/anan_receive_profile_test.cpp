@@ -15,11 +15,13 @@ using namespace AetherSDR::anan;
 
 namespace AetherSDR::anan {
 struct P2ClientTestAccess {
-    static void prepare(P2Client& client, int selectedBoardId, AnanModel model = AnanModel::Automatic)
+    static void prepare(P2Client& client, int selectedBoardId, AnanModel model = AnanModel::Automatic,
+                        bool overrideDetection = false)
     {
         client.m_expectedBoardId = selectedBoardId;
         client.m_model = model;
-        const auto profile = receiveProfile(selectedBoardId, model);
+        client.m_overrideDetection = overrideDetection;
+        const auto profile = receiveProfile(selectedBoardId, model, overrideDetection);
         client.m_numAdcs = profile ? profile->numAdcs : 2;
         client.m_activeDdcs = {{48, 0}};
         client.m_activeDdcCount = 1;
@@ -220,6 +222,27 @@ int main(int argc, char** argv)
         auto busy = discovery(5); busy[4] = 3;
         P2ClientTestAccess::feed(client, busy, 1024);
         check(!P2ClientTestAccess::validated(client), "selected logical model cannot take over a busy P2 radio");
+    }
+    {
+        //DH1KLM: A DIY Orion MkII digital board can deliberately use the
+        // ANAN-200D effective profile. Board identity remains the actual reply.
+        P2Client client;
+        P2ClientTestAccess::prepare(client, 5, AnanModel::Anan200D, true);
+        P2ClientTestAccess::feed(client, discovery(5), 0);
+        check(P2ClientTestAccess::validated(client)
+              && P2ClientTestAccess::physicalDdc(client) == 2
+              && P2ClientTestAccess::adcs(client) == 2
+              && P2ClientTestAccess::filters(client) == ReceiveFilterKind::LegacyHpf,
+              "explicit override applies ANAN-200D legacy filters on Orion MkII");
+    }
+    for (const bool busy : {false, true}) {
+        P2Client client;
+        P2ClientTestAccess::prepare(client, 5, AnanModel::Anan200D, true);
+        auto packet = discovery(busy ? 5 : 4);
+        if (busy) { packet[4] = 3; }
+        P2ClientTestAccess::feed(client, packet, 1024);
+        check(!P2ClientTestAccess::validated(client) && !client.isRunning(),
+              "override cannot bypass busy status or a different selected device identity");
     }
     if (failures == 0) {
         std::puts("anan_receive_profile_test: all checks passed");
