@@ -1201,6 +1201,38 @@ int main()
               "legacy HPF bypass and exact start edge are preserved");
     }
 
+    {
+        //DH1KLM: Thetis capture, 2026-10-17: Alex1 upper relay word follows
+        // ANT1 + 80 m/20 m LPF even in RX. Its low ADC1 filter word is separate.
+        const FilterConfig config = defaultFilterConfig(false);
+        for (const auto& [hz, capturedUpper] : std::array<std::pair<double, std::uint32_t>, 2>{{
+                 {3650000.0, 0x01400000u}, {14175000.0, 0x01100000u}}}) {
+            const std::array<std::uint32_t, 1> words{phaseWord(hz)};
+            const auto packet = buildHighPriority(true, words, false, true, 0, 0, 1, 2,
+                true, ReceiveFilterKind::LegacyHpf, 2, &config);
+            const auto readWord = [&packet](int offset) {
+                return (std::uint32_t{packet[offset]} << 24) | (std::uint32_t{packet[offset+1]} << 16)
+                    | (std::uint32_t{packet[offset+2]} << 8) | packet[offset+3];
+            };
+            check((readWord(1428) & 0xffff0000u) == capturedUpper,
+                  "Thetis captured LPF/ANT1 relay word is also sent in Alex1");
+            check((readWord(1428) & 0xffffu) == 0x1000u,
+                  "mirroring LPF and antenna preserves independent ADC1 bypass");
+            check(packet[4] == 1 && (readWord(1428) & 0x08040000u) == 0,
+                  "Alex1 relay compatibility never sets T/R, TX status or PTT");
+        }
+        const std::array<std::uint32_t,1> words{phaseWord(14175000)};
+        const auto oneAdc = buildHighPriority(true, words, false, false, 0, 0, 3, 0,
+            true, ReceiveFilterKind::LegacyHpf, 1, &config);
+        check(oneAdc[1428] == 4 && oneAdc[1429] == 0x10
+              && oneAdc[1430] == 0 && oneAdc[1431] == 0,
+              "single ADC retains its LPF and antenna relay word without an ADC1 filter");
+        const auto saturn = buildHighPriority(true, words, false, true, 0, 0, 1, 0,
+            false, ReceiveFilterKind::MkIIBpf, 2);
+        check(saturn[1428] == 0 && saturn[1429] == 0,
+              "qualified Saturn profile keeps its LPF relay word disabled");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "anan_p2_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;
