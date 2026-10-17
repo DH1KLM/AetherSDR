@@ -132,6 +132,9 @@ hardware profile described above.
 
 With override ON, the main operating interface (radio tabs, model label and
 default station name) shows the selected model, for example **ANAN-200D**.
+The connected radio tab uses the running session's profile even if its
+discovery-list entry still contains an older model. ANAN discovery changes
+also refresh the radio tabs and switcher.
 A custom nickname still takes precedence over the default station name.
 The connection dialog continues to show the reported physical board family
 and the separate mapping details. FlexRadio, Icom and Hermes-Lite 2 retain

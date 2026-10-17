@@ -111,6 +111,20 @@ int main(int argc, char** argv)
     check(diy.displayModel() == QStringLiteral("ANAN-200D")
           && diy.model.contains(QStringLiteral("Orion MkII")),
           "override presents ANAN-200D to operating UI while retaining discovery identity");
+    RadioInfo staleDiscovery = diy;
+    staleDiscovery.effectiveModel.clear();
+    staleDiscovery.connectionProfile = QStringLiteral("Profile: Automatic • Override OFF");
+    check(staleDiscovery.displayIdentityForSession(&diy).displayModel() == QStringLiteral("ANAN-200D"),
+          "active tab uses connected override when discovery cache predates directed connect");
+    check(staleDiscovery.displayIdentityForSession(nullptr).displayModel() == staleDiscovery.model,
+          "disconnected tabs use discovery metadata");
+    check(diy.displayIdentityForSession(&staleDiscovery).effectiveModel.isEmpty(),
+          "new override-OFF session wins over previously mapped discovery row");
+    check(staleDiscovery.displayIdentityForSession(&genuine).serial == staleDiscovery.serial,
+          "active profile never leaks into another radio tab");
+    RadioInfo sameSerialOtherFamily = diy; sameSerialOtherFamily.family = QStringLiteral("flex");
+    check(staleDiscovery.displayIdentityForSession(&sameSerialOtherFamily).effectiveModel.isEmpty(),
+          "same serial in another family cannot override discovery display");
     check(genuine.effectiveModel.isEmpty() && genuine.displayModel() == genuine.model,
           "override OFF retains normal model presentation");
     RadioInfo fallbackName = diy;
