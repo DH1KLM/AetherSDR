@@ -45,6 +45,13 @@ Supply voltage for these additional profiles is not reported until qualified.
 
 The G2 is found automatically on your LAN: open **File → Connect to Radio...** → **On This Network**, select it and click **Connect Selected Radio**.
 
+Click **Scan** on **On This Network** to request discovery immediately, even
+when radios are already listed. This also sends the HL2 and ANAN P1/P2 probes.
+The status shows **Scanning…**, then the end time of the two-second response
+window and the total devices currently listed. The count includes existing
+entries; it is not a count of new replies. Automatic discovery continues and
+can still receive late replies. **Retry Discovery** uses the same scan action.
+
 To reach it across a VPN or another subnet, use **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P1/P2)** (see [Manual Connection](./manual-connection.md)). For the ANAN-7000DLE, use the same **ANAN / OpenHPSDR (P1/P2)** radio-type entry;
 Discovery selects the Orion MkII receive layout automatically. The form's
 connection options apply on both paths.

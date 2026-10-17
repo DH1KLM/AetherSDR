@@ -46,6 +46,7 @@
 #include <QNetworkDatagram>
 #include <QDeadlineTimer>
 #include <QTimer>
+#include <QDateTime>
 #include <QVBoxLayout>
 #include <QWindow>
 #include "core/ThemeManager.h"
@@ -504,6 +505,22 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
         "Discovery finds radios automatically on your local network. If nothing appears, "
         "guest Wi-Fi isolation, VPN software, or firewall rules may be blocking discovery.",
         kHintLabelStyle));
+
+    //DH1KLM: Visible with both an empty and populated radio list. Discovery
+    // continues automatically; this row tracks a requested response window.
+    auto* scanRow = new QHBoxLayout;
+    m_scanStatusLabel = makeWrappedLabel(tr("Automatic discovery is running. No manual scan yet."), kHintLabelStyle);
+    m_scanStatusLabel->setObjectName(QStringLiteral("connectionDiscoveryScanStatus"));
+    m_scanStatusLabel->setAccessibleName(tr("Discovery scan status"));
+    m_scanStatusLabel->setTextFormat(Qt::PlainText);
+    scanRow->addWidget(m_scanStatusLabel, 1);
+    m_scanBtn = new QPushButton(tr("Scan"), localPage);
+    m_scanBtn->setObjectName(QStringLiteral("connectionDiscoveryScanButton"));
+    m_scanBtn->setAccessibleName(tr("Scan for local radios now"));
+    m_scanBtn->setAccessibleDescription(tr("Request discovery now and show a two-second response window. Automatic discovery continues afterward."));
+    m_scanBtn->setToolTip(m_scanBtn->accessibleDescription());
+    scanRow->addWidget(m_scanBtn);
+    localLayout->addLayout(scanRow);
 
     m_localStateStack = new QStackedWidget(localPage);
     localLayout->addWidget(m_localStateStack, 1);
@@ -1312,10 +1329,8 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     connect(m_modeButtons, QOverload<int>::of(&QButtonGroup::idClicked),
             this, &ConnectionPanel::onConnectionModeClicked);
 
-    connect(retryBtn, &QPushButton::clicked, this, [this] {
-        setStatusText("Refreshing local discovery…");
-        emit retryDiscoveryRequested();
-    });
+    connect(retryBtn, &QPushButton::clicked, this, &ConnectionPanel::startLocalScan);
+    connect(m_scanBtn, &QPushButton::clicked, this, &ConnectionPanel::startLocalScan);
     connect(connectByIpBtn, &QPushButton::clicked, this, [this] {
         setCurrentMode(ManualMode);
         m_manualIpEdit->setFocus();
@@ -2250,6 +2265,34 @@ void ConnectionPanel::addDemoRadio()
 void ConnectionPanel::removeDemoRadio()
 {
     onRadioLost(SimBackend::demoSerial());
+}
+
+void ConnectionPanel::startLocalScan()
+{
+    if (m_scanRunning)
+        return;
+    m_scanRunning = true;
+    m_scanBtn->setEnabled(false);
+    m_scanBtn->setText(tr("Scanning…"));
+    m_scanBtn->setAccessibleDescription(tr("A scan response window is already running. Scan will be available again after two seconds."));
+    m_scanBtn->setToolTip(m_scanBtn->accessibleDescription());
+    m_scanStatusLabel->setText(tr("Scan requested; collecting replies for two seconds…"));
+    m_scanStatusLabel->setAccessibleDescription(m_scanStatusLabel->text());
+    emit retryDiscoveryRequested();
+    //DH1KLM: A bounded observation window is not a claim that every device
+    // replied. Late replies still enter the continuously running discovery.
+    QTimer::singleShot(2000, this, [this] {
+        m_scanRunning = false;
+        m_scanBtn->setEnabled(true);
+        m_scanBtn->setText(tr("Scan"));
+        m_scanBtn->setAccessibleDescription(tr("Request another local discovery scan now."));
+        m_scanBtn->setToolTip(m_scanBtn->accessibleDescription());
+        m_scanStatusLabel->setText(tr("Scan window ended at %1 • %2 devices listed. Automatic discovery continues.")
+            .arg(QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss")))
+            .arg(m_radios.size()));
+        m_scanStatusLabel->setAccessibleDescription(m_scanStatusLabel->text());
+        refitToContent();
+    });
 }
 
 void ConnectionPanel::onListSelectionChanged()

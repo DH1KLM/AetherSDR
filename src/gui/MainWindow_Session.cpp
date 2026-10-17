@@ -439,12 +439,18 @@ void MainWindow::wireDiscovery()
                     m_autoConnectSerial.clear();
             });
     connect(m_connPanel, &ConnectionPanel::retryDiscoveryRequested, this, [this] {
-        m_connPanel->setStatusText(RtlSdrDiscovery::isAvailable()
-                                       ? "Searching local network & USB devices…"
-                                       : "Searching your local network…");
+        //DH1KLM: The panel's scan row owns progress/completion text; do not
+        // overwrite connection errors or leave the footer saying Searching.
         if (m_titleBar) m_titleBar->setDiscovering(true);
+        QTimer::singleShot(2000, this, [this] {
+            if (m_titleBar) m_titleBar->setDiscovering(false);
+        });
         m_discovery.stopListening();
         m_discovery.startListening();
+        //DH1KLM: Retry/Scan must also send the active OpenHPSDR probes now,
+        // rather than only restarting Flex's passive listener.
+        m_hl2Discovery.sweepNow();
+        m_ananDiscovery.sweepNow();
         if (RtlSdrDiscovery::isAvailable()) {
             m_rtlDiscovery.stop();
             m_rtlDiscovery.start();
