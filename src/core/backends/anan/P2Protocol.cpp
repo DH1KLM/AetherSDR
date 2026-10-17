@@ -310,6 +310,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
         //DH1KLM: Select the antenna-chain LPF as well as the ADC0 BPF1.
         alex0 |= filters ? lowPassFilterBits(*filters, hz) : receiveLpfRegisterBits(rxWord);
     }
+    //DH1KLM: Thetis CmdHighPriority byte 1401: OC1..7 occupy bits 1..7.
+    pkt[1401] = run && filters ? static_cast<std::uint8_t>(receiveOcMask(*filters, hz) << 1) : 0;
     writeU32be(&pkt[1432], alex0);
     if (selectReceiveLpf) {
         //DH1KLM: Thetis SetAntBits/SetAlexLPFBits also populate Alex1's upper

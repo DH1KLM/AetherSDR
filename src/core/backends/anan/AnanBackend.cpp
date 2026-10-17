@@ -1599,6 +1599,15 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     state.insert(QStringLiteral("lpfActive"), selectedFilterBand(config.lowPass, m_sliceFreqHz) < 0
         ? 6 : selectedFilterBand(config.lowPass, m_sliceFreqHz));
     state.insert(QStringLiteral("frequencyHz"), m_sliceFreqHz);
+    state.insert(QStringLiteral("ocMask"), receiveOcMask(config, m_sliceFreqHz));
+    state.insert(QStringLiteral("antenna"), m_rxAntenna);
+    state.insert(QStringLiteral("host"), m_pendingParams.host);
+    state.insert(QStringLiteral("firmware"), m_discoveredFirmwareVer);
+    state.insert(QStringLiteral("reportedReceivers"), m_discoveredReceiverCount);
+    state.insert(QStringLiteral("rateKsps"), m_pendingParams.ddc0RateKsps);
+    state.insert(QStringLiteral("adcIndex"), m_pendingParams.ddc0AdcIndex);
+    state.insert(QStringLiteral("dither"), m_pendingParams.ditherEnabled);
+    state.insert(QStringLiteral("random"), m_pendingParams.randomEnabled);
     return state;
 }
 
@@ -1625,7 +1634,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             const auto config = parseFilterOptions(options);
             if (!config || !AnanSettings::setHardwareFilters(m_radioSerial,
                     static_cast<int>(m_pendingParams.model), m_discoveredBoardId, options)) {
-                emit extensionError(requestId, QStringLiteral("Filter ranges must be ordered, non-overlapping integer Hz within 0–61.44 MHz; settings must be writable."));
+                emit extensionError(requestId, QStringLiteral("Filter and OC ranges must be valid integer Hz within 0–61.44 MHz; configured OC bands need distinct ranges and masks 0–127. Settings must be writable."));
                 return;
             }
             m_pendingParams.filters = *config;

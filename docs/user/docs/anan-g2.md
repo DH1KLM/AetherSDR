@@ -97,11 +97,27 @@ Connection options:
 
 ## Anan Hardware
 
-After connecting, open **Radio Setup → Radio → Anan Hardware**. The page
-shows the effective model, physical discovery board, MAC, protocol and override
-state. An explicit model override determines the hardware configuration;
-without an override the selected compatible model or physical-board profile is
-used. Other radio families retain their own hardware pages.
+Open **Radio Setup → Radio → Anan Hardware**. The page is always listed,
+including before connection; device controls are disabled until an ANAN has a
+validated session. It follows the Nereus hardware-page arrangement:
+
+- **Radio Info**: **Board Identity** (physical board, P1/P2, ADC count, reported
+  receiver count, firmware, MAC, IP) and **Operating Parameters**. The effective
+  model and override remain distinct from the physical board. One receiver is active.
+- **Antenna / ALEX**: **Antenna Control**, **Alex-1 Filters**, **Alex-2 Filters**.
+  ANT1/2/3 selection applies immediately. ADC0 filter limits and bypass are on
+  Alex-1; ADC1 bypass and the shared range readout are on Alex-2.
+- **OC Outputs**: **HF**, **VHF**, **SWL**. HF has RX/TX pin matrices side by side
+  and a commanded RX pin-state readout. The RX matrix is configurable; TX, VHF,
+  SWL, USB BCD, external PA and user digital outputs are visible but disabled
+  with their unsupported reason.
+- **Calibration**: visible frequency, level, TX-display and current-calibration
+  sections explain unavailable functions. **Open Droop Correction** opens the
+  existing P2 droop sweep; it is disabled for P1.
+
+An explicit model override determines the filter configuration; otherwise the
+selected compatible model or physical-board profile is used. FlexRadio, Icom
+and HL2 retain their own hardware settings.
 
 **ALEX HPF bands** is used by the legacy Hermes, Angelia and Orion profiles
 (including ANAN-100/100D/200D). **ADC BPF bands** is used by Orion MkII
@@ -128,12 +144,23 @@ settings, without transferring custom limits from a different model.
 
 P2 profiles with LPF selection send the antenna/LPF relay word in both ALEX0
 and ALEX1, matching Thetis' P2 4.3+ layout. This is separate from OC outputs:
-external filters wired to band-dependent open collectors are not driven by
-this ALEX frequency table. OC band mapping is not implemented here.
+external filters wired to open collectors use **OC Outputs → HF** instead.
+Check the wanted RX pins per band and **Enable RX OC outputs**, then **Apply**.
+Both the enable and every pin default off, including after upgrading older
+filter settings. The seven ordinary OC pins are supported by P1 and P2;
+Anvelina's extra pins remain off. Band limits come from the active band plan
+when first configured (hover the band name to inspect them), and are saved
+with this device/model. Discrete receive channels are treated as one band
+range; this is receive routing, not a transmit-permission check. Outside the
+configured ranges and on a normal stop, all RX OC outputs are cleared.
+An absent band is disabled with a reason. **Restore model defaults** also
+clears OC assignments and disables outputs.
 
 **Commanded ADC0 / ADC1 / LPF** indicates the software's requested filter,
-not physical relay feedback. This page configures receive filters only; it does
-not add transmit, PureSignal, OC-output or calibration controls.
+not physical relay feedback. Pending edits are marked **Changes pending** until **Apply** succeeds. The
+page controls receive filters, antennas and the RX OC matrix; it does not add
+transmit or PureSignal. Unsupported Nereus-style sections remain visible and
+disabled rather than presenting working controls.
 
 ## Protocol 1 reception
 
