@@ -1089,6 +1089,36 @@ int main()
               "unknown board IDs receive an explicit label");
     }
 
+    //DH1KLM: ANAN-7000DLE capture, 2026-10-17: the directed request to
+    // UDP/1024 gets a valid reply from UDP/0 after 94 us. MAC anonymized.
+    // The former manual-connect port guard discarded this exact reply shape.
+    {
+        std::array<std::uint8_t, 60> captured{
+            0, 0, 0, 0, 2, 0x02, 0x11, 0x22, 0x33, 0x44, 0x55,
+            5, 44, 22, 0, 0, 0, 0, 0, 0, 5, 1, 16, 15
+        };
+        const auto directed = parseDirectedDiscoveryReply(captured, 0);
+        check(directed && directed->boardId == 5 && directed->wireProtocol == 2
+                  && !directed->streaming,
+              "captured Orion MkII P2 reply from UDP/0 reaches manual discovery");
+        check(parseDirectedDiscoveryReply(captured, 1024).has_value(),
+              "P2 discovery still accepts the usual UDP/1024 source");
+        check(!parseDirectedDiscoveryReply(captured, 1025),
+              "status-source port is not accepted as a directed discovery endpoint");
+        check(!parseDirectedDiscoveryReply(std::span(captured).first(10), 0),
+              "UDP/0 does not bypass discovery length validation");
+        captured[0] = 1;
+        check(!parseDirectedDiscoveryReply(captured, 0),
+              "UDP/0 does not bypass discovery signature validation");
+        const std::array<std::uint8_t, 63> legacy{
+            0xef, 0xfe, 2, 0x02, 0x11, 0x22, 0x33, 0x44, 0x55, 22, 5
+        };
+        check(parseDirectedDiscoveryReply(legacy, 1024).has_value(),
+              "P1 discovery retains its UDP/1024 endpoint");
+        check(!parseDirectedDiscoveryReply(legacy, 0),
+              "observed P2 UDP/0 exception does not broaden P1 discovery");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "anan_p2_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;
