@@ -1,4 +1,7 @@
 #include "core/backends/anan/AnanSettings.h"
+#include "core/backends/anan/P2Protocol.h"
+#include "core/RadioDiscovery.h"
+#include <QCoreApplication>
 
 #include "core/AppSettings.h"
 #include "core/RadioSettingsScope.h"
@@ -211,6 +214,68 @@ bool AnanSettings::setRadioProfile(const QString& serial, AnanModel model, int p
     doc.insert(QStringLiteral("model"), static_cast<int>(model));
     doc.insert(QStringLiteral("protocol"), protocol);
     doc.insert(QStringLiteral("overrideDetection"), overrideDetection);
+    return scope.setFeature(QStringLiteral("HardwareProfile"), 3, doc);
+}
+
+//DH1KLM: Discovery reports a board family, never proof of a specific SKU.
+// Keep that identity intact and expose the effective mapping separately.
+void AnanSettings::applyRadioProfileDisplay(RadioInfo& radio)
+{
+    if (radio.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) != 0)
+        return;
+    if (radio.boardId >= 0 && radio.boardId <= 255) {
+        DiscoveryReply physical;
+        physical.boardId = static_cast<std::uint8_t>(radio.boardId);
+        radio.model = QString::fromLatin1(physical.boardDisplayName());
+        radio.name = radio.model;
+    }
+    const auto saved = radioProfile(radio.serial);
+    const auto* descriptor = ananModelInfo(saved.model);
+    const QString profile = !saved.valid || !descriptor
+        ? QCoreApplication::translate("AnanSettings", "Invalid saved profile")
+        : QString::fromLatin1(descriptor->name.data(), descriptor->name.size());
+    radio.connectionProfile = QCoreApplication::translate("AnanSettings", "Profile: %1 • Override %2")
+        .arg(profile, saved.valid && saved.overrideDetection ? QStringLiteral("ON") : QStringLiteral("OFF"));
+    if (radio.hpsdrProtocol == 1 || radio.hpsdrProtocol == 2)
+        radio.connectionProfile += QStringLiteral(" • P%1").arg(radio.hpsdrProtocol);
+}
+
+bool AnanSettings::hasRadioProfileMapping(const RadioInfo& radio)
+{
+    if (radio.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) != 0
+        || radio.serial.trimmed().isEmpty())
+        return false;
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    const auto doc = RadioSettingsScope(QStringLiteral("anan"), radio.serial)
+        .featureExact(QStringLiteral("HardwareProfile"), &version, &status);
+    if (status != AppSettings::FeatureReadStatus::Present || version < 1 || version > 3)
+        return false;
+    return version == 1 ? doc.value(QStringLiteral("redPitayaP1")).toBool(false)
+        : doc.value(QStringLiteral("model")).toInt(-1) != -1
+            || doc.value(QStringLiteral("overrideDetection")).toBool(false);
+}
+
+bool AnanSettings::forgetRadioProfileMapping(const RadioInfo& radio)
+{
+    if (radio.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) != 0
+        || radio.serial.trimmed().isEmpty())
+        return false;
+    const RadioSettingsScope scope(QStringLiteral("anan"), radio.serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("HardwareProfile"), &version, &status);
+    if (status == AppSettings::FeatureReadStatus::Missing)
+        return true;
+    if (status != AppSettings::FeatureReadStatus::Present || version < 1 || version > 3)
+        return false;
+    //DH1KLM: Forget only the logical model/override mapping. Keep protocol,
+    // sibling fields and every other feature (nickname, DSP, calibration, etc.).
+    if (version == 1)
+        doc.insert(QStringLiteral("protocol"), doc.value(QStringLiteral("redPitayaP1")).toBool(false) ? 1 : 0);
+    doc.remove(QStringLiteral("redPitayaP1"));
+    doc.insert(QStringLiteral("model"), static_cast<int>(AnanModel::Automatic));
+    doc.insert(QStringLiteral("overrideDetection"), false);
     return scope.setFeature(QStringLiteral("HardwareProfile"), 3, doc);
 }
 

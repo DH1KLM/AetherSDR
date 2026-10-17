@@ -6668,6 +6668,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_connectSliceEnumeration.cancelArm();
     }
 
+    if (connected)
+        m_connPanel->setConnectionInfo(m_radioModel.lastRadioInfo());
     m_connPanel->setConnected(connected);
     updateExperimentalRadioSupport(connected);
 

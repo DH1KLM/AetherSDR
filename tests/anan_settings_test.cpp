@@ -11,6 +11,7 @@
 
 #include "core/AppSettings.h"
 #include "core/backends/anan/AnanSettings.h"
+#include "core/RadioDiscovery.h"
 
 #include <QCoreApplication>
 #include <QJsonObject>
@@ -88,6 +89,62 @@ int main(int argc, char** argv)
         QJsonObject{{QStringLiteral("model"), int(AnanModel::Anan200D)}, {QStringLiteral("protocol"), 2},
                     {QStringLiteral("overrideDetection"), QStringLiteral("true")}}), "malformed override fixture");
     check(!AnanSettings::radioProfile(other).valid, "non-boolean override field fails closed");
+
+    //DH1KLM: Two radios sharing a selected profile must retain different
+    // reported identities. Forget removes only the selected MAC's mapping.
+    RadioInfo diy;
+    diy.family = QStringLiteral("anan"); diy.serial = rp; diy.boardId = 5;
+    diy.hpsdrProtocol = 2; diy.address = QHostAddress(QStringLiteral("192.0.2.10"));
+    diy.nickname = QStringLiteral("DIY Red Pitaya");
+    RadioInfo genuine = diy; genuine.serial = other; genuine.boardId = 4;
+    genuine.address = QHostAddress(QStringLiteral("192.0.2.11"));
+    check(AnanSettings::setRadioProfile(rp, AnanModel::Anan200D, 2, true)
+          && AnanSettings::setRadioProfile(other, AnanModel::Anan200D, 2, false), "same-profile device fixtures");
+    auto mappedDoc = settings.radioFeatureExact(QStringLiteral("anan"), rp, QStringLiteral("HardwareProfile"));
+    mappedDoc.insert(QStringLiteral("otherField"), 42);
+    check(settings.setRadioFeature(QStringLiteral("anan"), rp, QStringLiteral("HardwareProfile"), 3, mappedDoc),
+          "unrelated sibling field fixture");
+    check(settings.setRadioFeature(QStringLiteral("anan"), rp, QStringLiteral("Identity"), 1,
+        QJsonObject{{QStringLiteral("nickname"), QStringLiteral("DIY Red Pitaya")}}), "nickname fixture");
+    AnanSettings::applyRadioProfileDisplay(diy);
+    AnanSettings::applyRadioProfileDisplay(genuine);
+    check(diy.model.contains(QStringLiteral("Orion MkII"))
+          && genuine.model.contains(QStringLiteral("ANAN-200D")) && diy.model != genuine.model,
+          "selected ANAN-200D profile never replaces reported board identity");
+    check(diy.connectionProfile.contains(QStringLiteral("ANAN-200D"))
+          && diy.connectionProfile.contains(QStringLiteral("Override ON"))
+          && genuine.connectionProfile.contains(QStringLiteral("Override OFF")),
+          "profile and override status remain explicit and distinct");
+    check(diy.nickname == QStringLiteral("DIY Red Pitaya"), "presentation retains independent nickname");
+    const auto snapshot = diy.connectionProfile;
+    check(AnanSettings::hasRadioProfileMapping(diy) && AnanSettings::hasRadioProfileMapping(genuine),
+          "explicit model choices are forgettable even without override");
+    check(AnanSettings::forgetRadioProfileMapping(diy), "forget selected mapping");
+    const auto forgotten = AnanSettings::radioProfile(rp);
+    check(forgotten.valid && forgotten.model == AnanModel::Automatic && !forgotten.overrideDetection
+          && forgotten.protocol == 2, "forget restores automatic model and retains protocol");
+    check(!AnanSettings::hasRadioProfileMapping(diy) && AnanSettings::hasRadioProfileMapping(genuine),
+          "forget affects only selected radio and disables repeat forget");
+    check(settings.radioFeatureExact(QStringLiteral("anan"), rp, QStringLiteral("HardwareProfile"))
+              .value(QStringLiteral("otherField")).toInt() == 42
+          && settings.radioFeatureExact(QStringLiteral("anan"), rp, QStringLiteral("Identity"))
+              .value(QStringLiteral("nickname")).toString() == QStringLiteral("DIY Red Pitaya"),
+          "forget preserves sibling fields and separate features");
+    check(diy.connectionProfile == snapshot, "connect-time presentation snapshot remains immutable");
+    AnanSettings::applyRadioProfileDisplay(diy);
+    check(diy.connectionProfile.contains(QStringLiteral("Automatic"))
+          && diy.connectionProfile.contains(QStringLiteral("Override OFF"))
+          && diy.model.contains(QStringLiteral("Orion MkII")), "rediscovery renders physical identity after forget");
+    RadioInfo foreign = diy; foreign.family = QStringLiteral("flex");
+    check(!AnanSettings::hasRadioProfileMapping(foreign) && !AnanSettings::forgetRadioProfileMapping(foreign),
+          "forget refuses another radio family");
+    foreign = diy; foreign.serial.clear();
+    check(!AnanSettings::forgetRadioProfileMapping(foreign), "forget never writes a family-wide default");
+    check(AnanSettings::setRedPitayaP1ForRadio(QStringLiteral("legacy-forget"), true), "legacy forget fixture");
+    foreign = diy; foreign.serial = QStringLiteral("legacy-forget");
+    check(AnanSettings::forgetRadioProfileMapping(foreign)
+          && AnanSettings::radioProfile(foreign.serial).protocol == 1
+          && !AnanSettings::redPitayaP1ForRadio(foreign.serial), "legacy forget preserves P1 preference only");
     check(!AnanSettings::setRadioProfile({}, AnanModel::Anan8000, 2), "model cannot write unknown identity");
     check(!AnanSettings::setRadioProfile(rp, static_cast<AnanModel>(99), 2), "invalid logical model rejected");
     check(!AnanSettings::setRadioProfile(rp, AnanModel::Anan8000, 3), "invalid wire preference rejected");
@@ -95,6 +152,7 @@ int main(int argc, char** argv)
                                    QJsonObject{{QStringLiteral("model"), 10}}), "future model schema fixture");
     check(!AnanSettings::setRadioProfile(rp, AnanModel::Anan8000, 2), "future model schema not downgraded");
     check(!AnanSettings::radioProfile(rp).valid, "future model schema cannot silently choose a board profile");
+    check(!AnanSettings::forgetRadioProfileMapping(diy), "forget refuses newer schema without downgrading it");
 
     // ---- defaults on an empty document -------------------------------------
     AnanSettings::reset();

@@ -66,6 +66,9 @@ struct RadioInfo {
     int hpsdrProtocol{0};
     QString name;           // e.g. "FLEX-6600"
     QString model;
+    //DH1KLM: Display-only effective profile, separate from reported identity.
+    // Captured for the session so later settings edits cannot relabel live hardware.
+    QString connectionProfile;
     QString serial;
     RadioSerialIdentity serialIdentity; // Reported identity, independent of locator.
     QString version;

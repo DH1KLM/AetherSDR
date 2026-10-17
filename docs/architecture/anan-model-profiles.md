@@ -77,6 +77,28 @@ Behavioral reference: Zeus commit `1aa1d8632df7fe4b63cf49f1bac937793f6f309a`,
 and [RadioSelector](https://github.com/abhishekprakash22/zeus/blob/1aa1d8632df7fe4b63cf49f1bac937793f6f309a/zeus-web/src/components/RadioSelector.tsx#L235-L267).
 Thetis remains the authority for each selected model's wire behavior.
 
+## Identity, presentation and forgetting
+
+`RadioInfo::model` retains the reported board family. The display-only
+`connectionProfile` describes the effective model and override separately;
+it never selects a codec. Both discovery paths use the same ANAN presentation
+helper. Discovery's change detection includes this description so a mapping
+edit refreshes the row even if the reported model does not change. IP and
+ID/MAC are always shown on these rows, with an independent custom nickname
+when present. A shared board byte cannot prove a specific product identity.
+
+`RadioModel::lastRadioInfo()` captures the profile at the connect boundary.
+The connection dialog displays this snapshot while connected, independently
+of list selection and subsequent settings changes.
+
+The disconnected selected-row **Forget** action resets only the model and
+override fields in the exact-radio HardwareProfile document. It preserves
+protocol preference, unknown sibling fields and every other feature. Schema-1
+Red Pitaya's implicit P1 preference is retained during normalization. Future
+schemas and unavailable/corrupt storage fail closed. This is neither device
+deletion nor a discovery blacklist; the row is immediately refreshed and
+normal discovery continues.
+
 ## Qualification boundaries
 
 The operator confirmed ANAN-7000DLE P2 and Red Pitaya P1/384 ksps using commit
