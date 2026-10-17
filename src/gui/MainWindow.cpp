@@ -2177,6 +2177,7 @@ MainWindow::MainWindow(QWidget* parent)
                                                      m_adaptiveFpsCap,
                                                      dwellPending);
         m_networkLabel->setToolTip(tooltip);
+        m_networkStatusBlock->setToolTip(tooltip);
     });
 
     connect(&m_radioModel, &RadioModel::adaptiveThrottleChanged,
@@ -6367,6 +6368,13 @@ void MainWindow::buildUI()
 
     // Network label (top) + quality (bottom) stacked
     auto* netStack = new QWidget;
+    m_networkStatusBlock = netStack;
+    netStack->setObjectName(QStringLiteral("networkStatusBlock"));
+    netStack->setAccessibleName(tr("Network diagnostics"));
+    netStack->setAccessibleDescription(
+        tr("Double-click or press Return/Enter to open Network Diagnostics"));
+    keyboardOperable(netStack);
+    netStack->installEventFilter(this);
     reserveTelemetryStack(netStack, {
         QStringLiteral("Network:"),
         QStringLiteral("[Very Good]")
@@ -6379,21 +6387,26 @@ void MainWindow::buildUI()
     auto* netTitle = new QLabel("Network:");
     applyStatusBarCompactLabelStyle(netTitle, QStringLiteral("{{color.text.secondary}}"));
     netTitle->setAlignment(Qt::AlignCenter);
+    // Both rows share the container's hover and double-click hit area.
+    netTitle->setAttribute(Qt::WA_TransparentForMouseEvents);
     netVbox->addWidget(netTitle);
     m_networkLabel = new QLabel("");
     m_networkLabel->setAccessibleName(tr("Network status"));
-    m_networkLabel->setAccessibleDescription(
-        tr("Network quality; double-click to open full diagnostics"));
+    m_networkLabel->setAccessibleDescription(tr("Network quality"));
     applyStatusBarCompactLabelStyle(m_networkLabel, QStringLiteral("{{color.text.label}}"));
     m_networkLabel->setTextFormat(Qt::RichText);
     m_networkLabel->setAlignment(Qt::AlignCenter);
+    m_networkLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    // Direct bridge events can still address the readout by accessible name.
+    m_networkLabel->installEventFilter(this);
     m_networkLabel->setToolTip(buildNetworkTooltip(m_radioModel,
                                                    m_adaptiveFpsCap,
                                                    m_radioModel.pendingThrottleLift()));
-    m_networkLabel->installEventFilter(this);
+    netStack->setToolTip(m_networkLabel->toolTip());
     m_networkTooltipRefreshTimer.setInterval(1000);
     connect(&m_networkTooltipRefreshTimer, &QTimer::timeout, this, [this] {
-        if (!m_networkLabel || !m_networkLabel->underMouse()) {
+        if (!m_networkStatusBlock
+            || (!m_networkStatusBlock->underMouse() && !m_networkLabel->underMouse())) {
             m_networkTooltipRefreshTimer.stop();
             return;
         }
@@ -6401,8 +6414,10 @@ void MainWindow::buildUI()
                                                      m_adaptiveFpsCap,
                                                      m_radioModel.pendingThrottleLift());
         m_networkLabel->setToolTip(tooltip);
-        const QPoint pos = m_networkLabel->mapToGlobal(QPoint(m_networkLabel->width() / 2, 0));
-        QToolTip::showText(pos, tooltip, m_networkLabel);
+        m_networkStatusBlock->setToolTip(tooltip);
+        const QPoint pos = m_networkStatusBlock->mapToGlobal(
+            QPoint(m_networkStatusBlock->width() / 2, 0));
+        QToolTip::showText(pos, tooltip, m_networkStatusBlock);
     });
     netVbox->addWidget(m_networkLabel);
     hbox->addWidget(netStack);

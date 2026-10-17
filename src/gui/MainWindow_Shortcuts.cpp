@@ -13,6 +13,7 @@
 #include "core/IambicKeyer.h"
 
 #include <QApplication>
+#include <QHelpEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 
@@ -821,24 +822,26 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         setPaTempDisplayUnit(!m_paTempUseFahrenheit);
         return true;
     }
-    if (obj == m_networkLabel && event->type() == QEvent::MouseButtonDblClick) {
-        showNetworkDiagnosticsDialog();
+    const bool isNetworkStatus = obj == m_networkStatusBlock || obj == m_networkLabel;
+    if (isNetworkStatus && event->type() == QEvent::MouseButtonDblClick) {
+        activateStatusIndicator(m_networkStatusBlock);
         return true;
     }
-    if (obj == m_networkLabel && event->type() == QEvent::Enter) {
+    if (isNetworkStatus && event->type() == QEvent::Enter) {
         m_networkTooltipRefreshTimer.start();
     }
-    if (obj == m_networkLabel && event->type() == QEvent::Leave) {
+    if (isNetworkStatus && event->type() == QEvent::Leave) {
         m_networkTooltipRefreshTimer.stop();
         QToolTip::hideText();
     }
-    if (obj == m_networkLabel && event->type() == QEvent::ToolTip) {
+    if (isNetworkStatus && event->type() == QEvent::ToolTip) {
         const QString tooltip = buildNetworkTooltip(m_radioModel,
                                                      m_adaptiveFpsCap,
                                                      m_radioModel.pendingThrottleLift());
         m_networkLabel->setToolTip(tooltip);
+        m_networkStatusBlock->setToolTip(tooltip);
         auto* helpEvent = static_cast<QHelpEvent*>(event);
-        QToolTip::showText(helpEvent->globalPos(), tooltip, m_networkLabel);
+        QToolTip::showText(helpEvent->globalPos(), tooltip, m_networkStatusBlock);
         m_networkTooltipRefreshTimer.start();
         return true;
     }
@@ -910,6 +913,13 @@ bool MainWindow::isStatusIndicator(const QObject* obj) const
 
 void MainWindow::activateStatusIndicator(QObject* obj)
 {
+    // Network uses this keyboard/AT path without joining the single-click indicators.
+    if (obj == m_networkStatusBlock) {
+        m_networkTooltipRefreshTimer.stop();
+        QToolTip::hideText();
+        showNetworkDiagnosticsDialog();
+        return;
+    }
 #ifdef AETHER_ASR_ENABLED
     if (obj == m_asrIndicator) {
         if (!m_asrIndicator->isEnabled()) return;
