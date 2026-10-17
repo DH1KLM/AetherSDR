@@ -209,6 +209,7 @@ void MainWindow::refreshRadioTabs()
 
     const bool connected = m_radioModel.isConnected();
     const QString activeSerial = connected ? m_radioModel.serial() : QString();
+    const RadioInfo activeInfo = m_radioModel.lastRadioInfo();
     const QJsonObject switcher = QJsonDocument::fromJson(AppSettings::instance()
         .value("RadioSwitcher", "{}").toString().toUtf8()).object();
     const QJsonArray hidden = switcher.value(QStringLiteral("hiddenRadios")).toArray();
@@ -225,7 +226,12 @@ void MainWindow::refreshRadioTabs()
 
     // LAN radios — the picker's own list, so the strip and the picker can never
     // disagree about what is on the network.
-    for (const RadioInfo& info : m_connPanel->automationLocalRadios()) {
+    for (const RadioInfo& discovered : m_connPanel->automationLocalRadios()) {
+        //DH1KLM: A directed connect can resolve an override after this LAN
+        // row was cached. The live session owns its effective model; a later
+        // discovery update must not replace the running configuration either.
+        const RadioInfo& info = discovered.displayIdentityForSession(
+            connected ? &activeInfo : nullptr);
         if (info.serial.isEmpty() || seen.contains(info.serial)) {
             continue;
         }
@@ -233,6 +239,8 @@ void MainWindow::refreshRadioTabs()
         RadioTabEntry entry;
         entry.id = info.serial;
         entry.name = info.displayNickname().isEmpty() ? info.displayModel() : info.displayNickname();
+        if (!info.effectiveModel.isEmpty())
+            entry.name = m_connPanel->radioDisplayName(info, entry.name);
         if (entry.name.isEmpty()) {
             entry.name = info.name;
         }
@@ -515,6 +523,15 @@ void MainWindow::wireDiscovery()
                 [this](const RadioInfo&) { scheduleRadioTabRefresh(); });
     }
     connect(&m_hl2Discovery, &hl2::Hl2Discovery::radioLost, this,
+            [this](const QString&) { scheduleRadioTabRefresh(); });
+    //DH1KLM: Mapping edits change ANAN display metadata independently of
+    // connection state; keep the tabs/popover synchronized with the picker.
+    for (auto signal : {&anan::AnanDiscovery::radioDiscovered,
+                        &anan::AnanDiscovery::radioUpdated}) {
+        connect(&m_ananDiscovery, signal, this,
+                [this](const RadioInfo&) { scheduleRadioTabRefresh(); });
+    }
+    connect(&m_ananDiscovery, &anan::AnanDiscovery::radioLost, this,
             [this](const QString&) { scheduleRadioTabRefresh(); });
     connect(&m_radioModel, &RadioModel::connectionStateChanged, this,
             [this](bool) { scheduleRadioTabRefresh(); });

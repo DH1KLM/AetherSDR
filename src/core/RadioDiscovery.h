@@ -117,6 +117,13 @@ struct RadioInfo {
     QString displayModel() const {
         return effectiveModel.isEmpty() ? model : effectiveModel;
     }
+    const RadioInfo& displayIdentityForSession(const RadioInfo* active) const {
+        //DH1KLM: Prefer the connected profile snapshot over stale discovery
+        // metadata, including an explicit transition back to override OFF.
+        return active && !serial.isEmpty() && serial == active->serial
+            && family.compare(active->family, Qt::CaseInsensitive) == 0
+            && !active->connectionProfile.isEmpty() ? *active : *this;
+    }
     QString displayNickname() const {
         //DH1KLM: A discovery fallback is not a custom station nickname. Replace
         // that fallback with the effective model, but retain an operator's name.
