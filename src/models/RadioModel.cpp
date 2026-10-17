@@ -3741,6 +3741,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
 
     m_wanConn = nullptr;  // LAN mode
     m_lastInfo = info;
+    anan::AnanSettings::applyRadioProfileDisplay(m_lastInfo);
     m_intentionalDisconnect = false;
     m_forcedDisconnectInProgress = false;
     // Note: m_rebootInProgress is NOT cleared here — connectToRadio() runs

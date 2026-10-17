@@ -553,6 +553,13 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_localConnectBtn->setAccessibleName(tr("Connect selected local radio"));
     m_localConnectBtn->setEnabled(false);
     localActionRow->addWidget(m_localConnectBtn);
+    m_forgetMappingBtn = new QPushButton(tr("Forget"), localListPage);
+    m_forgetMappingBtn->setObjectName(QStringLiteral("connectionForgetProfileMapping"));
+    m_forgetMappingBtn->setAccessibleName(tr("Forget selected radio's model and override mapping"));
+    m_forgetMappingBtn->setAccessibleDescription(tr("Select a mapped radio while disconnected. Removes only its saved model and board override; preserves discovery and other settings."));
+    m_forgetMappingBtn->setToolTip(m_forgetMappingBtn->accessibleDescription());
+    m_forgetMappingBtn->setEnabled(false);
+    localActionRow->addWidget(m_forgetMappingBtn);
     localListLayout->addLayout(localActionRow);
     m_localStateStack->addWidget(localListPage);
 
@@ -1270,6 +1277,14 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     root->addWidget(m_showDemoCheck);
 
     // ── Footer ────────────────────────────────────────────────────────────
+    m_connectionProfileLabel = makeWrappedLabel(QString(), kHintLabelStyle);
+    m_connectionProfileLabel->setObjectName(QStringLiteral("connectionActiveProfileDetails"));
+    m_connectionProfileLabel->setAccessibleName(tr("Connected device and active hardware profile"));
+    m_connectionProfileLabel->setTextFormat(Qt::PlainText);
+    m_connectionProfileLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    m_connectionProfileLabel->setFocusPolicy(Qt::StrongFocus);
+    m_connectionProfileLabel->setVisible(false);
+    root->addWidget(m_connectionProfileLabel);
     auto* footerRow = new QHBoxLayout;
     footerRow->setSpacing(8);
     m_statusLabel = makeWrappedLabel("Choose how you want to connect.", kHintLabelStyle);
@@ -1322,6 +1337,8 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
             this, &ConnectionPanel::onWanSelectionChanged);
     connect(m_localConnectBtn, &QPushButton::clicked,
             this, &ConnectionPanel::onLocalConnectClicked);
+    connect(m_forgetMappingBtn, &QPushButton::clicked,
+            this, &ConnectionPanel::onForgetMappingClicked);
     connect(m_wanConnectBtn, &QPushButton::clicked,
             this, &ConnectionPanel::onWanConnectClicked);
     connect(m_wanDisconnectClientsBtn, &QPushButton::clicked,
@@ -1568,6 +1585,20 @@ void ConnectionPanel::clearPendingIcomCredentials()
     m_pendingIcomSessionBindAddress.clear();
 }
 
+void ConnectionPanel::setConnectionInfo(const RadioInfo& radio)
+{
+    //DH1KLM: This is the connect-time snapshot, not a view of mutable settings.
+    QString identity = radio.model;
+    if (!radio.nickname.trimmed().isEmpty()
+        && radio.nickname.trimmed().compare(radio.model.trimmed(), Qt::CaseInsensitive) != 0)
+        identity += QStringLiteral("  %1").arg(radio.nickname.trimmed());
+    m_connectionProfileLabel->setText(radio.connectionProfile.isEmpty() ? QString()
+        : tr("Connected device: %1\nIP: %2 • ID/MAC: %3\n%4")
+            .arg(identity, radio.address.toString(), radio.serial, radio.connectionProfile));
+    m_connectionProfileLabel->setAccessibleDescription(m_connectionProfileLabel->text());
+    m_connectionProfileLabel->setVisible(m_connected && !m_connectionProfileLabel->text().isEmpty());
+}
+
 void ConnectionPanel::setConnected(bool connected)
 {
     // Credentials staged by probeRadio() are persisted only here, so a wrong
@@ -1609,6 +1640,9 @@ void ConnectionPanel::setConnected(bool connected)
     }
 
     m_connected = connected;
+    if (!connected)
+        m_connectionProfileLabel->clear();
+    m_connectionProfileLabel->setVisible(connected && !m_connectionProfileLabel->text().isEmpty());
     m_disconnectBtn->setVisible(connected);
     updateActionState();
     // Showing the Disconnect button is the one moment the fixed footer changes
@@ -1677,9 +1711,10 @@ bool ConnectionPanel::canRenameRadio(const RadioInfo& radio) const
 
 QString ConnectionPanel::radioDisplayName(const RadioInfo& radio, const QString& fallback) const
 {
+    const QString identity = radio.connectionProfile.isEmpty() ? fallback : radio.model;
     return canRenameRadio(radio)
-        ? hl2::Hl2Discovery::effectiveNickname(radio.family, radio.serial, fallback)
-        : fallback;
+        ? hl2::Hl2Discovery::effectiveNickname(radio.family, radio.serial, identity)
+        : identity;
 }
 
 void ConnectionPanel::renameRadio(const QString& serial)
@@ -1835,6 +1870,13 @@ QString ConnectionPanel::formatLocalRadioLabel(const RadioInfo& radio) const
     if (!radio.turfRegion.trimmed().isEmpty())
         detail += QStringLiteral(" • %1").arg(radio.turfRegion.trimmed());
 
+    //DH1KLM: The board's identity must not disappear behind a saved model.
+    // IP/MAC distinguish two devices even when their effective profiles match.
+    if (!radio.connectionProfile.isEmpty()) {
+        detail = tr("IP: %1 • ID/MAC: %2\n%3")
+            .arg(radio.address.toString(), radio.serial, radio.connectionProfile);
+    }
+
     return title + QLatin1Char('\n') + detail;
 }
 
@@ -1936,6 +1978,16 @@ void ConnectionPanel::updateSmartLinkUi()
 void ConnectionPanel::updateActionState()
 {
     m_localConnectBtn->setEnabled(!m_connected && m_radioList->currentItem() != nullptr);
+    const int selectedRow = m_radioList->currentRow();
+    const bool hasMapping = selectedRow >= 0 && selectedRow < m_radios.size()
+        && anan::AnanSettings::hasRadioProfileMapping(m_radios[selectedRow]);
+    m_forgetMappingBtn->setEnabled(!m_connected && hasMapping);
+    const QString forgetReason = m_connected
+        ? tr("Disconnect before forgetting a saved model/override mapping; the active session is unchanged.")
+        : hasMapping ? tr("Remove only this device's model and override mapping. Keep protocol, nickname, DSP, calibration and discovery.")
+                     : tr("Select an OpenHPSDR device with a saved model or override mapping.");
+    m_forgetMappingBtn->setAccessibleDescription(forgetReason);
+    m_forgetMappingBtn->setToolTip(forgetReason);
 
     const bool smartLinkReady = !m_connected
         && m_smartLink
@@ -2146,6 +2198,7 @@ void ConnectionPanel::onRadioUpdated(const RadioInfo& radio)
             m_radios[i] = radio;
             if (auto* item = m_radioList->item(i))
                 item->setText(formatLocalRadioLabel(radio));
+            updateActionState();
             return;
         }
     }
@@ -2208,13 +2261,32 @@ void ConnectionPanel::onWanSelectionChanged()
     updateActionState();
 }
 
+void ConnectionPanel::onForgetMappingClicked()
+{
+    const int row = m_radioList->currentRow();
+    if (m_connected || row < 0 || row >= m_radios.size())
+        return;
+    RadioInfo radio = m_radios[row];
+    if (!anan::AnanSettings::hasRadioProfileMapping(radio))
+        return;
+    if (!anan::AnanSettings::forgetRadioProfileMapping(radio)) {
+        setStatusText(tr("Could not remove this device's saved model/override mapping."));
+        return;
+    }
+    anan::AnanSettings::applyRadioProfileDisplay(radio);
+    radio.nickname = hl2::Hl2Discovery::effectiveNickname(radio.family, radio.serial, radio.model);
+    onRadioUpdated(radio);
+    setStatusText(tr("Model/override mapping forgotten. The device remains discoverable; other settings were kept."));
+}
+
 void ConnectionPanel::onLocalConnectClicked()
 {
     const int row = m_radioList->currentRow();
     if (m_connected || row < 0 || row >= m_radios.size())
         return;
 
-    const RadioInfo& info = m_radios[row];
+    RadioInfo info = m_radios[row];
+    anan::AnanSettings::applyRadioProfileDisplay(info);
     // F5 (#4448): an in-use radio of a single-client family can't be shared,
     // and connecting would wedge both clients. Fail closed. The rule lives in
     // ConnectionSharingPolicy.h — one home, shared with the startup
@@ -3561,11 +3633,7 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
                 m_manualAnanProtocolCombo->setCurrentIndex(0);
                 m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
             }
-            if (model != anan::AnanModel::Automatic) {
-                const auto* descriptor = anan::ananModelInfo(model);
-                if (descriptor) { info.model = QString::fromLatin1(descriptor->name.data(), descriptor->name.size()); }
-                info.name = info.model;
-            }
+            anan::AnanSettings::applyRadioProfileDisplay(info);
             info.nickname = anan::AnanDiscovery::effectiveNickname(info.family, info.serial,
                                                                     info.model);
             info.version  = QString::number(reply->firmwareVer);

@@ -187,12 +187,7 @@ void AnanDiscovery::onReadyRead()
         info.name     = info.model;
         info.serial   = macToSerial(reply->mac);
         const auto savedProfile = AnanSettings::radioProfile(info.serial);
-        const auto* model = ananModelInfo(savedProfile.model);
-        if (savedProfile.valid && model && savedProfile.model != AnanModel::Automatic
-            && receiveProfile(info.boardId, savedProfile.model, savedProfile.overrideDetection)) {
-            info.model = QString::fromLatin1(model->name.data(), model->name.size());
-            info.name = info.model;
-        }
+        AnanSettings::applyRadioProfileDisplay(info);
         info.nickname = effectiveNickname(QStringLiteral("anan"), info.serial, info.model);
         info.version  = QString::number(reply->firmwareVer);
         // A bare integer is not self-describing in a status bar -- and this
@@ -229,6 +224,7 @@ void AnanDiscovery::onReadyRead()
                               || prev.version != info.version
                               || prev.hpsdrProtocol != info.hpsdrProtocol
                               || prev.model != info.model
+                              || prev.connectionProfile != info.connectionProfile
                               || prev.nickname != info.nickname;
             it.value().info = info;
             if (changed)

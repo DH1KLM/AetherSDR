@@ -64,6 +64,7 @@ public:
     QPoint constrainedFrameTopLeft(const QPoint& preferredFrameTopLeft,
                                    const QRect& availableGeometry) const;
     void setConnected(bool connected);
+    void setConnectionInfo(const RadioInfo& radio);
     void setStatusText(const QString& text);
     void probeRadio(const QString& ip, bool restoreSavedFamily = false);
 
@@ -152,6 +153,7 @@ private slots:
     void onListSelectionChanged();
     void onWanSelectionChanged();
     void onLocalConnectClicked();
+    void onForgetMappingClicked();
     void onWanConnectClicked();
     void onWanDisconnectClientsClicked();
     void onManualIpChanged(const QString& ip);
@@ -266,12 +268,14 @@ private:
     QCommandLinkButton* m_manualModeBtn{nullptr};
 
     QLabel*      m_statusLabel;
+    QLabel*      m_connectionProfileLabel{nullptr};
     QPushButton* m_disconnectBtn{nullptr};
 
     QListWidget* m_radioList{nullptr};
     QStackedWidget* m_localStateStack{nullptr};
     QWidget* m_localEmptyState{nullptr};
     QPushButton* m_localConnectBtn{nullptr};
+    QPushButton* m_forgetMappingBtn{nullptr};
 
     QList<RadioInfo> m_radios;   // LAN radios only
     bool m_connected{false};

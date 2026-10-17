@@ -120,10 +120,28 @@ In **Connect by IP**, choose **Radio type → ANAN / OpenHPSDR (P1/P2)**, then:
 The choice is saved per MAC address and used on reconnect. **Use saved model**
 and **Use saved preference** retain the existing choice. To clear a model
 selection, choose **Automatic physical-board profile**, set override **OFF**, and reconnect.
-Discovery labels the exact model only after you have selected it; it cannot
-identify a specific SKU from a shared board ID alone. A mismatched model is
+Discovery retains the reported board family. The selected **Profile** and
+**Override ON/OFF** appear separately alongside IP and ID/MAC, so two devices
+with the same effective profile remain distinguishable. A board-family ID
+cannot identify an exact SKU; use **Set Nickname…** for a name such as
+"DIY Red Pitaya". A mismatched model is
 refused unless **Override detection (ON)** explicitly selects the alternate
 hardware profile described above.
+
+### Inspecting and forgetting a mapping
+
+After connection, reopen **File → Connect to Radio...** to inspect the
+**Connected device** details above the footer: reported board family, nickname,
+IP, ID/MAC, profile, override state and actual P1/P2 protocol. These details
+describe the configuration used to establish the current session.
+
+To remove a saved model/override association, disconnect, select that device
+under **On This Network → Available radios**, and click **Forget**. Only the
+selected device's model and override are reset. Protocol preference, nickname,
+DSP, calibration and other connection settings remain. The device stays in
+the list and continues to appear through discovery, now using its physical
+board profile with override OFF. **Forget** is disabled when there is no
+mapping to remove or while connected; its tooltip explains the reason.
 
 Existing Red-Pitaya-P1 settings keep their model, P1 preference and 384 ksps
 ceiling. Red Pitaya P2 is an explicit model choice too: it uses two ADCs,

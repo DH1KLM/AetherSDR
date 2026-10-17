@@ -4,6 +4,7 @@
 #include "core/backends/anan/AnanModel.h"
 
 class QJsonObject;
+namespace AetherSDR { struct RadioInfo; }
 
 namespace AetherSDR::anan {
 
@@ -24,6 +25,9 @@ public:
     static RadioProfile radioProfile(const QString& serial);
     static bool setRadioProfile(const QString& serial, AnanModel model, int protocol,
                                 bool overrideDetection = false);
+    static void applyRadioProfileDisplay(RadioInfo& radio);
+    static bool hasRadioProfileMapping(const RadioInfo& radio);
+    static bool forgetRadioProfileMapping(const RadioInfo& radio);
     // DDC0 sample rate in ksps -- also the panadapter span. One of the six
     // rates AnanBackend::capabilities().sampleRatesHz declares. Not
     // validated here; AnanBackend::nearestDdc0RateKsps() is the actual
