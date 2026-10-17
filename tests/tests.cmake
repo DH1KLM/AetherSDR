@@ -677,6 +677,12 @@ target_include_directories(model_control_routing_test PRIVATE src tests)
 target_link_libraries(model_control_routing_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME model_control_routing_test COMMAND model_control_routing_test)
 
+add_executable(radio_setup_control_routing_test tests/radio_setup_control_routing_test.cpp)
+target_include_directories(radio_setup_control_routing_test PRIVATE src tests)
+target_link_libraries(radio_setup_control_routing_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME radio_setup_control_routing_test COMMAND radio_setup_control_routing_test)
+set_tests_properties(radio_setup_control_routing_test PROPERTIES TIMEOUT 45)
+
 # Socket-free frequency control: a recording engine backend and normalized
 # observations exercise the production target/service. LocalControlServer
 # instances only test startup binding; neither listens or opens an endpoint.
@@ -3752,6 +3758,32 @@ add_test(NAME radio_setup_region_field_test COMMAND radio_setup_region_field_tes
 set_tests_properties(radio_setup_region_field_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 
+add_executable(radio_setup_operations_test
+    tests/radio_setup_operations_test.cpp
+    src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
+    src/gui/RadioSetupDialog.cpp
+    src/gui/TxBandDialog.cpp
+    src/gui/CanonWindow.cpp
+    src/gui/RtlReceiverSettingsWidget.cpp
+    src/gui/ControlAvailabilityRegistry.cpp
+    src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+    src/gui/SliceColorManager.cpp
+    src/gui/KiwiPublicReceiverPicker.cpp
+    src/gui/GuardedSlider.h
+    ${THEME_TEST_RESOURCES}
+)
+target_include_directories(radio_setup_operations_test PRIVATE src tests)
+target_link_libraries(radio_setup_operations_test PRIVATE
+    aetherdesktop_support Qt6::Widgets Qt6::Test)
+add_test(NAME radio_setup_operations_test COMMAND radio_setup_operations_test)
+set_tests_properties(radio_setup_operations_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+
 # #5896: RadioSetupDialog's caption labels and line edits across a LIVE theme
 # switch.  Same target shape as radio_setup_region_field_test above, plus
 # ${THEME_TEST_RESOURCES}: without :/themes/ compiled in, ThemeSeedGenerated.cpp
@@ -3866,7 +3898,7 @@ set_tests_properties(radio_setup_max_power_field_test PROPERTIES
 
 # Radio Setup's Transmit timing fields on the production dialog: dimmed with
 # an announced reason, and silent, on a connected radio with no command plane;
-# the same `interlock set` text with one. Injected backend; no socket.
+# the SDK's `interlock` timing text with one. Injected backend; no socket.
 add_executable(radio_setup_tx_timing_fields_test
     tests/radio_setup_tx_timing_fields_test.cpp
     src/gui/DragValuePopup.cpp
@@ -8995,6 +9027,8 @@ set(AETHER_SETTINGS_CONSUMERS
     transmit_seam_drop_notice_test
     model_control_routing_test
     radio_nickname_test
+    radio_setup_control_routing_test
+    radio_setup_operations_test
     pan_display_drop_notice_test
     backend_capability_revision_test
     icom_panadapter_capacity_test

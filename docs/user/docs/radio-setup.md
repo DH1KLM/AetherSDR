@@ -42,6 +42,19 @@ Radio Setup is a searchable browser: a categorized tree of pages on the left and
 
 ## Reference
 
+On Flex radios, **Nickname** and **Callsign** use the radio display's supported
+characters: letters, digits, `.`, `,`, `/` and `-`. Spaces and other characters
+are removed; callsigns are uppercased. Blank or symbol-only callsign edits keep
+the previous callsign rather than replacing it. **Station Name** keeps spaces
+but removes characters the radio cannot accept. The locally saved station name
+is unchanged. Your callsign and station name are saved locally even if the radio
+copy cannot be dispatched.
+
+**Network → Static** requires complete IPv4 addresses and a nonzero contiguous
+subnet mask. **Apply** stays disabled while a field is invalid; hover the field
+to see the reason. **TX Band Settings** limits RF and tune power to 0–100 percent
+and restores the radio's reported value for malformed entries.
+
 ### RADIO
 
 On a FlexRadio, edit **Nickname** under **Settings → Radio Setup... → Radio**
@@ -115,6 +128,32 @@ Radio Setup hides pages for hardware the connected radio does not have. For exam
 The connected radio or this build cannot use that control.
 
 1. Hover the control. Its tooltip gives the reason.
+
+### A timing edit is not applied
+
+The **Timings (in ms)** group on **Transmit** requires a connected radio that
+supports those controls. **Timeout (sec):** is entered in seconds; the other
+timings are entered in milliseconds. The Demo does not implement these settings.
+
+1. Connect to your radio before editing a timing.
+2. Enter a whole number. Negative delays are treated as zero; invalid or
+   excessively large entries are not sent and restore the radio's reported value.
+
+### Calibration is interrupted by a disconnect
+
+On **Receive → Frequency Offset**, **Start** begins radio-side calibration.
+An accepted request is not a completed calibration; completion comes from the
+radio's status. The reference frequency and correction reset must each be
+accepted before calibration starts. A rejected or unanswered step stops the
+operation. If the connection ends, the operation stops waiting and shows
+**Disconnected**.
+
+1. Reconnect to the radio.
+2. Start calibration again when the reference signal is ready.
+
+After switching radios or reconnecting, close and reopen **TX Band Settings**
+or **Radio Setup** before editing an existing transverter. An editor from the
+previous session cannot change a reused band or transverter identifier.
 
 ### You can't find where to connect to a radio
 
