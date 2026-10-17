@@ -2047,6 +2047,10 @@ private:
     // into the command-edge fallback. Always false for every other backend.
     bool        m_backendObservedTransmit{false};
     bool        m_operatorTransmitting{false}; // owned MOX/PTT/VOX (not tune/ATU/TCI/DAX)
+    // TGXL autotune keys over the interlock line, so no PttSource tags it: arm a
+    // short window on `tgxl autotune` and latch the cycle as a tune carrier.
+    RadioStatusOwnership::TgxlTuneCycle m_tgxlTune;
+    QTimer      m_tgxlConfirmTimer;  // re-evaluates a provisional tune at its deadline
     int         m_txFilterKillSamples{0};      // consecutive qualifying meter packets (#4649)
     bool        m_txFilterKillReported{false}; // latched, so we speak once per transmission
     QString     m_lastInterlockNotificationKey;
