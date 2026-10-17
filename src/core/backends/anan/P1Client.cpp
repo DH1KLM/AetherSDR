@@ -45,7 +45,11 @@ P1Client::P1Client(QObject* parent) : QObject(parent)
     m_timeoutTimer = new QTimer(this);
     m_timeoutTimer->setSingleShot(true);
     connect(m_timeoutTimer, &QTimer::timeout, this, [this] {
-        fail(QStringLiteral("No validated OpenHPSDR P1 IQ arrived before the connection timeout."));
+        //DH1KLM: Distinguish stale/wrong P1 selection from a validated P1
+        // radio that answered discovery but never started delivering IQ.
+        fail(m_validated
+            ? QStringLiteral("No validated OpenHPSDR P1 IQ arrived before the connection timeout.")
+            : QStringLiteral("No valid OpenHPSDR P1 Discovery reply arrived before the connection timeout. Check the selected protocol and refresh discovery."));
     });
     m_countersTimer = new QTimer(this);
     m_countersTimer->setInterval(1000);

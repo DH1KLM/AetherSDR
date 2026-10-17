@@ -110,6 +110,18 @@ normal discovery continues.
 
 ## Qualification boundaries
 
+Discovery byte 12 is retained as an opaque Thetis `ProtocolSupported` value,
+not a bounded decimal version. Thetis `clsRadioDiscovery.cs` at
+`852bf0ef0b4f3886a13fc2846489aee16f361872` reads it directly. Patroclus
+`RadioProfile.CreateDiscoveryResponse` at
+`8c2752230d8afe702169ae70e99cbaad287c70f5` emits value 2 for P2 profiles.
+The packet signature selects P1/P2, not byte 12. Existing MAC/length/signature
+validation remains; P2 session discovery is limited to source port 0 or 1024
+to keep status/IQ endpoints from authorizing the session. Socket-free fixtures
+cover Patroclus' shared-MAC P1→P2 transition and the normal P2 receive path.
+This is packet/transport compatibility coverage, not qualification of the
+emulator's complete stream implementation or every physical radio.
+
 The operator confirmed ANAN-7000DLE P2 and Red Pitaya P1/384 ksps using commit
 `2ae00c58`. The added logical-model choices and Red Pitaya P2 have source and
 packet/transport tests; this is not hardware qualification of every listed SKU.

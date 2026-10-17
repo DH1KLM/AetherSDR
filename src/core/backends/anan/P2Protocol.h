@@ -107,8 +107,8 @@ struct DiscoveryReply {
     bool streaming = false;           // byte 4 == 0x03: hardware already has a session
     std::array<std::uint8_t, 6> mac{};// bytes 5-10, MSB first (p.43)
     std::uint8_t boardId = 0;         // byte 11; 10 = SATURN (ANAN-G2)
-    std::uint8_t protoVersionRaw = 0; // byte 12, decimal-tenths (43 -> "4.3") -- the one
-                                       // place the spec's own worked example is right
+    std::uint8_t protoVersionRaw = 0; //DH1KLM: Opaque byte 12, Thetis ProtocolSupported.
+                                       // Preserve raw values (e.g. 2 or 43); never gate discovery on a version range.
     std::uint8_t firmwareVer = 0;     // byte 13, an INTEGER gateware/build number, NOT
                                        // tenths despite the spec's worked example implying
                                        // one -- p2app writes GetFirmwareVersion() here

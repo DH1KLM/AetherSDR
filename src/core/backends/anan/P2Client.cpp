@@ -519,7 +519,13 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
         // Not DDC0-shaped: Mic Data, High Priority Status, or this session's
         // Discovery reply. Parse the reply on EVERY datagram (notify once): skipping it
         // would let a duplicate reply fall through and decode as a phantom underflow.
+        //DH1KLM: Session discovery must come from its discovery endpoint,
+        // not a status/IQ source whose payload happens to resemble a reply.
         if (const auto reply = parseDiscoveryReply(bytes)) {
+            // Still consume reply-shaped duplicates from other ports: they
+            // must neither authorize the session nor become speaker status.
+            if (senderPort != 0 && senderPort != kRadioPort)
+                return;
             if (!m_discoveryValidated) {
                 if (reply->streaming) {
                     emit connectionError(QStringLiteral("ANAN: the P2 radio is already in use"));

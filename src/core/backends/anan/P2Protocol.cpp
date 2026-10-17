@@ -168,8 +168,10 @@ std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> 
         macAllZero = macAllZero && data[i] == 0;
         macAllOnes = macAllOnes && data[i] == 0xFF;
     }
-    if (macAllZero || macAllOnes || (data[5] & 0x01) != 0
-        || data[12] < 10 || data[12] > 99) {
+    //DH1KLM: Thetis clsRadioDiscovery reads byte 12 as ProtocolSupported,
+    // without a decimal-version range gate. Patroclus legitimately sends 2;
+    // the P2 packet signature above, not this opaque value, selects P2.
+    if (macAllZero || macAllOnes || (data[5] & 0x01) != 0) {
         return std::nullopt;
     }
 
