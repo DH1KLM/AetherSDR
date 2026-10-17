@@ -219,6 +219,13 @@ private:
                             std::span<const std::uint8_t> bytes, quint16 senderPort);
     void handleDatagram(std::span<const std::uint8_t> bytes, quint16 senderPort);
     void noteSpeakerFifoStatus(const HighPriorityStatus& status);
+    //DH1KLM: Retry the validated General configuration independently of IQ
+    // arrival; an accepted UDP send is not an acknowledgement from the radio.
+    std::optional<std::array<std::uint8_t, 60>> takeGeneralRefresh(qint64 nowMs);
+    std::optional<std::array<std::uint8_t, 60>> m_generalPacket;
+    QElapsedTimer m_generalClock;
+    static constexpr qint64 kGeneralRefreshMs = 500;
+    qint64 m_nextGeneralRefreshMs = kGeneralRefreshMs;
 
     // p.8: a C&C packet must arrive at least every second (100 ms recommended) or a
     // radio in RUN drops to standby; buildGeneral() leaves that watchdog enabled.

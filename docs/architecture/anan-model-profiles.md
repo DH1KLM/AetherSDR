@@ -260,3 +260,30 @@ receive bypass for a bypassed band or disabled 6m LNA, and setAlexLPF chooses
 uses its independent bits at the shared tuned frequency. P1 translates both
 words independently rather than deriving ADC1 from ADC0's overridden bits.
 No TX, PureSignal or TX-LNA control has been enabled by these RX options.
+
+
+## General refresh: capture comparison and qualification limit
+
+The complete `aether-alex(3).pcapng` startup capture contains one General
+packet with phase-word mode `08`, watchdog `01`, PA disable `01` and ALEX
+enable `03`. ALEX0 changes from `01400040` at 3.8 MHz to `01100002` at
+14.225 MHz; ALEX1 is `01401000` / `01101000`, including the previously
+missing upper word and this session's ADC1 bypass. Thus the capture confirms
+the initial enable was sent and the corrected filter words reached the host
+NIC. It does not acknowledge their application by the radio.
+
+The working Thetis capture repeats General during RX, whereas Aether sent it
+only at startup. Thetis ChannelMaster/network.c `KeepAliveLoop` at revision
+`852bf0ef0b4f3886a13fc2846489aee16f361872` refreshes General every 500 ms
+while running with the watchdog enabled. Aether now repeats its exact
+validated General packet on that cadence, using its existing I/O-thread
+keepalive timer and a monotonic deadline. High Priority remains at 100 ms.
+Retries neither depend on IQ arrival nor catch up in bursts after a stall;
+stop/restart clears the cached configuration. No DUC or TX stream is added.
+
+Socket-free production-scheduler tests discard the initial configuration and
+check recovery packets despite live IQ, the model-specific enable/PA bytes,
+repeat spacing, late-tick coalescing, pre-discovery refusal and teardown.
+This fixes the absence of General retries; UDP loss at the radio and the
+cause of Anvelina's relay failure are not established by the capture. Relay
+operation after the change still requires a physical device test.

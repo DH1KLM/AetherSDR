@@ -150,7 +150,11 @@ applies the Thetis-compatible frequency limits and default bypass states
 settings, without transferring custom limits from a different model.
 
 P2 profiles with LPF selection send the antenna/LPF relay word in both ALEX0
-and ALEX1, matching Thetis' P2 4.3+ layout. This is separate from OC outputs:
+and ALEX1, matching Thetis' P2 4.3+ layout. While connected, the validated P2 General configuration, including
+the ALEX enable mask, is refreshed every 500 ms so a lost initial UDP packet
+can be recovered. High Priority packets retain their 100 ms keepalive.
+
+This is separate from OC outputs:
 external filters wired to open collectors use **OC Outputs → HF** instead.
 Check the wanted RX pins per band and **Enable RX OC outputs**, then **Apply**.
 Both the enable and every pin default off, including after upgrading older

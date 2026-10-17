@@ -41,6 +41,10 @@ struct P2ClientTestAccess {
     static ReceiveFilterKind filters(const P2Client& client) { return client.m_receiveFilterKind; }
     static bool swapsSpeaker(const P2Client& client) { return client.m_swapSpeakerChannels; }
     static void setDdc(P2Client& client, DdcConfig config) { client.m_activeDdcs = {config}; }
+    static auto refresh(P2Client& client, qint64 nowMs)
+    {
+        return client.takeGeneralRefresh(nowMs);
+    }
 };
 }
 
@@ -79,6 +83,44 @@ static std::array<std::uint8_t, kDdcHeaderLen + kDdcSampleBytes> iq()
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    //DH1KLM: Discard the initial General as a lost UDP datagram. Continued IQ
+    // must not prevent later General packets from restoring ALEX enable. The
+    // scheduler used by the real keepalive is driven without sleeps or sockets.
+    for (const int board : {1, 5, 10}) {
+        P2Client client;
+        P2ClientTestAccess::prepare(client, board);
+        check(!P2ClientTestAccess::refresh(client, 5000),
+              "no General retry before discovery validation");
+        P2ClientTestAccess::feed(client, discovery(board), 1024);
+        const auto profile = *receiveProfile(board);
+        P2ClientTestAccess::feed(client, iq(),
+            static_cast<quint16>(1035 + profile.firstDdcIndex));
+        check(!P2ClientTestAccess::refresh(client, 499), "General refresh is not sent every HP tick");
+        const auto retry = P2ClientTestAccess::refresh(client, 500);
+        check(retry && (*retry)[4] == 0 && (*retry)[37] == 8 && (*retry)[38] == 1
+              && (*retry)[58] == profile.disablePa && (*retry)[59] == profile.alexEnableMask,
+              "lost General is retried with the validated model's ALEX/PA configuration despite live IQ");
+        check(!P2ClientTestAccess::refresh(client, 999), "General retry respects its own cadence");
+        check(P2ClientTestAccess::refresh(client, 1000) == retry,
+              "General refresh continues after the first retry");
+        check(P2ClientTestAccess::refresh(client, 9000) == retry
+              && !P2ClientTestAccess::refresh(client, 9000),
+              "late timer delivery sends one refresh instead of a catch-up burst");
+        client.stop();
+        check(!P2ClientTestAccess::refresh(client, 10000), "disconnect cancels pending General refresh");
+    }
+    {
+        P2Client client;
+        P2ClientTestAccess::prepare(client, 5, AnanModel::Anan200D, true);
+        P2ClientTestAccess::feed(client, discovery(5), 1024);
+        const auto retry = P2ClientTestAccess::refresh(client, 500);
+        check(retry && (*retry)[59] == 3 && (*retry)[58] == 1,
+              "Anvelina/Orion MkII mapped to ANAN-200D refreshes the captured ALEX enable 03 with PA disabled");
+        client.stop();
+        P2ClientTestAccess::prepare(client, 10);
+        check(!P2ClientTestAccess::refresh(client, 500),
+              "a new unvalidated session cannot replay the previous device's General");
+    }
     {
         P2Client client;
         P2ClientTestAccess::prepare(client, 5);
