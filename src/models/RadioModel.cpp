@@ -8158,8 +8158,11 @@ void RadioModel::onDisconnected()
         m_licenseFeatures.clear();
         emit licenseFeaturesChanged();
     }
+    m_memorySlotRetirements.clear();
     if (!m_memories.isEmpty()) {
         m_memories.clear();
+        m_memorySlotRevisions.clear();
+        m_memoryWriteIntents.clear();
         emit memoriesCleared();
     }
     // The cache is connection-scoped and just went; the bank on disk is not.
@@ -9007,8 +9010,11 @@ void RadioModel::syncMemoryStoreForSession()
     // cache pretending to be the radio's slot 0 until the dump overwrote it —
     // and any local slot the radio doesn't have would never be overwritten at
     // all.
+    m_memorySlotRetirements.clear();
     if (!m_memories.isEmpty()) {
         m_memories.clear();
+        m_memorySlotRevisions.clear();
+        m_memoryWriteIntents.clear();
         emit memoriesCleared();
     }
 }
@@ -9183,6 +9189,8 @@ void RadioModel::applyMemoryChanges(const MemoryDelta& d)
 
         if (d.removed) {
             if (targetIndex >= 0) {
+                ++m_memorySlotRevisions[targetIndex];
+                ++m_memorySlotRetirements[targetIndex];
                 m_localMemories.forget(targetIndex);
                 if (m_memories.remove(targetIndex) > 0) {
                     emit memoryRemoved(targetIndex);
@@ -9207,12 +9215,15 @@ void RadioModel::applyMemoryChanges(const MemoryDelta& d)
     }
 
     if (d.removed) {
+        ++m_memorySlotRevisions[targetIndex];
+        ++m_memorySlotRetirements[targetIndex];
         if (m_memories.remove(targetIndex) > 0) {
             emit memoryRemoved(targetIndex);
         }
         return;
     }
 
+    ++m_memorySlotRevisions[targetIndex];
     auto& m = m_memories[targetIndex];
     if (preserveAnnotations) {
         // A fresh session may not have published its local cache yet.
@@ -9467,9 +9478,10 @@ void RadioModel::requestFileDownloadPort(const QString& downloadKind, ResponseCa
 
 void RadioModel::refreshProfiles()
 {
-    sendCmd(QStringLiteral("profile global info"));
-    sendCmd(QStringLiteral("profile tx info"));
-    sendCmd(QStringLiteral("profile mic info"));
+    for (const ProfileRequest::Kind kind : {ProfileRequest::Kind::Global,
+            ProfileRequest::Kind::Transmit, ProfileRequest::Kind::Mic}) {
+        requestProfile({kind, ProfileRequest::Action::Refresh, {}});
+    }
 }
 
 bool RadioModel::isProfileTransferBlocked() const
@@ -12635,7 +12647,7 @@ void RadioModel::applyProfileChanges(const ProfileDelta& d)
 
 void RadioModel::loadGlobalProfile(const QString& name)
 {
-    sendCmd(QString("profile global load \"%1\"").arg(name));
+    requestProfile({ProfileRequest::Kind::Global, ProfileRequest::Action::Load, name});
 }
 
 void RadioModel::resetPanState()
