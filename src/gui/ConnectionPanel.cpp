@@ -3478,12 +3478,13 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             break;
         while (hpsdr.hasPendingDatagrams()) {
             const auto datagram = hpsdr.receiveDatagram();
-            if (datagram.senderAddress() != dest || datagram.senderPort() != anan::kRadioPort)
+            if (datagram.senderAddress() != dest)
                 continue;
             const QByteArray d = datagram.data();
-            const auto reply = anan::parseOpenHpsdrDiscoveryReply(
+            const auto reply = anan::parseDirectedDiscoveryReply(
                 std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t*>(d.constData()), std::size_t(d.size())));
+                    reinterpret_cast<const std::uint8_t*>(d.constData()), std::size_t(d.size())),
+                static_cast<std::uint16_t>(datagram.senderPort()));
             //DH1KLM: Discovery can identify several Thetis board families, but
             // only implemented RX profiles may proceed to the session. Discovery
             // still labels the physical family rather than guessing a SKU.

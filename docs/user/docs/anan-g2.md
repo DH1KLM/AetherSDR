@@ -49,6 +49,11 @@ To reach it across a VPN or another subnet, use **Connect by IP** with **Radio t
 Discovery selects the Orion MkII receive layout automatically. The form's
 connection options apply on both paths:
 
+**Connect by IP** accepts validated P2 discovery replies from UDP source port
+0 as well as 1024. An ANAN-7000DLE capture showed port 0 for both automatic
+and directed discovery; the request is still sent to UDP port 1024, and the
+reply must come from the requested IP address.
+
 | Option | Default | What it does |
 |--------|---------|--------------|
 | **Sample rate:** | 48 ksps | Receiver sample rate (G2 DDC0, 7000DLE DDC2): 48, 96, 192, 384, 768 or 1536 ksps. It is also the starting width of the panadapter. Higher rates use more of the radio's Ethernet link. |

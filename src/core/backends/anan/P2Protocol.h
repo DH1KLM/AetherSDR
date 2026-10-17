@@ -170,6 +170,19 @@ struct DiscoveryReply {
 [[nodiscard]] std::optional<DiscoveryReply> parseOpenHpsdrDiscoveryReply(
     std::span<const std::uint8_t> data) noexcept;
 
+//DH1KLM: The ANAN-7000DLE capture (2026-10-17) answers directed P2
+// discovery from UDP port 0. The caller must still match the requested IP;
+// accept this observed P2 endpoint only after validating the reply bytes.
+[[nodiscard]] inline std::optional<DiscoveryReply> parseDirectedDiscoveryReply(
+    std::span<const std::uint8_t> data, std::uint16_t sourcePort) noexcept
+{
+    const auto reply = parseOpenHpsdrDiscoveryReply(data);
+    if (!reply || (sourcePort != kRadioPort
+                   && !(sourcePort == 0 && reply->wireProtocol == 2)))
+        return std::nullopt;
+    return reply;
+}
+
 //DH1KLM: Physical RX layout from Thetis console.cs UpdateDDCs/GetDDC and
 // clsHardwareSpecific.cs. Saturn keeps its bench-qualified DDC0 path;
 // Orion MkII (ANAN-7000DLE target) receives on DDC2 without diversity/PS.
