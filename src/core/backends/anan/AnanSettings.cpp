@@ -231,6 +231,11 @@ void AnanSettings::applyRadioProfileDisplay(RadioInfo& radio)
     }
     const auto saved = radioProfile(radio.serial);
     const auto* descriptor = ananModelInfo(saved.model);
+    //DH1KLM: The main operating UI uses the selected model only for explicit
+    // override. Discovery and the connection-details snapshot keep model intact.
+    radio.effectiveModel = saved.valid && saved.overrideDetection && descriptor
+        && receiveProfile(radio.boardId, saved.model, true)
+        ? QString::fromLatin1(descriptor->name.data(), descriptor->name.size()) : QString();
     const QString profile = !saved.valid || !descriptor
         ? QCoreApplication::translate("AnanSettings", "Invalid saved profile")
         : QString::fromLatin1(descriptor->name.data(), descriptor->name.size());

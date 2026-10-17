@@ -1711,7 +1711,8 @@ bool ConnectionPanel::canRenameRadio(const RadioInfo& radio) const
 
 QString ConnectionPanel::radioDisplayName(const RadioInfo& radio, const QString& fallback) const
 {
-    const QString identity = radio.connectionProfile.isEmpty() ? fallback : radio.model;
+    const QString identity = !radio.effectiveModel.isEmpty() ? radio.effectiveModel
+        : radio.connectionProfile.isEmpty() ? fallback : radio.model;
     return canRenameRadio(radio)
         ? hl2::Hl2Discovery::effectiveNickname(radio.family, radio.serial, identity)
         : identity;

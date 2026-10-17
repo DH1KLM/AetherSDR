@@ -108,6 +108,29 @@ int main(int argc, char** argv)
         QJsonObject{{QStringLiteral("nickname"), QStringLiteral("DIY Red Pitaya")}}), "nickname fixture");
     AnanSettings::applyRadioProfileDisplay(diy);
     AnanSettings::applyRadioProfileDisplay(genuine);
+    check(diy.displayModel() == QStringLiteral("ANAN-200D")
+          && diy.model.contains(QStringLiteral("Orion MkII")),
+          "override presents ANAN-200D to operating UI while retaining discovery identity");
+    check(genuine.effectiveModel.isEmpty() && genuine.displayModel() == genuine.model,
+          "override OFF retains normal model presentation");
+    RadioInfo fallbackName = diy;
+    fallbackName.nickname = fallbackName.model;
+    check(fallbackName.displayNickname() == QStringLiteral("ANAN-200D"),
+          "discovery nickname fallback cannot conceal effective operating model");
+    fallbackName.nickname.clear();
+    check(fallbackName.displayNickname() == QStringLiteral("ANAN-200D"), "empty nickname uses effective model");
+    check(diy.displayNickname() == QStringLiteral("DIY Red Pitaya"), "custom station nickname remains independent");
+    for (const auto* family : {"flex", "icom", "hl2"}) {
+        RadioInfo untouched;
+        untouched.family = QString::fromLatin1(family); untouched.serial = rp;
+        untouched.model = QStringLiteral("Original model"); untouched.nickname = QStringLiteral("Original station");
+        AnanSettings::applyRadioProfileDisplay(untouched);
+        check(untouched.effectiveModel.isEmpty() && untouched.connectionProfile.isEmpty()
+              && untouched.displayModel() == untouched.model && untouched.displayNickname() == untouched.nickname,
+              "Flex/Icom/HL2 presentation unaffected by an ANAN mapping for the same serial");
+        untouched.nickname.clear();
+        check(untouched.displayNickname().isEmpty(), "other families retain their empty nickname behavior");
+    }
     check(diy.model.contains(QStringLiteral("Orion MkII"))
           && genuine.model.contains(QStringLiteral("ANAN-200D")) && diy.model != genuine.model,
           "selected ANAN-200D profile never replaces reported board identity");
@@ -134,7 +157,8 @@ int main(int argc, char** argv)
     AnanSettings::applyRadioProfileDisplay(diy);
     check(diy.connectionProfile.contains(QStringLiteral("Automatic"))
           && diy.connectionProfile.contains(QStringLiteral("Override OFF"))
-          && diy.model.contains(QStringLiteral("Orion MkII")), "rediscovery renders physical identity after forget");
+          && diy.model.contains(QStringLiteral("Orion MkII")) && diy.effectiveModel.isEmpty()
+          && diy.displayModel() == diy.model, "rediscovery renders physical identity after forget");
     RadioInfo foreign = diy; foreign.family = QStringLiteral("flex");
     check(!AnanSettings::hasRadioProfileMapping(foreign) && !AnanSettings::forgetRadioProfileMapping(foreign),
           "forget refuses another radio family");

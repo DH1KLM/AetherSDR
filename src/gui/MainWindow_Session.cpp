@@ -232,11 +232,11 @@ void MainWindow::refreshRadioTabs()
         seen.insert(info.serial);
         RadioTabEntry entry;
         entry.id = info.serial;
-        entry.name = info.nickname.isEmpty() ? info.model : info.nickname;
+        entry.name = info.displayNickname().isEmpty() ? info.displayModel() : info.displayNickname();
         if (entry.name.isEmpty()) {
             entry.name = info.name;
         }
-        entry.model = info.model;
+        entry.model = info.displayModel();
         entry.detail = info.callsign;
         entry.transport = info.address.isNull() ? QStringLiteral("LAN")
                                                 : info.address.toString();
