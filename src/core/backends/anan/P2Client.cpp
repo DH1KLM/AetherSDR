@@ -126,6 +126,8 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_linkUp = false;
     m_discoveryInfoSent = false;
     m_discoveryValidated = false;
+    m_generalPacket.reset();
+    m_generalClock.invalidate();
     m_expectedBoardId = params.expectedBoardId;
     m_model = params.model;
     m_overrideDetection = params.overrideDetection;
@@ -204,6 +206,8 @@ void P2Client::stop()
         m_socket = nullptr;
     }
     m_running = false;
+    m_generalPacket.reset();
+    m_generalClock.invalidate();
     if (m_linkUp) {
         m_linkUp = false;
         emit linkDown();
@@ -460,12 +464,28 @@ bool P2Client::setDdcRateLive(int ddcIndex, int rateKsps)
     return true;
 }
 
+std::optional<std::array<std::uint8_t, 60>> P2Client::takeGeneralRefresh(qint64 nowMs)
+{
+    if (!m_running || !m_discoveryValidated || !m_generalPacket
+        || nowMs < m_nextGeneralRefreshMs) {
+        return std::nullopt;
+    }
+    //DH1KLM: Coalesce late ticks instead of bursting stale retries after a stall.
+    m_nextGeneralRefreshMs = nowMs + kGeneralRefreshMs;
+    return m_generalPacket;
+}
+
 void P2Client::onKeepaliveTick()
 {
     if (!m_running || !m_socket || !m_discoveryValidated)
         return;
-    // This IS the "any C&C packet" the watchdog needs (p.8) -- no need to
-    // also replay General/DDC-Specific on this cadence, same as the spike.
+    //DH1KLM: Match Thetis KeepAliveLoop's 500 ms General refresh. HP alone
+    // keeps RUN alive but cannot recover a lost ALEX-enable General packet.
+    if (m_generalClock.isValid()) {
+        if (const auto general = takeGeneralRefresh(m_generalClock.elapsed())) {
+            sendTo(*m_socket, *general, m_host, kRadioPort, m_txBytes);
+        }
+    }
     sendTo(*m_socket,
           buildHighPriority(true, sharedFreqWords(),
                             m_bypassAdc0Filters, m_bypassAdc1Filters,
@@ -585,6 +605,11 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 m_receiveFilterKind = profile.filterKind;
                 m_swapSpeakerChannels = profile.swapSpeakerChannels;
                 m_discoveryValidated = true;
+                //DH1KLM: Cache only the resolved session profile; never rebuild
+                // retries from an automatic/default model or unvalidated reply.
+                m_generalPacket = buildGeneral(profile.alexEnableMask, profile.disablePa);
+                m_generalClock.start();
+                m_nextGeneralRefreshMs = kGeneralRefreshMs;
                 //DH1KLM: Publish identity only after profile validation, so the
                 // backend never seeds defaults or capabilities for a rejected board.
                 if (!m_discoveryInfoSent) {
@@ -593,7 +618,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                                                reply->reportedReceivers);
                 }
                 if (m_socket) {
-                    sendTo(*m_socket, buildGeneral(profile.alexEnableMask, profile.disablePa), m_host, kRadioPort, m_txBytes);
+                    sendTo(*m_socket, *m_generalPacket, m_host, kRadioPort, m_txBytes);
                     sendTo(*m_socket,
                           buildDdcSpecific(m_activeDdcs, m_numAdcs,
                                            m_ditherEnabled, m_randomEnabled, m_firstDdcIndex),
