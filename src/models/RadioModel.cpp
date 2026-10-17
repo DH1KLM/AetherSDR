@@ -874,7 +874,19 @@ void RadioModel::setupBackend(const QString& family)
             m_backend->setOfflineHealthSource(offline);
 
         if (auto* flex = dynamic_cast<FlexBackend*>(m_backend.get())) {
-            flex->setCommandSink([this](const QString& cmd){ sendCommand(cmd); });
+            // One wire funnel for the backend's verbs, with or without the
+            // radio's answer: the answered sink is the same write with the
+            // reply routed back.
+            const auto write = [this](const QString& cmd, ResponseCallback cb) {
+                return sendCmdPublic(cmd, std::move(cb));
+            };
+            flex->setCommandSink([write](const QString& cmd){ write(cmd, nullptr); });
+            flex->setAnsweredCommandSink([write](const QString& cmd,
+                                                 std::function<void(bool)> answered) {
+                if (!write(cmd, [answered](int code, const QString&) { answered(code == 0); })) {
+                    answered(false);   // dropped before the wire: nothing will answer
+                }
+            });
             flex->setTxCommandSink([this](const QString& cmd, const TxCoordinator::Command& fence) {
                 sendTxKeyingCommand(cmd, fence);
             });
@@ -1508,6 +1520,15 @@ void RadioModel::wireBackendReceiverState()
         return;
     }
     const quint64 generation = m_backendReceiverGeneration;
+    // The radio's answer to a transmit setting the caller waits on. Queued, so
+    // an answer never lands inside the request that asked for it, and a
+    // replaced backend's late answer is dropped by the generation guard.
+    connect(m_backend.get(), &IRadioBackend::transmitControlAnswered, this,
+            [this, generation](quint64 ticket, bool applied) {
+        if (generation == m_backendReceiverGeneration) {
+            m_transmitModel.handleControlAnswer(ticket, applied);
+        }
+    }, Qt::QueuedConnection);
     // aetherd RFC 2.3: the first converted touchpoint. The backend decodes the
     // universal pan center/bandwidth from Flex status and emits this normalized
     // signal; RadioModel drives the addressed PanadapterModel. (Template for the
@@ -10061,6 +10082,18 @@ void RadioModel::dispatchTransmitControl(const TransmitControlRequest& request)
     const ReceiveDispatch result = backend->requestTransmitControl(request, tuneContext);
     if (!alive || !backend || m_backendReceiverGeneration != generation) { return; }
     reportReceiveDispatch(result, request.label());
+    // A caller waiting on the radio's answer gets one even from a backend that
+    // cannot hear it: applied only when the host applied it itself (LocalOnly).
+    // Dispatched without an answer is not confirmation, so it reports false.
+    if (request.answerTicket != 0
+        && !(result == ReceiveDispatch::Dispatched && backend->answersTransmitControl())) {
+        const QPointer<TransmitModel> model(&m_transmitModel);
+        const quint64 ticket = request.answerTicket;
+        const bool applied = result == ReceiveDispatch::LocalOnly;
+        QMetaObject::invokeMethod(this, [model, ticket, applied] {
+            if (model) { model->handleControlAnswer(ticket, applied); }
+        }, Qt::QueuedConnection);
+    }
 }
 
 void RadioModel::wireSliceObservationsAndTxIntentToBackend(SliceModel* s)

@@ -402,6 +402,34 @@ public:
 
     // ── VOX commands ────────────────────────────────────────────────────────
     void setVoxEnable(bool on);
+    // Ask the radio to change VOX and report what it answered, rather than
+    // assuming it agreed. A FLEX-6500 on 4.2.20 answers `transmit set
+    // vox_enable` with R<seq>|0| in ~30 ms and then never repeats vox_enable in
+    // a transmit status, so the reply is the only confirmation there is. No
+    // optimistic write: the model changes only when the radio says it applied
+    // the request, and only if no later VOX change superseded it. Returns the
+    // ticket voxEnableAnswered() will carry, or 0 when nothing was asked (off
+    // the owner thread). For a caller that must not act until VOX really has
+    // changed; a control that only reflects an operator click wants
+    // setVoxEnable().
+    quint64 requestVoxEnable(bool on);
+    // Changes whenever VOX is asked to change, by anyone, and when a session
+    // ends. A caller that changed VOX on the operator's behalf compares it
+    // before putting VOX back, so a change the operator made since wins.
+    // Whether voxEnable() is what the radio has said — in a status, or in its
+    // answer to requestVoxEnable() — rather than what was last asked for.
+    // setVoxEnable() is optimistic: it writes the model at once and the radio
+    // may answer late, or refuse, and a FLEX-6500 never repeats vox_enable in
+    // a status, so a caller that must know VOX is really off (recording) asks
+    // the radio again while this is false.
+    bool voxStateConfirmed() const { return !m_voxUnconfirmed; }
+    quint64 voxIntentMark() const
+    {
+        return m_controlIntentRevisions[static_cast<size_t>(TransmitControlRequest::Field::VoxEnabled)];
+    }
+    // RadioModel: the backend's (or RadioModel's own) answer to a request this
+    // model sent with a ticket. Unknown and repeated tickets are ignored.
+    void handleControlAnswer(quint64 ticket, bool applied);
     void setVoxLevel(int level);
     void setVoxDelay(int delay);
     void setMicBoost(bool on);
@@ -440,6 +468,12 @@ public:
 
 signals:
     void stateChanged();
+    // The answer to requestVoxEnable(): which request, what it asked for, and
+    // whether the radio applied it. current is false when a VOX change was
+    // asked for after it (an operator click, another request, a session
+    // ending): the radio may then have applied this one and moved on, so the
+    // answer no longer says what VOX is now.
+    void voxEnableAnswered(quint64 ticket, bool on, bool applied, bool current);
     // (rfPowerChanged is declared once below — main already has it for the
     // external-surface mirror path; backends that set drive through the seam
     // reuse that same signal rather than a duplicate. #4449 recovery.)
@@ -557,6 +591,13 @@ private:
     }
     bool refuseControlOffThread() const;
     std::array<quint64, static_cast<size_t>(TransmitControlRequest::Field::Count)> m_controlIntentRevisions{};
+    // requestVoxEnable() tickets still waiting on an answer, with what each
+    // asked for and the VOX intent revision it was issued at.
+    struct PendingVoxAnswer { bool on; quint64 revision; };
+    QHash<quint64, PendingVoxAnswer> m_pendingVoxAnswers;
+    quint64 m_lastAnswerTicket{0};
+    // See voxStateConfirmed(). Unconfirmed until the radio first reports VOX.
+    bool m_voxUnconfirmed{true};
     static ATUStatus parseAtuTuneStatus(const QString& s);
     bool isPhoneModeForQuindar() const;
     bool runPttPreflight(PttSource source, bool resyncMoxOnBlock = true);

@@ -21,6 +21,7 @@
 #include "models/SliceLinkPolicy.h"
 #include "core/AppSettings.h"
 #include "core/FirmwareCurrency.h"
+#include "models/VoiceKeyerSource.h"
 #include "core/AetherDspModePolicy.h"
 #include "core/KiwiSdrTxMutePolicy.h"  // optimistic-unkey Kiwi mute latch
 #include "core/RadioMessageTypes.h"   // MessageSeverity for onRadioMessage slot
@@ -32,6 +33,7 @@
 #include "gui/CenterLockRebindTracker.h"
 #include "gui/DaxRestorePolicy.h"       // #4558 last-session DAX restore window
 #include "gui/KiwiRebindTracker.h"      // #4158 band-recall Kiwi re-bind policy
+#include "gui/RxPlaybackMuteOwners.h"    // who is holding live RX off the sink
 #include "gui/SplitAudioProfile.h"       // #2242 remembered split audio arrangement
 #include "gui/SplitQsyObservationPolicy.h"
 #include "gui/SplitQsySettings.h"
@@ -205,6 +207,7 @@ class UlanziDialBackend;
 #endif
 class CwxPanel;
 class DvkPanel;
+class VoiceKeyerController;
 #ifdef HAVE_RADE
 class RADEEngine;
 #endif
@@ -658,12 +661,16 @@ private:
     // PanadapterStream::pcmFrameReady → AudioEngine::feedPcmFrame must consult
     // this, or the two sources sum at the sink (wobble + distortion).
     bool backendFeedsEngineDirectly();        // MainWindow_Session.cpp
-    // Live RX is muted while the QSO recorder or the PUDU monitor plays audio
-    // back through the same sink. The Flex path achieves that by disconnecting
-    // PanadapterStream::pcmFrameReady; a seam backend has no such connection
-    // to drop, so its relay consults this instead. See the muteRxRequested
-    // handlers in MainWindow.cpp. (PR #4537 review.)
+    // Live RX is muted while something plays audio back through the same sink:
+    // the QSO recorder, the PUDU monitor, or a voice keyer preview. The Flex
+    // path achieves that by disconnecting PanadapterStream::pcmFrameReady; a
+    // seam backend has no such connection to drop, so its relay consults this
+    // instead. (PR #4537 review.)
     bool m_rxMutedForPlayback{false};
+    // Who is asking; see RxPlaybackMuteOwners.h. A plain bool would let
+    // whichever producer finished first unmute under the others.
+    RxPlaybackMuteOwners m_rxPlaybackMuters;
+    void setRxPlaybackMute(const QString& owner, bool mute);   // MainWindow.cpp
     void wirePanStreamTxSink();               // MainWindow_Session.cpp
     void wireTxAudioAuthority();              // MainWindow_Session.cpp
     QMetaObject::Connection m_tciPcmConnection;
@@ -1067,6 +1074,14 @@ private:
     void showFreeDvReporter();
 #endif
     void updateKeyerAvailability();
+    // Client-side voice keyer (MainWindow_DigitalModes.cpp).
+    void wireLocalVoiceKeyer();
+    VoiceKeyerSource voiceKeyerSource() const;
+    void applyVoiceKeyerSource();
+    void showVoiceKeyerSourceMenu(const QPoint& globalPos);
+    // Where to pop the chooser when it is opened from the keyboard: under the
+    // DVK indicator when that is on screen, otherwise the window's centre.
+    QPoint voiceKeyerSourceMenuAnchor() const;
     void showNr2ParamPopup(const QPoint& globalPos);
     void showNr4ParamPopup(const QPoint& globalPos);
     void showDfnrParamPopup(const QPoint& globalPos);
@@ -1781,6 +1796,11 @@ private:
 #endif
     CwxPanel* m_cwxPanel{nullptr};
     DvkPanel* m_dvkPanel{nullptr};
+    // RFC #4214 client-side voice keyer: recordings on this computer, driven
+    // through the same DVK panel as the radio DVK. The controller owns the
+    // keyer, its transmit route and the preview player; this window only
+    // follows the keyer it resolves. See wireLocalVoiceKeyer().
+    VoiceKeyerController* m_voiceKeyer{nullptr};
     QLabel* m_dvkIndicator{nullptr};
     QLabel* m_fdxIndicator{nullptr};
     QMetaObject::Connection m_tnfIndicatorConnection;

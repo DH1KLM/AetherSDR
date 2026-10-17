@@ -15,6 +15,10 @@
 #include "core/SmartCatProtocol.h"
 #include "core/AudioEngine.h"
 #include "core/TciServer.h"
+#include "core/LocalVoiceKeyerStore.h"
+#include "core/VoiceKeyerSettings.h"
+#include "models/VoiceKeyer.h"
+#include "models/VoiceKeyerController.h"
 #ifdef HAVE_WEBSOCKETS
 #include "core/TciClient.h"
 #endif
@@ -1015,6 +1019,94 @@ void queuedPrimaryKeying()
         } else {
             check(wire == QStringList({on}), "idle cleanup cannot unkey the newly acquired operation");
         }
+    }
+}
+
+// The client-side voice keyer on air when the radio disconnects (#6292
+// review). The keyer's own unkey runs from connectionStateChanged(false), after
+// resetTxOperations() has unbound its request, so that unkey finds nothing to
+// release. What stops the transmission is the reset itself:
+// TxCoordinator::reset() stops the active operation, whoever keyed it, so the
+// backend is told to unkey the keyer's playback exactly as it is told to unkey
+// the operator's own MOX. On LAN that queued `xmit 0` is then cancelled by the
+// same reset's fence before the terminal writer, for both sources alike, so the
+// wire is compared with the operator's MOX rather than asserted absolute.
+// Real Flex encoder and fence; the TCP sink is inert.
+void voiceKeyerDisconnectStopsLikeMox()
+{
+    const auto spin = [] {
+        QEventLoop loop;
+        QTimer::singleShot(10, &loop, &QEventLoop::quit);
+        loop.exec();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+    };
+    struct Result { QStringList wire; QStringList backend; bool keyed{false}; bool idle{false}; };
+    const auto run = [&spin](bool keyer) {
+        Result r;
+        RadioConnection connection;
+        FlexBackend encoder;
+        Fixture f;
+        TxOperationIntegrationTestAccess::injectTcp(f.radio, connection, r.wire);
+        TxOperationIntegrationTestAccess::bindTxEncoder(f.radio, encoder);
+        f.backend->keyingWriter = [&encoder](bool on, const auto& operation, const auto& completion) {
+            encoder.setKeying(on, operation, completion);
+        };
+        // Audio over the seam (no DAX stream to wait for); playback waits for
+        // the radio's PTT echo, as on a Flex.
+        f.backend->caps.takesTxAudioOverSeam = true;
+        f.backend->caps.hasRadioPttReadback = true;
+        AudioEngine audio;
+        VoiceKeyerController controller(f.radio, &audio, nullptr);
+        if (keyer) {
+            controller.bound()->playbackStart(1);
+        } else {
+            f.radio.setTransmit(true);
+        }
+        for (int i = 0; i < 300 && !r.wire.contains(QStringLiteral("xmit 1")); ++i) {
+            spin();
+        }
+        TransmitDelta echo;
+        echo.mox = true;
+        TxOperationIntegrationTestAccess::transmitDelta(f.radio, echo);
+        spin();
+        r.keyed = r.wire.contains(QStringLiteral("xmit 1"))
+                  && (!keyer || controller.bound()->status() == VoiceKeyer::Playback);
+        f.backend->connected = false;
+        f.radio.forceDisconnect();
+        TxOperationIntegrationTestAccess::disconnect(f.radio);
+        spin();
+        r.backend = f.commands;
+        r.idle = controller.bound()->status() == VoiceKeyer::Idle;
+        return r;
+    };
+
+    QString error;
+    const int frames = LocalVoiceKeyerStore::kSampleRate * 3;   // 3 s
+    QByteArray pcm(frames * LocalVoiceKeyerStore::kChannels * int(sizeof(qint16)), '\0');
+    auto* sample = reinterpret_cast<qint16*>(pcm.data());
+    for (int i = 0; i < frames * LocalVoiceKeyerStore::kChannels; ++i) {
+        sample[i] = qint16((i / 24) % 2 ? 4000 : -4000);
+    }
+    LocalVoiceKeyerStore store(VoiceKeyerSettings::recordingsDir());
+    check(store.writeSlot(1, pcm, error), "voice keyer slot fixture written");
+    VoiceKeyerSettings::setSource(VoiceKeyerSourceSetting::Local);
+
+    const Result keyer = run(true);
+    const Result mox = run(false);
+    const auto unkeyedAfterKey = [](const QStringList& backend) {
+        return backend.lastIndexOf(QStringLiteral("mox:off")) > backend.indexOf(QStringLiteral("mox:on"))
+               && backend.indexOf(QStringLiteral("mox:on")) >= 0;
+    };
+    check(keyer.keyed && mox.keyed, "voice keyer playback and operator MOX both keyed the radio");
+    check(unkeyedAfterKey(keyer.backend),
+          "a disconnect mid-playback tells the backend to unkey the voice keyer's transmission");
+    check(keyer.wire == mox.wire,
+          "a disconnect mid-playback leaves the wire exactly as it leaves the operator's own MOX");
+    check(keyer.idle, "the voice keyer is idle after the disconnect");
+    if (keyer.wire != mox.wire || !unkeyedAfterKey(keyer.backend)) {
+        std::printf("  keyer wire=[%s] backend=[%s]\n  mox   wire=[%s] backend=[%s]\n",
+                    qPrintable(keyer.wire.join(",")), qPrintable(keyer.backend.join(",")),
+                    qPrintable(mox.wire.join(",")), qPrintable(mox.backend.join(",")));
     }
 }
 
@@ -2566,6 +2658,7 @@ int main(int argc, char** argv)
     flexEncoding();
     flexSharedProtocolEligibility();
     queuedPrimaryKeying();
+    voiceKeyerDisconnectStopsLikeMox();
     teardownAdmission();
     pendingCallbackDisconnectExpiry();
     guiRegistrationDropIsNotARejection();

@@ -27,6 +27,9 @@ bool TransmitModel::refuseControlOffThread() const
 void TransmitModel::resetState()
 {
     for (quint64& revision : m_controlIntentRevisions) { ++revision; }
+    // A request of the ending session is answered, if at all, by a dead link.
+    m_pendingVoxAnswers.clear();
+    m_voxUnconfirmed = true;   // the next radio has not said yet
     cancelPttRelease();
     m_apdEnabled = false;
     m_apdConfigurable = false;
@@ -168,6 +171,8 @@ void TransmitModel::applyChanges(const TransmitDelta& d)
     micChanged |= assign(d.monGainSb, m_monGainSb);
 
     // ── VOX / phone ──
+    // The radio said what VOX is, so the state no longer rests on a request.
+    if (d.voxEnable) { m_voxUnconfirmed = false; }
     phoneChanged |= assign(d.voxEnable, m_voxEnable);
     phoneChanged |= assign(d.voxLevel, m_voxLevel);
     phoneChanged |= assign(d.voxDelay, m_voxDelay);
@@ -860,11 +865,47 @@ void TransmitModel::setVoxEnable(bool on)
     const auto field = TransmitControlRequest::Field::VoxEnabled;
     const auto current = captureControlIntent(field);
     m_voxEnable = on;  // optimistic update — radio may not echo
+    // ...so until the radio confirms it, the model says what was ASKED for.
+    m_voxUnconfirmed = true;
     emit phoneStateChanged();
     if (!current()) { return; }
     emit controlRequested({field, VoxSetting{m_voxEnable, m_voxLevel, m_voxDelay}});
     if (!current()) { return; }
     emit voxCommandIssued(on, m_voxLevel, m_voxDelay);
+}
+
+quint64 TransmitModel::requestVoxEnable(bool on)
+{
+    if (refuseControlOffThread()) { return 0; }
+    const auto field = TransmitControlRequest::Field::VoxEnabled;
+    // A VOX intent like an operator click, so a click after it supersedes it.
+    captureControlIntent(field);
+    const quint64 ticket = ++m_lastAnswerTicket;
+    m_pendingVoxAnswers.insert(ticket, {on, m_controlIntentRevisions[static_cast<size_t>(field)]});
+    TransmitControlRequest request{field, VoxSetting{on, m_voxLevel, m_voxDelay}};
+    request.answerTicket = ticket;
+    emit controlRequested(request);
+    return ticket;
+}
+
+void TransmitModel::handleControlAnswer(quint64 ticket, bool applied)
+{
+    const auto it = m_pendingVoxAnswers.constFind(ticket);
+    if (it == m_pendingVoxAnswers.constEnd()) { return; }
+    const PendingVoxAnswer pending = it.value();
+    m_pendingVoxAnswers.erase(it);
+    const bool current = m_controlIntentRevisions[static_cast<size_t>(
+        TransmitControlRequest::Field::VoxEnabled)] == pending.revision;
+    // Only the latest intent may write the model: an answer to a superseded
+    // request describes a VOX state the radio has since been asked to leave.
+    if (applied && current) {
+        m_voxUnconfirmed = false;
+        if (m_voxEnable != pending.on) {
+            m_voxEnable = pending.on;
+            emit phoneStateChanged();
+        }
+    }
+    emit voxEnableAnswered(ticket, pending.on, applied, current);
 }
 
 void TransmitModel::setVoxLevel(int level)

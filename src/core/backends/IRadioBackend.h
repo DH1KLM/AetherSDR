@@ -147,6 +147,11 @@ public:
     // Radio-owned identity; client-owned nicknames retain their local store.
     virtual ReceiveDispatch requestRadioNickname(const QString&)
     { return ReceiveDispatch::Unsupported; }
+    // Whether a Dispatched request carrying an answerTicket will be answered
+    // through transmitControlAnswered(). False by default: a backend that cannot
+    // hear the radio's reply leaves it to RadioModel, which reports it as not
+    // confirmed rather than assume the radio agreed.
+    virtual bool answersTransmitControl() const { return false; }
     explicit IRadioBackend(QObject* parent = nullptr) : QObject(parent)
     {
         connect(this, &IRadioBackend::connected, this, [this] {
@@ -940,6 +945,10 @@ public:
 
 signals:
     void independentTxStopped(const AetherSDR::TxStopEvidence& evidence);
+    // The radio's own answer to a dispatched TransmitControlRequest whose
+    // answerTicket was nonzero: applied when it accepted the setting. Emitted
+    // at most once per ticket.
+    void transmitControlAnswered(quint64 ticket, bool applied);
     // ---- connection state UP ----
     void connected();
     void disconnected();

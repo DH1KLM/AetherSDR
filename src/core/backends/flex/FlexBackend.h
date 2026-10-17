@@ -44,6 +44,13 @@ public:
     // Where the core verbs emit their SmartSDR command strings — RadioModel's
     // existing sendCommand() funnel, so verbs reuse the one wire-write path.
     void setCommandSink(std::function<void(const QString&)> sink);
+    // The same funnel for a write whose caller waits on the radio's answer
+    // (TransmitControlRequest::answerTicket). The sink reports the reply code;
+    // with none installed, such a request goes out unanswered.
+    using AnsweredCommandSink =
+        std::function<void(const QString&, std::function<void(bool applied)>)>;
+    void setAnsweredCommandSink(AnsweredCommandSink sink) { m_answeredSink = std::move(sink); }
+    bool answersTransmitControl() const override { return bool(m_answeredSink); }
     // Primary keying verbs use an operation-fenced writer, never the generic
     // command sink. The bool distinguishes key-on from cleanup, not authority.
     // Trusted engine composition supplies the original operation at dispatch.
@@ -213,6 +220,7 @@ private:
     PanadapterStream* m_panStream{nullptr};     // owned; lives on m_networkThread
     QThread*          m_networkThread{nullptr}; // owned (this-parented)
     std::function<void(const QString&)> m_sink;
+    AnsweredCommandSink m_answeredSink;
     std::function<void(const QString&, const TxCoordinator::Command&)> m_txSink;
     std::function<void(const QString&)> m_sliceSink;
     std::function<QString()> m_modelProvider;
