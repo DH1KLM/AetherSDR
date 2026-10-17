@@ -93,7 +93,7 @@ void profilesAndWire() {
         check(discovered == c.normalized && packets.size() >= 6, "normalized discovery and control priming");
         const auto cfg = P1ClientTestAccess::config(client);
         check(cfg.numAdcs == c.adcs && cfg.receivers == c.count, "board-specific ADC/layout");
-        check(cfg.receiveFilterBits == c.filter && cfg.adc1ReceiveFilterBits == 0x20, "HPF/BPF distinction and ADC1 bypass");
+        check(cfg.receiveFilterBits == c.filter && cfg.adc1ReceiveFilterBits == (c.adcs == 2 ? 0x20 : 0), "HPF/BPF distinction; ADC1 bypass only for a fitted ADC1");
         check(cfg.lowPassBits == 2, "6 MHz selects 60/40 LPF");
         for (const auto& packet : packets) {
             const auto* b = reinterpret_cast<const std::uint8_t*>(packet.constData());
@@ -319,6 +319,23 @@ int main(int argc, char** argv) {
         check(packets.size() >= 2 && packets[packets.size()-2].size() == 1032
               && packets[packets.size()-2][13] == 0,
               "P1 clears active OC pins in a control packet before stream stop");
+    }
+    {
+        std::vector<QByteArray> packets; P1Client client;
+        check(P1ClientTestAccess::prepare(client,params(4),packets), "P1 RX bypass fixture");
+        P1ClientTestAccess::feed(client,discovery(5));
+        auto config = defaultFilterConfig(false);
+        config.bypassAdc1 = false; config.receiveBypass[0] = true;
+        client.setHardwareFilters(filterOptions(config)); client.setDdc0FrequencyHz(3800000);
+        auto applied = P1ClientTestAccess::config(client);
+        check(applied.receiveFilterBits == 0x20 && applied.adc1ReceiveFilterBits == 0x10,
+              "P1 ADC0 per-band bypass does not leak into ADC1");
+        config.disable6mLnaOnRx = true; config.lpfBypassOnRx = true;
+        client.setHardwareFilters(filterOptions(config)); client.setDdc0FrequencyHz(51000000);
+        applied = P1ClientTestAccess::config(client);
+        check(applied.receiveFilterBits == 0x20 && applied.adc1ReceiveFilterBits == 0x40
+              && applied.lowPassBits == 0x10,
+              "P1 applies RX 6m LNA bypass and forced 6m LPF in bank-local bits");
     }
     std::cout << "ANAN P1 transport checks passed\n";
 }

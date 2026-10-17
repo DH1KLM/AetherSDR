@@ -15,12 +15,17 @@ inline QVariantMap filterOptions(const FilterConfig& config)
         }
         return list;
     };
+    QVariantList receiveBypass;
+    for (bool on : config.receiveBypass) { receiveBypass.append(on); }
     QVariantList oc;
     for (const auto& band : config.ocReceive) {
         oc.append(QVariantMap{{QStringLiteral("lowHz"), band.lowHz},
             {QStringLiteral("highHz"), band.highHz}, {QStringLiteral("mask"), band.mask}});
     }
-    return {{QStringLiteral("ocReceive"), oc}, {QStringLiteral("ocEnabled"), config.ocEnabled},
+    return {{QStringLiteral("receiveBypass"), receiveBypass},
+            {QStringLiteral("disable6mLnaOnRx"), config.disable6mLnaOnRx},
+            {QStringLiteral("lpfBypassOnRx"), config.lpfBypassOnRx},
+            {QStringLiteral("ocReceive"), oc}, {QStringLiteral("ocEnabled"), config.ocEnabled},
             {QStringLiteral("receive"), rows(config.receive)},
             {QStringLiteral("lowPass"), rows(config.lowPass)},
             {QStringLiteral("bypassAdc0"), config.bypassAdc0},
@@ -76,6 +81,19 @@ inline std::optional<FilterConfig> parseFilterOptions(const QVariantMap& map)
         }
         config.ocEnabled = map.value(QStringLiteral("ocEnabled")).toBool();
     }
+    if (map.contains(QStringLiteral("receiveBypass"))) {
+        const auto bypasses = map.value(QStringLiteral("receiveBypass")).toList();
+        if (bypasses.size() != 6) { return std::nullopt; }
+        for (int n = 0; n < 6; ++n) {
+            if (bypasses[n].metaType().id() != QMetaType::Bool) { return std::nullopt; }
+            config.receiveBypass[n] = bypasses[n].toBool();
+        }
+    }
+    for (const auto& key : {QStringLiteral("disable6mLnaOnRx"), QStringLiteral("lpfBypassOnRx")}) {
+        if (map.contains(key) && map.value(key).metaType().id() != QMetaType::Bool) { return std::nullopt; }
+    }
+    config.disable6mLnaOnRx = map.value(QStringLiteral("disable6mLnaOnRx"), false).toBool();
+    config.lpfBypassOnRx = map.value(QStringLiteral("lpfBypassOnRx"), false).toBool();
     config.bypassAdc0 = map.value(QStringLiteral("bypassAdc0")).toBool();
     config.bypassAdc1 = map.value(QStringLiteral("bypassAdc1")).toBool();
     return config;
