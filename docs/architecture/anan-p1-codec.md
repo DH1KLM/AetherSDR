@@ -136,5 +136,6 @@ inactive-transport suppression. Existing P2 packet/profile/audio/telemetry tests
 remain regression checks.
 
 Logical-model selection now uses the [shared model catalogue](anan-model-profiles.md);
-its schema-2 document also stores a separate protocol preference. Version-1
-Red Pitaya P1 documents remain readable.
+its schema-3 document stores a separate protocol preference and an explicit
+board-override flag. Version-1 Red Pitaya P1 and version-2 model/protocol
+documents remain readable, with board override OFF.

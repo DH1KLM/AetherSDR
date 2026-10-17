@@ -126,6 +126,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_discoveryValidated = false;
     m_expectedBoardId = params.expectedBoardId;
     m_model = params.model;
+    m_overrideDetection = params.overrideDetection;
 
     m_socket = new QUdpSocket(this);
     if (!m_socket->bind(QHostAddress::AnyIPv4, 0)) {
@@ -527,7 +528,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 }
                 //DH1KLM: Require an implemented RX profile and matching board ID.
                 // A recognized family alone does not authorize session packets.
-                const auto resolvedProfile = receiveProfile(reply->boardId, m_model);
+                const auto resolvedProfile = receiveProfile(reply->boardId, m_model, m_overrideDetection);
                 if (!resolvedProfile || (m_expectedBoardId >= 0
                         && reply->boardId != m_expectedBoardId)) {
                     const QString expected = m_expectedBoardId >= 0

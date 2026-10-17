@@ -209,6 +209,7 @@ public:
     [[nodiscard]] double sMeterDbmForTest() const noexcept { return m_sMeter.value(); }
 
 private:
+    int effectiveBoardId() const;
     //DH1KLM: Shipped defaults are valid only for the Saturn RX profile.
     void seedDroopCorrectionTables(bool useSaturnDefaults);
     friend class AnanNoiseBlankerTestAccess;

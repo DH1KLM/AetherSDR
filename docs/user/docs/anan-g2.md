@@ -47,12 +47,37 @@ The G2 is found automatically on your LAN: open **File → Connect to Radio...**
 
 To reach it across a VPN or another subnet, use **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P1/P2)** (see [Manual Connection](./manual-connection.md)). For the ANAN-7000DLE, use the same **ANAN / OpenHPSDR (P1/P2)** radio-type entry;
 Discovery selects the Orion MkII receive layout automatically. The form's
-connection options apply on both paths:
+connection options apply on both paths.
 
 **Connect by IP** accepts validated P2 discovery replies from UDP source port
 0 as well as 1024. An ANAN-7000DLE capture showed port 0 for both automatic
 and directed discovery; the request is still sent to UDP port 1024, and the
 reply must come from the requested IP address.
+
+### DIY board override
+
+On **Connect by IP**, choose the required **Receive profile**, then set
+**Board override → Override detection (ON)** before connecting. This permits
+an intentional mismatch, such as an Orion MkII digital board with an
+ANAN-200D LPF/PA board. The selected model determines the complete effective
+hardware profile: ADC/DDC layout, filters, antenna control, speaker-channel
+mapping and supported board-dependent telemetry/defaults. This is a full
+model override, not a separate filter-board selector. A wrong selection can
+therefore select incorrect filters or ADC/DDC routing. Transmit remains
+unavailable.
+
+The switch has three states: **ON** forces the selected explicit model;
+**OFF** restores normal model/board compatibility checks; **use saved
+setting** (partially checked) reads this device's setting after discovery
+supplies its MAC. **Use saved model** can reuse a previously selected explicit
+model; **Automatic physical-board profile** cannot be used with override ON.
+The model and override are saved together per MAC when connecting, and apply
+to later automatic-discovery connections too. Existing settings default to
+override OFF. To change the override, disconnect and reconnect through this
+page. The firmware's actual P1/P2 protocol and the discovered device identity
+are retained; busy, unknown and unsupported devices are still refused.
+
+Connection options:
 
 | Option | Default | What it does |
 |--------|---------|--------------|
@@ -94,10 +119,11 @@ In **Connect by IP**, choose **Radio type → ANAN / OpenHPSDR (P1/P2)**, then:
 
 The choice is saved per MAC address and used on reconnect. **Use saved model**
 and **Use saved preference** retain the existing choice. To clear a model
-selection, choose **Automatic physical-board profile** and reconnect.
+selection, choose **Automatic physical-board profile**, set override **OFF**, and reconnect.
 Discovery labels the exact model only after you have selected it; it cannot
 identify a specific SKU from a shared board ID alone. A mismatched model is
-refused rather than applied to a different board.
+refused unless **Override detection (ON)** explicitly selects the alternate
+hardware profile described above.
 
 Existing Red-Pitaya-P1 settings keep their model, P1 preference and 384 ksps
 ceiling. Red Pitaya P2 is an explicit model choice too: it uses two ADCs,

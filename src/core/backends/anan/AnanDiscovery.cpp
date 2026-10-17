@@ -189,7 +189,7 @@ void AnanDiscovery::onReadyRead()
         const auto savedProfile = AnanSettings::radioProfile(info.serial);
         const auto* model = ananModelInfo(savedProfile.model);
         if (savedProfile.valid && model && savedProfile.model != AnanModel::Automatic
-            && modelMatchesBoard(savedProfile.model, info.boardId)) {
+            && receiveProfile(info.boardId, savedProfile.model, savedProfile.overrideDetection)) {
             info.model = QString::fromLatin1(model->name.data(), model->name.size());
             info.name = info.model;
         }

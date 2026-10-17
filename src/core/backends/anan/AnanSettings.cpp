@@ -174,7 +174,7 @@ AnanSettings::RadioProfile AnanSettings::radioProfile(const QString& serial)
     AppSettings::FeatureReadStatus status;
     const auto doc = scope.featureExact(QStringLiteral("HardwareProfile"), &version, &status);
     if (status == AppSettings::FeatureReadStatus::Missing) { return {}; }
-    if (status != AppSettings::FeatureReadStatus::Present || version < 1 || version > 2) {
+    if (status != AppSettings::FeatureReadStatus::Present || version < 1 || version > 3) {
         return {AnanModel::Automatic, 0, false};
     }
     //DH1KLM: Preserve the hardware-tested version-1 Red Pitaya P1 preference.
@@ -184,23 +184,34 @@ AnanSettings::RadioProfile AnanSettings::radioProfile(const QString& serial)
     }
     const auto model = static_cast<AnanModel>(doc.value(QStringLiteral("model")).toInt(-100));
     const int protocol = doc.value(QStringLiteral("protocol")).toInt(-1);
-    return {model, protocol, ananModelInfo(model) && protocol >= 0 && protocol <= 2};
+    const auto overrideValue = doc.value(QStringLiteral("overrideDetection"));
+    const bool overrideDetection = version >= 3 && overrideValue.toBool(false);
+    return {model, protocol,
+            ananModelInfo(model) && protocol >= 0 && protocol <= 2
+                && (version < 3 || overrideValue.isBool())
+                && (!overrideDetection || (model != AnanModel::Automatic
+                    && model != AnanModel::Hpsdr && model != AnanModel::HermesLite2)),
+            overrideDetection};
 }
 
-bool AnanSettings::setRadioProfile(const QString& serial, AnanModel model, int protocol)
+bool AnanSettings::setRadioProfile(const QString& serial, AnanModel model, int protocol,
+                                  bool overrideDetection)
 {
-    if (serial.trimmed().isEmpty() || !ananModelInfo(model) || protocol < 0 || protocol > 2) {
+    if (serial.trimmed().isEmpty() || !ananModelInfo(model) || protocol < 0 || protocol > 2
+        || (overrideDetection && (model == AnanModel::Automatic
+            || model == AnanModel::Hpsdr || model == AnanModel::HermesLite2))) {
         return false;
     }
     const RadioSettingsScope scope(QStringLiteral("anan"), serial);
     int version = 0;
     AppSettings::FeatureReadStatus status;
     auto doc = scope.featureExact(QStringLiteral("HardwareProfile"), &version, &status);
-    if (version > 2 || status == AppSettings::FeatureReadStatus::Corrupt
+    if (version > 3 || status == AppSettings::FeatureReadStatus::Corrupt
         || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
     doc.insert(QStringLiteral("model"), static_cast<int>(model));
     doc.insert(QStringLiteral("protocol"), protocol);
-    return scope.setFeature(QStringLiteral("HardwareProfile"), 2, doc);
+    doc.insert(QStringLiteral("overrideDetection"), overrideDetection);
+    return scope.setFeature(QStringLiteral("HardwareProfile"), 3, doc);
 }
 
 bool AnanSettings::setRedPitayaP1ForRadio(const QString& serial, bool enabled)

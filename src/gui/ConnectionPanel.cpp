@@ -945,6 +945,22 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
         }
     }
     m_manualAnanProfileRow = addManualRow(QStringLiteral("Receive profile:"), m_manualAnanProfileCombo);
+    //DH1KLM: Partial state reads the exact radio's saved choice after discovery
+    // supplies its MAC, so a second device never inherits the first override.
+    m_manualAnanOverrideCheck = new QCheckBox(tr("Override detection (use saved setting)"), manualGroup);
+    m_manualAnanOverrideCheck->setObjectName(QStringLiteral("connectionManualAnanOverrideDetection"));
+    m_manualAnanOverrideCheck->setAccessibleName(tr("Override OpenHPSDR board detection"));
+    m_manualAnanOverrideCheck->setAccessibleDescription(tr(
+        "Partially checked uses this radio's saved setting. Checked forces the selected receive profile for all hardware behavior; unchecked disables the override. Select an explicit model. Saved per MAC on connect; requires reconnect. Wrong profiles can select incorrect filters and ADC routing."));
+    m_manualAnanOverrideCheck->setToolTip(m_manualAnanOverrideCheck->accessibleDescription());
+    m_manualAnanOverrideCheck->setTristate(true);
+    m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
+    connect(m_manualAnanOverrideCheck, &QCheckBox::stateChanged, this, [this](int state) {
+        m_manualAnanOverrideCheck->setText(state == Qt::PartiallyChecked
+            ? tr("Override detection (use saved setting)")
+            : state == Qt::Checked ? tr("Override detection (ON)") : tr("Override detection (OFF)"));
+    });
+    m_manualAnanOverrideRow = addManualRow(QStringLiteral("Board override:"), m_manualAnanOverrideCheck);
     m_manualAnanProtocolCombo = new QComboBox(manualGroup);
     m_manualAnanProtocolCombo->setObjectName(QStringLiteral("connectionManualAnanProtocolCombo"));
     m_manualAnanProtocolCombo->setAccessibleName(tr("OpenHPSDR discovery protocol"));
@@ -2613,6 +2629,8 @@ void ConnectionPanel::updateManualFamilyHints()
         m_manualAnanRateRow->setVisible(anan);
     if (m_manualAnanProfileRow)
         m_manualAnanProfileRow->setVisible(anan);
+    if (m_manualAnanOverrideRow)
+        m_manualAnanOverrideRow->setVisible(anan);
     if (m_manualAnanProtocolRow)
         m_manualAnanProtocolRow->setVisible(anan);
     if (m_manualAnanAdcRow)
@@ -3519,20 +3537,29 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             const auto saved = anan::AnanSettings::radioProfile(info.serial);
             const auto model = modelChoice == -100 ? saved.model : static_cast<anan::AnanModel>(modelChoice);
             const int desiredProtocol = protocolChoice < 0 ? saved.protocol : protocolChoice;
+            const auto overrideState = m_manualAnanOverrideCheck->checkState();
+            const bool overrideDetection = overrideState == Qt::PartiallyChecked
+                ? saved.overrideDetection : overrideState == Qt::Checked;
             if (desiredProtocol > 0 && desiredProtocol != reply->wireProtocol) { continue; }
-            if ((!saved.valid && modelChoice == -100) || !anan::modelMatchesBoard(model, info.boardId)) {
-                setManualMessage(tr("The selected or saved model does not match this radio's board."), true);
-                reportStartupProbeFailure(tr("The selected or saved model does not match this radio's board."));
+            if ((!saved.valid && (modelChoice == -100 || protocolChoice < 0
+                                  || overrideState == Qt::PartiallyChecked))
+                || !anan::receiveProfile(info.boardId, model, overrideDetection)) {
+                const QString reason = overrideDetection
+                    ? tr("Board override requires an explicit supported receive profile. Check the saved model and protocol settings.")
+                    : tr("The selected or saved model does not match this radio's board. Enable Override detection only for a deliberate hardware override.");
+                setManualMessage(reason, true);
+                reportStartupProbeFailure(reason);
                 return AnanProbeResult::Answered;
             }
-            if (modelChoice != -100 || protocolChoice >= 0) {
-                if (!anan::AnanSettings::setRadioProfile(info.serial, model, desiredProtocol)) {
+            if (modelChoice != -100 || protocolChoice >= 0 || overrideState != Qt::PartiallyChecked) {
+                if (!anan::AnanSettings::setRadioProfile(info.serial, model, desiredProtocol, overrideDetection)) {
                     setManualMessage(tr("Could not save this radio's receive profile."), true);
                     reportStartupProbeFailure(tr("Could not save this radio's receive profile."));
                     return AnanProbeResult::Answered;
                 }
                 m_manualAnanProfileCombo->setCurrentIndex(0);
                 m_manualAnanProtocolCombo->setCurrentIndex(0);
+                m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
             }
             if (model != anan::AnanModel::Automatic) {
                 const auto* descriptor = anan::ananModelInfo(model);

@@ -24,7 +24,8 @@ raw 5 → Orion 4, raw 10 → Orion MkII 5. Thetis accepts Hermes or Hermes-II
 reports for the ANAN-10/10E/100/100B logical selections; the selected model
 then determines the effective receive layout. Red Pitaya accepts Hermes or
 Orion MkII reports but resolves to the two-ADC Orion-class layout. Unknown
-models and incompatible board/model combinations fail before receive setup.
+models and incompatible board/model combinations fail before receive setup
+unless an explicit supported board override is enabled.
 
 Standard P1 profiles use 48/96/192 ksps; Red Pitaya additionally supports
 384 ksps. P2 retains the existing six-rate ladder. Anvelina P1 emits bank
@@ -41,6 +42,8 @@ normalized board ID. Display names never select packet behavior.
 
 - Schema 1: `redPitayaP1=true` maps to Red Pitaya + P1; false maps to automatic.
 - Schema 2: `model` is a validated logical ID; `protocol` is 0/1/2.
+- Schema 3: adds a required boolean `overrideDetection`. Schemas 1/2 always
+  read as override OFF. ON requires an explicit supported model.
 - Missing exact row means automatic. Family-wide choices are not inherited.
 - Corrupt, unavailable, malformed or newer schemas are not silently applied.
 - Writes require a known MAC, preserve other fields, check success, and refuse
@@ -52,6 +55,27 @@ for the exact radio. Discovery prefers P2 by default and P1 for a saved P1
 preference, with the existing stale-preference aging policy. Manual explicit
 P1/P2 selection probes only that protocol. Automatic manual probing accepts a
 valid response; the resulting connection carries that actual protocol.
+
+## Explicit board override
+
+The operator-authorized Zeus-style override selects the complete effective
+profile, including ADC/DDC layout, filter and antenna encoding, stereo swap
+and board-dependent telemetry/default selection. It does not split digital
+and analog board selection. Example: reported Orion MkII ID 5 plus selected
+ANAN-200D resolves to two ADCs, DDC2 and legacy HPF; P1 uses five slots.
+The actual normalized discovery ID remains separate and is still compared
+against the selected device ID during session validation. Busy replies,
+unsupported physical boards/models and HL2 P2 remain refused.
+
+The manual page's three-state checkbox selects ON, OFF, or the exact-MAC saved
+setting (partial state). The complete model/protocol/override object is saved
+on connect; the form then returns to saved selection. Reconnect and automatic
+discovery consume the same object, with no global override inheritance.
+
+Behavioral reference: Zeus commit `1aa1d8632df7fe4b63cf49f1bac937793f6f309a`,
+[RadioService.ConnectedBoardKind](https://github.com/abhishekprakash22/zeus/blob/1aa1d8632df7fe4b63cf49f1bac937793f6f309a/Zeus.Server.Hosting/RadioService.cs#L4737-L4775)
+and [RadioSelector](https://github.com/abhishekprakash22/zeus/blob/1aa1d8632df7fe4b63cf49f1bac937793f6f309a/zeus-web/src/components/RadioSelector.tsx#L235-L267).
+Thetis remains the authority for each selected model's wire behavior.
 
 ## Qualification boundaries
 

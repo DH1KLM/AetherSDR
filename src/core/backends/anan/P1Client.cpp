@@ -56,6 +56,9 @@ P1Client::~P1Client() { stop(); }
 
 bool P1Client::prepare(const Params& params)
 {
+    if (!ananModelInfo(params.model)
+        || (params.overrideDetection && params.model == AnanModel::Automatic))
+        return false;
     const bool redPitaya = params.redPitayaP1 || params.model == AnanModel::RedPitaya;
     m_host = QHostAddress(params.host);
     if (m_host.protocol() != QAbstractSocket::IPv4Protocol || !params.activeDdcs.empty()
@@ -67,7 +70,7 @@ bool P1Client::prepare(const Params& params)
         || params.adc1AttenuationDb < 0 || params.adc1AttenuationDb > 31)
         return false;
     if (params.expectedBoardId >= 0) {
-        if (!modelMatchesBoard(params.model, params.expectedBoardId)) { return false; }
+        if (!receiveProfile(params.expectedBoardId, params.model, params.overrideDetection)) { return false; }
         const int effectiveBoard = params.model == AnanModel::Automatic
             ? params.expectedBoardId : ananModelInfo(params.model)->nativeBoardId;
         const auto selected = profile(effectiveBoard, redPitaya);
@@ -164,7 +167,7 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
         const int effectiveBoard = m_params.model == AnanModel::Automatic
             ? boardId.value_or(-1) : (descriptor ? descriptor->nativeBoardId : -1);
         m_profile = boardId ? profile(effectiveBoard, m_params.redPitayaP1) : std::nullopt;
-        if (!m_profile || !modelMatchesBoard(m_params.model, boardId.value_or(-1))
+        if (!m_profile || !receiveProfile(boardId.value_or(-1), m_params.model, m_params.overrideDetection)
             || (m_params.expectedBoardId >= 0 && m_params.expectedBoardId != *boardId)
             || m_params.ddc0AdcIndex >= m_profile->numAdcs
             || m_params.ddc0RateKsps > maximumRateKsps(boardId.value_or(-1), m_params.redPitayaP1)) {

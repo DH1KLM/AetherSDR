@@ -238,5 +238,29 @@ void logicalModels() {
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     profilesAndWire(); refusals(); pacingAndErrors(); dispatch(); redPitaya384(); logicalModels();
+    //DH1KLM: Exercise the production P1 profile/priming path for the same
+    // Orion MkII + ANAN-200D DIY override as P2, with no socket or fake radio.
+    {
+        std::vector<QByteArray> packets; P1Client client;
+        auto p = params(5); p.model = AnanModel::Anan200D;
+        check(!P1ClientTestAccess::prepare(client, p, packets), "mismatched P1 model refused without override");
+        p.overrideDetection = true;
+        check(P1ClientTestAccess::prepare(client, p, packets), "P1 explicit cross-board override prepared");
+        client.setDdc0FrequencyHz(6'000'000);
+        P1ClientTestAccess::feed(client, discovery(10));
+        const auto cfg = P1ClientTestAccess::config(client);
+        check(!packets.empty() && cfg.numAdcs == 2 && cfg.receivers == 5
+              && cfg.receiveFilterBits == 0x10,
+              "P1 Orion MkII reply primes ANAN-200D legacy HPF hardware");
+    }
+    for (const bool busy : {false, true}) {
+        std::vector<QByteArray> packets; P1Client client;
+        auto p = params(5); p.model = AnanModel::Anan200D; p.overrideDetection = true;
+        check(P1ClientTestAccess::prepare(client, p, packets), "P1 refusal override fixture");
+        auto packet = discovery(busy ? 10 : 5);
+        if (busy) { packet[2] = 3; }
+        P1ClientTestAccess::feed(client, packet);
+        check(packets.empty() && !client.isRunning(), "P1 override cannot bypass busy or different discovery identity");
+    }
     std::cout << "ANAN P1 transport checks passed\n";
 }
