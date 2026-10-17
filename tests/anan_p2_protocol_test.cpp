@@ -1146,6 +1146,61 @@ int main()
               "observed P2 UDP/0 exception does not broaden P1 discovery");
     }
 
+    {
+        //DH1KLM: Editable defaults preserve all existing qualified profile packets.
+        for (int board : {1, 2, 3, 4, 5, 10, 20}) {
+            const auto profile = receiveProfile(board);
+            const auto defaults = defaultFilterConfig(profile->filterKind == ReceiveFilterKind::MkIIBpf);
+            for (double hz : {0.0, 1500000.0, 1800000.0, 2100000.0, 5000000.0,
+                              5500000.0, 6500000.0, 9500000.0, 11000000.0,
+                              13000000.0, 20000000.0, 22000000.0, 35000000.0,
+                              50000000.0, 61440000.0}) {
+                const std::array<std::uint32_t, 1> words{phaseWord(hz)};
+                check(buildHighPriority(true, words, false, true, 0, 0, 1, profile->firstDdcIndex,
+                          profile->selectReceiveLpf, profile->filterKind, profile->numAdcs)
+                      == buildHighPriority(true, words, false, true, 0, 0, 1, profile->firstDdcIndex,
+                          profile->selectReceiveLpf, profile->filterKind, profile->numAdcs, &defaults),
+                      "editable model defaults preserve existing qualified P2 packet bytes");
+            }
+        }
+        //DH1KLM: Thetis legacy HPF and MkII BPF differ at 5 MHz (bits 6 and 5).
+        FilterConfig legacy = defaultFilterConfig(false);
+        FilterConfig mkII = defaultFilterConfig(true);
+        const std::array<std::uint32_t, 1> frequency{phaseWord(5000000)};
+        const auto oldBoard = buildHighPriority(true, frequency, false, false, 0, 0, 1, 2,
+            true, ReceiveFilterKind::LegacyHpf, 2, &legacy);
+        const auto newBoard = buildHighPriority(true, frequency, false, false, 0, 0, 1, 2,
+            true, ReceiveFilterKind::MkIIBpf, 2, &mkII);
+        check(oldBoard[1435] == 0x40 && newBoard[1435] == 0x20,
+              "effective hardware selects legacy HPF versus MkII BPF at 5 MHz");
+        check(oldBoard[1431] == 0x40 && newBoard[1431] == 0x20,
+              "ADC1 automatic filter uses the separate Thetis Alex1 register");
+        const auto bypass = buildHighPriority(true, frequency, true, true, 0, 0, 1, 2,
+            true, ReceiveFilterKind::MkIIBpf, 2, &mkII);
+        check(bypass[1434] == 0x10 && bypass[1430] == 0x10
+              && bypass[1435] == 0 && bypass[1431] == 0,
+              "both ADC bypasses clear selected receive filter bits");
+        mkII.receive[0].highHz = 2499999;
+        mkII.receive[1].lowHz = 2500000;
+        const std::array<std::uint32_t,1> edge{phaseWord(2300000)};
+        const auto changed = buildHighPriority(true, edge, false, true, 0, 0, 1, 2,
+            true, ReceiveFilterKind::MkIIBpf, 2, &mkII);
+        check(changed[1435] == 0x40, "edited range changes the encoded receive relay");
+        mkII.lowPass[0].highHz = 5999999;
+        mkII.lowPass[1] = {6000000,6999999};
+        const auto customLpf = buildHighPriority(true, frequency, false, true, 0, 0, 1, 2,
+            true, ReceiveFilterKind::MkIIBpf, 2, &mkII);
+        check(customLpf[1433] == 0x80 && customLpf[4] == 1,
+              "edited LPF limits reach the wire without enabling TX");
+        const auto oneAdc = buildHighPriority(true, frequency, false, false, 0, 0, 1, 0,
+            true, ReceiveFilterKind::LegacyHpf, 1, &legacy);
+        check(oneAdc[1430] == 0 && oneAdc[1431] == 0,
+              "single ADC models never receive ADC1 filter commands");
+        check(selectedFilterBand(legacy.receive, 1800000) == 0
+              && selectedFilterBand(legacy.receive, 1799999) == -1,
+              "legacy HPF bypass and exact start edge are preserved");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "anan_p2_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

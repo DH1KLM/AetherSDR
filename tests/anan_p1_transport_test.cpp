@@ -1,4 +1,5 @@
 #include "core/backends/anan/AnanClient.h"
+#include "core/backends/anan/AnanFilterOptions.h"
 
 #include <QCoreApplication>
 #include <QTimer>
@@ -265,6 +266,34 @@ int main(int argc, char** argv) {
         check(!packets.empty() && cfg.numAdcs == 2 && cfg.receivers == 5
               && cfg.receiveFilterBits == 0x10,
               "P1 Orion MkII reply primes ANAN-200D legacy HPF hardware");
+    }
+    {
+        //DH1KLM: A live hardware-page edit reaches the P1 bank-local encoder through dispatch.
+        std::vector<QByteArray> packets;
+        AnanClient dispatcher;
+        AnanClientTestAccess::select(dispatcher, 1);
+        P1Client& client = *AnanClientTestAccess::p1(dispatcher);
+        check(P1ClientTestAccess::prepare(client, params(5), packets), "live P1 filter fixture");
+        client.setDdc0FrequencyHz(2300000);
+        P1ClientTestAccess::feed(client, discovery(10));
+        check(P1ClientTestAccess::config(client).receiveFilterBits == 0x08, "P1 initial 80 m BPF");
+        auto config = defaultFilterConfig(true);
+        config.receive[0].highHz = 2499999;
+        config.receive[1].lowHz = 2500000;
+        config.bypassAdc1 = false;
+        dispatcher.setHardwareFilters(filterOptions(config));
+        const auto applied = P1ClientTestAccess::config(client);
+        check(applied.receiveFilterBits == 0x10 && applied.adc1ReceiveFilterBits == 0x10,
+            "P1 live edited range and ADC1 auto selection update both banks");
+        config.bypassAdc0 = true;
+        dispatcher.setHardwareFilters(filterOptions(config));
+        check(P1ClientTestAccess::config(client).receiveFilterBits == 0x20,
+            "P1 live bypass replaces selected BPF");
+        auto invalid = filterOptions(config);
+        invalid.insert(QStringLiteral("receive"), QVariantList{});
+        dispatcher.setHardwareFilters(invalid);
+        check(P1ClientTestAccess::config(client).receiveFilterBits == 0x20,
+            "malformed live configuration leaves P1 control bank unchanged");
     }
     for (const bool busy : {false, true}) {
         std::vector<QByteArray> packets; P1Client client;

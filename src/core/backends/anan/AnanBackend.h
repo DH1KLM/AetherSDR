@@ -210,6 +210,8 @@ public:
 
 private:
     int effectiveBoardId() const;
+    QVariantMap hardwareFilterStatus() const;
+    void loadHardwareFilters(int boardId);
     //DH1KLM: Shipped defaults are valid only for the Saturn RX profile.
     void seedDroopCorrectionTables(bool useSaturnDefaults);
     friend class AnanNoiseBlankerTestAccess;

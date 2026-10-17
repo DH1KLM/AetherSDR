@@ -1,3 +1,4 @@
+#include "core/backends/anan/AnanFilterOptions.h"
 #include "core/backends/anan/AnanBackend.h"
 #include "core/AppActivity.h"
 #include "core/backends/anan/AnanDroopCalibrator.h"
@@ -328,6 +329,7 @@ AnanBackend::AnanBackend(QObject* parent)
         m_discoveredFirmwareVer = firmwareVer;
         m_discoveredReceiverCount = reportedReceivers;
         m_discoveryInfoReceived = true;
+        loadHardwareFilters(boardId);
         //DH1KLM: Also cover address-only connections after the board is known.
         const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
         seedDroopCorrectionTables(m_pendingParams.protocol == 2
@@ -729,6 +731,10 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         request.params.value(QStringLiteral("anan.bypassAdc0Filters"), false).toBool();
     m_pendingParams.bypassAdc1Filters =
         request.params.value(QStringLiteral("anan.bypassAdc1Filters"), true).toBool();
+    m_pendingParams.filters.reset();
+    if (profile) {
+        loadHardwareFilters(m_pendingParams.expectedBoardId);
+    }
     m_pendingParams.rxAntenna = m_rxAntenna;
     // FALSE by default, unlike the options above, and for the opposite reason:
     // their default is the hardware's shipped state, while this one's is "the
@@ -1539,9 +1545,98 @@ QString AnanBackend::applyDroopTables(const QMap<int, DroopCorrectionTable>& tab
     return persistDroopTables(tables);
 }
 
+void AnanBackend::loadHardwareFilters(int boardId)
+{
+    const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
+    if (!profile) { return; }
+    const auto saved = AnanSettings::hardwareFilters(m_radioSerial,
+        static_cast<int>(m_pendingParams.model), boardId);
+    FilterConfig config = parseFilterOptions(saved).value_or(
+        defaultFilterConfig(profile->filterKind == ReceiveFilterKind::MkIIBpf));
+    if (saved.isEmpty()) {
+        config.bypassAdc0 = m_pendingParams.bypassAdc0Filters;
+        config.bypassAdc1 = m_pendingParams.bypassAdc1Filters;
+    }
+    m_pendingParams.filters = config;
+    m_pendingParams.bypassAdc0Filters = config.bypassAdc0;
+    m_pendingParams.bypassAdc1Filters = config.bypassAdc1;
+    if (m_client && m_discoveryInfoReceived) {
+        const QVariantMap options = filterOptions(config);
+        QMetaObject::invokeMethod(m_client, "setHardwareFilters", Qt::QueuedConnection,
+                                  Q_ARG(QVariantMap, options));
+    }
+}
+
+QVariantMap AnanBackend::hardwareFilterStatus() const
+{
+    const auto profile = receiveProfile(m_discoveredBoardId, m_pendingParams.model,
+                                        m_pendingParams.overrideDetection);
+    if (!m_connected || !profile || m_radioSerial.isEmpty()) { return {}; }
+    FilterConfig config = m_pendingParams.filters.value_or(
+        defaultFilterConfig(profile->filterKind == ReceiveFilterKind::MkIIBpf));
+    config.bypassAdc0 = m_pendingParams.bypassAdc0Filters;
+    config.bypassAdc1 = m_pendingParams.bypassAdc1Filters;
+    QVariantMap state = filterOptions(config);
+    const auto* descriptor = ananModelInfo(m_pendingParams.model);
+    DiscoveryReply physical;
+    physical.boardId = m_discoveredBoardId;
+    state.insert(QStringLiteral("identity"), m_radioSerial);
+    state.insert(QStringLiteral("modelId"), static_cast<int>(m_pendingParams.model));
+    state.insert(QStringLiteral("boardId"), m_discoveredBoardId);
+    state.insert(QStringLiteral("model"), m_pendingParams.model == AnanModel::Automatic
+        ? QString::fromLatin1(physical.boardDisplayName())
+        : QString::fromLatin1(descriptor->name.data(), descriptor->name.size()));
+    state.insert(QStringLiteral("physical"), QString::fromLatin1(physical.boardDisplayName()));
+    state.insert(QStringLiteral("override"), m_pendingParams.overrideDetection);
+    state.insert(QStringLiteral("protocol"), m_pendingParams.protocol);
+    state.insert(QStringLiteral("mkII"), profile->filterKind == ReceiveFilterKind::MkIIBpf);
+    state.insert(QStringLiteral("numAdcs"), profile->numAdcs);
+    state.insert(QStringLiteral("selectLpf"), m_pendingParams.protocol == 1 || profile->selectReceiveLpf);
+    state.insert(QStringLiteral("receiveActive"), config.bypassAdc0 ? -1
+        : selectedFilterBand(config.receive, m_sliceFreqHz));
+    state.insert(QStringLiteral("adc1Active"), config.bypassAdc1 ? -1
+        : selectedFilterBand(config.receive, m_sliceFreqHz));
+    state.insert(QStringLiteral("lpfActive"), selectedFilterBand(config.lowPass, m_sliceFreqHz) < 0
+        ? 6 : selectedFilterBand(config.lowPass, m_sliceFreqHz));
+    state.insert(QStringLiteral("frequencyHz"), m_sliceFreqHz);
+    return state;
+}
+
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && (verb == QLatin1String("hw.get")
+        || verb == QLatin1String("hw.set") || verb == QLatin1String("hw.defaults"))) {
+        const QVariantMap state = hardwareFilterStatus();
+        if (state.isEmpty()) {
+            emit extensionError(requestId, QStringLiteral("Connect an ANAN with a validated receive profile first."));
+            return;
+        }
+        if (verb != QLatin1String("hw.get")) {
+            const QVariantMap fields = arg.toMap();
+            if (fields.value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))
+                || fields.value(QStringLiteral("modelId")) != state.value(QStringLiteral("modelId"))
+                || fields.value(QStringLiteral("boardId")) != state.value(QStringLiteral("boardId"))) {
+                emit extensionError(requestId, QStringLiteral("The connected hardware changed; reload this page."));
+                return;
+            }
+            const QVariantMap options = verb == QLatin1String("hw.defaults")
+                ? filterOptions(defaultFilterConfig(state.value(QStringLiteral("mkII")).toBool())) : fields;
+            const auto config = parseFilterOptions(options);
+            if (!config || !AnanSettings::setHardwareFilters(m_radioSerial,
+                    static_cast<int>(m_pendingParams.model), m_discoveredBoardId, options)) {
+                emit extensionError(requestId, QStringLiteral("Filter ranges must be ordered, non-overlapping integer Hz within 0–61.44 MHz; settings must be writable."));
+                return;
+            }
+            m_pendingParams.filters = *config;
+            m_pendingParams.bypassAdc0Filters = config->bypassAdc0;
+            m_pendingParams.bypassAdc1Filters = config->bypassAdc1;
+            QMetaObject::invokeMethod(m_client, "setHardwareFilters", Qt::QueuedConnection,
+                                      Q_ARG(QVariantMap, options));
+        }
+        emit extensionResult(requestId, hardwareFilterStatus());
+        return;
+    }
     //DH1KLM: ALEX RX antenna control is deliberately an explicit extension;
     //the P2 client applies only the verified Saturn Alex0 bit mapping.
     if (ns == QLatin1String("anan") && verb == QLatin1String("rx-antenna.get")) {

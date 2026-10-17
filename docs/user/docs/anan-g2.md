@@ -92,8 +92,43 @@ Connection options:
 | **Select ADC:** | ADC0 (ANT1/2/3) | Which receive chain feeds the receiver: **ADC0 (ANT1/2/3)**, behind the switched antenna relays, or **ADC1 (RX2)**, wired straight to the RX2 jack. |
 | **Dither** / **Random** | On | The ADC's linearisation bits. Leave them on unless you are testing. |
 | **ADC0 RF filter bypass** | Off | MkII/Saturn BPF1 is selected automatically from the tuned frequency using the Thetis-compatible band map. Check this only to force ADC0 around that filter. |
-| **ADC1 RF filter bypass** | On | RX2/ADC1's separate filter bank still uses bypass; automatic ADC1 band selection is not implemented yet. |
+| **ADC1 RF filter bypass** | On | Bypass RX2/ADC1's separate filter bank. Uncheck to select its receive filter automatically at the single receiver's tuned frequency. |
 | **Send RX audio to the radio's speaker** | Off | Also plays receive audio through the G2's own speaker and headphone jack. Takes effect on the next connect. |
+
+## Anan Hardware
+
+After connecting, open **Radio Setup → Radio → Anan Hardware**. The page
+shows the effective model, physical discovery board, MAC, protocol and override
+state. An explicit model override determines the hardware configuration;
+without an override the selected compatible model or physical-board profile is
+used. Other radio families retain their own hardware pages.
+
+**ALEX HPF bands** is used by the legacy Hermes, Angelia and Orion profiles
+(including ANAN-100/100D/200D). **ADC BPF bands** is used by Orion MkII
+(including ANAN-7000DLE/8000DLE), Saturn/G2 and G2E profiles. Red Pitaya uses
+the existing legacy HPF receive profile. An automatic board profile identifies
+a board family, not a guaranteed commercial model or external DIY filter board.
+
+Edit **Low MHz** and **High MHz** with six decimal places (1 Hz resolution).
+Rows must be ordered, non-overlapping, and within 0–61.44 MHz. Frequencies in
+receive-table gaps select bypass. LPF gaps select the 6 m LPF fallback.
+**ADC0 RF filter bypass** and **ADC1 RF filter bypass** override the respective
+receive bank. Single-ADC models disable ADC1 controls. LPF limits are disabled
+when the active profile does not drive LPF selection (the P2 Saturn profile).
+With one receiver, both automatic ADC filter banks follow its tuned frequency
+and share the editable receive-band limits. Independent ADC1 limits and
+per-band bypass switches are not exposed.
+
+Select **Apply** to save for this MAC and model and update the running receiver;
+no reconnect is needed. These saved hardware settings take precedence over the
+connection page's initial bypass defaults. **Restore model defaults** saves and
+applies the Thetis-compatible frequency limits and default bypass states
+(ADC0 automatic, ADC1 bypass). Changing the mapped model loads that model's own
+settings, without transferring custom limits from a different model.
+
+**Commanded ADC0 / ADC1 / LPF** indicates the software's requested filter,
+not physical relay feedback. This page configures receive filters only; it does
+not add transmit, PureSignal, OC-output or calibration controls.
 
 ## Protocol 1 reception
 
@@ -237,7 +272,7 @@ If the signal path is wrong after changing RF filter options, first restore the 
 
 1. Disconnect from the G2.
 2. Open **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P1/P2)**.
-3. Uncheck **ADC0 RF filter bypass** so the tuned-frequency BPF1 selection is active. Keep **ADC1 RF filter bypass** checked when using RX2 until its separate filter selector is implemented.
+3. Uncheck **ADC0 RF filter bypass** so the tuned-frequency BPF1 selection is active. ADC1/RX2 has a separate bypass option under **Radio Setup → Anan Hardware**.
 
 ### No audio from the radio's own speaker
 

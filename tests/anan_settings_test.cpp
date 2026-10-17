@@ -11,7 +11,9 @@
 
 #include "core/AppSettings.h"
 #include "core/backends/anan/AnanSettings.h"
+#include "core/backends/anan/AnanFilterOptions.h"
 #include "core/RadioDiscovery.h"
+#include "core/RadioSettingsScope.h"
 
 #include <QCoreApplication>
 #include <QJsonObject>
@@ -238,7 +240,35 @@ int main(int argc, char** argv)
                                      QStringLiteral(R"({"ddc0AdcIndex":7})"));
     check(AnanSettings::ddc0AdcIndex() == 0, "an out-of-range ADC index falls back to ADC0");
 
-    if (g_failures == 0)
-        std::printf("anan_settings_test: all checks passed\n");
+    {
+        //DH1KLM: A DIY override and another MAC must never share edited ranges.
+        const QString serial = QStringLiteral("FILTER-TEST");
+        auto config = defaultFilterConfig(false);
+        config.receive[0].lowHz = 1900000;
+        const auto options = filterOptions(config);
+        check(AnanSettings::setHardwareFilters(serial, 7, 5, options), "save hardware filter document");
+        const auto restored = parseFilterOptions(AnanSettings::hardwareFilters(serial, 7, 5));
+        check(restored && restored->receive[0].lowHz == 1900000, "custom filter ranges round-trip");
+        check(AnanSettings::hardwareFilters(serial, 9, 5).isEmpty()
+            && AnanSettings::hardwareFilters(QStringLiteral("OTHER-MAC"), 7, 5).isEmpty(),
+            "filter ranges isolated by MAC and effective model");
+        check(!AnanSettings::setHardwareFilters(QString(), 7, 5, options), "unknown identity cannot write family defaults");
+        auto invalid = options;
+        auto rows = invalid.value(QStringLiteral("receive")).toList();
+        rows[1] = QVariantMap{{QStringLiteral("lowHz"), 1000000}, {QStringLiteral("highHz"), 9499999}};
+        invalid.insert(QStringLiteral("receive"), rows);
+        check(!parseFilterOptions(invalid) && !AnanSettings::setHardwareFilters(serial, 7, 5, invalid),
+            "overlapping ranges rejected before persistence");
+        invalid = options;
+        invalid.insert(QStringLiteral("bypassAdc0"), QStringLiteral("true"));
+        check(!parseFilterOptions(invalid), "malformed bypass flag rejected");
+        const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+        check(scope.setFeature(QStringLiteral("HardwareFilters"), 99, QJsonObject{{QStringLiteral("future"), true}}),
+            "seed future hardware filter schema");
+        check(!AnanSettings::setHardwareFilters(serial, 7, 5, options)
+            && scope.featureExact(QStringLiteral("HardwareFilters")).value(QStringLiteral("future")).toBool(),
+            "future schema refused without data loss");
+    }
+    if (g_failures == 0) { std::printf("anan_settings_test: all checks passed\n"); }
     return g_failures == 0 ? 0 : 1;
 }

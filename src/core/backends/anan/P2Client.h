@@ -1,4 +1,5 @@
 #pragma once
+#include <QVariantMap>
 
 #include "core/backends/anan/P2Protocol.h"
 #include "core/backends/anan/AnanSpeakerPacing.h"
@@ -52,7 +53,7 @@ public:
         // reject or clamp one, and it does neither yet; an invalid value is
         // simply sent as-is and the radio's own reaction is the feedback.
         int ddc0RateKsps = 48;
-        // Connect-time-only options: no live setter; a change takes a reconnect.
+        // ADC routing and linearisation are connect-time; RF filter options have a live setter.
         bool ditherEnabled = true;
         bool randomEnabled = true;
         int ddc0AdcIndex = 0;          // 0 = ADC0, 1 = ADC1/RX2
@@ -60,6 +61,7 @@ public:
         int numAdcs = 2;
         bool bypassAdc0Filters = false; //DH1KLM: use Thetis Saturn BPF1 by default
         bool bypassAdc1Filters = true;
+        std::optional<FilterConfig> filters;
         // Receive step attenuators, 0-31 dB (buildHighPriority()). Unlike the
         // options above these ARE live: setStepAttenuationDb() changes them
         // mid-session. The values here are what the session starts with.
@@ -104,6 +106,7 @@ public:
     Q_INVOKABLE void setStepAttenuationDb(int adcIndex, int db);
     //DH1KLM: Change the selected Saturn RX antenna without restarting P2.
     Q_INVOKABLE void setRxAntenna(int antenna);
+    Q_INVOKABLE void setHardwareFilters(const QVariantMap& options);
 
     // Hand over demodulated receiver audio for the radio's speaker: L,R,... int16 in
     // HOST order at kSpeakerSampleRateHz (buildSpeakerAudio() byte-swaps). One call
@@ -268,6 +271,7 @@ private:
     //DH1KLM: Stream indices stay logical; packet rows/ports use this RX offset.
     int m_firstDdcIndex = 0;
     bool m_selectReceiveLpf = false;
+    std::optional<FilterConfig> m_filters;
     ReceiveFilterKind m_receiveFilterKind = ReceiveFilterKind::MkIIBpf;
     bool m_swapSpeakerChannels = false;
 

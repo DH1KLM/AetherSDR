@@ -275,7 +275,7 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   int firstDdcIndex,
                                                   bool selectReceiveLpf,
                                                   ReceiveFilterKind filterKind,
-                                                  int numAdcs) noexcept
+                                                  int numAdcs, const FilterConfig* filters) noexcept
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length
     pkt[4] = run ? 0x01 : 0x00;  // bit[0] = run. Bits[1..4] = PTT0..3 -- there is no
@@ -298,21 +298,27 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
     // caller explicitly requests bypass; outside the configured rows, bypass.
     //DH1KLM: Select the board's HPF/BPF table independently of DDC placement.
     const std::uint32_t rxWord = count > 0 ? ddcFreqWords[0] : 0;
-    const std::uint32_t bpfBits = filterKind == ReceiveFilterKind::LegacyHpf
-        ? legacyHpfRegisterBits(rxWord) : saturnBpf1RegisterBits(rxWord);
+    const double hz = static_cast<double>(rxWord) * kDspClockHz / 4294967296.0;
+    const std::uint32_t bpfBits = filters ? receiveFilterBits(*filters, hz)
+        : (filterKind == ReceiveFilterKind::LegacyHpf
+            ? legacyHpfRegisterBits(rxWord) : saturnBpf1RegisterBits(rxWord));
     if (bypassAdc0Filters || bpfBits == 0)
         alex0 |= std::uint32_t{1} << 12;
     else
         alex0 |= bpfBits;
     if (selectReceiveLpf) {
         //DH1KLM: Select the antenna-chain LPF as well as the ADC0 BPF1.
-        alex0 |= receiveLpfRegisterBits(count > 0 ? ddcFreqWords[0] : 0);
+        alex0 |= filters ? lowPassFilterBits(*filters, hz) : receiveLpfRegisterBits(rxWord);
     }
     writeU32be(&pkt[1432], alex0);
     // Alex1 (RX2/BPF2) register, bytes 1430-1431 -- a separate 16-bit word,
     // bit 12 "HF Bypass 2" (p.90-91's own Alex1 bit table).
     if (numAdcs > 1 && bypassAdc1Filters) {
         writeU16be(&pkt[1430], std::uint16_t{1} << 12);
+    } else if (numAdcs > 1 && filters) {
+        //DH1KLM: One receiver: RX2 follows the same tuned frequency (Thetis SetAlex2HPFBits).
+        writeU16be(&pkt[1430], static_cast<std::uint16_t>(bpfBits == 0
+            ? std::uint32_t{1} << 12 : bpfBits));
     }
     // Step attenuators, pp.34,36: byte 1443 = ADC0, byte 1442 = ADC1, 0-31 dB.
     pkt[1443] = static_cast<std::uint8_t>(

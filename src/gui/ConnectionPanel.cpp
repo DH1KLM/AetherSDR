@@ -1083,8 +1083,8 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
 
     //DH1KLM: Saturn BPF1 is now selected from DDC0's tuned frequency using
     //Thetis' setBPF1ForOrionIISaturn mapping. ADC0 bypass is therefore opt-in:
-    //it deliberately routes around that selected filter. ADC1's separate
-    //filter bank still defaults to bypass until its own selector is ported.
+    //it deliberately routes around that selected filter. Per-device hardware
+    //settings take precedence over these connection defaults.
     m_manualAnanBypassAdc0Check = new QCheckBox(tr("ADC0 RF filter bypass"), manualGroup);
     m_manualAnanBypassAdc0Check->setObjectName(QStringLiteral("connectionManualAnanBypassAdc0"));
     m_manualAnanBypassAdc0Check->setAccessibleDescription(
@@ -1102,11 +1102,11 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualAnanBypassAdc1Check = new QCheckBox(tr("ADC1 RF filter bypass"), manualGroup);
     m_manualAnanBypassAdc1Check->setObjectName(QStringLiteral("connectionManualAnanBypassAdc1"));
     m_manualAnanBypassAdc1Check->setAccessibleDescription(
-        tr("The same bypass, for ADC1's own filter bank (the RX2 jack). Leave this "
-           "checked for the same reason as ADC0's."));
+        tr("Bypass ADC1's separate RX2 filter bank. Uncheck for automatic band selection. "
+           "Saved Anan Hardware settings take precedence for this device."));
     m_manualAnanBypassAdc1Check->setToolTip(
-        tr("The same bypass, for ADC1's own filter bank (the RX2 jack).\n"
-           "Leave this checked for the same reason as ADC0's."));
+        tr("Bypass ADC1's separate RX2 filter bank. Uncheck for automatic band selection.\n"
+           "Saved Anan Hardware settings take precedence for this device."));
     m_manualAnanBypassAdc1Check->setChecked(anan::AnanSettings::bypassAdc1Filters());
     AetherSDR::ThemeManager::instance().applyStyleSheet(m_manualAnanBypassAdc1Check, lowBandwidthCheckStyle);
     m_manualAnanBypassAdc1Row = addManualRow(QStringLiteral(""), m_manualAnanBypassAdc1Check);

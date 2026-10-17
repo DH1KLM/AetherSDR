@@ -1,4 +1,5 @@
 #include "core/backends/anan/P1Client.h"
+#include "core/backends/anan/AnanFilterOptions.h"
 
 #include <QNetworkDatagram>
 #include <QTimer>
@@ -235,7 +236,8 @@ void P1Client::updateFilters()
     const std::array<std::uint32_t, 1> words{phaseWord(m_config.frequencyHz)};
     const auto hp = buildHighPriority(true, words,
         m_params.bypassAdc0Filters, m_params.bypassAdc1Filters, 0, 0, 1, 0, true,
-        m_profile->filterKind, m_profile->numAdcs);
+        m_profile->filterKind, m_profile->numAdcs,
+        m_params.filters ? &*m_params.filters : nullptr);
     const std::uint32_t alex = (std::uint32_t{hp[1432]} << 24) | (std::uint32_t{hp[1433]} << 16)
         | (std::uint32_t{hp[1434]} << 8) | hp[1435];
     auto filter = [](std::uint32_t word) {
@@ -247,7 +249,8 @@ void P1Client::updateFilters()
     };
     m_config.receiveFilterBits = filter(alex);
     const auto adc1Hp = buildHighPriority(true, words, m_params.bypassAdc1Filters,
-        true, 0, 0, 1, 0, false, m_profile->filterKind, m_profile->numAdcs);
+        true, 0, 0, 1, 0, false, m_profile->filterKind, m_profile->numAdcs,
+        m_params.filters ? &*m_params.filters : nullptr);
     m_config.adc1ReceiveFilterBits = filter((std::uint32_t{adc1Hp[1432]} << 24)
         | (std::uint32_t{adc1Hp[1433]} << 16) | (std::uint32_t{adc1Hp[1434]} << 8) | adc1Hp[1435]);
     constexpr std::array<int, 7> lpfBits{20, 21, 22, 23, 29, 30, 31};
@@ -314,6 +317,16 @@ void P1Client::setStepAttenuationDb(int adc, int db)
 void P1Client::setRxAntenna(int antenna)
 {
     if (antenna >= 1 && antenna <= 3) m_config.antenna = antenna;
+}
+
+void P1Client::setHardwareFilters(const QVariantMap& options)
+{
+    const auto config = parseFilterOptions(options);
+    if (!config) { return; }
+    m_params.filters = *config;
+    m_params.bypassAdc0Filters = config->bypassAdc0;
+    m_params.bypassAdc1Filters = config->bypassAdc1;
+    updateFilters();
 }
 
 bool P1Client::setDdcRateLive(int ddc, int rate)
