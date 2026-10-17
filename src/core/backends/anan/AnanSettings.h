@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QVariantMap>
 #include "core/backends/anan/AnanModel.h"
 
 class QJsonObject;
@@ -22,6 +23,9 @@ public:
         bool valid = true;
         bool overrideDetection = false;
     };
+    static QVariantMap hardwareFilters(const QString& serial, int model, int board);
+    static bool setHardwareFilters(const QString& serial, int model, int board,
+                                   const QVariantMap& options);
     static RadioProfile radioProfile(const QString& serial);
     static bool setRadioProfile(const QString& serial, AnanModel model, int protocol,
                                 bool overrideDetection = false);

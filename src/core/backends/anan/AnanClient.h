@@ -16,6 +16,7 @@ public:
     Q_INVOKABLE void setDdc0FrequencyHz(double hz);
     Q_INVOKABLE void setStepAttenuationDb(int adc, int db);
     Q_INVOKABLE void setRxAntenna(int antenna);
+    Q_INVOKABLE void setHardwareFilters(const QVariantMap& options);
     Q_INVOKABLE bool setDdcRateLive(int ddc, int rateKsps);
     Q_INVOKABLE void enqueueSpeakerAudio(const QByteArray& audio);
 signals:

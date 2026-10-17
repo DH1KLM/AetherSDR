@@ -4,6 +4,7 @@
 #include "core/backends/anan/AnanModel.h"
 
 #include <array>
+#include "AnanFilterConfig.h"
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -349,7 +350,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   int firstDdcIndex = 0,
                                                   bool selectReceiveLpf = false,
                                                   ReceiveFilterKind filterKind = ReceiveFilterKind::MkIIBpf,
-                                                  int numAdcs = 2) noexcept;
+                                                  int numAdcs = 2,
+                                                  const FilterConfig* filters = nullptr) noexcept;
 
 // The step attenuators' range (spec pp.34,36), shared by the encoder's clamp and
 // by the backend that offers the control.

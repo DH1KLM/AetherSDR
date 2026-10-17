@@ -2,6 +2,7 @@
 #include "core/backends/anan/P2Protocol.h"
 #include "core/RadioDiscovery.h"
 #include <QCoreApplication>
+#include "core/backends/anan/AnanFilterOptions.h"
 
 #include "core/AppSettings.h"
 #include "core/RadioSettingsScope.h"
@@ -46,6 +47,35 @@ void AnanSettings::writeObj(const QJsonObject& obj)
     // transaction and there is no autosave timer. See IcomSettings::
     // writeObj(), the sibling this is modelled on, for the same note.
     s.save();
+}
+
+//DH1KLM: A model-specific child prevents an override from reusing another filter bank's limits.
+QVariantMap AnanSettings::hardwareFilters(const QString& serial, int model, int board)
+{
+    if (serial.trimmed().isEmpty()) { return {}; }
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    const auto doc = RadioSettingsScope(QStringLiteral("anan"), serial)
+        .featureExact(QStringLiteral("HardwareFilters"), &version, &status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable) { return {}; }
+    return doc.value(QStringLiteral("%1:%2").arg(model).arg(board)).toObject().toVariantMap();
+}
+
+bool AnanSettings::setHardwareFilters(const QString& serial, int model, int board,
+                                     const QVariantMap& options)
+{
+    const auto config = parseFilterOptions(options);
+    if (serial.trimmed().isEmpty() || !config
+        || !ananModelInfo(static_cast<AnanModel>(model)) || !receiveProfile(board)) { return false; }
+    const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("HardwareFilters"), &version, &status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
+    doc.insert(QStringLiteral("%1:%2").arg(model).arg(board), QJsonObject::fromVariantMap(filterOptions(*config)));
+    return scope.setFeature(QStringLiteral("HardwareFilters"), 1, doc);
 }
 
 int AnanSettings::ddc0RateKsps()

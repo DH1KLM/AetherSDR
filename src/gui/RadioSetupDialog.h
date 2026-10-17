@@ -158,6 +158,7 @@ private:
     // backend's declared extension namespace; every control writes through the
     // hl2 extension, which refuses anything else.
     QWidget* buildHl2HardwareTab();
+    QWidget* buildAnanHardwareTab();
     // Whether the connected backend declares the "hl2" extension namespace —
     // i.e. whether anything will answer the hw.get / hw.set verbs this page is
     // built on. NOT a family-string check: #5554 bars new ones, and the name a
@@ -321,6 +322,8 @@ private:
     std::function<void()>     m_calibrationReseed;
     int                       m_droopCalibrationPageIndex{-1};
     int                       m_hl2HardwarePageIndex{-1};
+    int                       m_ananHardwarePageIndex{-1};
+    std::function<void()>     m_ananHardwareReseed;
     // Same reason as m_calibrationReseed: the page is built once per process
     // and the dialog is a persistent singleton, so a different HL2 connected
     // later would otherwise be shown — and written — with the first one's

@@ -1298,6 +1298,7 @@ set(GUI_SOURCES
     src/gui/SmartMtrConfig.cpp
     src/gui/MeterViewController.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/RadioSetupDialog_Anan.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
     src/gui/NetworkDiagnosticsDialog.cpp

@@ -152,3 +152,36 @@ NereusSDR commit `12f2ea5f3ad5b4e6b91903d3a1f8612f6e671ecb`:
 This is independent implementation of the documented wire facts, not a source
 port. The model registry, P1/P2 production handlers, settings migration and
 Anvelina bank are covered by socket-free tests. No simulated radio peer runs.
+
+## Receive filter setup
+
+`Anan Hardware` uses the session's resolved `receiveProfile(reportedBoard,
+model, overrideDetection)`, not the discovery display name. Legacy HPF and
+MkII BPF defaults remain byte-equivalent to the existing P2 profiles with ADC1
+bypassed. The single receiver's tuned frequency selects both ADC filter banks
+when their bypasses are off. The receive frequency table is shared between
+ADC0 and ADC1 in this implementation; independently editable RX2 limits and
+per-band bypass flags are not exposed. P2 Saturn retains its existing disabled
+LPF control; P1 retains its existing LPF bank selection.
+
+The source reference is Thetis commit
+`852bf0ef0b4f3886a13fc2846489aee16f361872`:
+`console.cs` (`setBPF1ForOrionIISaturn`, `setAlexHPF`, `setAlex2HPF`,
+`setAlexLPF`), `setup.designer.cs` (frequency defaults), and ChannelMaster
+`netInterface.c` / `network.h` (`SetAlexHPFBits`, `SetAlex2HPFBits`, relay bit
+fields). Alex0 receive bits are 6,5,4,1,2,3 in ascending table order; Alex1 uses
+those same bit positions in its separate register. Bypass is bit 12.
+
+The version-1 `HardwareFilters` document belongs to the exact ANAN MAC scope.
+Children are keyed by logical model and physical board; changing an override
+cannot transfer edited limits to a different model. Reads use defaults for
+missing or invalid data. Writes validate all ranges, reject future/corrupt
+schemas and check persistence before dispatching the live update. `hw.set`
+also checks the page's identity/model/board against the current session.
+`hw.defaults` is an explicit persisted reset; polling `hw.get` never writes.
+
+The new GUI translation unit includes only the existing RadioModel extension
+surface and ThemeManager. Their generated touchpoint counts each increase by
+one; no concrete ANAN or wire header crosses into the new page. Relay displays
+are commanded state, without hardware readback. Hardware acceptance and a full
+Windows GUI build remain operator checks.

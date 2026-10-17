@@ -30,6 +30,7 @@ public:
     void setDdc0FrequencyHz(double hz);
     void setStepAttenuationDb(int adc, int db);
     void setRxAntenna(int antenna);
+    void setHardwareFilters(const QVariantMap& options);
     bool setDdcRateLive(int ddc, int rateKsps);
     void enqueueSpeakerAudio(const QByteArray& audio);
     [[nodiscard]] bool isRunning() const noexcept { return m_running; }
