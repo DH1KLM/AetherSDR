@@ -838,10 +838,8 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
         QStringLiteral("anan alex hpf bpf lpf hardware filters bypass model override"),
         [this] { return buildAnanHardwareTab(); });
     m_ananHardwarePageIndex = m_pageIndexes.value(QStringLiteral("Anan Hardware"));
-    setNavigationItemHidden(ananItem, !m_model->backendDeclaresExtension(QStringLiteral("anan")));
-    connect(m_model, &RadioModel::connectionStateChanged, this, [this, ananItem] {
-        settleNavigationLayout(m_navigation, setNavigationItemHidden(ananItem,
-            !m_model->backendDeclaresExtension(QStringLiteral("anan"))));
+    setNavigationItemHidden(ananItem, false);
+    connect(m_model, &RadioModel::connectionStateChanged, this, [this] {
         if (m_ananHardwareReseed) { m_ananHardwareReseed(); }
     });
     // Droop Correction page — mirrors the Calibration page immediately above:
@@ -949,9 +947,7 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
                     || (apdRow && !m_model->transmitModel().apdConfigurable())
                     || (calRow && !m_model->backendCapabilities().hostFrequencyCalibration)
                     || (droopRow && !droopCalibrationAvailable(m_model->backend()))
-                    || (hl2HwRow && !declaresHl2Extension())
-                    || (item == m_pageItems.value(m_ananHardwarePageIndex)
-                        && !m_model->backendDeclaresExtension(QStringLiteral("anan")));
+                    || (hl2HwRow && !declaresHl2Extension());
                 if (!gated) {
                     navigationChanged |= setNavigationItemHidden(item, !matches);
                 }

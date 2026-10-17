@@ -57,7 +57,7 @@ QVariantMap AnanSettings::hardwareFilters(const QString& serial, int model, int 
     AppSettings::FeatureReadStatus status;
     const auto doc = RadioSettingsScope(QStringLiteral("anan"), serial)
         .featureExact(QStringLiteral("HardwareFilters"), &version, &status);
-    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+    if (version > 2 || status == AppSettings::FeatureReadStatus::Corrupt
         || status == AppSettings::FeatureReadStatus::Unavailable) { return {}; }
     return doc.value(QStringLiteral("%1:%2").arg(model).arg(board)).toObject().toVariantMap();
 }
@@ -72,10 +72,10 @@ bool AnanSettings::setHardwareFilters(const QString& serial, int model, int boar
     int version = 0;
     AppSettings::FeatureReadStatus status;
     auto doc = scope.featureExact(QStringLiteral("HardwareFilters"), &version, &status);
-    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+    if (version > 2 || status == AppSettings::FeatureReadStatus::Corrupt
         || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
     doc.insert(QStringLiteral("%1:%2").arg(model).arg(board), QJsonObject::fromVariantMap(filterOptions(*config)));
-    return scope.setFeature(QStringLiteral("HardwareFilters"), 1, doc);
+    return scope.setFeature(QStringLiteral("HardwareFilters"), 2, doc);
 }
 
 int AnanSettings::ddc0RateKsps()

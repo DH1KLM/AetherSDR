@@ -269,6 +269,28 @@ int main(int argc, char** argv)
             && scope.featureExact(QStringLiteral("HardwareFilters")).value(QStringLiteral("future")).toBool(),
             "future schema refused without data loss");
     }
+    {
+        auto config = defaultFilterConfig(true);
+        config.ocEnabled = true;
+        config.ocReceive[1] = {3500000, 3800000, 11};
+        const auto data = filterOptions(config);
+        check(AnanSettings::setHardwareFilters(QStringLiteral("OC-MAC"), 7, 5, data), "save explicit RX OC configuration");
+        const auto saved = parseFilterOptions(AnanSettings::hardwareFilters(QStringLiteral("OC-MAC"), 7, 5));
+        check(saved && saved->ocEnabled && receiveOcMask(*saved, 3700000) == 11, "RX OC configuration round-trip");
+        auto invalid = data;
+        auto rows = invalid.value(QStringLiteral("ocReceive")).toList();
+        rows[2] = QVariantMap{{QStringLiteral("lowHz"), 3600000}, {QStringLiteral("highHz"), 4000000}, {QStringLiteral("mask"), 5}};
+        invalid.insert(QStringLiteral("ocReceive"), rows);
+        check(!parseFilterOptions(invalid), "overlapping active OC bands rejected");
+        invalid = data;
+        invalid.insert(QStringLiteral("ocEnabled"), QStringLiteral("yes"));
+        check(!parseFilterOptions(invalid), "OC enable must be a boolean");
+        auto legacy = data;
+        legacy.remove(QStringLiteral("ocEnabled")); legacy.remove(QStringLiteral("ocReceive"));
+        const auto migrated = parseFilterOptions(legacy);
+        check(migrated && !migrated->ocEnabled && receiveOcMask(*migrated, 3700000) == 0,
+              "version 1 filter documents never enable OC outputs on upgrade");
+    }
     if (g_failures == 0) { std::printf("anan_settings_test: all checks passed\n"); }
     return g_failures == 0 ? 0 : 1;
 }

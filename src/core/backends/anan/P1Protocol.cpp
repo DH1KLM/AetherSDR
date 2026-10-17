@@ -29,6 +29,7 @@ bool validConfig(const ReceiveConfig& c) noexcept
     return rate && validReceiverCount(c.receivers)
         && (c.numAdcs == 1 || c.numAdcs == 2)
         && c.adcIndex >= 0 && c.adcIndex < c.numAdcs
+        && c.rxOcMask <= 127
         && c.antenna >= 1 && c.antenna <= 3
         && c.frequencyHz <= 61'440'000
         && c.adc0AttenuationDb >= 0 && c.adc0AttenuationDb <= 31
@@ -57,6 +58,7 @@ std::optional<Control> receiveControl(std::uint8_t address,
     case 0x00:
         bytes[1] = c.rateKsps == 48 ? 0 : c.rateKsps == 96 ? 1
             : c.rateKsps == 192 ? 2 : 3;
+        bytes[2] = static_cast<std::uint8_t>(c.rxOcMask << 1);
         bytes[3] = (c.dither ? 0x08 : 0) | (c.random ? 0x10 : 0);
         bytes[4] = static_cast<std::uint8_t>((c.antenna - 1) | 0x04
             | ((c.receivers - 1) << 3));

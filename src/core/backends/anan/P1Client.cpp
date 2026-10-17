@@ -143,8 +143,14 @@ bool P1Client::send(std::span<const std::uint8_t> bytes)
 void P1Client::stop()
 {
     m_drainTimer->stop(); m_timeoutTimer->stop(); m_countersTimer->stop();
-    if (m_running && m_validated)
+    if (m_running && m_validated) {
+        if (m_config.rxOcMask != 0) {
+            m_config.rxOcMask = 0;
+            const auto clearOc = p1::speakerAndControl(m_txSequence++, 0, 0, m_config);
+            if (clearOc) { (void)send(*clearOc); }
+        }
         (void)send(p1::streamCommand(false));
+    }
     const bool hadSession = m_running;
     m_running = false; m_validated = false; m_linkUp = false;
     m_audio.clear(); m_expectedSequence.reset();
@@ -247,6 +253,7 @@ void P1Client::updateFilters()
             if (word & (std::uint32_t{1} << bits[n])) result |= static_cast<std::uint8_t>(1u << n);
         return result;
     };
+    m_config.rxOcMask = m_params.filters ? receiveOcMask(*m_params.filters, m_config.frequencyHz) : 0;
     m_config.receiveFilterBits = filter(alex);
     const auto adc1Hp = buildHighPriority(true, words, m_params.bypassAdc1Filters,
         true, 0, 0, 1, 0, false, m_profile->filterKind, m_profile->numAdcs,

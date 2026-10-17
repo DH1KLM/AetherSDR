@@ -1233,6 +1233,28 @@ int main()
               "qualified Saturn profile keeps its LPF relay word disabled");
     }
 
+    {
+        //DH1KLM: Thetis capture OC byte 1401 is the configured mask shifted left, not an ALEX bit.
+        auto config = defaultFilterConfig(false);
+        config.ocReceive[1] = {3500000, 3800000, 0x0b};
+        config.ocReceive[5] = {14000000, 14350000, 0x05};
+        const auto packet = [&](double hz, bool run = true) {
+            const std::array<std::uint32_t, 1> words{phaseWord(hz)};
+            return buildHighPriority(run, words, false, true, 0, 0, 1, 2,
+                true, ReceiveFilterKind::LegacyHpf, 2, &config);
+        };
+        check(packet(3650000)[1401] == 0, "OC outputs default off despite configured pins");
+        config.ocEnabled = true;
+        check(packet(3650000)[1401] == 0x16 && packet(14175000)[1401] == 0x0a,
+              "explicit RX OC masks match Thetis captured 80m and 20m encoding");
+        check(packet(3500000)[1401] == 0x16 && packet(3800000)[1401] == 0x16,
+              "OC band edges tolerate phase-word quantisation");
+        check(packet(1000000)[1401] == 0 && packet(3650000, false)[1401] == 0,
+              "out-of-band and stop commands release RX OC outputs");
+        check(packet(3650000)[1397] == 0 && packet(3650000)[4] == 1,
+              "RX OC configuration cannot key TX or write Anvelina extra pins");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "anan_p2_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

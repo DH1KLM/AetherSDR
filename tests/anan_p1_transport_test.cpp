@@ -304,5 +304,21 @@ int main(int argc, char** argv) {
         P1ClientTestAccess::feed(client, packet);
         check(packets.empty() && !client.isRunning(), "P1 override cannot bypass busy or different discovery identity");
     }
+    {
+        std::vector<QByteArray> packets; P1Client client;
+        check(P1ClientTestAccess::prepare(client, params(5), packets), "RX OC P1 fixture");
+        P1ClientTestAccess::feed(client, discovery(10));
+        auto config = defaultFilterConfig(true);
+        config.ocEnabled = true; config.ocReceive[1] = {3500000, 3800000, 11};
+        client.setHardwareFilters(filterOptions(config));
+        client.setDdc0FrequencyHz(3700000);
+        const auto live = P1ClientTestAccess::config(client);
+        check(live.rxOcMask == 11 && (*p1::receiveControl(0, live))[2] == 0x16,
+              "P1 live retune selects OC mask in C2 bits 1..7");
+        client.stop();
+        check(packets.size() >= 2 && packets[packets.size()-2].size() == 1032
+              && packets[packets.size()-2][13] == 0,
+              "P1 clears active OC pins in a control packet before stream stop");
+    }
     std::cout << "ANAN P1 transport checks passed\n";
 }

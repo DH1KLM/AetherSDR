@@ -8,11 +8,14 @@
 namespace AetherSDR::anan {
 //DH1KLM: Thetis RX filter rows, in integer Hz. No TX relay or keying state.
 struct FilterBand { std::uint32_t lowHz; std::uint32_t highHz; };
+struct OcReceiveBand { std::uint32_t lowHz = 0; std::uint32_t highHz = 0; std::uint8_t mask = 0; };
 struct FilterConfig {
     std::array<FilterBand, 6> receive;
     std::array<FilterBand, 7> lowPass;
     bool bypassAdc0 = false;
     bool bypassAdc1 = true;
+    std::array<OcReceiveBand, 11> ocReceive{};
+    bool ocEnabled = false;
 };
 inline constexpr FilterConfig defaultFilterConfig(bool mkII) noexcept
 {
@@ -44,6 +47,15 @@ inline int selectedFilterBand(const std::array<FilterBand, N>& rows, double hz) 
         }
     }
     return -1;
+}
+//DH1KLM: RX OC routing is explicit operator configuration, never a model default.
+inline std::uint8_t receiveOcMask(const FilterConfig& config, double hz) noexcept
+{
+    if (!config.ocEnabled || !std::isfinite(hz)) { return 0; }
+    for (const auto& row : config.ocReceive) {
+        if (row.lowHz < row.highHz && hz >= row.lowHz - 0.02 && hz <= row.highHz + 0.02) { return row.mask & 0x7f; }
+    }
+    return 0;
 }
 inline std::uint32_t receiveFilterBits(const FilterConfig& config, double hz) noexcept
 {
