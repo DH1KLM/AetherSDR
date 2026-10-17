@@ -2122,15 +2122,21 @@ private:
     // the Aetherial strip's compressor settings, which share the object).
     bool m_lastAppliedProcEnable{false};
     int  m_lastAppliedProcLevel{-1};
-    // True once a Flex-shaped voice control has actually written into the shared
-    // ClientEq/ClientComp, so those objects hold OUR layout rather than the
-    // Aetherial strip's. Both directions need it (core/HostVoiceChainPolicy.h):
-    // the connect-time re-push must not put EqualizerModel's all-zero
-    // construction default over the strip's PERSISTED bands, and the family-swap
-    // unwind must not disable a Flex operator's own strip settings on a session
-    // that never went near a host-modulating backend.
+    // True once a Flex-shaped voice control has written into the shared
+    // ClientEq/ClientComp in this process, so they hold OUR layout. Gates the
+    // connect-time re-push and the family-swap unwind
+    // (core/HostVoiceChainPolicy.h), so neither touches an untouched strip.
     bool m_hostVoiceChainOwned{false};
-    bool m_minimalMode{false};             // true when spectrum is hidden (#208)
+    // True while a graphic EQ restored from settings waits for its first
+    // host-modulating connect. It licenses the re-push only; a Flex connect
+    // clears it, because the radio then writes the model.
+    bool m_restoredGraphicEqPending{false};
+    // True from a Flex connect until the saved graphic EQ is loaded back into
+    // the model on a host-modulating connect; nothing is saved meanwhile.
+    bool m_graphicEqFromRadio{false};
+    // Set while that reload runs, so it writes nothing into ClientEq itself.
+    bool m_graphicEqReloading{false};
+    bool m_minimalMode{false};            // true when spectrum is hidden (#208)
     bool m_canvasWasOnBeforeMinimal{false}; // minimal exit restores canvas mode
     bool m_exitingMinimalMode{false};      // re-entry guard for changeEvent → toggleMinimalMode(false)
     bool m_enteringMinimalMode{false};     // suppress changeEvent during enter (macOS deferred WindowStateChange, #2365)
