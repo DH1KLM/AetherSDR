@@ -16,17 +16,18 @@ namespace AetherSDR {
 
 // First-use bundle preparation. Follows the ASR download/cache pattern, with
 // bounded writes and cancellation covering cache verification as well as I/O.
-class DeepFistModelAssets final : public QObject {
+class CwModelAssets final : public QObject {
     Q_OBJECT
 public:
-    struct Asset { QString name; qint64 bytes; QByteArray sha256; };
+    // url, when set, is the asset's absolute HTTPS source instead of baseUrl + name.
+    struct Asset { QString name; qint64 bytes; QByteArray sha256; QString url = {}; };
     static QVector<Asset> manifest();
     static QString releaseBaseUrl();
     // Network injection and an explicit catalog make socket-free tests possible.
-    explicit DeepFistModelAssets(QString directory, QString baseUrl = releaseBaseUrl(),
+    explicit CwModelAssets(QString directory, QString baseUrl = releaseBaseUrl(),
         QVector<Asset> assets = manifest(), QNetworkAccessManager* network = nullptr,
         QObject* parent = nullptr);
-    ~DeepFistModelAssets() override;
+    ~CwModelAssets() override;
     void ensure();
     void cancel();
     bool busy() const { return m_busy; }
