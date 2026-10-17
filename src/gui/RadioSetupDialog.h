@@ -41,6 +41,7 @@ class AcomConnection;
 class SpeConnection;
 class VkampConnection;
 class Kpa1500Connection;
+class Kpa500Connection;
 class LpMeterConnection;
 struct PeripheralDeviceUi;
 
@@ -60,6 +61,7 @@ public:
                               VkampConnection* vkamp = nullptr,
                               LpMeterConnection* lpMeter = nullptr,
                               Kpa1500Connection* kpa1500 = nullptr,
+                              Kpa500Connection* kpa500 = nullptr,
                               QWidget* parent = nullptr);
     void selectTab(const QString& tabName);
     void done(int result) override;
@@ -68,6 +70,7 @@ public:
     // landing at the top of a long, scroll-wrapped page (#4940 follow-up —
     // PR #5157 review).
     void revealFlexControlSettings();
+    void revealKpa500AdvancedSettings();
     void refreshFlexControlButtonActions();
     void setFlexControlConnectionStatus(bool connected, const QString& port = {});
     // Result of the automation-bridge start the Network-tab toggle kicked off
@@ -197,6 +200,9 @@ private:
                                   const std::shared_ptr<QVector<std::function<void()>>>& pageReseeds);
     void buildVkampDevice(PeripheralDeviceUi& ui, QWidget* stackParent,
                           const std::function<void()>& refresh);
+    void buildKpa500Device(PeripheralDeviceUi& ui, QWidget* stackParent,
+                           const std::function<void()>& refresh,
+                           const std::shared_ptr<QVector<std::function<void()>>>& pageReseeds);
     void buildKpa1500Device(PeripheralDeviceUi& ui, QWidget* stackParent,
                             const std::function<void()>& refresh);
     PeripheralDeviceUi* peripheralDevice(const QString& id) const;
@@ -239,6 +245,7 @@ private:
     VkampConnection* m_vkamp{nullptr};
     LpMeterConnection* m_lpMeter{nullptr};
     Kpa1500Connection* m_kpa1500{nullptr};
+    Kpa500Connection* m_kpa500{nullptr};
     QTreeWidget* m_navigation{nullptr};
     QStackedWidget* m_pages{nullptr};
     QLabel* m_pageTitle{nullptr};

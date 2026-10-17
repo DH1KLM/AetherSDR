@@ -1082,6 +1082,10 @@ set(CORE_SOURCES
     src/core/AcomConnection.cpp
     src/core/SpeProtocol.cpp
     src/core/SpeConnection.cpp
+    src/core/Kpa500Protocol.cpp
+    src/core/Kpa500Maintenance.cpp
+    src/core/Kpa500FaultHistory.cpp
+    src/core/Kpa500Connection.cpp
     src/core/VkampProtocol.cpp
     src/core/VkampConnection.cpp
     src/core/Kpa1500Protocol.cpp
@@ -1364,6 +1368,8 @@ set(GUI_SOURCES
     src/gui/AmpApplet.cpp
     src/gui/AcomApplet.cpp
     src/gui/SpeApplet.cpp
+    src/gui/Kpa500Applet.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/SpeLcdWidget.cpp
     src/gui/VkampApplet.cpp
     src/gui/Kpa1500Applet.cpp

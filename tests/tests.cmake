@@ -3664,6 +3664,7 @@ add_executable(firmware_close_dialog_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3689,6 +3690,7 @@ add_executable(flex_control_visibility_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3725,6 +3727,7 @@ add_executable(radio_setup_region_field_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3755,6 +3758,7 @@ add_executable(radio_setup_label_theme_token_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3779,6 +3783,7 @@ add_executable(radio_setup_window_size_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3803,6 +3808,7 @@ add_executable(radio_setup_pair_grid_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3833,6 +3839,7 @@ add_executable(radio_setup_max_power_field_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3860,6 +3867,7 @@ add_executable(radio_setup_tx_timing_fields_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3888,6 +3896,7 @@ add_executable(radio_setup_recording_mode_dim_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3917,6 +3926,7 @@ add_executable(radio_setup_headphone_output_gate_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3942,6 +3952,7 @@ add_executable(radio_nickname_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -3972,6 +3983,7 @@ add_executable(radio_setup_show_tx_waterfall_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/PersistentDialog.cpp
     src/gui/FramelessResizer.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -4688,6 +4700,78 @@ target_include_directories(spe_protocol_test PRIVATE src)
 target_link_libraries(spe_protocol_test PRIVATE Qt6::Core)
 add_test(NAME spe_protocol_test COMMAND spe_protocol_test)
 
+add_executable(kpa500_protocol_test
+    tests/kpa500_protocol_test.cpp
+    src/core/Kpa500Protocol.cpp
+)
+target_include_directories(kpa500_protocol_test PRIVATE src)
+target_link_libraries(kpa500_protocol_test PRIVATE Qt6::Core)
+add_test(NAME kpa500_protocol_test COMMAND kpa500_protocol_test)
+
+# Socket-free injected KPA500 transport: liveness and stale-snapshot recovery.
+add_executable(kpa500_connection_test
+    tests/kpa500_connection_test.cpp
+    src/core/Kpa500Connection.cpp
+    src/core/Kpa500Connection.h
+    src/core/Kpa500Protocol.cpp
+    src/core/Kpa500Maintenance.cpp
+)
+target_include_directories(kpa500_connection_test PRIVATE src)
+target_link_libraries(kpa500_connection_test PRIVATE Qt6::Core Qt6::Network)
+add_test(NAME kpa500_connection_test COMMAND kpa500_connection_test)
+
+# Socket-free applet readback, TX controls, diagnostics and bounded history.
+add_executable(kpa500_maintenance_test
+    tests/kpa500_maintenance_test.cpp
+    src/core/Kpa500Maintenance.cpp
+)
+target_include_directories(kpa500_maintenance_test PRIVATE src)
+target_link_libraries(kpa500_maintenance_test PRIVATE Qt6::Core)
+add_test(NAME kpa500_maintenance_test COMMAND kpa500_maintenance_test)
+
+add_executable(kpa500_fault_history_test
+    tests/kpa500_fault_history_test.cpp
+    src/core/Kpa500FaultHistory.cpp
+)
+target_include_directories(kpa500_fault_history_test PRIVATE src)
+target_link_libraries(kpa500_fault_history_test PRIVATE Qt6::Core)
+add_test(NAME kpa500_fault_history_test COMMAND kpa500_fault_history_test)
+
+add_executable(kpa500_advanced_widget_test
+    tests/kpa500_advanced_widget_test.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
+    src/core/Kpa500Connection.cpp
+    src/core/Kpa500Connection.h
+    src/core/Kpa500Protocol.cpp
+    src/core/Kpa500Maintenance.cpp
+    src/core/Kpa500FaultHistory.cpp
+)
+target_include_directories(kpa500_advanced_widget_test PRIVATE src)
+target_link_libraries(kpa500_advanced_widget_test PRIVATE Qt6::Core Qt6::Network Qt6::Widgets Qt6::Test)
+add_test(NAME kpa500_advanced_widget_test COMMAND kpa500_advanced_widget_test)
+set_tests_properties(kpa500_advanced_widget_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(kpa500_applet_test
+    tests/kpa500_applet_test.cpp
+    src/models/MeterModel.cpp
+    src/gui/Kpa500Applet.cpp
+    src/gui/CanonSurface.cpp
+    src/gui/CanonWindow.cpp
+    src/gui/DragValuePopup.cpp
+    src/core/Kpa500Protocol.cpp
+    src/core/ThemeManager.cpp
+    src/core/ThemeSeedGenerated.cpp
+    $<TARGET_OBJECTS:aether_test_settings>
+    $<TARGET_OBJECTS:aether_test_log_manager>
+    $<TARGET_OBJECTS:aether_test_async_log_writer>
+    ${THEME_TEST_RESOURCES}
+)
+target_include_directories(kpa500_applet_test PRIVATE src tests)
+target_link_libraries(kpa500_applet_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+add_test(NAME kpa500_applet_test COMMAND kpa500_applet_test)
+set_tests_properties(kpa500_applet_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+
 add_executable(kpa1500_protocol_test
     tests/kpa1500_protocol_test.cpp
     src/core/Kpa1500Protocol.cpp
@@ -5138,6 +5222,7 @@ add_executable(peripheral_auth_dialog_test
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
     src/gui/AntennaGeniusApplet.cpp
     src/gui/ShackSwitchApplet.cpp
     src/gui/PersistentDialog.cpp
@@ -8797,6 +8882,7 @@ set(AETHER_SETTINGS_CONSUMERS
     theme_manager_test
     canon_window_test
     canon_surface_test
+    kpa500_applet_test
     panadapter_header_test
     theme_seed_test
     panadapter_message_overlay_test

@@ -15,6 +15,7 @@
 #include "AcomApplet.h"
 #include "SpeApplet.h"
 #include "VkampApplet.h"
+#include "Kpa500Applet.h"
 #include "Kpa1500Applet.h"
 #include "LpMeterApplet.h"
 #include "TxApplet.h"
@@ -326,7 +327,8 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
             "color: {{color.text.primary}}; "
             "border: 1px solid {{color.accent.bright}}; }"
             "QPushButton:disabled { color: {{color.text.disabled}}; "
-            "border-color: {{color.background.1}}; }");
+            "border-color: {{color.background.1}}; }"
+            "QPushButton#kpa500BarButton { font-size: 10px; }");
 
     m_favRow = new QWidget;
     m_favRow->setObjectName("barContainer");
@@ -886,6 +888,27 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         m_appletOrder.append(entry);
     }
 
+    // Elecraft KPA500 serial/raw-TCP amplifier, independent
+    // of every other amplifier applet. See
+    // docs/architecture/elecraft-kpa500-kat500-design.md.
+    m_kpa500Applet = new Kpa500Applet;
+    {
+        auto entry = makeEntry("KPA500", "Elecraft KPA500 Amplifier", m_kpa500Applet,
+                               false, m_drawer, m_drawerLayout, "KP500");
+        m_kpa500Btn = entry.btn;
+        m_kpa500Btn->setObjectName(QStringLiteral("kpa500BarButton"));
+        m_kpa500Btn->setAccessibleName(tr("Elecraft KPA500 amplifier"));
+        markHardwareConditional("KPA500");
+        if (auto* container = qobject_cast<ContainerWidget*>(entry.widget)) {
+            container->setDefaultFloatingSize(QSize(560, 720));
+            connect(container, &ContainerWidget::dockModeChanged, m_kpa500Applet,
+                    [this](ContainerWidget::DockMode mode) {
+                m_kpa500Applet->setFloating(mode != ContainerWidget::DockMode::PanelDocked);
+            });
+        }
+        m_appletOrder.append(entry);
+    }
+
     // Elecraft KPA1500 — independent of AMP (PGXL), ACOM, SPE and VKAMP
     // for the same reason they are independent of each other: a station can
     // have any combination of them connected at once. Deliberately NOT in
@@ -1415,6 +1438,7 @@ QList<AppletPanel::AppletCatalogEntry> AppletPanel::appletCatalog() const
         {QStringLiteral("AMP"),   QStringLiteral("Amplifiers")},
         {QStringLiteral("ACOM"),  QStringLiteral("Amplifiers")},
         {QStringLiteral("SPE"),   QStringLiteral("Amplifiers")},
+        {QStringLiteral("KPA500"), QStringLiteral("Amplifiers")},
         {QStringLiteral("VKAMP"), QStringLiteral("Amplifiers")},
         {QStringLiteral("KPA1500"), QStringLiteral("Amplifiers")},
         {QStringLiteral("EQ"),    QStringLiteral("Audio & DSP")},
@@ -1850,6 +1874,12 @@ void AppletPanel::setSpeVisible(bool visible)
 void AppletPanel::setVkampVisible(bool visible)
 {
     updateHardwareAvailability("VKAMP", "Applet_VKAMP", visible);
+    applyBarLayout();
+}
+
+void AppletPanel::setKpa500Visible(bool visible)
+{
+    updateHardwareAvailability("KPA500", "Applet_KPA500", visible);
     applyBarLayout();
 }
 
