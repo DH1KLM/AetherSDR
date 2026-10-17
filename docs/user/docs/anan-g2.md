@@ -90,6 +90,17 @@ Connection options:
 
 ## Protocol 1 reception
 
+P2 discovery accepts the raw **ProtocolSupported** value used by Thetis,
+including Patroclus' value `2`; it is not restricted to decimal version
+numbers. If you switch the emulator from P1 to P2, allow discovery to refresh
+before selecting the device. Patroclus uses the same MAC for all its profiles,
+so saved model/override/protocol choices also refer to that same identity.
+For a directed connection, explicitly choose **Protocol 2** if a P1 preference
+was previously saved. This does not change the emulator's firmware/profile.
+
+A P1 timeout now distinguishes **no P1 Discovery reply** from **no P1 IQ after
+discovery**. Neither message means a P2 stream has been decoded as P1.
+
 Discovery and **Connect by IP** also probe Protocol 1. The actual reply selects
 P1 or P2; the model name does not select the protocol. The gateware label shows
 **P1 Gateware** or **P2 Gateware**. One discovery row is retained per MAC address.

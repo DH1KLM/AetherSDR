@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 
 #include <array>
+#include <algorithm>
 #include <complex>
 #include <cstdint>
 #include <cstdio>
@@ -243,6 +244,24 @@ int main(int argc, char** argv)
         P2ClientTestAccess::feed(client, packet, 1024);
         check(!P2ClientTestAccess::validated(client) && !client.isRunning(),
               "override cannot bypass busy status or a different selected device identity");
+    }
+    for (const quint16 port : {0, 1024, 1025, 1037}) {
+        P2Client client;
+        P2ClientTestAccess::prepare(client, 5, AnanModel::RedPitaya);
+        auto packet = discovery(5);
+        std::fill(packet.begin() + 5, packet.begin() + 11, 0);
+        packet[10] = 1; packet[12] = 2; packet[13] = 30;
+        P2ClientTestAccess::feed(client, packet, port);
+        check(P2ClientTestAccess::validated(client) == (port == 0 || port == 1024),
+              "Patroclus Red Pitaya P2 validates only on a discovery endpoint, never status/IQ ports");
+        if (port == 0 || port == 1024) {
+            int samples = 0;
+            QObject::connect(&client, &P2Client::ddc0IqReady,
+                [&](const std::vector<std::complex<float>>& block) { samples += int(block.size()); });
+            P2ClientTestAccess::feed(client, iq(), 1037);
+            check(samples == 1 && P2ClientTestAccess::physicalDdc(client) == 2,
+                  "accepted Patroclus P2 discovery routes physical DDC2 into logical RX0");
+        }
     }
     if (failures == 0) {
         std::puts("anan_receive_profile_test: all checks passed");

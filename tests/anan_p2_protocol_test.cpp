@@ -65,6 +65,30 @@ static std::vector<std::uint8_t> makeDdcFrame(std::uint32_t seq, int n)
 
 int main()
 {
+    //DH1KLM: Patroclus RadioProfile.CreateDiscoveryResponse at 8c275223:
+    // every emulated profile shares MAC 00:00:00:00:00:01; P2 byte 12 is 2.
+    // Feed its wire shape through the production parser, not a fake radio.
+    {
+        std::array<std::uint8_t, 60> p1{};
+        p1[0] = 0xef; p1[1] = 0xfe; p1[2] = 2;
+        p1[8] = 1; p1[9] = 30; p1[10] = 10;
+        const auto previous = parseOpenHpsdrDiscoveryReply(p1);
+        for (const std::uint8_t board : {1, 2, 3, 4, 5, 10, 20}) {
+            std::array<std::uint8_t, 60> p2{};
+            p2[4] = 2; p2[10] = 1; p2[11] = board; p2[12] = 2;
+            p2[13] = 30; p2[20] = 7; p2[21] = 1;
+            const auto next = parseOpenHpsdrDiscoveryReply(p2);
+            check(next && next->wireProtocol == 2 && next->boardId == board
+                  && next->protoVersionRaw == 2 && previous && next->mac == previous->mac,
+                  "Patroclus P2 profile is accepted and remains P2 despite a preceding same-MAC P1 profile");
+            check(parseDirectedDiscoveryReply(p2, 1024).has_value(), "directed Patroclus P2 discovery accepted");
+            check(next && previous && acceptsDiscoveryProtocolUpdate(previous->wireProtocol, next->wireProtocol, 2, 0),
+                  "default P2 preference immediately replaces stale same-MAC P1 row");
+            check(next && !acceptsDiscoveryProtocolUpdate(1, next->wireProtocol, 1, 0)
+                  && acceptsDiscoveryProtocolUpdate(1, next->wireProtocol, 1, 2),
+                  "saved P1 preference is retained but can age out when only P2 answers");
+        }
+    }
     for (const int preferred : {1, 2}) {
         const int other = 3 - preferred;
         check(!acceptsDiscoveryProtocolUpdate(preferred, other, preferred, 0),
@@ -140,7 +164,7 @@ int main()
               "board id 10 is in the recognized OpenHPSDR board registry");
         check(r && std::string(r->boardDisplayName()).find("Saturn") != std::string::npos,
               "board id 10 has the Saturn family display name");
-        check(r && r->protoVersionRaw == 0x2B, "proto version raw byte (43 -> 4.3)");
+        check(r && r->protoVersionRaw == 0x2B, "ProtocolSupported raw byte 43 is preserved");
         check(r && r->firmwareVer == 27,
               "firmware is the INTEGER 27, not tenths (discrepancy #1)");
         check(r && r->reportedReceivers == 4, "4 hardware receivers reported in discovery byte 20");
@@ -165,10 +189,13 @@ int main()
         };
         check(!parseDiscoveryReply(zeroMacReply).has_value(),
               "status-shaped packet with zero MAC cannot validate a Discovery session");
-        auto invalidVersion = raw;
-        invalidVersion[12] = 0;
-        check(!parseDiscoveryReply(invalidVersion).has_value(),
-              "Discovery reply with impossible zero protocol version is rejected");
+        for (const std::uint8_t supported : {0, 1, 2, 43, 255}) {
+            auto opaqueProtocol = raw;
+            opaqueProtocol[12] = supported;
+            const auto decoded = parseOpenHpsdrDiscoveryReply(opaqueProtocol);
+            check(decoded && decoded->wireProtocol == 2 && decoded->protoVersionRaw == supported,
+                  "Thetis ProtocolSupported is opaque and cannot misclassify a P2-shaped reply as P1");
+        }
 
         //DH1KLM: Keep the P2 physical-board registry pinned independently
         // from the implemented receive-profile gate in AnanDiscovery.

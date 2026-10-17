@@ -1,12 +1,16 @@
 #include "core/backends/anan/AnanClient.h"
 
 #include <QCoreApplication>
+#include <QTimer>
 #include <cstdlib>
 #include <iostream>
 
 using namespace AetherSDR::anan;
 namespace AetherSDR::anan {
 struct P1ClientTestAccess {
+    static bool timeout(P1Client& client) {
+        return QMetaObject::invokeMethod(client.m_timeoutTimer, "timeout", Qt::DirectConnection);
+    }
     static bool prepare(P1Client& client, const P1Client::Params& params,
                         std::vector<QByteArray>& packets) {
         client.m_sendOverride = [&packets](std::span<const std::uint8_t> bytes) {
@@ -238,6 +242,15 @@ void logicalModels() {
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     profilesAndWire(); refusals(); pacingAndErrors(); dispatch(); redPitaya384(); logicalModels();
+    for (const bool discoveryAnswered : {false, true}) {
+        std::vector<QByteArray> packets; P1Client client; QString reason;
+        QObject::connect(&client, &P1Client::connectionError, [&](const QString& error) { reason = error; });
+        check(P1ClientTestAccess::prepare(client, params(1), packets), "P1 timeout fixture");
+        if (discoveryAnswered) { P1ClientTestAccess::feed(client, discovery(1)); }
+        check(P1ClientTestAccess::timeout(client), "production timeout callback invoked without waiting");
+        check(reason.contains(discoveryAnswered ? QStringLiteral("P1 IQ") : QStringLiteral("P1 Discovery")),
+              "P1 timeout distinguishes missing discovery from absent IQ after discovery");
+    }
     //DH1KLM: Exercise the production P1 profile/priming path for the same
     // Orion MkII + ANAN-200D DIY override as P2, with no socket or fake radio.
     {
