@@ -126,6 +126,11 @@ applies the Thetis-compatible frequency limits and default bypass states
 (ADC0 automatic, ADC1 bypass). Changing the mapped model loads that model's own
 settings, without transferring custom limits from a different model.
 
+P2 profiles with LPF selection send the antenna/LPF relay word in both ALEX0
+and ALEX1, matching Thetis' P2 4.3+ layout. This is separate from OC outputs:
+external filters wired to band-dependent open collectors are not driven by
+this ALEX frequency table. OC band mapping is not implemented here.
+
 **Commanded ADC0 / ADC1 / LPF** indicates the software's requested filter,
 not physical relay feedback. This page configures receive filters only; it does
 not add transmit, PureSignal, OC-output or calibration controls.

@@ -185,3 +185,25 @@ surface and ThemeManager. Their generated touchpoint counts each increase by
 one; no concrete ANAN or wire header crosses into the new page. Relay displays
 are commanded state, without hardware readback. Hardware acceptance and a full
 Windows GUI build remain operator checks.
+
+
+### ALEX packet comparison, 2026-10-17
+
+Operator captures of Anvelina with the ANAN-200D mapping showed Aether changing
+Alex0 correctly at 3.8/14.225 MHz (`01400040` / `01100002`) but leaving the
+upper Alex1 relay word zero. The working Thetis capture at 3.65/14.175 MHz
+also carries `0140` / `0110` at bytes 1428–1429. Its ADC0 HPF was bypassed;
+that is an operator setting, not a reason to copy bypass into Aether.
+
+For profiles that already select receive LPFs, the encoder now also writes
+ANT1/2/3 and LPF bits into Alex1's upper word, independently of the low ADC1
+filter word. This follows Thetis `SetAntBits` and `SetAlexLPFBits` in
+ChannelMaster/netInterface.c at the source revision above. No T/R, transmit
+status or PTT bit is copied. The LPF-disabled Saturn profile is unchanged.
+
+The same capture shows ordinary RX OC output masks `0x0b` (80 m) and `0x05`
+(20 m), encoded as byte 1401 `0x16` / `0x0a`. Aether's byte is zero. These are
+site-specific settings, not universal ANAN defaults; other band masks and the
+physical wiring cannot be inferred from two captured bands. A hardware relay
+fix claim therefore still requires operator acceptance and clarification of
+whether the filter board is wired to ALEX SPI or these OC outputs.

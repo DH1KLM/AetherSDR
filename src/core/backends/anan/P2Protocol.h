@@ -339,7 +339,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0Fre
 // Multi-DDC form: one 4-byte frequency/phase word per DDC at 9 + 4*n (p.32),
 //DH1KLM: firstDdcIndex offsets physical tuning rows. selectReceiveLpf
 // enables Thetis LPF selection for Orion MkII only. Still RX-only (byte 4 bit[0]
-// run only). Alex0/Alex1 are per-ADC, written as in the single-DDC overload.
+// run only). LPF-enabled profiles also mirror the antenna/LPF relay word into
+// Alex1 bytes 1428-1429, independently of its ADC1 receive-filter low word.
 std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   std::span<const std::uint32_t> ddcFreqWords,
                                                   bool bypassAdc0Filters = false,

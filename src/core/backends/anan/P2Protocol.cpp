@@ -311,6 +311,12 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
         alex0 |= filters ? lowPassFilterBits(*filters, hz) : receiveLpfRegisterBits(rxWord);
     }
     writeU32be(&pkt[1432], alex0);
+    if (selectReceiveLpf) {
+        //DH1KLM: Thetis SetAntBits/SetAlexLPFBits also populate Alex1's upper
+        // relay word (P2 4.3+). RX-only operation follows the same antenna/LPF;
+        // ADC1's lower word stays independent and no T/R or PTT bit is set.
+        writeU32be(&pkt[1428], alex0 & 0xe7f00000u);
+    }
     // Alex1 (RX2/BPF2) register, bytes 1430-1431 -- a separate 16-bit word,
     // bit 12 "HF Bypass 2" (p.90-91's own Alex1 bit table).
     if (numAdcs > 1 && bypassAdc1Filters) {
