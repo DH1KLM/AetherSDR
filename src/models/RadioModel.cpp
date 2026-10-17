@@ -897,7 +897,9 @@ void RadioModel::setupBackend(const QString& family)
             const auto write = [this](const QString& cmd, ResponseCallback cb) {
                 return sendCmdPublic(cmd, std::move(cb));
             };
-            flex->setCommandSink([write](const QString& cmd){ write(cmd, nullptr); });
+            flex->setCommandSink([write](const QString& cmd, FlexBackend::CommandReply reply) {
+                return write(cmd, std::move(reply));
+            });
             flex->setAnsweredCommandSink([write](const QString& cmd,
                                                  std::function<void(bool)> answered) {
                 if (!write(cmd, [answered](int code, const QString&) { answered(code == 0); })) {
@@ -2952,12 +2954,13 @@ QString RadioModel::callsign() const
         .trimmed();
 }
 
-ReceiveDispatch RadioModel::requestRadioNickname(const QString& nickname)
+ReceiveDispatch RadioModel::requestRadioNickname(const QString& nickname,
+                                                IRadioBackend::NicknameCompletion completion)
 {
     if (!m_backend || !isConnected()) {
         return ReceiveDispatch::Unsupported;
     }
-    return m_backend->requestRadioNickname(nickname);
+    return m_backend->requestRadioNickname(nickname, std::move(completion));
 }
 
 void RadioModel::setStationCallsign(const QString& callsign)

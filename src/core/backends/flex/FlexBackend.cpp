@@ -7,6 +7,7 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QPointer>
 #include <QThread>
 #include <QVersionNumber>
 
@@ -129,6 +130,21 @@ FlexBackend::~FlexBackend()
 
 void FlexBackend::setCommandSink(std::function<void(const QString&)> sink)
 {
+    if (!sink) {
+        m_sink = {};
+        return;
+    }
+    m_sink = [sink = std::move(sink)](const QString& command, CommandReply reply) {
+        if (reply) {
+            return false;
+        }
+        sink(command);
+        return true;
+    };
+}
+
+void FlexBackend::setCommandSink(std::function<bool(const QString&, CommandReply)> sink)
+{
     m_sink = std::move(sink);
 }
 
@@ -137,7 +153,8 @@ void FlexBackend::setFirmwareVersionProvider(std::function<QString()> provider)
     m_firmwareVersionProvider = std::move(provider);
 }
 
-ReceiveDispatch FlexBackend::requestRadioNickname(const QString& nickname)
+ReceiveDispatch FlexBackend::requestRadioNickname(const QString& nickname,
+                                                 NicknameCompletion completion)
 {
     if (!m_sink) {
         return ReceiveDispatch::Unsupported;
@@ -155,6 +172,7 @@ ReceiveDispatch FlexBackend::requestRadioNickname(const QString& nickname)
             sanitized.append(ch);
         }
     }
+    QString command;
     if (sanitized.isEmpty()) {
         const QString versionText = m_firmwareVersionProvider
             ? m_firmwareVersionProvider() : QString();
@@ -166,11 +184,32 @@ ReceiveDispatch FlexBackend::requestRadioNickname(const QString& nickname)
                                  << "firmware 4.3 or later is required";
             return ReceiveDispatch::Unsupported;
         }
-        send(QStringLiteral("radio clear_name"));
+        command = QStringLiteral("radio clear_name");
     } else {
-        send(QStringLiteral("radio name ") + sanitized);
+        command = QStringLiteral("radio name ") + sanitized;
     }
-    return ReceiveDispatch::Dispatched;
+    const QPointer<FlexBackend> self(this);
+    const quint64 session = m_nicknameSession;
+    const quint64 request = ++m_nicknameRequest;
+    const bool dispatched = m_sink(command,
+        [self, session, request, sanitized, completion = std::move(completion)]
+        (int code, const QString&) {
+            const bool current = self && session == self->m_nicknameSession;
+            const bool accepted = current && code == 0;
+            // SmartSDR 4.3.16 confirms identity writes with R|0 but no status echo.
+            // A full radio status before this reply can still carry the old name.
+            // Status received after confirmation continues to update the model.
+            if (accepted && request > self->m_nicknameAppliedRequest) {
+                self->m_nicknameAppliedRequest = request;
+                RadioDelta delta;
+                delta.nickname = sanitized;
+                emit self->radioChanged(delta);
+            }
+            if (completion) {
+                completion(accepted);
+            }
+        });
+    return dispatched ? ReceiveDispatch::Dispatched : ReceiveDispatch::Unsupported;
 }
 
 void FlexBackend::setSetupCommandSink(
@@ -1587,6 +1626,8 @@ void FlexBackend::decodeTunerStatus(const QString& handle, const QMap<QString, Q
 
 void FlexBackend::clearExtensionHandles()
 {
+    // Identity replies belong to the same session as the cached encode handles.
+    ++m_nicknameSession;
     // #4198: forget the amp/tuner encode handles on disconnect/reset so a stale
     // handle can't survive into a reconnect (possibly a different radio).
     m_ampHandle.clear();
@@ -1801,7 +1842,7 @@ void FlexBackend::decodeProfileFlags(const QMap<QString, QString>& kvs)
 void FlexBackend::send(const QString& cmd)
 {
     if (m_sink) {
-        m_sink(cmd);
+        m_sink(cmd, {});
     }
 }
 
@@ -1810,7 +1851,7 @@ void FlexBackend::sendSlice(const QString& cmd)
     if (m_sliceSink) {
         m_sliceSink(cmd);
     } else if (m_sink) {
-        m_sink(cmd);
+        m_sink(cmd, {});
     }
 }
 
