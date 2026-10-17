@@ -291,6 +291,27 @@ int main(int argc, char** argv)
         check(migrated && !migrated->ocEnabled && receiveOcMask(*migrated, 3700000) == 0,
               "version 1 filter documents never enable OC outputs on upgrade");
     }
+    {
+        auto config = defaultFilterConfig(false);
+        config.receiveBypass[2] = true;
+        config.disable6mLnaOnRx = true;
+        config.lpfBypassOnRx = true;
+        check(AnanSettings::setHardwareFilters(QStringLiteral("RX-BYPASS-MAC"),7,5,filterOptions(config)),
+              "save RX band bypass, LNA and LPF options");
+        const auto saved = parseFilterOptions(AnanSettings::hardwareFilters(QStringLiteral("RX-BYPASS-MAC"),7,5));
+        check(saved && saved->receiveBypass[2] && saved->disable6mLnaOnRx && saved->lpfBypassOnRx,
+              "RX bypass options round-trip per device and model");
+        auto legacy = filterOptions(config);
+        legacy.remove(QStringLiteral("receiveBypass")); legacy.remove(QStringLiteral("disable6mLnaOnRx")); legacy.remove(QStringLiteral("lpfBypassOnRx"));
+        const auto defaults = parseFilterOptions(legacy);
+        check(defaults && !defaults->receiveBypass[2] && !defaults->disable6mLnaOnRx && !defaults->lpfBypassOnRx,
+              "older hardware documents keep automatic receive filters on upgrade");
+        auto malformed = filterOptions(config);
+        malformed.insert(QStringLiteral("receiveBypass"), QVariantList{true});
+        check(!parseFilterOptions(malformed), "truncated receive bypass array rejected");
+        malformed = filterOptions(config); malformed.insert(QStringLiteral("disable6mLnaOnRx"),QStringLiteral("true"));
+        check(!parseFilterOptions(malformed), "LNA bypass flag requires a boolean");
+    }
     if (g_failures == 0) { std::printf("anan_settings_test: all checks passed\n"); }
     return g_failures == 0 ? 0 : 1;
 }

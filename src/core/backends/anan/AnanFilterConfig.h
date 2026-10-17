@@ -16,6 +16,9 @@ struct FilterConfig {
     bool bypassAdc1 = true;
     std::array<OcReceiveBand, 11> ocReceive{};
     bool ocEnabled = false;
+    std::array<bool, 6> receiveBypass{};
+    bool disable6mLnaOnRx = false;
+    bool lpfBypassOnRx = false;
 };
 inline constexpr FilterConfig defaultFilterConfig(bool mkII) noexcept
 {
@@ -57,16 +60,22 @@ inline std::uint8_t receiveOcMask(const FilterConfig& config, double hz) noexcep
     }
     return 0;
 }
-inline std::uint32_t receiveFilterBits(const FilterConfig& config, double hz) noexcept
+inline int selectedReceiveFilterBand(const FilterConfig& config, double hz, bool adc1 = false) noexcept
+{
+    const int row = selectedFilterBand(config.receive, hz);
+    if (row < 0 || (!adc1 && (config.receiveBypass[row] || (row == 5 && config.disable6mLnaOnRx)))) { return -1; }
+    return row;
+}
+inline std::uint32_t receiveFilterBits(const FilterConfig& config, double hz, bool adc1 = false) noexcept
 {
     constexpr std::array<int,6> bits{6,5,4,1,2,3};
-    const int row = selectedFilterBand(config.receive, hz);
+    const int row = selectedReceiveFilterBand(config, hz, adc1);
     return row < 0 ? 0 : std::uint32_t{1} << bits[row];
 }
 inline std::uint32_t lowPassFilterBits(const FilterConfig& config, double hz) noexcept
 {
     constexpr std::array<int,7> bits{23,22,21,20,31,30,29};
-    const int row = selectedFilterBand(config.lowPass, hz);
+    const int row = config.lpfBypassOnRx ? 6 : selectedFilterBand(config.lowPass, hz);
     return std::uint32_t{1} << bits[row < 0 ? 6 : row];
 }
 } // namespace AetherSDR::anan

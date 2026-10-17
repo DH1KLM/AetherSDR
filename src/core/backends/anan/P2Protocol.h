@@ -223,6 +223,12 @@ struct ReceiveProfile {
     }
 }
 
+//DH1KLM: A second ADC on legacy ALEX does not imply a MkII Alex-2 filter board.
+[[nodiscard]] constexpr bool hasAlex2Filters(const ReceiveProfile& profile) noexcept
+{
+    return profile.numAdcs > 1 && profile.filterKind == ReceiveFilterKind::MkIIBpf;
+}
+
 //DH1KLM: Keep the physical wire layout separate from the operator's logical
 // model. Red Pitaya uses the Orion-class DDC/ADC layout even when it reports Hermes.
 [[nodiscard]] constexpr std::optional<ReceiveProfile> receiveProfile(

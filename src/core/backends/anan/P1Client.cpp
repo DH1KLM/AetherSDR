@@ -240,10 +240,11 @@ void P1Client::updateFilters()
     //DH1KLM: Reuse the verified frequency tables; translate relay positions
     // into P1 bank-local bits. P2 packet bytes never reach the P1 socket.
     const std::array<std::uint32_t, 1> words{phaseWord(m_config.frequencyHz)};
+    const auto filters = m_params.filters.value_or(defaultFilterConfig(m_profile->filterKind == ReceiveFilterKind::MkIIBpf));
     const auto hp = buildHighPriority(true, words,
         m_params.bypassAdc0Filters, m_params.bypassAdc1Filters, 0, 0, 1, 0, true,
         m_profile->filterKind, m_profile->numAdcs,
-        m_params.filters ? &*m_params.filters : nullptr);
+        &filters);
     const std::uint32_t alex = (std::uint32_t{hp[1432]} << 24) | (std::uint32_t{hp[1433]} << 16)
         | (std::uint32_t{hp[1434]} << 8) | hp[1435];
     auto filter = [](std::uint32_t word) {
@@ -255,11 +256,8 @@ void P1Client::updateFilters()
     };
     m_config.rxOcMask = m_params.filters ? receiveOcMask(*m_params.filters, m_config.frequencyHz) : 0;
     m_config.receiveFilterBits = filter(alex);
-    const auto adc1Hp = buildHighPriority(true, words, m_params.bypassAdc1Filters,
-        true, 0, 0, 1, 0, false, m_profile->filterKind, m_profile->numAdcs,
-        m_params.filters ? &*m_params.filters : nullptr);
-    m_config.adc1ReceiveFilterBits = filter((std::uint32_t{adc1Hp[1432]} << 24)
-        | (std::uint32_t{adc1Hp[1433]} << 16) | (std::uint32_t{adc1Hp[1434]} << 8) | adc1Hp[1435]);
+    //DH1KLM: ADC0 band bypass/LNA controls must not alter ADC1's independent filter bits.
+    m_config.adc1ReceiveFilterBits = filter((std::uint32_t{hp[1430]} << 8) | hp[1431]);
     constexpr std::array<int, 7> lpfBits{20, 21, 22, 23, 29, 30, 31};
     m_config.lowPassBits = 0;
     for (std::size_t n = 0; n < lpfBits.size(); ++n)

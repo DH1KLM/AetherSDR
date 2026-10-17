@@ -1591,12 +1591,13 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     state.insert(QStringLiteral("protocol"), m_pendingParams.protocol);
     state.insert(QStringLiteral("mkII"), profile->filterKind == ReceiveFilterKind::MkIIBpf);
     state.insert(QStringLiteral("numAdcs"), profile->numAdcs);
+    state.insert(QStringLiteral("hasAlex2Filters"), hasAlex2Filters(*profile));
     state.insert(QStringLiteral("selectLpf"), m_pendingParams.protocol == 1 || profile->selectReceiveLpf);
     state.insert(QStringLiteral("receiveActive"), config.bypassAdc0 ? -1
-        : selectedFilterBand(config.receive, m_sliceFreqHz));
+        : selectedReceiveFilterBand(config, m_sliceFreqHz));
     state.insert(QStringLiteral("adc1Active"), config.bypassAdc1 ? -1
         : selectedFilterBand(config.receive, m_sliceFreqHz));
-    state.insert(QStringLiteral("lpfActive"), selectedFilterBand(config.lowPass, m_sliceFreqHz) < 0
+    state.insert(QStringLiteral("lpfActive"), config.lpfBypassOnRx || selectedFilterBand(config.lowPass, m_sliceFreqHz) < 0
         ? 6 : selectedFilterBand(config.lowPass, m_sliceFreqHz));
     state.insert(QStringLiteral("frequencyHz"), m_sliceFreqHz);
     state.insert(QStringLiteral("ocMask"), receiveOcMask(config, m_sliceFreqHz));

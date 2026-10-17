@@ -1255,6 +1255,52 @@ int main()
               "RX OC configuration cannot key TX or write Anvelina extra pins");
     }
 
+    {
+        for (AnanModel model : {AnanModel::Anan10, AnanModel::Anan100, AnanModel::Anan100D,
+                               AnanModel::Anan200D, AnanModel::RedPitaya}) {
+            const auto* info = ananModelInfo(model);
+            const auto profile = receiveProfile(info->nativeBoardId, model);
+            check(profile && !hasAlex2Filters(*profile), "legacy effective models do not expose Alex-2 Filters");
+        }
+        for (AnanModel model : {AnanModel::Anan7000, AnanModel::Anan8000, AnanModel::AnanG2}) {
+            const auto* info = ananModelInfo(model);
+            const auto profile = receiveProfile(info->nativeBoardId, model);
+            check(profile && hasAlex2Filters(*profile), "dual-ADC MkII effective models expose Alex-2 Filters");
+        }
+        const auto override = receiveProfile(5,AnanModel::Anan200D,true);
+        check(override && !hasAlex2Filters(*override), "Orion MkII mapped as ANAN-200D hides Alex-2 Filters");
+        check(!hasAlex2Filters(*receiveProfile(20)), "single-ADC G2E has no Alex-2 Filters");
+    }
+
+    {
+        auto config = defaultFilterConfig(false);
+        config.bypassAdc1 = false;
+        const auto packet = [&](double hz) {
+            const std::array<std::uint32_t,1> words{phaseWord(hz)};
+            return buildHighPriority(true, words, false, false, 0, 0, 1, 2,
+                true, ReceiveFilterKind::LegacyHpf, 2, &config);
+        };
+        config.receiveBypass[0] = true;
+        const auto bypass = packet(3800000);
+        check(bypass[1434] == 0x10 && bypass[1435] == 0 && bypass[1431] == 0x40,
+              "ADC0 per-band HPF bypass sets bit12 without bypassing ADC1");
+        check(packet(14200000)[1435] == 2, "band bypass leaves other HPF bands selected");
+        config.receiveBypass[0] = false;
+        config.disable6mLnaOnRx = true;
+        const auto noLna = packet(51000000);
+        check(noLna[1434] == 0x10 && noLna[1435] == 0 && noLna[1431] == 8,
+              "disable 6m LNA on RX bypasses ADC0 6m filter while preserving ADC1");
+        check(packet(14200000)[1435] == 2, "6m LNA disable does not bypass HF filters");
+        config.lpfBypassOnRx = true;
+        const auto sixMetreLpf = packet(3800000);
+        check(sixMetreLpf[1432] == 0x21 && sixMetreLpf[1433] == 0
+              && sixMetreLpf[1428] == 0x21 && sixMetreLpf[4] == 1,
+              "6m/ByPass on RX selects 6m LPF in both relay words without PTT");
+        check(selectedReceiveFilterBand(config,51000000) == -1
+              && selectedReceiveFilterBand(config,51000000,true) == 5,
+              "LED receive selection reflects bypass while ADC1 stays independently selected");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "anan_p2_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

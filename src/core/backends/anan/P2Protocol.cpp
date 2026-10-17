@@ -325,8 +325,9 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
         writeU16be(&pkt[1430], std::uint16_t{1} << 12);
     } else if (numAdcs > 1 && filters) {
         //DH1KLM: One receiver: RX2 follows the same tuned frequency (Thetis SetAlex2HPFBits).
-        writeU16be(&pkt[1430], static_cast<std::uint16_t>(bpfBits == 0
-            ? std::uint32_t{1} << 12 : bpfBits));
+        const std::uint32_t adc1Bits = receiveFilterBits(*filters, hz, true);
+        writeU16be(&pkt[1430], static_cast<std::uint16_t>(adc1Bits == 0
+            ? std::uint32_t{1} << 12 : adc1Bits));
     }
     // Step attenuators, pp.34,36: byte 1443 = ADC0, byte 1442 = ADC1, 0-31 dB.
     pkt[1443] = static_cast<std::uint8_t>(

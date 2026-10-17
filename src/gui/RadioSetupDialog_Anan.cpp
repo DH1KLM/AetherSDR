@@ -2,6 +2,8 @@
 #include "models/RadioModel.h"
 #include "core/ThemeManager.h"
 #include <QApplication>
+#include <QAccessible>
+#include <QStyle>
 #include <QTabWidget>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -22,6 +24,35 @@
 #include <array>
 
 namespace AetherSDR {
+namespace {
+QLabel* makeFilterLed(QWidget* parent, const QString& name)
+{
+    auto* led = new QLabel(parent);
+    led->setObjectName(QStringLiteral("ananFilterLed"));
+    led->setFixedSize(12,12);
+    led->setProperty("active", false);
+    led->setAccessibleName(name + QStringLiteral(": not selected"));
+    led->setAccessibleDescription(QStringLiteral("Commanded filter selection; no physical relay readback"));
+    ThemeManager::instance().applyStyleSheet(led, QStringLiteral(
+        "QLabel { background: {{color.background.2}}; border: 1px solid {{color.canon.lineHi}}; border-radius: 6px; }"
+        "QLabel[active=\"true\"] { background: {{color.accent.success}}; }"));
+    return led;
+}
+void updateFilterLed(QLabel* led, bool selected, const QString& name)
+{
+    const QString text = name + (selected ? QStringLiteral(": selected") : QStringLiteral(": not selected"));
+    if (led->property("active").toBool() == selected && led->accessibleName() == text) { return; }
+    led->setProperty("active", selected);
+    led->setAccessibleName(text);
+    led->setToolTip(text);
+    led->style()->unpolish(led);
+    led->style()->polish(led);
+    led->update();
+    QAccessibleEvent event(led, QAccessible::NameChanged);
+    QAccessible::updateAccessibility(&event);
+}
+} // namespace
+
 
 QWidget* RadioSetupDialog::buildAnanHardwareTab()
 {
@@ -71,6 +102,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* antennaControl = tab(antennaTabs, QStringLiteral("Antenna Control"));
     auto* alex1 = tab(antennaTabs, QStringLiteral("Alex-1 Filters"));
     auto* alex2 = tab(antennaTabs, QStringLiteral("Alex-2 Filters"));
+    antennaTabs->setTabVisible(antennaTabs->indexOf(alex2), false);
     auto* antennaControlLayout = new QVBoxLayout(antennaControl);
     auto* antennaGroup = new QGroupBox(QStringLiteral("RX1 / RX2 Antenna"), antennaControl);
     auto* antennaForm = new QFormLayout(antennaGroup);
@@ -286,7 +318,12 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     adc0->setAccessibleName(QStringLiteral("ADC0 RF filter bypass"));
     auto* adc1 = new QCheckBox(QStringLiteral("ADC1 RF filter bypass"));
     adc1->setAccessibleName(QStringLiteral("ADC1 RF filter bypass"));
-    layout->addWidget(adc0);
+    auto* bypassRow = new QHBoxLayout;
+    auto* bypassLed = makeFilterLed(alex1, QStringLiteral("ADC0 receive bypass"));
+    bypassRow->addWidget(bypassLed);
+    bypassRow->addWidget(adc0);
+    bypassRow->addStretch();
+    layout->addLayout(bypassRow);
     alex2GroupLayout->insertWidget(0, adc1);
     auto* active = new QLabel;
     active->setWordWrap(true);
@@ -312,11 +349,19 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             auto* label = new QTableWidgetItem;
             label->setFlags(Qt::ItemIsEnabled);
             table->setItem(row, 0, label);
+            auto* nameCell = new QWidget(table);
+            auto* nameLayout = new QHBoxLayout(nameCell);
+            nameLayout->setContentsMargins(2,0,2,0);
+            auto* name = new QLabel(nameCell);
+            name->setObjectName(QStringLiteral("filterBandName"));
+            nameLayout->addWidget(name);
+            nameLayout->addWidget(makeFilterLed(nameCell, QStringLiteral("Filter %1").arg(row+1)));
+            nameLayout->addStretch();
+            table->setCellWidget(row,0,nameCell);
             if (rows == 6) {
                 auto* bypass = new QCheckBox(table);
                 bypass->setAccessibleName(QStringLiteral("Receive filter %1 band bypass").arg(row+1));
-                bypass->setAccessibleDescription(QStringLiteral("Unavailable: individual band bypass is not implemented; master bypass remains available"));
-                bypass->setEnabled(false);
+                bypass->setAccessibleDescription(QStringLiteral("Bypass this ADC0 receive filter band after Apply"));
                 table->setCellWidget(row,3,bypass);
             }
             for (int column = 1; column < 3; ++column) {
@@ -337,16 +382,24 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* receive = makeTable(receiveGroup, 6);
     auto* receiveOptions = qobject_cast<QVBoxLayout*>(receiveGroup->layout());
     for (const auto& text : {QStringLiteral("HPF Bypass on TX"), QStringLiteral("HPF Bypass on PureSignal feedback"),
-            QStringLiteral("Disable 6m LNA on TX"), QStringLiteral("Disable 6m LNA on RX")}) {
+            QStringLiteral("Disable 6m LNA on TX")}) {
         auto* check = new QCheckBox(text, receiveGroup);
         check->setAccessibleName(text);
-        check->setAccessibleDescription(QStringLiteral("Unavailable: separate TX, PureSignal and LNA controls are not implemented"));
+        check->setAccessibleDescription(QStringLiteral("Unavailable: ANAN TX and PureSignal are not implemented"));
         check->setEnabled(false);
         receiveOptions->insertWidget(0,check);
     }
+    auto* disable6mRx = new QCheckBox(QStringLiteral("Disable 6m LNA on RX"), receiveGroup);
+    disable6mRx->setAccessibleName(QStringLiteral("Disable 6m LNA on receive"));
+    disable6mRx->setAccessibleDescription(QStringLiteral("Select receive bypass instead of the 6m filter/LNA on ADC0; applies after Apply"));
+    receiveOptions->insertWidget(0,disable6mRx);
     receive->setAccessibleName(QStringLiteral("ADC receive filter frequency ranges"));
     auto* lpf = makeTable(lpfGroup, 7);
     lpf->setAccessibleName(QStringLiteral("ALEX low pass filter frequency ranges"));
+    auto* lpfBypassRx = new QCheckBox(QStringLiteral("6m/ByPass on RX"), lpfGroup);
+    lpfBypassRx->setAccessibleName(QStringLiteral("Use 6m low pass filter on receive"));
+    lpfBypassRx->setAccessibleDescription(QStringLiteral("Force the 6m LPF instead of automatic receive LPF selection; applies after Apply"));
+    qobject_cast<QVBoxLayout*>(lpfGroup->layout())->addWidget(lpfBypassRx);
     auto* apply = new QPushButton(QStringLiteral("Apply"));
     apply->setAutoDefault(false);
     apply->setAccessibleName(QStringLiteral("Apply ANAN receive filter configuration"));
@@ -374,6 +427,14 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         state->current.clear();
         state->dirty = false;
         identity->clear();
+        antennaTabs->setTabVisible(antennaTabs->indexOf(alex2), false);
+        updateFilterLed(bypassLed, false, QStringLiteral("ADC0 receive bypass"));
+        for (QTableWidget* table : {receive,lpf}) {
+            for (int row = 0; row < table->rowCount(); ++row) {
+                updateFilterLed(table->cellWidget(row,0)->findChild<QLabel*>(QStringLiteral("ananFilterLed")),
+                    false, table->item(row,0)->text());
+            }
+        }
         operating->clear();
         ocState->clear();
         for (auto* label : *factLabels) { label->setText(QStringLiteral("—")); }
@@ -383,7 +444,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         }
         active->clear();
         status->setText(QStringLiteral("Connect an ANAN with a validated receive profile first."));
-        for (QWidget* widget : std::array<QWidget*, 6>{adc0, adc1, receive, lpf, apply, defaults}) {
+        for (QWidget* widget : std::array<QWidget*, 8>{adc0, adc1, receive, lpf, apply, defaults, disable6mRx, lpfBypassRx}) {
             widget->setEnabled(false);
             widget->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
         }
@@ -432,6 +493,9 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         const auto selected = [](const QStringList& names, int row) {
             return row >= 0 && row < names.size() ? names[row] : QStringLiteral("Bypass");
         };
+        const bool showAlex2 = data.value(QStringLiteral("hasAlex2Filters")).toBool();
+        if (!showAlex2 && antennaTabs->currentWidget() == alex2) { antennaTabs->setCurrentWidget(alex1); }
+        antennaTabs->setTabVisible(antennaTabs->indexOf(alex2), showAlex2);
         const bool twoAdcs = data.value(QStringLiteral("numAdcs")).toInt() > 1;
         const bool lpEnabled = data.value(QStringLiteral("selectLpf")).toBool();
         active->setText(QStringLiteral("%1 MHz • Commanded ADC0: %2 • ADC1: %3 • LPF: %4")
@@ -450,7 +514,23 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         alex2Ranges->setText(rangeLines.join(QLatin1Char('\n')));
         alex2Hint->setText(twoAdcs ? QStringLiteral("ADC1 shares the single receiver's tuned frequency and Alex-1 band limits. Independent ADC1 limits are unavailable.")
             : QStringLiteral("Unavailable: this hardware profile has only one ADC; no Alex-2 receive filter is driven."));
+        //DH1KLM: LEDs follow commanded state on every poll, even while a table edit is pending.
+        const auto lightRows = [](QTableWidget* table, const QStringList& names, int activeRow) {
+            for (int row = 0; row < table->rowCount(); ++row) {
+                QWidget* cell = table->cellWidget(row,0);
+                cell->findChild<QLabel*>(QStringLiteral("filterBandName"))->setText(names[row]);
+                updateFilterLed(cell->findChild<QLabel*>(QStringLiteral("ananFilterLed")), row == activeRow, names[row]);
+            }
+        };
+        lightRows(receive,rxNames,data.value(QStringLiteral("receiveActive")).toInt());
+        lightRows(lpf,lpNames,lpEnabled ? data.value(QStringLiteral("lpfActive")).toInt() : -1);
+        updateFilterLed(bypassLed, data.value(QStringLiteral("receiveActive")).toInt() < 0,
+                        QStringLiteral("ADC0 receive bypass"));
         adc0->setEnabled(true);
+        disable6mRx->setEnabled(true);
+        lpfBypassRx->setEnabled(lpEnabled);
+        lpfBypassRx->setAccessibleDescription(lpEnabled ? QStringLiteral("Force 6m LPF after Apply")
+            : QStringLiteral("Unavailable: this profile does not drive receive LPF selection"));
         adc1->setEnabled(twoAdcs);
         adc1->setAccessibleDescription(twoAdcs ? QStringLiteral("Bypass the separate RX2 receive filter bank") : QStringLiteral("This profile has only one ADC"));
         receive->setEnabled(true);
@@ -496,6 +576,12 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                     check->setChecked(mask & (1<<pin));
                 }
             }
+            disable6mRx->setChecked(data.value(QStringLiteral("disable6mLnaOnRx")).toBool());
+            lpfBypassRx->setChecked(data.value(QStringLiteral("lpfBypassOnRx")).toBool());
+            const auto bypasses = data.value(QStringLiteral("receiveBypass")).toList();
+            for (int row = 0; row < 6; ++row) {
+                qobject_cast<QCheckBox*>(receive->cellWidget(row,3))->setChecked(bypasses[row].toBool());
+            }
             adc0->setChecked(data.value(QStringLiteral("bypassAdc0")).toBool());
             adc1->setChecked(data.value(QStringLiteral("bypassAdc1")).toBool());
             const auto populate = [](QTableWidget* table, const QVariantList& rows, const QStringList& names) {
@@ -513,6 +599,11 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         }
     };
     const auto dirty = [=] { if (!state->filling) { state->dirty = true; status->setText(QStringLiteral("Changes pending — select Apply to update the receiver.")); } };
+    connect(disable6mRx, &QCheckBox::toggled, page, dirty);
+    connect(lpfBypassRx, &QCheckBox::toggled, page, dirty);
+    for (int row = 0; row < 6; ++row) {
+        connect(qobject_cast<QCheckBox*>(receive->cellWidget(row,3)), &QCheckBox::toggled, page, dirty);
+    }
     connect(ocEnabled, &QCheckBox::toggled, page, dirty);
     for (int row = 0; row < 11; ++row) {
         for (int pin = 0; pin < 7; ++pin) {
@@ -582,6 +673,13 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         }
         options.insert(QStringLiteral("ocEnabled"), ocEnabled->isChecked());
         options.insert(QStringLiteral("ocReceive"), ocRows);
+        QVariantList bypasses;
+        for (int row = 0; row < 6; ++row) {
+            bypasses.append(qobject_cast<QCheckBox*>(receive->cellWidget(row,3))->isChecked());
+        }
+        options.insert(QStringLiteral("receiveBypass"), bypasses);
+        options.insert(QStringLiteral("disable6mLnaOnRx"), disable6mRx->isChecked());
+        options.insert(QStringLiteral("lpfBypassOnRx"), lpfBypassRx->isChecked());
         options.insert(QStringLiteral("receive"), rows(receive));
         options.insert(QStringLiteral("lowPass"), rows(lpf));
         options.insert(QStringLiteral("bypassAdc0"), adc0->isChecked());
