@@ -149,6 +149,7 @@ signals:
     void startupConnectUnavailable(const QString& reason);
 
 private slots:
+    void startLocalScan();
     void onConnectionModeClicked(int id);
     void onListSelectionChanged();
     void onWanSelectionChanged();
@@ -275,6 +276,9 @@ private:
     QStackedWidget* m_localStateStack{nullptr};
     QWidget* m_localEmptyState{nullptr};
     QPushButton* m_localConnectBtn{nullptr};
+    QPushButton* m_scanBtn{nullptr};
+    QLabel* m_scanStatusLabel{nullptr};
+    bool m_scanRunning{false};
     QPushButton* m_forgetMappingBtn{nullptr};
 
     QList<RadioInfo> m_radios;   // LAN radios only
