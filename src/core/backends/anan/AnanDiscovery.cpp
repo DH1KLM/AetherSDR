@@ -225,6 +225,7 @@ void AnanDiscovery::onReadyRead()
                               || prev.hpsdrProtocol != info.hpsdrProtocol
                               || prev.model != info.model
                               || prev.connectionProfile != info.connectionProfile
+                              || prev.effectiveModel != info.effectiveModel
                               || prev.nickname != info.nickname;
             it.value().info = info;
             if (changed)

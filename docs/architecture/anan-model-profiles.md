@@ -91,6 +91,15 @@ when present. A shared board byte cannot prove a specific product identity.
 The connection dialog displays this snapshot while connected, independently
 of list selection and subsequent settings changes.
 
+For an explicit valid override, the ANAN display helper additionally sets
+`effectiveModel`. Generic `RadioInfo::displayModel()` / `displayNickname()`
+provide the operating UI's selected model and replace only a missing or
+model-fallback nickname. RadioModel's initial identity and radio-tab labels
+use these accessors. `model`/`boardId` and connection-dialog details keep the
+reported identity; packet behavior remains selected by typed model/protocol
+parameters. With no effective override, the accessors return the original
+model/nickname, including for FlexRadio, Icom and HL2.
+
 The disconnected selected-row **Forget** action resets only the model and
 override fields in the exact-radio HardwareProfile document. It preserves
 protocol preference, unknown sibling fields and every other feature. Schema-1

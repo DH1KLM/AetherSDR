@@ -3749,8 +3749,8 @@ void RadioModel::connectToRadio(const RadioInfo& info)
     // suppressing toasts until onConnected() actually fires.
     m_announcedClientConnections.clear();
     m_reconnectTimer.stop();
-    m_name    = info.name;
-    m_model   = info.model;
+    m_name    = m_lastInfo.effectiveModel.isEmpty() ? info.name : m_lastInfo.effectiveModel;
+    m_model   = m_lastInfo.displayModel();
     m_version = info.version;
     m_versionLabel = info.versionLabel;
     // Seed nickname/callsign from the discovery packet so the status-bar station
@@ -3759,7 +3759,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
     // the label showed a STALE m_nickname — blank on the first connect, or the
     // PREVIOUSLY connected radio's name (it is never cleared on disconnect). The
     // async reply still refreshes them if they differ.
-    m_nickname = info.nickname;
+    m_nickname = m_lastInfo.displayNickname();
     m_callsign = info.callsign;
     m_declaredBands = parseDeclaredBands(info.bands);   // empty for real Flex
     // #5594 item 3: the radio's own declaration wins over the model table.

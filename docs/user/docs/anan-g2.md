@@ -130,6 +130,13 @@ hardware profile described above.
 
 ### Inspecting and forgetting a mapping
 
+With override ON, the main operating interface (radio tabs, model label and
+default station name) shows the selected model, for example **ANAN-200D**.
+A custom nickname still takes precedence over the default station name.
+The connection dialog continues to show the reported physical board family
+and the separate mapping details. FlexRadio, Icom and Hermes-Lite 2 retain
+their existing model and nickname behavior.
+
 After connection, reopen **File → Connect to Radio...** to inspect the
 **Connected device** details above the footer: reported board family, nickname,
 IP, ID/MAC, profile, override state and actual P1/P2 protocol. These details

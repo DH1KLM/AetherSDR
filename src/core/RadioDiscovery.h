@@ -69,6 +69,9 @@ struct RadioInfo {
     //DH1KLM: Display-only effective profile, separate from reported identity.
     // Captured for the session so later settings edits cannot relabel live hardware.
     QString connectionProfile;
+    //DH1KLM: Optional operator-facing model for an explicit hardware override.
+    // model/boardId retain the reported identity for discovery and validation.
+    QString effectiveModel;
     QString serial;
     RadioSerialIdentity serialIdentity; // Reported identity, independent of locator.
     QString version;
@@ -110,6 +113,18 @@ struct RadioInfo {
     QStringList guiClientPrograms;
     QStringList guiClientIps;
     QStringList guiClientHosts;
+
+    QString displayModel() const {
+        return effectiveModel.isEmpty() ? model : effectiveModel;
+    }
+    QString displayNickname() const {
+        //DH1KLM: A discovery fallback is not a custom station nickname. Replace
+        // that fallback with the effective model, but retain an operator's name.
+        return !effectiveModel.isEmpty()
+            && (nickname.trimmed().isEmpty()
+                || nickname.trimmed().compare(model.trimmed(), Qt::CaseInsensitive) == 0)
+            ? effectiveModel : nickname;
+    }
 
     QString displayName() const {
         QString suffix;
