@@ -285,6 +285,11 @@ int main(int argc, char** argv) {
         const auto applied = P1ClientTestAccess::config(client);
         check(applied.receiveFilterBits == 0x10 && applied.adc1ReceiveFilterBits == 0x10,
             "P1 live edited range and ADC1 auto selection update both banks");
+        config.receiveAdc1 = defaultFilterConfig(true).receive;
+        dispatcher.setHardwareFilters(filterOptions(config));
+        const auto independent = P1ClientTestAccess::config(client);
+        check(independent.receiveFilterBits == 0x10 && independent.adc1ReceiveFilterBits == 0x08,
+            "P1 dispatcher applies separate ADC1 limits without retuning ADC0");
         config.bypassAdc0 = true;
         dispatcher.setHardwareFilters(filterOptions(config));
         check(P1ClientTestAccess::config(client).receiveFilterBits == 0x20,

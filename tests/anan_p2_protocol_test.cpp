@@ -1301,6 +1301,31 @@ int main()
               "LED receive selection reflects bypass while ADC1 stays independently selected");
     }
 
+    {
+        //DH1KLM: Thetis' separate Alex-2 range table must affect only ADC1.
+        auto config = defaultFilterConfig(true);
+        config.receiveAdc1 = config.receive;
+        (*config.receiveAdc1)[1].highHz = 6499999;
+        (*config.receiveAdc1)[2].lowHz = 6500000;
+        const std::array<std::uint32_t, 1> words{phaseWord(6000000)};
+        const auto packet = buildHighPriority(true, words, false, false, 0, 0, 1, 2,
+            true, ReceiveFilterKind::MkIIBpf, 2, &config);
+        check(packet[1435] == 0x10 && packet[1431] == 0x20,
+              "independent Alex-2 limits select ADC1 80/60m while ADC0 retains 40/30m");
+        check(selectedReceiveFilterBand(config,6000000) == 2
+              && selectedReceiveFilterBand(config,6000000,true) == 1,
+              "ADC0 and ADC1 commanded indicators follow their own range tables");
+        check(packet[4] == 1 && (packet[1432] & 8) == 0,
+              "separate ADC1 ranges do not key PTT or the T/R relay");
+        const auto bypass = buildHighPriority(true, words, false, true, 0, 0, 1, 2,
+            true, ReceiveFilterKind::MkIIBpf, 2, &config);
+        check(bypass[1430] == 0x10 && bypass[1431] == 0 && bypass[1435] == 0x10,
+              "ADC1 master bypass overrides independent limits without changing ADC0");
+        config.receiveAdc1.reset();
+        check(receiveFilterBits(config,6000000,true) == 0x10,
+              "absent ADC1 table preserves old shared-range selection");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "anan_p2_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

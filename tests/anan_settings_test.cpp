@@ -241,6 +241,38 @@ int main(int argc, char** argv)
     check(AnanSettings::ddc0AdcIndex() == 0, "an out-of-range ADC index falls back to ADC0");
 
     {
+        auto config = defaultFilterConfig(true);
+        config.receiveAdc1 = config.receive;
+        (*config.receiveAdc1)[1].highHz = 6499999;
+        (*config.receiveAdc1)[2].lowHz = 6500000;
+        auto options = filterOptions(config);
+        const QString serial = QStringLiteral("ALEX2-MAC");
+        check(AnanSettings::setHardwareFilters(serial, 7, 5, options), "save independent ADC1 limits");
+        const auto restored = parseFilterOptions(AnanSettings::hardwareFilters(serial,7,5));
+        check(restored && restored->receiveAdc1 && (*restored->receiveAdc1)[2].lowHz == 6500000
+              && restored->receive[2].lowHz == 5500000,
+              "ADC1 ranges persist without replacing ADC0 limits");
+        auto legacy = options;
+        legacy.remove(QStringLiteral("receiveAdc1"));
+        const RadioSettingsScope scope(QStringLiteral("anan"),serial);
+        check(scope.setFeature(QStringLiteral("HardwareFilters"), 3,
+              QJsonObject{{QStringLiteral("7:5"),QJsonObject::fromVariantMap(legacy)}}), "seed old schema 3 ranges");
+        const auto old = parseFilterOptions(AnanSettings::hardwareFilters(serial,7,5));
+        check(old && !old->receiveAdc1 && receiveFilterBits(*old,6000000,true) == 0x10,
+              "old schema inherits its saved ADC0 table for ADC1 without changing selection");
+        check(AnanSettings::setHardwareFilters(serial,7,5,legacy), "upgrade old filter document atomically");
+        int version = 0;
+        scope.featureExact(QStringLiteral("HardwareFilters"), &version);
+        check(version == 4, "independent ADC1 limits use schema 4");
+        auto rows = options.value(QStringLiteral("receiveAdc1")).toList();
+        rows[2] = QVariantMap{{QStringLiteral("lowHz"), 1000000}, {QStringLiteral("highHz"), 6500000}};
+        options.insert(QStringLiteral("receiveAdc1"),rows);
+        check(!parseFilterOptions(options) && !AnanSettings::setHardwareFilters(serial,7,5,options),
+              "overlapping ADC1 bands cannot overwrite saved configuration");
+        options.insert(QStringLiteral("receiveAdc1"),QVariantList{});
+        check(!parseFilterOptions(options), "present but incomplete ADC1 table is rejected");
+    }
+    {
         //DH1KLM: A DIY override and another MAC must never share edited ranges.
         const QString serial = QStringLiteral("FILTER-TEST");
         auto config = defaultFilterConfig(false);

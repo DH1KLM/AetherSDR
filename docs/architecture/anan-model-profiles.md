@@ -159,9 +159,9 @@ Anvelina bank are covered by socket-free tests. No simulated radio peer runs.
 model, overrideDetection)`, not the discovery display name. Legacy HPF and
 MkII BPF defaults remain byte-equivalent to the existing P2 profiles with ADC1
 bypassed. The single receiver's tuned frequency selects both ADC filter banks
-when their bypasses are off. The receive frequency table is shared between
-ADC0 and ADC1 in this implementation. Independently editable RX2 limits are
-not exposed; ADC0 per-band bypass flags are independent of ADC1 selection. P2 Saturn retains its existing disabled
+when their bypasses are off. ADC1 may have its own receive frequency table;
+without one it inherits ADC0 ranges. ADC0 per-band bypass flags remain
+independent of ADC1 selection. P2 Saturn retains its existing disabled
 LPF control; P1 retains its existing LPF bank selection.
 
 The source reference is Thetis commit
@@ -287,3 +287,32 @@ repeat spacing, late-tick coalescing, pre-discovery refusal and teardown.
 This fixes the absence of General retries; UDP loss at the radio and the
 cause of Anvelina's relay failure are not established by the capture. Relay
 operation after the change still requires a physical device test.
+
+
+## Operator acceptance and independent ADC1 limits, 2026-10-18
+
+DH1KLM confirms actual band-change relay activity on Anvelina P2 with an
+ANAN-200D override after build `c27a720e`. HPF bypass and Disable 6m LNA on RX
+also appear to work in the operator's initial test. This qualifies that
+reported combination, not every profile, P1, OC wiring or a new independent
+ADC1 table. General retry coverage remains necessary; these observations do
+not by themselves prove which initial UDP packet the radio applied.
+
+For dual-ADC MkII profiles already exposing Alex-2, that page now edits six
+independent ADC1 frequency ranges and displays ADC1's commanded band/bypass
+LEDs. The technical reference is Thetis setup.cs
+`udAlex21_5HPFStart_ValueChanged` through `udAlex26BPFEnd_ValueChanged`, which
+maintain a separate Alex-2 range table. Existing model defaults and bit mapping
+are retained. P2 encodes ADC1 in the existing ALEX1 lower word; P1 translates
+that selection to its bank-local bits. ADC0, LPF, OC, RX frequency and TX gates
+are unaffected. Alex-2 stays hidden for legacy mappings and single-ADC models.
+
+HardwareFilters schema 4 adds optional `receiveAdc1` (six integer-Hz ranges,
+ordered, non-overlapping, within 0–61.44 MHz). Missing tables continue to
+inherit the saved ADC0 ranges, including on old documents and on legacy models
+whose page has no Alex-2 editor. Apply on an Alex-2 page saves its explicit
+ADC1 table atomically with the other settings, scoped by MAC/model/board.
+Future schemas remain protected against overwrite. Restore model defaults
+removes the separate table and restores inherited model ranges and bypasses.
+Independent-table physical qualification on an appropriate MkII model remains
+pending; an ANAN-200D mapping does not expose this editor.
