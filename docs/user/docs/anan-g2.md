@@ -153,6 +153,10 @@ The single receiver frequency drives both banks; changing ADC1 limits does
 not create another receiver or alter ADC0 limits. TX/PureSignal bypass and
 **Disable 6m LNA on TX** remain disabled because ANAN transmit is unsupported.
 
+**Apply** and **Restore model defaults** are above the hardware tabs, with
+the pending/saved status directly below. Complete filter banks retain their
+required height; use the page’s vertical scrollbar in a short window.
+
 Select **Apply** to save for this MAC and model and update the running receiver;
 no reconnect is needed. These saved hardware settings take precedence over the
 connection page's initial bypass defaults. **Restore model defaults** saves and

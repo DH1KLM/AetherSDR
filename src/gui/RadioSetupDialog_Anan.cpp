@@ -72,13 +72,15 @@ public:
     }
     QSize minimumSizeHint() const override
     {
-        return {qMax(m_first->minimumSizeHint().width(), m_second->minimumSizeHint().width()), 0};
+        return {qMax(m_first->minimumSizeHint().width(), m_second->minimumSizeHint().width()), heightForWidth(width())};
     }
     bool hasHeightForWidth() const override { return true; }
     int heightForWidth(int width) const override
     {
-        return sideBySide(width) ? qMax(m_first->sizeHint().height(), m_second->sizeHint().height())
-            : m_first->sizeHint().height() + m_second->sizeHint().height() + m_box->spacing();
+        const int firstHeight = qMax(m_first->sizeHint().height(), m_first->minimumSizeHint().height());
+        const int secondHeight = qMax(m_second->sizeHint().height(), m_second->minimumSizeHint().height());
+        return sideBySide(width) ? qMax(firstHeight, secondHeight)
+            : firstHeight + secondHeight + m_box->spacing();
     }
 protected:
     void resizeEvent(QResizeEvent* event) override
@@ -88,6 +90,9 @@ protected:
             m_box->setDirection(direction);
             updateGeometry();
         }
+        //DH1KLM: SetNoConstraint allows width reflow, but must not let an
+        // enclosing tab squeeze away the final filter row or its controls.
+        setMinimumHeight(heightForWidth(event->size().width()));
         QWidget::resizeEvent(event);
     }
 private:
@@ -486,7 +491,8 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     actions->addWidget(apply);
     actions->addWidget(defaults);
     actions->addStretch();
-    outer->addLayout(actions);
+    outer->insertLayout(0, actions);
+    outer->insertWidget(1, status);
     auto* note = new QLabel(QStringLiteral("Receive-only settings. Apply saves this device and model and updates the running receiver. "
         "Filter indicators show commands, not physical relay feedback. TX and PureSignal are unavailable. OC outputs are configured on their own tab."));
     note->setWordWrap(true);
