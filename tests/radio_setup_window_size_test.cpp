@@ -1,14 +1,5 @@
-// Radio Setup is 960 px wide, always; the operator sets only its height.
-//
-// Pinned here, each with its control:
-//   1. the width is fixed at 960 (minimum == maximum) and the height runs from
-//      720 up;
-//   2. a resize asking for another width keeps 960 and takes the height;
-//   3. a geometry saved at another width (before the width was fixed) is
-//      restored at 960, with its height, in both saved forms: "x,y,w,h" and
-//      the base64 saveGeometry() blob a PersistentDialog wrote.
-//
-// No hardware and no transport: a bare RadioModel, never connected.
+// Radio Setup resizes in both dimensions and preserves current/legacy geometry.
+// No hardware or transport: a bare RadioModel, never connected.
 
 #include "TestSettingsProfile.h"
 #include "core/AppSettings.h"
@@ -28,29 +19,29 @@ class RadioSetupWindowSizeTest : public QObject {
     Q_OBJECT
 private slots:
 
-    void theWidthIsFixedAndTheHeightIsFree()
+    void bothDimensionsAreResizable()
     {
         RadioModel model;
         RadioSetupDialog dialog(&model);
-        QCOMPARE(dialog.minimumWidth(), 960);
-        QCOMPARE(dialog.maximumWidth(), 960);
-        QCOMPARE(dialog.minimumHeight(), 720);
+        QCOMPARE(dialog.minimumWidth(), 800);
+        QCOMPARE(dialog.maximumWidth(), QWIDGETSIZE_MAX);
+        QCOMPARE(dialog.minimumHeight(), 600);
         QCOMPARE(dialog.maximumHeight(), QWIDGETSIZE_MAX);
     }
 
-    void aResizeKeepsTheWidthAndTakesTheHeight()
+    void aResizeChangesBothDimensions()
     {
         RadioModel model;
         RadioSetupDialog dialog(&model);
         dialog.show();
         QVERIFY(QTest::qWaitForWindowExposed(&dialog));
         dialog.resize(1300, 900);
-        QTRY_COMPARE(dialog.size(), QSize(960, 900));
+        QTRY_COMPARE(dialog.size(), QSize(1300, 900));
         dialog.resize(700, 800);
-        QTRY_COMPARE(dialog.size(), QSize(960, 800));
+        QTRY_COMPARE(dialog.size(), QSize(800, 800));
     }
 
-    void aWiderSavedGeometryRestoresAt960()
+    void aWiderSavedGeometryIsRestored()
     {
         auto& settings = AppSettings::instance();
         // Saved by the window when its width was free: x,y,w,h.
@@ -59,15 +50,14 @@ private slots:
         RadioSetupDialog dialog(&model);
         dialog.show();
         QVERIFY(QTest::qWaitForWindowExposed(&dialog));
-        // CONTROL: the restore ran (the saved height arrived), so the width
-        // below is the clamp, not a restore that never happened.
+        // Both dimensions, rather than a forced width, survive restoration.
         QTRY_COMPARE(dialog.height(), 850);
-        QCOMPARE(dialog.width(), 960);
+        QCOMPARE(dialog.width(), 1400);
         dialog.hide();
         settings.remove(QLatin1String(kGeometryKey));
     }
 
-    void aWiderLegacyBlobRestoresAt960()
+    void aWiderLegacyBlobIsRestored()
     {
         auto& settings = AppSettings::instance();
         // What the PersistentDialog saved before the move: saveGeometry() as
@@ -86,11 +76,15 @@ private slots:
         settings.setValue(QLatin1String(kGeometryKey), QString::fromLatin1(blob.toBase64()));
         RadioModel model;
         RadioSetupDialog dialog(&model);
+        QWidget reference(nullptr, dialog.windowFlags());
+        reference.setMinimumSize(800,600);
+        QVERIFY(reference.restoreGeometry(blob));
+        const int expectedWidth = reference.width();
         dialog.show();
         QVERIFY(QTest::qWaitForWindowExposed(&dialog));
-        // CONTROL: the blob was applied (its height arrived).
+        // Qt may fit a legacy blob to the screen; use its own restore as control.
         QTRY_COMPARE(dialog.height(), 750);
-        QCOMPARE(dialog.width(), 960);
+        QCOMPARE(dialog.width(), expectedWidth);
         dialog.hide();
         settings.remove(QLatin1String(kGeometryKey));
     }

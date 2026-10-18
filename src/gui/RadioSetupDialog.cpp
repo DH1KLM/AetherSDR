@@ -1284,10 +1284,10 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
     // so saved geometry carries over; it resizes from every edge. 40 px taller
     // than before for the canon header.
     setGeometryKey(QStringLiteral("RadioSetupDialogGeometry"));
-    // The width is fixed: the pages are laid out for it. The height is the
-    // operator's, from 720 up.
-    setFixedWidth(960);
-    setMinimumHeight(720);
+    //DH1KLM: Keep the initial workspace size, but allow resizing on every
+    // edge. CanonWindow restores and saves both dimensions under the same key.
+    setMinimumSize(800, 600);
+    resize(960, 760);
     FramelessResizer::install(this);
     bodyWidget()->setObjectName(QStringLiteral("radioSetupBody"));
     applyCanonSheet(bodyWidget(), [] {

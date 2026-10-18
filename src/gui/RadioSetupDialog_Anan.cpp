@@ -2,6 +2,7 @@
 #include "models/RadioModel.h"
 #include "core/ThemeManager.h"
 #include <QApplication>
+#include <QBoxLayout>
 #include <QAccessible>
 #include <QStyle>
 #include <QTabWidget>
@@ -13,6 +14,7 @@
 #include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QFontMetrics>
+#include <QResizeEvent>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QLabel>
@@ -52,6 +54,51 @@ void updateFilterLed(QLabel* led, bool selected, const QString& name)
     QAccessibleEvent event(led, QAccessible::NameChanged);
     QAccessible::updateAccessibility(&event);
 }
+
+//DH1KLM: Keep both banks visible without imposing their combined width on
+// the setup viewport. The surrounding scroll area handles vertical overflow.
+class FilterTables : public QWidget {
+public:
+    FilterTables(QWidget* first, QWidget* second)
+        : m_first(first), m_second(second), m_box(new QBoxLayout(QBoxLayout::TopToBottom, this))
+    {
+        m_box->setContentsMargins(0,0,0,0);
+        m_box->setSizeConstraint(QLayout::SetNoConstraint);
+        m_box->addWidget(first);
+        m_box->addWidget(second);
+        QSizePolicy policy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        policy.setHeightForWidth(true);
+        setSizePolicy(policy);
+    }
+    QSize minimumSizeHint() const override
+    {
+        return {qMax(m_first->minimumSizeHint().width(), m_second->minimumSizeHint().width()), 0};
+    }
+    bool hasHeightForWidth() const override { return true; }
+    int heightForWidth(int width) const override
+    {
+        return sideBySide(width) ? qMax(m_first->sizeHint().height(), m_second->sizeHint().height())
+            : m_first->sizeHint().height() + m_second->sizeHint().height() + m_box->spacing();
+    }
+protected:
+    void resizeEvent(QResizeEvent* event) override
+    {
+        const auto direction = sideBySide(event->size().width()) ? QBoxLayout::LeftToRight : QBoxLayout::TopToBottom;
+        if (m_box->direction() != direction) {
+            m_box->setDirection(direction);
+            updateGeometry();
+        }
+        QWidget::resizeEvent(event);
+    }
+private:
+    bool sideBySide(int width) const
+    {
+        return width >= m_first->minimumSizeHint().width() + m_second->minimumSizeHint().width() + m_box->spacing();
+    }
+    QWidget* m_first;
+    QWidget* m_second;
+    QBoxLayout* m_box;
+};
 } // namespace
 
 
@@ -332,12 +379,9 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     active->setWordWrap(true);
     active->setAccessibleDescription(QStringLiteral("Commanded filter selection, without relay readback"));
     layout->addWidget(active);
-    auto* tables = new QHBoxLayout;
-    layout->addLayout(tables);
     auto* receiveGroup = new QGroupBox(QStringLiteral("Receive filters"));
     auto* lpfGroup = new QGroupBox(QStringLiteral("ALEX LPF bands"));
-    tables->addWidget(receiveGroup);
-    tables->addWidget(lpfGroup);
+    layout->addWidget(new FilterTables(receiveGroup, lpfGroup));
     auto makeTable = [](QGroupBox* group, int rows, bool bandBypass = true) {
         const bool hasBypass = rows == 6 && bandBypass;
         auto* box = new QVBoxLayout(group);
@@ -392,8 +436,8 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                 table->setCellWidget(row, column, spin);
             }
         }
-        //DH1KLM: Preserve full localized six-decimal values; the setup scroll
-        // area can scroll when the window cannot fit both complete tables.
+        //DH1KLM: Preserve localized six-decimal values within each bank;
+        // FilterTables stacks the complete banks when their combined width cannot fit.
         const int frequencyWidth = qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,1))->sizeHint().width();
         table->setMinimumWidth(filterWidth + 2 * frequencyWidth
             + (hasBypass ? bypassWidth : 0) + 2 * table->frameWidth()
@@ -465,7 +509,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         for (QTableWidget* table : {receive, receiveAdc1, lpf}) {
             for (int row = 0; row < table->rowCount(); ++row) {
                 updateFilterLed(table->cellWidget(row,0)->findChild<QLabel*>(QStringLiteral("ananFilterLed")),
-                    false, table->item(row,0)->text());
+                    false, table->item(row,0)->data(Qt::AccessibleTextRole).toString());
             }
         }
         operating->clear();
@@ -618,7 +662,9 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             adc1->setChecked(data.value(QStringLiteral("bypassAdc1")).toBool());
             const auto populate = [](QTableWidget* table, const QVariantList& rows, const QStringList& names) {
                 for (int row = 0; row < table->rowCount(); ++row) {
-                    table->item(row, 0)->setText(names[row]);
+                    //DH1KLM: The cell widget paints the name; the item supplies
+                    // accessibility metadata only, avoiding text underneath the LED.
+                    table->item(row, 0)->setData(Qt::AccessibleTextRole, names[row]);
                     for (int col = 1; col < 3; ++col) {
                         auto* spin = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, col));
                         spin->setValue(rows[row].toMap().value(col == 1 ? QStringLiteral("lowHz") : QStringLiteral("highHz")).toDouble() / 1e6);
