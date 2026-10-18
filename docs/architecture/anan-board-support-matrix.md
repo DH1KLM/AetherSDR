@@ -17,7 +17,7 @@ for that board.
 | 5 | Orion MkII family — ANAN-7000DLE / 8000DLE, Anvelina Pro 3, Red Pitaya | Thetis uses one physical ID for several logical SKUs; MkII BPF1/preselector behavior differs from legacy ALEX HPF assumptions | P2 RX confirmed on ANAN-7000DLE; other shared-ID hardware pending |
 | 6 | Hermes Lite 2 | Distinct board and protocol implementation; do not assume it shares ANAN ALEX or attenuator behavior | Recognized; not connectable through this P2 profile |
 | 10 | Saturn — ANAN-G2 / G2 1K | Saturn-specific P2 profile; phase-word tuning and BPF1 behavior | **Bench-qualified RX profile**; one DDC is driven |
-| 11 | Saturn MkII | Separate registry ID; its capabilities must be verified independently of Saturn | Recognized; not connectable |
+| 11 | SaturnMKII enum label; hardware identity unverified | Thetis declares the name with a question-mark comment; public Saturn p2app emits 10 or compatibility ID 5 | Recognized; not connectable; [source audit](anan-saturn-id11-verification.md) |
 | 20 | HermesC10 — ANAN-G2E | Single-ADC, Hermes-class four-DDC receive layout; shares the G2-family BPF/preselector routing but not the G2's dual-ADC capabilities | Experimental P2 RX profile; hardware validation pending |
 
 The table is deliberately conservative. “Recognized” means the discovery parser

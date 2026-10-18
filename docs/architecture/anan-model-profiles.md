@@ -129,8 +129,9 @@ The retained Saturn DDC0 path is intentionally unchanged.
 
 HL2 stays with its dedicated P1 backend; HL2 P2 is explicitly out of scope at
 the operator's instruction. Atlas/Metis initialization remains unqualified.
-Saturn MkII ID 11 is a planned variant in Thetis/Nereus and is not silently
-treated as Saturn. Thetis contains a G2-class P1 slot algorithm but no verified
+SaturnMKII ID 11 is an unverified enum entry, not an established model profile,
+and is not silently treated as Saturn. The [source audit](anan-saturn-id11-verification.md)
+records the checked Thetis branches and public Saturn firmware identity paths. Thetis contains a G2-class P1 slot algorithm but no verified
 distinct G2 P1 discovery identity here; the G2 models remain P2-only in this
 implementation until that identity is established.
 
