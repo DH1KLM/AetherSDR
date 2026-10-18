@@ -758,18 +758,15 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
 
     // An explicit connect frequency, then this radio's restored one, then the
     // first-connect default.
-    if (request.params.contains(QStringLiteral("anan.rxFrequencyHz"))) {
-        m_sliceFreqHz = request.params.value(QStringLiteral("anan.rxFrequencyHz")).toDouble();
-    } else if (m_restoredFreqHz > 0.0) {
-        m_sliceFreqHz = m_restoredFreqHz;
-    } else {
-        m_sliceFreqHz = kFirstConnectFrequencyHz;
-    }
-    if (m_pendingParams.protocol == 1
-        && (!std::isfinite(m_sliceFreqHz) || m_sliceFreqHz < 0 || m_sliceFreqHz > 61'440'000)) {
-        emit connectionError(QStringLiteral("The P1 receive frequency must be within 0–61.44 MHz."));
+    bool frequencyOk = true;
+    const double frequencyHz = request.params.contains(QStringLiteral("anan.rxFrequencyHz"))
+        ? request.params.value(QStringLiteral("anan.rxFrequencyHz")).toDouble(&frequencyOk)
+        : (m_restoredFreqHz > 0.0 ? m_restoredFreqHz : kFirstConnectFrequencyHz);
+    if (!frequencyOk || !std::isfinite(frequencyHz) || frequencyHz < 0 || frequencyHz > 61'440'000) {
+        emit connectionError(QStringLiteral("The receive frequency must be within 0–61.44 MHz."));
         return;
     }
+    m_sliceFreqHz = frequencyHz;
     // Before m_pendingDspConfig is built below, which reads m_mode. No restored
     // mode means the default, never the previous radio's m_mode. The passband
     // resets only on a mode change, as in setSliceMode().
@@ -991,7 +988,7 @@ void AnanBackend::pushModeFilterShift()
 void AnanBackend::setSliceFrequency(int sliceId, double hz)
 {
     Q_UNUSED(sliceId);   // one slice in this phase
-    if (m_pendingParams.protocol == 1 && (!std::isfinite(hz) || hz < 0 || hz > 61'440'000)) {
+    if (!std::isfinite(hz) || hz < 0 || hz > 61'440'000) {
         emitSliceState();
         return;
     }

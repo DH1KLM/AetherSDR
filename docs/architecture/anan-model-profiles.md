@@ -374,3 +374,26 @@ attenuation in every accepted control bank. Saturn G2/G2 1K remain excluded
 from P1, and the dedicated HL2 backend is not part of this matrix. MOX/PTT
 remain clear. These are encoder regressions, not new hardware qualification
 or expanded protocol support. Droop expansion remains deferred.
+
+
+## Receive tuning boundary, 2026-10-18
+
+The device-swap audit found that ADC attenuation restoration resets missing
+state and hardware-filter loading clears the previous session's optional
+configuration before exact-device lookup. No additional change to those
+ownership rules is made.
+
+P2 live and connection tuning now use P1's existing finite 0–61.44 MHz
+inclusive range. The backend rejects nonnumeric connection values before
+starting DSP, and rejected connection/live input preserves the previous dial.
+P2Client independently validates before phase-word conversion and preserves
+its previous word on refusal. Valid tuning, filter selection and existing
+restore-frequency semantics are unchanged; this does not qualify operation
+at the sampling boundary.
+
+The injected P2Client test covers negative, oversized, NaN and infinite
+values plus valid/boundary tunes without a socket. Backend tests add live
+and connect refusal checks for both protocols. The backend test's supply-rail
+fixture now uses the actual AnanClient dispatcher type rather than its former
+P2Client pointer. Targeted P2Client tests run locally; the full backend-linked
+test still requires the complete application dependency build.

@@ -7,6 +7,7 @@
 #include <QUdpSocket>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -374,6 +375,11 @@ void P2Client::onSpeakerDrainTick()
 
 void P2Client::setDdc0FrequencyHz(double hz)
 {
+    //DH1KLM: Match the P1 tuning boundary before floating-to-integer encoding;
+    // malformed input must leave the last valid receive word unchanged.
+    if (!std::isfinite(hz) || hz < 0 || hz > static_cast<double>(kDspClockHz) / 2.0) {
+        return;
+    }
     m_ddc0FreqWord = phaseWord(hz);
     if (m_running && m_socket && m_discoveryValidated)
         sendTo(*m_socket,

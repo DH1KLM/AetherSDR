@@ -59,7 +59,7 @@ public:
     {
         backend.onSupplyRailCountsAt(counts, nowMs);
     }
-    static P2Client* client(AnanBackend& backend) { return backend.m_client; }
+    static AnanClient* client(AnanBackend& backend) { return backend.m_client; }
     static int samples(const AnanBackend& backend) { return backend.m_supplyRailSamples; }
 };
 }  // namespace AetherSDR::anan
@@ -147,6 +147,37 @@ int main(int argc, char** argv)
         check(!AnanBackend::isKnownModeString("bogus"),
               "a mode modeFromString() does not map is REFUSED, not silently demodulated as SSB");
         check(!AnanBackend::isKnownModeString(""), "an empty mode is not a mode");
+    }
+
+    //DH1KLM: Refuse malformed live/connect input before any DSP or socket start.
+    {
+        AnanBackend backend;
+        backend.setSliceFrequency(0, 14'200'000);
+        for (const double hz : {-1.0, 61'440'001.0, 1e300,
+                std::numeric_limits<double>::quiet_NaN(),
+                std::numeric_limits<double>::infinity()}) {
+            backend.setSliceFrequency(0, hz);
+            check(backend.currentOperatingState().rfFrequencyHz == 14'200'000,
+                  "invalid P2 live tune does not replace the valid dial");
+        }
+        QSignalSpy errors(&backend, &IRadioBackend::connectionError);
+        RadioConnectRequest request;
+        request.host = QStringLiteral("127.0.0.1");
+        request.serial = QStringLiteral("TUNE-BOUNDARY-TEST");
+        for (const int protocol : {1, 2}) {
+            request.params.insert(QStringLiteral("anan.protocol"), protocol);
+            for (const QVariant& frequency : {QVariant(-1.0), QVariant(1e300),
+                    QVariant(std::numeric_limits<double>::quiet_NaN()),
+                    QVariant(QStringLiteral("invalid"))}) {
+                request.params.insert(QStringLiteral("anan.rxFrequencyHz"), frequency);
+                const int previousErrors = errors.count();
+                backend.connectRadio(request);
+                check(errors.count() == previousErrors + 1,
+                      "both transports reject an invalid connect frequency before starting");
+                check(backend.currentOperatingState().rfFrequencyHz == 14'200'000,
+                      "rejected connect input preserves the last valid dial");
+            }
+        }
     }
 
     // ---- restorable frequency: bounded by the DDS encoding, Nyquist ----
@@ -804,15 +835,15 @@ int main(int argc, char** argv)
         check(probe.violations().isEmpty(), "the rail's meter signals stay on the owner thread");
     }
 
-    // ---- The rail's wiring and its resets, through P2Client's own signals ----
+    // ---- The rail's wiring and its resets, through AnanClient's dispatch signals ----
     // Emitted on this thread, so the backend's AutoConnection runs the slot
     // directly: no socket, no radio, no started session.
     {
         AnanBackend backend;
-        P2Client* client = AnanSupplyRailTestAccess::client(backend);
+        AnanClient* client = AnanSupplyRailTestAccess::client(backend);
         emit client->supplyRailSampled(536);
         check(AnanSupplyRailTestAccess::samples(backend) == 1,
-              "P2Client's supplyRailSampled reaches the backend's rail window");
+              "AnanClient's supplyRailSampled reaches the backend's rail window");
 
         QSignalSpy meter(&backend, &IRadioBackend::meterUpdate);
         AnanSupplyRailTestAccess::countsAt(backend, 4000, 0);   // the last session's count
