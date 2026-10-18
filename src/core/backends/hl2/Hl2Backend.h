@@ -97,6 +97,9 @@ public:
     void setSliceNoiseBlanker(int sliceId, AetherSDR::NoiseBlankerKind kind,
                               int level, AetherSDR::NoiseBlankerFill fill) override;
     ReceiveDispatch requestSliceDsp(int sliceId, const SliceDspRequest& request) override;
+    ReceiveDispatch requestSliceControl(int sliceId, const SliceControlRequest& request) override;
+    ReceiveDispatch requestTransmitControl(const TransmitControlRequest& request,
+        TunePowerContext context = TunePowerContext::Deferred) override;
     ReceiveDispatch requestSliceAudio(int sliceId, const SliceAudioRequest& request) override;
     ReceiveDispatch requestSliceSquelch(int sliceId, const SliceSquelchRequest& request) override;
     void setSliceSquelch(int sliceId, bool on, int level) override;
@@ -160,16 +163,6 @@ public:
     void setTune(bool on, int tunePowerPercent, const AetherSDR::TxCoordinator::Operation& operation, const AetherSDR::TxCoordinator::Completion& completion = {}) override;
     void setTxAudioMonitor(bool on) override;
     void setTxFrequency(double hz);
-    // RIT / XIT, per receiver (#5386, #6105). RIT offsets that receiver's own
-    // receive; XIT is held per receiver and reaches the TX NCO register only
-    // while that receiver owns transmit. Neither moves the published slice
-    // frequency — that stays the dial.
-    void setSliceRitEnabled(int sliceId, bool on) override;
-    void setSliceRitOffset(int sliceId, int hz) override;
-    void setSliceXitEnabled(int sliceId, bool on) override;
-    // Overridden, not inherited: the base forwards to the RIT offset for a radio
-    // with one shared register, and the HL2's RX and TX paths are independent.
-    void setSliceXitOffset(int sliceId, int hz) override;
     void setTxDriveLevel(int level);
     // Baseband TX test tone, offsetHz from the carrier, amplitude 0..1.
     // Opt-in only — never enabled by a default.
@@ -302,6 +295,21 @@ private:
     // baseline, so hl2_auto_gain_law_test reads the installed law without a radio.
     friend struct Hl2AutoGainLawTestAccess;
     friend struct Hl2SessionMemoryTestAccess;
+    // Feeds EP6 status frames to the backend's own MetisClient on its I/O thread,
+    // for hl2_hardware_ptt_state_test.
+    friend struct Hl2HardwarePttTestAccess;
+    // The radio keyed or unkeyed itself (MetisClient::radioPttChanged). Observation
+    // only: it publishes the transmit state and mutes receive, and keys nothing.
+    void onRadioPttChanged(bool keyed);
+    // Emit transmitChanged{mox} when m_keyed || m_radioPtt changes, and only then.
+    void publishTransmitState();
+    // Reads the snapshot at a chosen instant, so hl2_adc_age_gate_test puts a
+    // held slice peak on either side of kSliceStaleMs without waiting.
+    friend struct Hl2AdcAgeTestAccess;
+    // The snapshot at `nowNs`, on steadyNowNs()'s timeline. The converter rows
+    // take their age from it and read no clock, so the age row and the pairing
+    // gate describe one instant.
+    HealthSnapshot healthSnapshot(std::int64_t nowNs) const;
     void applyKeying(bool key, const TxCoordinator::Operation& operation,
                      const TxCoordinator::Completion& completion, bool cwBreakIn);
     void invalidateTxDspConfiguration();
@@ -997,6 +1005,10 @@ private:
     // Below this many observations a window has no rate, only a numerator.
     static constexpr int kAdcMinWindowSamples = 4;
     bool m_keyed = false;
+    // The radio reports its own PTT/key (EP6 ptt_resp). Never an input to keying.
+    bool m_radioPtt = false;
+    // What transmitChanged last carried as mox: m_keyed || m_radioPtt.
+    bool m_publishedTransmit = false;
     bool m_tuning = false;
     TxCoordinator::Operation m_tuneOperation;   // the TUNE carrier's admission
     bool m_cwAutoKeyed = false;

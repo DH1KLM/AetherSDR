@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QList>
 #include <QString>
 #include <QVariantMap>
 #include "core/backends/anan/AnanModel.h"
@@ -66,6 +67,17 @@ public:
     // originate a continuous outbound stream. See P2Client::Params.
     static bool speakerAudioEnabled();
     static void setSpeakerAudioEnabled(bool on);
+
+    // The DDC0 rates a session may start at, for a UI offering the choice.
+    //
+    // Here rather than read from the protocol header directly, because a setup
+    // page is above the radio seam and must not include family protocol code
+    // (the EB3 ratchet in tools/check_engine_boundary.py enforces exactly that).
+    // A CONNECTED consumer should prefer RadioCapabilities::sampleRatesHz, which
+    // AnanBackend publishes from the same list; this exists because the page
+    // that offers the choice is reachable with no radio attached, where there
+    // are no capabilities to read.
+    [[nodiscard]] static QList<int> validDdc0RatesKsps();
 
     //DH1KLM: Explicit logical-model choice belongs to this radio's MAC,
     // never a global default inherited by another radio sharing the board ID.

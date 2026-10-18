@@ -35,6 +35,8 @@
 #include "RadioSetupDialog.h"
 #include "GpsLocationDialog.h"
 #include "RxApplet.h"
+#include "ModeFilterPresets.h"
+#include "DisplaySquelchRouting.h"
 #include "WfmApplet.h"
 #include "AmpApplet.h"
 #include "AcomApplet.h"
@@ -42,6 +44,12 @@
 #include "VkampApplet.h"
 #include "Kpa1500Applet.h"
 #include "LpMeterApplet.h"
+#include "Kpa500Applet.h"
+#include "Kat500Applet.h"
+#include "Kxpa100Applet.h"
+#include "models/Kxpa100RadioAssociation.h"
+#include "AtuPreTuneDialog.h"
+#include "models/Kat500TxController.h"
 #include "HealthApplet.h"
 #include "ImageFileDialog.h"
 #include "MeterApplet.h"
@@ -50,6 +58,9 @@
 #include "TunerApplet.h"
 #include "TxApplet.h"
 #include "core/PeripheralSettings.h"
+#include "core/SpeConnection.h"
+#include "core/SpeLegacyProtocol.h"
+#include "core/SpeProtocol.h"
 #include "core/PeripheralEndpointFallback.h"
 #include "core/KiwiSdrManager.h"
 #include "core/KiwiSdrProtocol.h"
@@ -1301,45 +1312,23 @@ void MainWindow::syncActiveSliceSquelchLineToSpectrums()
         return;
     }
 
-    const bool kiwiActive = m_kiwiSdrManager
-        && !m_kiwiSdrManager->assignedProfileForSlice(s->sliceId()).isEmpty();
-    const bool on = kiwiActive ? s->receiveSquelchOn() : s->squelchOn();
-    const int level = kiwiActive ? s->receiveSquelchLevel()
-                                 : s->squelchLevel();
-    const QString kiwiPanId = kiwiActive ? s->panId() : QString();
     auto applyToSpectrum = [&](const QString& panId, SpectrumWidget* sw) {
-        if (!sw) {
-            return;
-        }
+        if (!sw) { return; }
         if (SliceModel* kiwiSlice =
                 kiwiAssignedSliceForPan(m_radioModel, m_kiwiSdrManager, panId)) {
-            sw->setKiwiSdrSquelchLine(
-                kiwiSlice->receiveSquelchOn(),
-                kiwiSdrSquelchMarginDbForSliceLevel(
-                    kiwiSlice, kiwiSlice->receiveSquelchLevel()),
+            sw->setKiwiSdrSquelchLine(kiwiSlice->receiveSquelchOn(),
+                kiwiSdrSquelchMarginDbForSliceLevel(kiwiSlice, kiwiSlice->receiveSquelchLevel()),
                 kiwiSlice->externalReceiveAutoSquelchOn());
             sw->setSquelchLine(false, 0);
             return;
         }
-        if (kiwiActive) {
-            if (panId == kiwiPanId) {
-                sw->setKiwiSdrSquelchLine(
-                    on, kiwiSdrSquelchMarginDbForSliceLevel(s, level),
-                    s->externalReceiveAutoSquelchOn());
-            } else {
-                sw->clearKiwiSdrSquelchLine();
-                sw->setSquelchLine(false, 0);
-            }
-            return;
-        }
-        if (!kiwiSdrProfileForPan(panId).isEmpty()
-            || sw->kiwiSdrWaterfallActive()) {
-            sw->clearKiwiSdrSquelchLine();
-            sw->setSquelchLine(false, 0);
-            return;
-        }
         sw->clearKiwiSdrSquelchLine();
-        sw->setSquelchLine(on, level);
+        SliceModel* owner = squelchSliceForPan(panId);
+        const bool eligible = DisplaySquelchRouting::scaleForSlice(owner,
+            m_radioModel).has_value();
+        sw->setSquelchLine(owner && eligible && owner->squelchOn()
+            && kiwiSdrProfileForPan(panId).isEmpty() && !sw->kiwiSdrWaterfallActive(),
+            owner ? owner->squelchLevel() : 0);
     };
 
     if (!m_panStack) {
@@ -1355,21 +1344,42 @@ void MainWindow::syncActiveSliceSquelchLineToSpectrums()
     }
 }
 
+SliceModel* MainWindow::squelchSliceForPan(const QString& panId) const
+{
+    const PanadapterApplet* applet = m_panStack ? m_panStack->panadapter(panId) : nullptr;
+    return DisplaySquelchRouting::displaySlice(m_radioModel.slices(), panId,
+        activeSlice(), applet ? applet->titleSliceId() : -1);
+}
+
 std::optional<SquelchLevelScale> MainWindow::activeSliceSquelchScale() const
 {
-    const SliceModel* s = activeSlice();
-    if (!s || !m_radioModel.isConnected()) {
-        return std::nullopt;
-    }
-    return squelchScaleForMode(m_radioModel.backendCapabilities().squelchLevelScale,
-                               s->mode());
+    return DisplaySquelchRouting::scaleForSlice(activeSlice(),
+        m_radioModel);
 }
 
 void MainWindow::syncSquelchScaleToUi()
 {
     const std::optional<SquelchLevelScale> scale = activeSliceSquelchScale();
-    const QList<SpectrumWidget*> spectra = findChildren<SpectrumWidget*>();
-    for (SpectrumWidget* sw : spectra) {
+    if (m_panStack) {
+        for (PanadapterApplet* applet : m_panStack->allApplets()) {
+            if (!applet) { continue; }
+            SpectrumWidget* sw = m_panStack->spectrum(applet->panId());
+            if (!sw) { continue; }
+            SliceModel* owner = squelchSliceForPan(applet->panId());
+            auto panScale = DisplaySquelchRouting::scaleForSlice(owner,
+                m_radioModel);
+            // A background Auto receiver on this pan still needs its estimator.
+            for (SliceModel* slice : m_radioModel.slices()) {
+                if (DisplaySquelchRouting::tracks(slice, applet->panId(),
+                        m_radioModel)) {
+                    panScale = DisplaySquelchRouting::scaleForSlice(slice,
+                        m_radioModel);
+                    break;
+                }
+            }
+            sw->setSquelchScale(panScale);
+        }
+    } else if (SpectrumWidget* sw = spectrum()) {
         sw->setSquelchScale(scale);
     }
     RxApplet* rx = m_appletPanel ? m_appletPanel->rxApplet() : nullptr;
@@ -1385,7 +1395,12 @@ void MainWindow::syncSquelchScaleToUi()
         && published->appliesTo(s->mode());
     if (m_radioModel.isConnected() && s && !engineAuto && !autoSquelchAvailable(scale)) {
         const auto& published = m_radioModel.backendCapabilities().squelchLevelScale;
-        if (!published) {
+        if (!ModeFilters::squelchAvailableInMode(s->mode(),
+                published ? &*published : nullptr,
+                m_radioModel.backendCapabilities().hasModeIndependentSquelch,
+                s->externalReceiveReplacementActive())) {
+            reason = tr("squelch is unavailable in %1.").arg(s->mode());
+        } else if (!published) {
             reason = tr("this radio does not publish where its squelch level "
                         "sits on the panadapter scale.");
         } else if (!published->appliesTo(s->mode())) {
@@ -1397,7 +1412,7 @@ void MainWindow::syncSquelchScaleToUi()
                         "be held.");
         }
     }
-    rx->setAutoSqlAvailability(reason.isEmpty(), reason);
+    rx->setAutoSqlAvailability(reason.isEmpty(), reason, rx->isAttachedToSlice(s));
 }
 
 bool MainWindow::autoSquelchShouldRunOnSpectrum(
@@ -1408,35 +1423,15 @@ bool MainWindow::autoSquelchShouldRunOnSpectrum(
         return kiwiSlice->externalReceiveAutoSquelchOn();
     }
 
-    if (!m_appletPanel || !m_appletPanel->rxApplet()
-        || m_appletPanel->rxApplet()->sqlMode() != RxApplet::SqlMode::Auto) {
-        return false;
+    if (!kiwiSdrProfileForPan(panId).isEmpty()
+        || (spectrum && spectrum->kiwiSdrWaterfallActive())) { return false; }
+    for (SliceModel* slice : m_radioModel.slices()) {
+        if (DisplaySquelchRouting::tracks(slice, panId,
+                m_radioModel)) {
+            return true;
+        }
     }
-
-    const SliceModel* s = activeSlice();
-    if (!s) {
-        return false;
-    }
-
-    const bool activeKiwi = m_kiwiSdrManager
-        && !m_kiwiSdrManager->assignedProfileForSlice(s->sliceId()).isEmpty();
-
-    if (activeKiwi) {
-        return panId == s->panId();
-    }
-
-    const auto sql = m_radioModel.backendCapabilities().squelchLevelScale;
-    if (sql && sql->automaticInEngine) { return false; }
-
-    // The receiver's own gate runs Auto only on its slice's pan.
-    if (exclusiveSquelchScale(m_radioModel.backendCapabilities().squelchLevelScale)
-        && panId != s->panId()) {
-        return false;
-    }
-
-    return kiwiSdrProfileForPan(panId).isEmpty()
-        && (!spectrum || !spectrum->kiwiSdrWaterfallActive())
-        && autoSquelchAvailable(activeSliceSquelchScale());
+    return false;
 }
 
 void MainWindow::syncActiveSliceAutoSquelchToSpectrums()
@@ -1445,7 +1440,9 @@ void MainWindow::syncActiveSliceAutoSquelchToSpectrums()
         if (!sw) {
             return;
         }
-        sw->setAutoSquelchEnable(autoSquelchShouldRunOnSpectrum(panId, sw));
+        const SliceModel* owner = squelchSliceForPan(panId);
+        sw->setAutoSquelchEnable(autoSquelchShouldRunOnSpectrum(panId, sw),
+            owner && (owner->displayAutoSquelch() || owner->externalReceiveAutoSquelchOn()));
     };
 
     if (!m_panStack) {
@@ -1758,6 +1755,47 @@ bool MainWindow::reattachSliceVisualsToPanadapter(SliceModel* s)
 
 void MainWindow::refreshTunerPortFrequency()
 {
+    if (m_appletPanel && m_appletPanel->kxpa100Applet()) {
+        m_appletPanel->kxpa100Applet()->setRadioContext(
+            m_radioModel.isConnected() ? m_radioModel.nickname() : QString(),
+            Kxpa100RadioAssociation::effectiveTxFrequencyKhz(&m_radioModel),
+            (m_kxpa100Association && m_kxpa100Association->associated()));
+    }
+    // Match the active plan's segments to the KPA's fixed band selectors.
+    // These broad search windows classify bands; the plan owns their edges.
+    SliceModel* kpaTx = m_radioModel.isConnected() && m_radioModel.backendCanTransmit()
+        ? m_radioModel.txSlice() : nullptr;
+    int kpaBand = -1;
+    QString kpaSource;
+    if (kpaTx && m_bandPlanMgr) {
+        const double mhz = kpaTx->frequency()
+            + ((kpaTx->mode() == "FM" || kpaTx->mode() == "NFM") ? kpaTx->txOffsetFreq() : 0.0)
+            + (kpaTx->xitOn() ? kpaTx->xitFreq() / 1.0e6 : 0.0);
+        static constexpr double windows[][2] = {
+            {1.5, 2.5}, {3.0, 4.5}, {5.0, 5.6}, {6.5, 7.5}, {9.8, 10.4},
+            {13.5, 14.8}, {17.5, 18.5}, {20.5, 21.8}, {24.5, 25.3}, {27.5, 30.0}, {49.0, 55.0}
+        };
+        for (int band = 0; band <= 10; ++band) {
+            const auto regions = m_bandPlanMgr->contiguousRegionsForBand(windows[band][0], windows[band][1]);
+            for (const auto& region : regions) {
+                if (mhz >= region.lowMhz && mhz <= region.highMhz) { kpaBand = band; break; }
+            }
+            if (kpaBand >= 0) { break; }
+        }
+        kpaSource = QStringLiteral("%1 · %2 MHz").arg(kpaTx->letter()).arg(mhz, 0, 'f', 6);
+    }
+    if (kpaTx) {
+        const double mhz = kpaTx->frequency()
+            + ((kpaTx->mode() == "FM" || kpaTx->mode() == "NFM") ? kpaTx->txOffsetFreq() : 0.0)
+            + (kpaTx->xitOn() ? kpaTx->xitFreq() / 1.0e6 : 0.0);
+        m_kat500Model.setEffectiveTxFrequencyHz(qRound64(mhz * 1.0e6));
+    }
+    const bool transmitting = m_radioModel.transmitModel().isTransmitting();
+    m_kpa500Conn.setTxContext(kpaBand, kpaSource, transmitting);
+    if (m_appletPanel && m_appletPanel->kpa500Applet()) {
+        m_appletPanel->kpa500Applet()->setRadioTransmitting(transmitting);
+    }
+
     if (!m_appletPanel || !m_appletPanel->tunerApplet()) return;
     // No radio, or no slice keyed for transmit, means there is no frequency
     // on the port — which the strip renders as N/A. Reporting the last one
@@ -1862,7 +1900,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
             QPointer<SliceModel> sp(s);
             QTimer::singleShot(300, this, [this, sp, savedDax, key]() {
                 if (sp && !profileLoadRadioStateWritesHeld()) {
-                    // The send path below (SliceModel::commandReady) has no
+                    // The send path below (SliceModel::controlRequested) has no
                     // logging of its own; without this line the restore is
                     // invisible in any capture (#4558).
                     qCDebug(lcDax) << "MainWindow: restoring last-session DAX"
@@ -1958,6 +1996,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
     pushSliceOverlay(s);
     connect(s, &SliceModel::inCaptureChanged, this, [this, s](bool) {
         pushSliceOverlay(s);
+        updateAetherDspModePolicy();
     });
 
     // Set the panadapter applet's slice label (e.g. "Slice B") based on
@@ -2149,20 +2188,38 @@ void MainWindow::onSliceAdded(SliceModel* s)
         if (s->isTxSlice())
             syncTxWaterfallSliceToSpectrums();
     });
-    // Squelch threshold line on the spectrum overlay. Flex follows the active
-    // slice only; Kiwi replacement audio owns an independent line on its own
-    // pan even when a Flex slice is active elsewhere.
+    // Each pan renders its own slice's accepted threshold, including updates
+    // to background Auto receivers.
     connect(s, &SliceModel::squelchChanged, this, [this, s](bool on, int level) {
-        Q_UNUSED(on);
-        Q_UNUSED(level);
-        if (s != activeSlice()) return;
-        syncActiveSliceSquelchLineToSpectrums();
+        if (s != squelchSliceForPan(s->panId())) { return; }
+        if (SpectrumWidget* sw = spectrumForSlice(s)) {
+            const bool eligible = DisplaySquelchRouting::scaleForSlice(s, m_radioModel).has_value();
+            sw->setSquelchLine(on && eligible && !sw->kiwiSdrWaterfallActive(), level);
+        }
     });
     // The squelch scale is per mode (an HL2 FM gate has no dB place).
     connect(s, &SliceModel::modeChanged, this, [this, s](const QString&) {
-        if (s != activeSlice()) return;
+        if (!DisplaySquelchRouting::scaleForSlice(s,
+                m_radioModel)) {
+            if (s->displayAutoSquelch()) {
+                s->setRestoreManualSquelchAfterMode(true);
+            }
+            const auto published = m_radioModel.backendCapabilities().squelchLevelScale;
+            if (s != activeSlice() && published
+                && published->controlUnavailableModes.contains(s->mode())
+                && !isCwMode(s->mode())
+                && (s->squelchOn() || s->displayAutoSquelch())) {
+                s->setRestoreManualSquelchAfterMode(true);
+                s->setSquelch(false, s->squelchLevel());
+            }
+            s->setDisplayAutoSquelch(false);
+        } else if (s != activeSlice() && !s->externalReceiveReplacementActive()
+            && s->restoreManualSquelchAfterMode()) {
+            s->restoreManualSquelchAfterModeChange();
+        }
         syncSquelchScaleToUi();
         syncActiveSliceAutoSquelchToSpectrums();
+        syncActiveSliceSquelchLineToSpectrums();
     });
     connect(s, &SliceModel::externalReceiveSquelchChanged,
             this, [this, s](bool on, int level) {
@@ -2181,11 +2238,14 @@ void MainWindow::onSliceAdded(SliceModel* s)
             syncActiveSliceSquelchLineToSpectrums();
         }
     });
-    if (s == activeSlice()) {
+    connect(s, &SliceModel::displayAutoSquelchChanged, this, [this] {
+        syncSquelchScaleToUi();
+        syncActiveSliceAutoSquelchToSpectrums();
         syncActiveSliceSquelchLineToSpectrums();
-    } else if (auto* sw = spectrumForSlice(s)) {
-        sw->setSquelchLine(s->squelchOn(), s->squelchLevel());
-    }
+    });
+    syncSquelchScaleToUi();
+    syncActiveSliceAutoSquelchToSpectrums();
+    syncActiveSliceSquelchLineToSpectrums();
 
     connect(s, &SliceModel::txSliceChanged, this, [this, s](bool tx) {
         // Update hasTxSlice on all spectrums for waterfall freeze logic
@@ -2309,6 +2369,14 @@ void MainWindow::onSliceAdded(SliceModel* s)
                     refreshPanSliceTitle(applet);
             }
         }
+        // A migrated receiver starts from the new pan's floor, never an EWMA
+        // inherited from the pan it left.
+        for (SpectrumWidget* sw : findChildren<SpectrumWidget*>()) {
+            sw->setAutoSquelchEnable(false);
+        }
+        syncSquelchScaleToUi();
+        syncActiveSliceAutoSquelchToSpectrums();
+        syncActiveSliceSquelchLineToSpectrums();
         // The TX slice moving pane moves a radio-wide span control (#5750).
         syncPanSpanControlPlacement();
         updateKiwiSdrVirtualTrackingForSlice(s);
@@ -2395,6 +2463,9 @@ void MainWindow::onSliceAdded(SliceModel* s)
     // no change of slice or frequency to notice it by.
     connect(s, &SliceModel::txAntennaChanged, this,
             [this](const QString&) { refreshTunerPortFrequency(); });
+    connect(s, &SliceModel::xitChanged, this, [this](bool, int) { refreshTunerPortFrequency(); });
+    connect(s, &SliceModel::txOffsetFreqChanged, this, [this](double) { refreshTunerPortFrequency(); });
+    connect(s, &SliceModel::modeChanged, this, [this](const QString&) { refreshTunerPortFrequency(); });
     refreshTunerPortFrequency();
 
     // Reset band-stack auto-save dwell timer on every active-slice tune
@@ -2687,6 +2758,9 @@ void MainWindow::onSliceRemoved(int id)
     // slice) must re-derive the panadapter split-pair from the model. (#3726)
     updateSplitState();
     updateAetherDspModePolicy();
+    syncSquelchScaleToUi();
+    syncActiveSliceAutoSquelchToSpectrums();
+    syncActiveSliceSquelchLineToSpectrums();
 }
 
 void MainWindow::beginProfileLoadRadioStateWriteHold(const QString& profileType,
@@ -3147,7 +3221,13 @@ void MainWindow::runProfileLoadRecoveryPass(const QString& profileType,
             if (settings.value(QStringLiteral("DaxIqEnabled%1").arg(channel), "False").toString() != "True") {
                 continue;
             }
-            const DaxIqModel::IqStream stream = m_radioModel.daxIqModel().stream(channel);
+            DaxIqModel& iq = m_radioModel.daxIqModel();
+            const int savedRate = settings.value(QStringLiteral("DaxIqRate%1").arg(channel), "48000").toInt();
+            const int rate = iq.sampleRateForPreference(savedRate);
+            if (rate == 0) {
+                continue;
+            }
+            const DaxIqModel::IqStream stream = iq.stream(channel);
             if (stream.exists && stream.streamId != 0) {
                 if (m_radioModel.panStream()) {
                     m_radioModel.panStream()->unregisterIqStream(stream.streamId);
@@ -3155,28 +3235,33 @@ void MainWindow::runProfileLoadRecoveryPass(const QString& profileType,
                 m_radioModel.daxIqModel().removeStream(channel);
                 m_radioModel.daxIqModel().handleStreamRemoved(stream.streamId);
             }
-            m_radioModel.daxIqModel().createStream(channel);
-            const int rate = settings.value(QStringLiteral("DaxIqRate%1").arg(channel), "48000").toInt();
-            QTimer::singleShot(600, this, [this, channel, rate]() {
-                if (m_radioModel.isConnected()) {
-                    m_radioModel.daxIqModel().setSampleRate(channel, rate);
-                }
-            });
+            iq.setSampleRate(channel, rate);
+            iq.createStream(channel);
         }
     }
+}
+
+// May the client store and restore the waterfall rate for this radio? Only
+// where the engine paces the rows and the backend declares the client the
+// owner (RadioCapabilities::clientPersistsPanWaterfallRate). Read by the save
+// and by the restore, so the two cannot disagree.
+bool MainWindow::clientPersistsWaterfallRate() const
+{
+    return m_radioModel.shapesDisplayRatesLocally()
+        && m_radioModel.backendCapabilities().clientPersistsPanWaterfallRate();
 }
 
 void MainWindow::scheduleClientWaterfallRateSave(int panIndex, int rate)
 {
     const RadioSettingsScope scope = m_radioModel.settingsScope();
-    const bool shapedLocally = m_radioModel.shapesDisplayRatesLocally();
-    if (!shapedLocally || !scope.hasRadioIdentity() || panIndex < 0) {
+    const bool clientOwns = clientPersistsWaterfallRate();
+    if (!clientOwns || !scope.hasRadioIdentity() || panIndex < 0) {
         return;
     }
     // Include scope in the key so a radio switch cannot overwrite a pending edit.
     const QString key = ClientDisplaySettings::pendingWriteKey(scope, panIndex, "waterfallRate");
-    m_pendingDisplayWrites.schedule(key, [scope, panIndex, shapedLocally, rate] {
-        ClientDisplaySettings::saveWaterfallRate(scope, panIndex, shapedLocally, rate);
+    m_pendingDisplayWrites.schedule(key, [scope, panIndex, clientOwns, rate] {
+        ClientDisplaySettings::saveWaterfallRate(scope, panIndex, clientOwns, rate);
     });
 }
 
@@ -3354,9 +3439,12 @@ void MainWindow::wirePanDisplayStatus(PanadapterApplet* applet,
                 sw->setFftWeightedAvg(saved->weighted);
             }
         }
-        if (const auto savedRate = ClientDisplaySettings::waterfallRate(
-                m_radioModel.settingsScope(), sw->panIndex(), true)) {
-            sw->setWfLineDuration(*savedRate);
+        // The waterfall rate where the client is its declared owner.
+        if (clientPersistsWaterfallRate()) {
+            if (const auto savedRate = ClientDisplaySettings::waterfallRate(
+                    m_radioModel.settingsScope(), sw->panIndex(), true)) {
+                sw->setWfLineDuration(*savedRate);
+            }
         }
         // FFT FPS where the client is its declared owner. Restored into the
         // widget BEFORE the request below, which seeds the shaper and the pan
@@ -4463,6 +4551,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     };
     QObject::disconnect(tnf, &TnfModel::tnfChanged, sw, nullptr);
     QObject::disconnect(tnf, &TnfModel::tnfRemoved, sw, nullptr);
+    QObject::disconnect(tnf, &TnfModel::notchChangeRequested, sw, nullptr);
+    connect(tnf, &TnfModel::notchChangeRequested, sw, [tnf, rebuildTnfMarkers] {
+        if (tnf->confirmsControls()) { rebuildTnfMarkers(); }
+    });
     connect(tnf, &TnfModel::tnfChanged,  sw, rebuildTnfMarkers);
     connect(tnf, &TnfModel::tnfRemoved,  sw, rebuildTnfMarkers);
     connect(tnf, &TnfModel::globalEnabledChanged,
@@ -4635,43 +4727,17 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     // ── Auto-squelch wiring ───────────────────────────────────────────────
     // RxApplet signals → per-pan spectrum widget
     connect(m_appletPanel->rxApplet(), &RxApplet::sqlAutoChanged,
-            sw, [this, applet, sw](bool) {
-        const QString panId = applet ? applet->panId() : QString();
-        sw->setAutoSquelchEnable(
-            autoSquelchShouldRunOnSpectrum(panId, sw));
-    });
+            sw, [this](bool) { syncActiveSliceAutoSquelchToSpectrums(); });
     connect(m_appletPanel->rxApplet(), &RxApplet::squelchStateChanged,
-            sw, [this, applet, sw](bool on, int level) {
-        SliceModel* s = activeSlice();
-        const bool kiwiActive = s && m_kiwiSdrManager
-            && !m_kiwiSdrManager->assignedProfileForSlice(s->sliceId()).isEmpty();
-        if (kiwiActive) {
-            if (applet && applet->panId() == s->panId()) {
-                sw->setKiwiSdrSquelchLine(
-                    on, kiwiSdrSquelchMarginDbForSliceLevel(s, level),
-                    s->externalReceiveAutoSquelchOn());
-            } else {
-                sw->clearKiwiSdrSquelchLine();
-                sw->setSquelchLine(false, 0);
-            }
-            return;
+            sw, [this](bool, int) {
+        if (const SliceModel* slice = activeSlice(); slice && slice->externalReceiveReplacementActive()) {
+            syncActiveSliceSquelchLineToSpectrums();
         }
-        const QString panId = applet ? applet->panId() : QString();
-        if (!kiwiSdrProfileForPan(panId).isEmpty()
-            || sw->kiwiSdrWaterfallActive()) {
-            sw->clearKiwiSdrSquelchLine();
-            sw->setSquelchLine(false, 0);
-            return;
-        }
-        sw->clearKiwiSdrSquelchLine();
-        sw->setSquelchLine(on, level);
     });
-    // Spectrum widget → radio + back to overlay: apply level and immediately
-    // update the squelch line on sw so the yellow line never depends on the
-    // RxApplet → squelchStateChanged → setSquelchLine round-trip, which can
-    // miss the first emission if wirePanadapter runs before setSlice.
+    // External receive uses a relative margin; absolute detectors route the
+    // measured floor below through each slice's own scale and margin.
     connect(sw, &SpectrumWidget::autoSquelchLevelSuggested,
-            this, [this, applet, sw](int level) {
+            this, [this, applet, sw](int) {
         const QString panId = applet ? applet->panId() : QString();
         if (!autoSquelchShouldRunOnSpectrum(panId, sw)) {
             return;
@@ -4683,21 +4749,13 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             sw->setKiwiSdrSquelchLine(true, margin, true);
             return;
         }
-        SliceModel* s = activeSlice();
-        if (!s) {
-            return;
-        }
-        const bool kiwiActive = m_kiwiSdrManager
-            && !m_kiwiSdrManager->assignedProfileForSlice(s->sliceId()).isEmpty();
-        if (kiwiActive) {
-            const int margin = currentAutoSqlMarginDb();
-            s->setSquelch(true, margin);
-            sw->setKiwiSdrSquelchLine(
-                true, margin, true);
-        } else {
-            s->setSquelch(true, level);
-            sw->setSquelchLine(s->squelchOn(), s->squelchLevel());
-        }
+
+    });
+    connect(sw, &SpectrumWidget::autoSquelchNoiseFloorChanged,
+            this, [this, applet](float floor) {
+        if (!applet || !kiwiSdrProfileForPan(applet->panId()).isEmpty()) { return; }
+        DisplaySquelchRouting::applyFloor(m_radioModel.slices(), applet->panId(),
+            m_radioModel, floor);
     });
     // Auto-squelch margin: now driven by the RX Applet's SQL slider when
     // SQL mode is Auto (instead of a separate slider in the Display
@@ -6169,8 +6227,8 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
             m_radioModel.cwAutoTuneOnce(sliceId);
     });
     connect(w, &VfoWidget::zeroBeatRequested, this, [this, sliceId]() {
-#ifdef HAVE_DEEPFIST
-        if (CwDecodeSettings::deepFistSelected()) { return; }
+#ifdef HAVE_CW_RX_BACKENDS
+        if (CwDecodeSettings::neuralSelected()) { return; }
 #endif
         // #2516: act on the slice that owns the clicked VfoWidget, NOT the
         // active slice — otherwise pressing Zero Beat on slice A while slice
@@ -6193,9 +6251,8 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
         // convention as the Kiwi CW BFO (KiwiSdrProtocol.cpp).  Flex radios
         // express CWL as mode "CW" plus the transmit flag; Icom/HL2/sim
         // express it as slice mode "CWL" and never set the flag — honor both.
-        const bool cwl = slice->mode() == QLatin1String("CWL")
-                      || m_radioModel.transmitModel().cwlEnabled();
-        const int sign = cwl ? -1 : 1;
+        const int sign = cwReceiveSidebandSign(slice->mode(), m_radioModel.hasCommandPlane(),
+            m_radioModel.transmitModel().cwlEnabled());
         double offsetMhz = sign * (detected - configured) / 1.0e6;
         applyTuneRequest(slice, slice->frequency() + offsetMhz,
                          TuneIntent::IncrementalTune, "zero-beat");
@@ -6379,6 +6436,21 @@ void MainWindow::wireModemAudioCompletion()
     });
 }
 
+SharedTxMeterSelection MainWindow::sharedTxMeterSelection()
+{
+    int maxWatts = m_radioModel.transmitModel().maxPowerLevel();
+    if (m_radioModel.model().startsWith("AU-") && maxWatts <= 100) {
+        maxWatts = 500;
+    }
+    const bool amplifierActive = m_radioModel.amplifier().present()
+        && m_radioModel.amplifier().operate();
+    const bool kpa500Active = m_kpa500Conn.hasLiveTxMeters();
+    return selectSharedTxMeters(maxWatts, amplifierActive, kpa500Active,
+                                m_kat500Model.ampKeyBlockConfirmed(),
+                                m_kxpa100Association && m_kxpa100Association->associated()
+                                    && m_kxpa100Model.amplifierMeterEligible());
+}
+
 // One owner for amplifier TX meters on the shared readouts (S-Meter,
 // cross-needle, TMate2). The radio relay and port-9008 status agree within
 // 0.05 dB but run at different rates (meter packets vs 5 Hz poll), so the relay
@@ -6386,6 +6458,9 @@ void MainWindow::wireModemAudioCompletion()
 // S-Meter would jitter between them.
 void MainWindow::applyAmpTxMeters(float watts, float swr, bool fromRelay)
 {
+    if (sharedTxMeterSelection().source != SharedTxMeterSource::Amplifier) {
+        return;
+    }
     if (fromRelay) {
         m_ampRelayTxStamp.restart();
     } else if (m_ampRelayTxStamp.isValid()
@@ -6409,6 +6484,16 @@ void MainWindow::wireMeters()
 {
     auto* relativeTimer = new QTimer(this);
     relativeTimer->setInterval(100);
+    const auto updateKpa500Drive = [this] {
+        if (m_appletPanel && m_appletPanel->kpa500Applet()) {
+            m_appletPanel->kpa500Applet()->updateRadioDrive(
+                m_radioModel.meterModel(), m_radioModel.isConnected());
+        }
+    };
+    // Poll even without meter packets so an expired radio reading clears in AMP mode too.
+    connect(relativeTimer, &QTimer::timeout, this, updateKpa500Drive);
+    connect(&m_radioModel, &RadioModel::connectionStateChanged, this, updateKpa500Drive);
+    updateKpa500Drive();
     connect(relativeTimer, &QTimer::timeout, this, [this] {
         if (!m_appletPanel) { return; }
         auto* meter = m_appletPanel->sMeterWidget();
@@ -6455,8 +6540,10 @@ void MainWindow::wireMeters()
     // (~100 W) and amp (~1500 W) values race into the same widget. (#2927)
     connect(&m_radioModel.meterModel(), &MeterModel::txMetersChanged,
             this, [this](float fwd, float swr, bool swrValid) {
-        if (m_radioModel.amplifier().present() && m_radioModel.amplifier().operate())
+        if (sharedTxMeterSelection().source == SharedTxMeterSource::Amplifier
+            || sharedTxMeterSelection().source == SharedTxMeterSource::Kxpa100) {
             return;
+        }
         // Absent SWR is forwarded as 1.0: RadioSwrValidityFilter downstream
         // reads <1.0 WITH forward power as the radio's over-range sentinel
         // and would peg the S-meter full-scale on a matched antenna (#4536
@@ -6476,8 +6563,8 @@ void MainWindow::wireMeters()
             &MeterModel::directionalPowerMetersChanged,
             this, [this](float fwd, float reflected, float swr,
                          bool swrValid, bool reflectedPowerMeasured) {
-        if (m_radioModel.amplifier().present()
-            && m_radioModel.amplifier().operate()) {
+        if (sharedTxMeterSelection().source == SharedTxMeterSource::Amplifier
+            || sharedTxMeterSelection().source == SharedTxMeterSource::Kxpa100) {
             return;
         }
         // The cross-needle already clamps sub-1.0 values to 1.0 (its rest
@@ -6569,6 +6656,10 @@ void MainWindow::wireMeters()
         m_vkampConn.setAutoReconnect(ar);
         m_kpa1500Conn.setAutoReconnect(ar);
         m_lpMeterConn.setAutoReconnect(ar);
+        m_kpa500Conn.setAutoReconnect(
+            ar && PeripheralSettings::autoConnect(QStringLiteral("kpa500")));
+        m_kat500Model.setAutoReconnect(ar && PeripheralSettings::autoConnect(QStringLiteral("kat500")));
+        m_kxpa100Model.setAutoReconnect(ar && PeripheralSettings::autoConnect(QStringLiteral("kxpa100")));
     }
 
     // Wire TgxlConnection to TunerModel
@@ -6986,17 +7077,58 @@ void MainWindow::wireMeters()
         // ConnectionMode setting — same divergence rationale as ACOM.
         spe->setSource(m_speConn.sourceLabel());
         spe->setConnected(true);
+        spe->setPowerOnNote(QString());
+        // The original 1K-FA is known from the operator's choice, not from a
+        // Status, and ON is pressed precisely while it is off and silent —
+        // so its capabilities (ON semantics, no mirror, no ATU SWR) apply
+        // now rather than on the first Status. The newer family identifies
+        // itself; until it does, the default row applies, so a variant
+        // switch never leaves the previous model's state behind.
+        const bool legacy =
+            m_speConn.activeVariant() == AetherSDR::Spe::Variant::Legacy1k;
+        const QString modelId = legacy
+            ? QString::fromLatin1(AetherSDR::Spe::Legacy::kModelId) : QString();
+        const AetherSDR::Spe::ModelSpec& spec = AetherSDR::Spe::modelSpec(modelId);
+        if (legacy) {
+            spe->setModelName(spec.displayName);
+        }
+        spe->setModelCapabilities(spec);
         m_appletPanel->setSpeVisible(true);
     });
     connect(&m_speConn, &SpeConnection::disconnected, this, [this]() {
         m_appletPanel->speApplet()->setConnected(false);
+        m_appletPanel->speApplet()->setPowerOnNote(QString());
         m_appletPanel->setSpeVisible(false);
+    });
+    // Over a network bridge ON can fall short without any error on the wire;
+    // say so where the operator pressed it (the log carries the detail).
+    connect(&m_speConn, &SpeConnection::powerOnReported, this,
+            [this](SpeConnection::PowerOnResult result) {
+        QString note;
+        switch (result) {
+            case SpeConnection::PowerOnResult::NoLineControl:
+                note = tr("ON cannot work over this connection: the network"
+                          " bridge does not support RFC 2217 line control"
+                          " (e.g. a plain serial-to-Ethernet converter)."
+                          " Power the amplifier on at its front panel.");
+                break;
+            case SpeConnection::PowerOnResult::ProxyRefused:
+                note = tr("ON sent, but the proxy refused RFC 2217 line"
+                          " control, so it may not reach the amplifier.");
+                break;
+            case SpeConnection::PowerOnResult::Sent:
+                break;
+        }
+        m_appletPanel->speApplet()->setPowerOnNote(note);
     });
     // Poll-silence tracking: with ser2net the TCP link outlives the amp being
     // switched off, so respondingChanged — not disconnected — is what greys
     // the panel out in that topology.
     connect(&m_speConn, &SpeConnection::respondingChanged, this, [this](bool responding) {
         m_appletPanel->speApplet()->setResponding(responding);
+        if (responding) {
+            m_appletPanel->speApplet()->setPowerOnNote(QString());
+        }
     });
 
     // Model-dependent layout follows the Status ID field — the SPE identifies
@@ -7008,6 +7140,7 @@ void MainWindow::wireMeters()
     connect(&m_speConn, &SpeConnection::modelChanged, this, [this](const QString& modelId) {
         const auto& spec = AetherSDR::Spe::modelSpec(modelId);
         m_appletPanel->speApplet()->setModelName(spec.displayName);
+        m_appletPanel->speApplet()->setModelCapabilities(spec);
     });
 
     connect(&m_speConn, &SpeConnection::statusUpdated, this,
@@ -7024,7 +7157,7 @@ void MainWindow::wireMeters()
         spe->setPowerRange(range.nominalW, range.warnW, range.maxW);
 
         spe->setForwardPower(s.outputPowerW);
-        spe->setSwrAnt(s.swrAnt);
+        spe->setSwrAnt(s.swrAnt, s.swrEstimated);
         spe->setSwrAtu(s.swrAtu);
         spe->setSupplyVoltage(s.paVoltageV);
         spe->setSupplyCurrent(s.paCurrentA);
@@ -7032,12 +7165,15 @@ void MainWindow::wireMeters()
         spe->setBand(AetherSDR::Spe::bandName(s.bandIndex));
         spe->setAntenna(s.txAntenna, s.atuState);
         spe->setInputPort(s.input);
-        spe->setPowerLevel(AetherSDR::Spe::powerLevelName(s.powerLevel));
+        spe->setPowerLevel(AetherSDR::Spe::powerLevelName(s.powerLevel, spec));
         spe->setMode(s.operate, s.transmitting);
 
-        // One banner for both severity tiers, alarms first.
-        const QString alarm = AetherSDR::Spe::alarmText(s.alarm);
-        const QString warning = AetherSDR::Spe::warningText(s.warning);
+        // One banner for both severity tiers, alarms first. The original
+        // 1K-FA reports faults as text rather than letter codes.
+        const QString alarm = !s.alarmDetail.isEmpty()
+            ? s.alarmDetail : AetherSDR::Spe::alarmText(s.alarm);
+        const QString warning = !s.warningDetail.isEmpty()
+            ? s.warningDetail : AetherSDR::Spe::warningText(s.warning);
         QString fault;
         if (!alarm.isEmpty())
             fault = QStringLiteral("ALARM: %1").arg(alarm);
@@ -7113,6 +7249,8 @@ void MainWindow::wireMeters()
     // the SPE has no radio-side presence signal; the saved setting is the
     // only trigger there will ever be.
     {
+        m_speConn.setVariant(AetherSDR::Spe::variantFromKey(
+            PeripheralSettings::deviceString("SpeExpert", "Model")));
         const QString mode = PeripheralSettings::deviceString("SpeExpert", "ConnectionMode",
 #ifdef HAVE_SERIALPORT
             "Serial"
@@ -7382,33 +7520,218 @@ void MainWindow::wireMeters()
 #endif
     }
 
-    // Fwd power gauge scale from radio max power and amp presence, applied to
-    // TxApplet, TunerApplet and SMeterWidget together; with the PGXL in STANDBY
-    // use the barefoot scale. Redundant re-applies are skipped inside each
-    // gauge's setPowerScale(), not here: infoChanged bursts on ordinary status,
-    // and an automation test action writes the widget scale directly, so a
-    // cache here could skip a needed re-apply.
-    auto updatePowerScale = [this]() {
-        int maxW = m_radioModel.transmitModel().maxPowerLevel();
-        // Aurora (AU-) radios have an integrated 600W PA (Overlord) but
-        // max_power_level only reports the exciter limit (100W). Use model
-        // name to detect the true PA capability. (#484)
-        const QString& model = m_radioModel.model();
-        if (model.startsWith("AU-") && maxW <= 100) {
-            maxW = 500;
+    // ── Elecraft KPA500 amplifier — serial or raw TCP, no FlexRadio relay ──────────
+    // See docs/architecture/elecraft-kpa500-kat500-design.md. Wire ALL signals
+    // before the auto-connect trigger — connectSerial() can call
+    // onTransportUp() synchronously, so anything wired after the trigger
+    // misses the first connected().
+    connect(&m_kpa500Conn, &Kpa500Connection::connected, this, [this]() {
+        m_appletPanel->kpa500Applet()->setConnected(true);
+        m_appletPanel->kpa500Applet()->setConnectionDescription(m_kpa500Conn.description());
+    });
+    connect(&m_kpa500Conn, &Kpa500Connection::disconnected, this, [this]() {
+        m_appletPanel->kpa500Applet()->setConnected(false);
+    });
+    connect(&m_kpa500Conn, &Kpa500Connection::detectedChanged,
+            m_appletPanel, &AppletPanel::setKpa500Visible);
+    connect(&m_kpa500Conn, &Kpa500Connection::respondingChanged, this, [this](bool responding) {
+        m_appletPanel->kpa500Applet()->setResponding(responding);
+    });
+    connect(&m_kpa500Conn, &Kpa500Connection::statusUpdated, this,
+            [this](const AetherSDR::Kpa500::Status& s) {
+        m_appletPanel->kpa500Applet()->applyStatus(s);
+        if (!(m_radioModel.amplifier().present() && m_radioModel.amplifier().operate())
+            && m_kpa500Conn.hasLiveTxMeters()) {
+            applyAmpTxMeters(s.forwardPowerW.value(), s.swr.value_or(1.0f),
+                             /*fromRelay=*/false);
         }
-        const bool ampActive = m_radioModel.amplifier().present()
-                            && m_radioModel.amplifier().operate();
-        m_appletPanel->txApplet()->setPowerScale(maxW, ampActive);
-        m_appletPanel->tunerApplet()->setPowerScale(maxW, ampActive);
-        m_appletPanel->setMeterPowerScale(maxW, ampActive);
-        m_appletPanel->healthApplet()->setPowerScale(maxW, ampActive);
+    });
+    connect(m_appletPanel->kpa500Applet(), &Kpa500Applet::operateToggled,
+            this, [this](bool on) { m_kpa500Conn.setOperate(on); });
+    connect(m_appletPanel->kpa500Applet(), &Kpa500Applet::clearFaultClicked,
+            this, [this]() { m_kpa500Conn.clearFault(); });
+    connect(m_appletPanel->kpa500Applet(), &Kpa500Applet::fanSpeedChangeRequested,
+            this, [this](int n) { m_kpa500Conn.setFanSpeed(n); });
+
+    auto* kpa = m_appletPanel->kpa500Applet();
+    connect(kpa, &Kpa500Applet::advancedSettingsRequested, this, [this] {
+        if (RadioSetupDialog* dialog = openRadioSetupPage(QStringLiteral("Peripherals"))) {
+            dialog->revealKpa500AdvancedSettings();
+        }
+    });
+    connect(&m_kpa500Conn, &Kpa500Connection::maintenanceBusyChanged, kpa, &Kpa500Applet::setMaintenanceBusy);
+    connect(kpa, &Kpa500Applet::powerRequested, &m_kpa500Conn, &Kpa500Connection::setPower);
+    connect(kpa, &Kpa500Applet::speakerRequested, &m_kpa500Conn, &Kpa500Connection::setSpeaker);
+    connect(kpa, &Kpa500Applet::bandRequested, &m_kpa500Conn, &Kpa500Connection::requestBand);
+    connect(kpa, &Kpa500Applet::followTxChanged, &m_kpa500Conn, &Kpa500Connection::setFollowTx);
+    connect(&m_kpa500Conn, &Kpa500Connection::diagnostic, kpa, &Kpa500Applet::appendDiagnostic);
+    connect(&m_kpa500Conn, &Kpa500Connection::telemetryReceived, kpa, &Kpa500Applet::recordTelemetry);
+    connect(&m_kpa500Conn, &Kpa500Connection::bandTrackingChanged, kpa, &Kpa500Applet::setBandTrackingText);
+    connect(&m_radioModel.transmitModel(), &TransmitModel::transmittingChanged,
+            this, [this](bool) { refreshTunerPortFrequency(); });
+    connect(&m_radioModel, &RadioModel::connectionStateChanged,
+            this, [this](bool) { refreshTunerPortFrequency(); });
+    connect(&m_radioModel, &RadioModel::capabilitiesChanged,
+            this, [this] { refreshTunerPortFrequency(); });
+    if (m_bandPlanMgr) {
+        connect(m_bandPlanMgr, &BandPlanManager::planChanged, this, &MainWindow::refreshTunerPortFrequency);
+    }
+    m_kpa500Conn.setFollowTx(kpa->followTx());
+    refreshTunerPortFrequency();
+    kpa->setBandTrackingText(m_kpa500Conn.bandTrackingText());
+
+    // Startup auto-connect from saved Peripherals settings.
+    if (PeripheralSettings::autoConnect(QStringLiteral("kpa500"))) {
+        const QString mode = PeripheralSettings::deviceString("Kpa500", "ConnectionMode", "Serial");
+        if (mode == "Network") {
+            const QString host = PeripheralSettings::deviceString("Kpa500", "ManualIp").trimmed();
+            const int port = PeripheralSettings::deviceInt("Kpa500", "ManualPort", 2000);
+            if (!host.isEmpty() && port > 0 && port <= 65535) {
+                m_kpa500Conn.connectToHost(host, static_cast<quint16>(port));
+            }
+        }
+#ifdef HAVE_SERIALPORT
+        else if (mode == "Serial") {
+            const QString port = PeripheralSettings::deviceString("Kpa500", "SerialPort");
+            if (!port.isEmpty()) {
+                const int baud = PeripheralSettings::deviceInt("Kpa500", "BaudRate", 4800);
+                m_kpa500Conn.connectSerial(port, baud);
+            }
+        }
+#endif
+    }
+
+    auto* kat = m_appletPanel->kat500Applet();
+    kat->setModel(&m_kat500Model);
+    connect(kat, &Kat500Applet::preTuneRequested, this, [this] {
+        if (!m_kat500PreTuneDialog) {
+            auto* controller = new Kat500TxController(&m_radioModel, &m_kat500Model, this);
+            auto* dialog = new AtuPreTuneDialog(&m_radioModel, m_bandPlanMgr, this, controller);
+            controller->setParent(dialog);
+            dialog->setAttribute(Qt::WA_DeleteOnClose);
+            m_kat500PreTuneDialog = dialog;
+        }
+        m_kat500PreTuneDialog->show();
+        m_kat500PreTuneDialog->raise();
+        m_kat500PreTuneDialog->activateWindow();
+    });
+    connect(&m_kat500Model, &Kat500Model::detectedChanged, m_appletPanel, &AppletPanel::setKat500Visible);
+    connect(kat, &Kat500Applet::advancedSettingsRequested, this, [this] {
+        if (RadioSetupDialog* dialog = openRadioSetupPage(QStringLiteral("Peripherals"))) {
+            dialog->revealKat500AdvancedSettings();
+        }
+    });
+    connect(kat, &Kat500Applet::followTxChanged, this, [this] { refreshTunerPortFrequency(); });
+    connect(&m_kat500Model, &Kat500Model::availabilityChanged, this, [this] {
+        if (m_kat500Model.followTxFrequency() && m_kat500Model.unavailableReason(true).isEmpty()) {
+            refreshTunerPortFrequency();
+        }
+    });
+    if (PeripheralSettings::autoConnect(QStringLiteral("kat500"))) {
+        const QString mode = PeripheralSettings::deviceString("Kat500", "ConnectionMode", "Serial");
+        if (mode == "Network") {
+            const QString host = PeripheralSettings::deviceString("Kat500", "ManualIp").trimmed();
+            const int port = PeripheralSettings::deviceInt("Kat500", "ManualPort", 2000);
+            if (!host.isEmpty() && port > 0 && port <= 65535) {
+                m_kat500Model.connectToHost(host, static_cast<quint16>(port));
+            }
+        }
+#ifdef HAVE_SERIALPORT
+        else if (mode == "Serial") {
+            const QString port = PeripheralSettings::deviceString("Kat500", "SerialPort");
+            if (!port.isEmpty()) {
+                m_kat500Model.connectSerial(port, PeripheralSettings::deviceInt("Kat500", "BaudRate", 38400));
+            }
+        }
+#endif
+    }
+
+    m_kxpa100Association = new Kxpa100RadioAssociation(&m_radioModel, &m_kxpa100Model, this);
+    connect(m_kxpa100Association, &Kxpa100RadioAssociation::changed,
+            this, &MainWindow::refreshTunerPortFrequency);
+    auto* kx = m_appletPanel->kxpa100Applet();
+    kx->setModel(&m_kxpa100Model);
+    connect(&m_kxpa100Model, &Kxpa100Model::detectedChanged, m_appletPanel, &AppletPanel::setKxpa100Visible);
+    connect(kx, &Kxpa100Applet::advancedSettingsRequested, this, [this] {
+        if (auto* dialog = openRadioSetupPage(QStringLiteral("Peripherals"))) { dialog->revealKxpa100AdvancedSettings(); }
+    });
+    connect(kx, &Kxpa100Applet::associateRadioRequested, this, [this, kx] {
+        const bool saved = m_kxpa100Association && m_kxpa100Association->associated()
+            ? Kxpa100RadioAssociation::dissociate(&m_radioModel, &m_kxpa100Model)
+            : Kxpa100RadioAssociation::associate(&m_radioModel, &m_kxpa100Model);
+        refreshTunerPortFrequency();
+        kx->setAssociationResult(saved);
+    });
+    connect(&m_kxpa100Model, &Kxpa100Model::associationChanged, this, &MainWindow::refreshTunerPortFrequency);
+    connect(&m_kxpa100Model, &Kxpa100Model::availabilityChanged, this, &MainWindow::refreshTunerPortFrequency);
+    connect(&m_radioModel, &RadioModel::infoChanged, this, &MainWindow::refreshTunerPortFrequency);
+    if (PeripheralSettings::autoConnect(QStringLiteral("kxpa100"))) {
+        const QString mode = PeripheralSettings::deviceString("Kxpa100", "ConnectionMode", "Serial");
+        if (mode == "Network") {
+            const QString host = PeripheralSettings::deviceString("Kxpa100", "ManualIp").trimmed();
+            const int port = PeripheralSettings::deviceInt("Kxpa100", "ManualPort", 2000);
+            if (!host.isEmpty() && port > 0 && port <= 65535) { m_kxpa100Model.connectToHost(host, static_cast<quint16>(port)); }
+        } else {
+#ifdef HAVE_SERIALPORT
+            const QString port = PeripheralSettings::deviceString("Kxpa100", "SerialPort");
+            if (!port.isEmpty()) { m_kxpa100Model.connectSerial(port, PeripheralSettings::deviceInt("Kxpa100", "BaudRate", 38400)); }
+#endif
+        }
+    }
+
+    // Data and scale use the same confirmed selection.
+    auto updatePowerScale = [this]() {
+        const SharedTxMeterSelection selection = sharedTxMeterSelection();
+        if (selection.source != m_sharedTxMeterSource) {
+            m_sharedTxMeterSource = selection.source;
+            m_appletPanel->setMeterTxValues(0.0f, 1.0f);
+            m_ampRelayTxStamp.invalidate();
+#ifdef HAVE_HIDAPI
+            m_tmate2TxWatts = 0.0f;
+            if (m_radioModel.transmitModel().isTransmitting()) {
+                updateTMate2Display();
+            }
+#endif
+        }
+        int radioMaxWatts = m_radioModel.transmitModel().maxPowerLevel();
+        if (m_radioModel.model().startsWith("AU-") && radioMaxWatts <= 100) {
+            radioMaxWatts = 500;
+        }
+        const bool integratedAmp = m_radioModel.amplifier().present()
+            && m_radioModel.amplifier().operate();
+        m_appletPanel->txApplet()->setPowerScale(radioMaxWatts, integratedAmp);
+        m_appletPanel->tunerApplet()->setPowerScale(radioMaxWatts, integratedAmp);
+        m_appletPanel->healthApplet()->setPowerScale(radioMaxWatts, integratedAmp);
+        m_appletPanel->setMeterPowerScale(selection.maxWatts, selection.highPowerAmplifier);
     };
+    connect(&m_kxpa100Model, &Kxpa100Model::statusUpdated, this, updatePowerScale);
+    connect(&m_kxpa100Model, &Kxpa100Model::availabilityChanged, this, updatePowerScale);
+    connect(m_kxpa100Association, &Kxpa100RadioAssociation::changed, this, updatePowerScale);
+    connect(&m_kxpa100Model, &Kxpa100Model::statusUpdated, this, [this](const Kxpa100::Status& status) {
+        if (sharedTxMeterSelection().source != SharedTxMeterSource::Kxpa100) { return; }
+        const float watts = status.forwardWatts.value_or(0);
+        const float swr = watts > 0 ? status.swr.value_or(1) : 1;
+        m_appletPanel->setMeterTxValues(watts, swr);
+        const bool reflectedFresh = m_kxpa100Model.fieldAgeMs("^PV") >= 0 && m_kxpa100Model.fieldAgeMs("^PV") <= 5000;
+        m_appletPanel->setCrossNeedleDirectionalValues(watts, status.reflectedWatts.value_or(0), swr, reflectedFresh);
+#ifdef HAVE_HIDAPI
+        m_tmate2TxWatts = watts;
+        if (m_radioModel.transmitModel().isTransmitting()) { updateTMate2Display(); updateTMate2Indicators(); }
+#endif
+    });
+    connect(&m_kat500Model, &Kat500Model::statusUpdated, this, updatePowerScale);
+    connect(&m_kat500Model, &Kat500Model::availabilityChanged, this, updatePowerScale);
+    updatePowerScale();
     connect(&m_radioModel.amplifier(), &AmpModel::presenceChanged, this, updatePowerScale);
     connect(&m_radioModel.amplifier(), &AmpModel::stateChanged, this, updatePowerScale);
+    // Re-evaluate scale when KPA500 operate state changes or disconnects.
+    connect(&m_kpa500Conn, &Kpa500Connection::statusUpdated, this, updatePowerScale);
+    connect(&m_kpa500Conn, &Kpa500Connection::disconnected, this, updatePowerScale);
+    connect(&m_kpa500Conn, &Kpa500Connection::respondingChanged, this, updatePowerScale);
     // Also refresh on infoChanged (#4813): maxPowerLevelChanged does not fire
     // when the radio's limit equals the 100 W default (the AU- case), and
     // infoChanged is the signal tied to the model() data this reads.
+
     connect(&m_radioModel, &RadioModel::infoChanged, this, updatePowerScale);
 
     // TGXL indicator: two-line rich text — label on top, state smaller below.

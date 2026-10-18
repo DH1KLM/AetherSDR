@@ -6,8 +6,11 @@
 #include "core/AcomConnection.h"
 #include "core/SpeConnection.h"
 #include "core/LpMeterConnection.h"
+#include "core/Kpa500Connection.h"
 #include "core/AppSettings.h"
 #include "core/PeripheralSettings.h"
+#include "core/ThemeManager.h"
+#include "gui/PeripheralConnectionSource.h"
 #include "gui/RadioSetupDialog.h"
 #include "gui/AntennaGeniusApplet.h"
 #include "gui/ShackSwitchApplet.h"
@@ -363,7 +366,7 @@ bool checkPendingRemoval()
             QWidget owner;
             QPointer<RadioSetupDialog> dialog = new RadioSetupDialog(
                 &model, nullptr, &tgxl, &pgxl, &ag, nullptr,
-                nullptr, nullptr, nullptr, nullptr, nullptr, &owner);
+                nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &owner);
             dialog->setAttribute(Qt::WA_DeleteOnClose);
             dialog->selectTab("Peripherals");
             dialog->show();
@@ -841,7 +844,7 @@ bool checkRemovalOwnerTeardown()
             auto owner = std::make_unique<QWidget>();
             QPointer<RadioSetupDialog> dialog = new RadioSetupDialog(
                 &model, nullptr, &tgxl, &pgxl, nullptr, nullptr,
-                nullptr, nullptr, nullptr, nullptr, nullptr, owner.get());
+                nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, owner.get());
             dialog->selectTab("Peripherals");
             auto* remove = dialog->findChild<QPushButton*>("peripheralRemoveButton");
             if (!remove) {
@@ -1316,8 +1319,9 @@ bool checkExternalAgConfiguration()
 bool checkAgCloseAfterExternalConfiguration()
 {
     // Add, saved row, Remove/reconfigure, close before refresh, deliberate clear,
-    // stale clear, and port-only edit with an externally configured address.
-    for (int scenario = 0; scenario < 8; ++scenario) {
+    // stale clear, port-only edit with an externally configured address, and
+    // the deliberate clear again closed with Escape (reject()) instead.
+    for (int scenario = 0; scenario < 9; ++scenario) {
         AppSettings& settings = AppSettings::instance();
         settings.remove("Peripherals");
         settings.remove("AG_ManualIp");
@@ -1326,7 +1330,7 @@ bool checkAgCloseAfterExternalConfiguration()
             ? QStringList{} : QStringList{QStringLiteral("ag")});
         const QString oldHost = QStringLiteral("192.0.2.90");
         const QString newHost = QStringLiteral("192.0.2.91");
-        if (scenario == 2 || scenario == 4 || scenario == 5 || scenario == 7) {
+        if (scenario == 2 || scenario == 4 || scenario == 5 || scenario == 7 || scenario == 8) {
             settings.setValue("AG_ManualIp", oldHost);
             settings.setValue("AG_ManualPort", 19007);
         }
@@ -1361,7 +1365,7 @@ bool checkAgCloseAfterExternalConfiguration()
             if (!address->text().isEmpty() || port->value() != 9007) {
                 return false;
             }
-        } else if (scenario == 4 || scenario == 5) {
+        } else if (scenario == 4 || scenario == 5 || scenario == 8) {
             address->selectAll();
             address->backspace(); // Deliberate user edit, unlike a programmatic reset.
             if (!address->isModified()) {
@@ -1372,12 +1376,12 @@ bool checkAgCloseAfterExternalConfiguration()
         } else if (scenario == 7) {
             address->setText(QString()); // Programmatic clear carries no user intent.
         }
-        if (scenario != 4 && scenario != 7) {
+        if (scenario != 4 && scenario != 7 && scenario != 8) {
             settings.setValue("AG_ManualIp", newHost);
             settings.setValue("AG_ManualPort", 9007);
         }
         // Inject a connected LAN prologue; no socket or firmware peer is used.
-        const QString connectedHost = (scenario == 4 || scenario == 7) ? oldHost : newHost;
+        const QString connectedHost = (scenario == 4 || scenario == 7 || scenario == 8) ? oldHost : newHost;
         if (!QMetaObject::invokeMethod(&ag, "beginAttemptAt", Qt::DirectConnection,
                 Q_ARG(QString, connectedHost), Q_ARG(quint16, quint16(9007)))
             || !QMetaObject::invokeMethod(&ag, "processTcpBytes", Qt::DirectConnection,
@@ -1401,9 +1405,14 @@ bool checkAgCloseAfterExternalConfiguration()
                 return false;
             }
         }
-        dialog.close(); // Exercise the production closeEvent/savers, not destruction.
+        // Exercise the production close paths and their savers, not destruction.
+        if (scenario == 8) {
+            dialog.reject();   // what Escape calls
+        } else {
+            dialog.close();
+        }
         const bool cleared = !settings.contains("AG_ManualIp") && !settings.contains("AG_ManualPort");
-        if (scenario == 4) {
+        if (scenario == 4 || scenario == 8) {
             if (!cleared || ag.isConnected()) {
                 std::fprintf(stderr, "Intentional AG clear was not saved on close\n");
                 return false;
@@ -1809,6 +1818,23 @@ bool checkConnectAutomaticallyGates()
 
 // What Setup shows follows the device's explicit status, never text, and the
 // page is signal-driven (no presentation timer).
+// Pixels of exactly the color a theme token resolves to, in the list as
+// painted: the connection-source dot is drawn in its token, solid at its core.
+int pixelsOfToken(QWidget* widget, const char* token)
+{
+    const QColor color = AetherSDR::ThemeManager::instance().color(QString::fromLatin1(token));
+    const QImage image = widget->grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    int n = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            if (image.pixel(x, y) == color.rgb()) {
+                ++n;
+            }
+        }
+    }
+    return n;
+}
+
 bool checkStatusPresentation()
 {
     AppSettings::instance().remove(QStringLiteral("Peripherals"));
@@ -1834,6 +1860,43 @@ bool checkStatusPresentation()
         || list->item(0)->text().contains(QStringLiteral("Needs attention"))) {
         std::fprintf(stderr, "Idle status not shown on the detail page\n");
         return false;
+    }
+    // The dot before the source word follows the connection: OFFLINE orange,
+    // RADIO amber, DIRECT green. Each state is read against the other two.
+    {
+        using PeripheralConnectionSource::Source;
+        struct Expect {
+            Source source; const char* word; const char* on; const char* off1; const char* off2;
+        };
+        RadioSetupDialog::PeripheralLinkProbes original;
+        bool saved = false;
+        for (const Expect e : {Expect{Source::Offline, "OFFLINE", "color.accent.offline",
+                                      "color.accent.success", "color.accent.warning"},
+                               Expect{Source::Radio, "RADIO", "color.accent.warning",
+                                      "color.accent.success", "color.accent.offline"},
+                               Expect{Source::Direct, "DIRECT", "color.accent.success",
+                                      "color.accent.warning", "color.accent.offline"}}) {
+            // The refresh derives the source from the link probes: connected
+            // is DIRECT, relayed by the radio is RADIO, neither is OFFLINE.
+            auto previous = dialog.swapPeripheralLinkForTest(
+                QStringLiteral("tgxl"),
+                {[e] { return e.source == Source::Direct; },
+                 [e] { return e.source == Source::Radio; }});
+            if (!saved) {
+                original = std::move(previous);
+                saved = true;
+            }
+            pokeRefresh(model);
+            QCoreApplication::processEvents();
+            const int on = pixelsOfToken(list, e.on);
+            if (!list->item(0)->text().endsWith(QLatin1String(e.word)) || on <= 0 || pixelsOfToken(list, e.off1) != 0 || pixelsOfToken(list, e.off2) != 0) {
+                std::fprintf(stderr, "Source dot not drawn in %s (%d pixels): %s\n",
+                             e.on, on, qPrintable(list->item(0)->text()));
+                return false;
+            }
+        }
+        dialog.swapPeripheralLinkForTest(QStringLiteral("tgxl"), std::move(original));
+        pokeRefresh(model);
     }
     // A message that happens to start with "Error:" or hold a dash changes nothing
     // by itself; only the explicit attention does.
@@ -1874,6 +1937,79 @@ bool checkStatusPresentation()
     return sawDisabled;
 }
 
+bool checkKpa500NetworkSetup()
+{
+    AppSettings::instance().remove(QStringLiteral("Peripherals"));
+    PeripheralSettings::setVisibleDeviceIds({QStringLiteral("kpa500")});
+    PeripheralSettings::setDeviceString("Kpa500", "SerialPort", "COM4");
+    PeripheralSettings::setDeviceInt("Kpa500", "BaudRate", 38400);
+    PeripheralSettings::setDeviceString("Kpa500", "ManualIp", "amp.example.test");
+    PeripheralSettings::setDeviceInt("Kpa500", "ManualPort", 4200);
+    PeripheralSettings::setAutoConnect("kpa500", false);
+    RadioModel model;
+    Kpa500Connection amp;
+    {
+        RadioSetupDialog dialog(&model, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                nullptr, nullptr, nullptr, nullptr, nullptr, &amp);
+        dialog.selectTab(QStringLiteral("Peripherals"));
+        auto* mode = dialog.findChild<QComboBox*>("peripheralMode_kpa500");
+        auto* host = dialog.findChild<QLineEdit*>("peripheralNetworkHost_kpa500");
+        auto* ports = dialog.findChild<QStackedWidget*>("peripheralPort_kpa500");
+        auto* info = dialog.findChild<QLabel*>("peripheralDeviceInfo_kpa500");
+        auto* automatic = dialog.findChild<QCheckBox*>("peripheralAutoConnect_kpa500");
+        if (!mode || !host || !ports || !info || !automatic || automatic->isChecked()
+            || host->text() != "amp.example.test" || amp.isConnected() || amp.isConnecting()
+            || !info->text().contains("Not reported")) {
+            return false;
+        }
+#ifdef HAVE_SERIALPORT
+        if (mode->currentData().toString() != "Serial") { return false; }
+        auto* baud = dialog.findChild<QComboBox*>("peripheralBaud_kpa500");
+        if (!baud || baud->currentData().toInt() != 38400) { return false; }
+#endif
+        dialog.revealKpa500AdvancedSettings();
+        auto* advanced = dialog.findChild<QPushButton*>("peripheralAdvanced_kpa500");
+        auto* maintenance = dialog.findChild<QWidget*>("kpa500Advanced");
+        auto* backup = dialog.findChild<QPushButton*>("kpaSaveBackup");
+        auto* banner = dialog.findChild<QPushButton*>("kpaWriteBanner");
+        if (!advanced || !advanced->isChecked() || !maintenance || maintenance->isHidden()
+            || !backup || backup->isEnabled() || !banner || banner->isEnabled()) {
+            return false;
+        }
+        mode->setCurrentIndex(mode->findData("Network"));
+        auto* tcpPort = qobject_cast<QSpinBox*>(ports->currentWidget());
+        if (!tcpPort || tcpPort->value() != 4200
+            || PeripheralSettings::deviceString("Kpa500", "ConnectionMode") != "Network"
+            || PeripheralSettings::deviceString("Kpa500", "SerialPort") != "COM4"
+            || PeripheralSettings::deviceInt("Kpa500", "BaudRate") != 38400) {
+            return false;
+        }
+        dialog.editPeripheralStatusForTest("kpa500", [](PeripheralDeviceStatus& state) {
+            state.connecting = true;
+        });
+        pokeRefresh(model);
+        auto* connect = dialog.findChild<QPushButton*>("peripheralConnect_kpa500");
+        if (!connect || connect->text() != "Cancel" || mode->isEnabled() || host->isEnabled()) {
+            return false;
+        }
+        dialog.editPeripheralStatusForTest("kpa500", [](PeripheralDeviceStatus& state) {
+            state.connecting = false;
+        });
+        pokeRefresh(model);
+        if (!mode->isEnabled() || !host->isEnabled() || connect->text() != "Connect") {
+            return false;
+        }
+    }
+    RadioSetupDialog reopened(&model, nullptr, nullptr, nullptr, nullptr, nullptr,
+                              nullptr, nullptr, nullptr, nullptr, nullptr, &amp);
+    reopened.selectTab(QStringLiteral("Peripherals"));
+    auto* restoredMode = reopened.findChild<QComboBox*>("peripheralMode_kpa500");
+    const bool ok = restoredMode && restoredMode->currentData().toString() == "Network"
+        && !amp.isConnected() && !amp.isConnecting() && !PeripheralSettings::autoConnect("kpa500");
+    AppSettings::instance().remove(QStringLiteral("Peripherals"));
+    return ok;
+}
+
 int checkInteraction(QApplication& app)
 {
     AppSettings::instance().remove(QStringLiteral("Peripherals"));
@@ -1901,7 +2037,7 @@ int checkInteraction(QApplication& app)
     LpMeterConnection meter;
     RadioSetupDialog dialog(&model, nullptr, &tgxl, &pgxl, &ag, nullptr,
                             &acom, &spe, &vkamp, &meter);
-    dialog.resize(960, 680);
+    dialog.resize(960, 720);
     dialog.show();
     dialog.selectTab(QStringLiteral("Peripherals"));
     QCoreApplication::processEvents();
@@ -1963,7 +2099,7 @@ int checkInteraction(QApplication& app)
         return false;
     };
     QCoreApplication::processEvents();
-    if (dialog.size() != QSize(960, 680) || !fitsViewport(clearButton) || !fitsViewport(status)) {
+    if (dialog.size() != QSize(960, 720) || !fitsViewport(clearButton) || !fitsViewport(status)) {
         std::fprintf(stderr, "Clear code or Status is clipped at the default dialog size\n");
         // The page's width depends on the host: each serial-port combo is as
         // wide as its longest "port — description" label. Name the widest one.
@@ -2470,7 +2606,7 @@ int main(int argc, char** argv)
         return !selectedCase || std::strcmp(selectedCase, name) == 0;
     };
     if (selected("automatic") && runStage("automatic", [] {
-            if (!checkRemovalWithUnknownOwner() || !checkRemovalKeepsNewerEndpoint()
+            if (!checkKpa500NetworkSetup() || !checkRemovalWithUnknownOwner() || !checkRemovalKeepsNewerEndpoint()
                 || !checkRemovalOfUnconfiguredSharedRow() || !checkConnectAutomaticallyToggle()
                 || !checkConnectAutomaticallyGates() || !checkStatusPresentation()) {
                 std::fprintf(stderr, "Connect automatically regressed\n");

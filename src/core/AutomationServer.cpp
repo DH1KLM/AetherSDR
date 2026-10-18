@@ -49,6 +49,7 @@
 #include <QPointer>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QMap>
 #include <QJsonDocument>
 #include <QJsonValue>
 #include <QImage>
@@ -1800,16 +1801,30 @@ QJsonObject radioSnapshot(const RadioModel* r)
     };
 }
 
+QString gpsFixStateName(GpsFixState state)
+{
+    switch (state) {
+    case GpsFixState::ThreeD: return QStringLiteral("3D");
+    case GpsFixState::TwoD: return QStringLiteral("2D");
+    case GpsFixState::TimeOnly: return QStringLiteral("TIME_ONLY");
+    case GpsFixState::NoFix: return QStringLiteral("NO_FIX");
+    case GpsFixState::Unknown: return QStringLiteral("Unknown");
+    }
+    return QStringLiteral("Unknown");
+}
+
 QJsonObject gpsSnapshot(const RadioModel* r)
 {
     return QJsonObject{
         {QStringLiteral("available"), r->hasGpsHardware()
-             || !r->gpsStatus().isEmpty()},
+             || !r->gpsStatus().isEmpty() || r->gpsFixState() != GpsFixState::Unknown},
         {QStringLiteral("status"), r->gpsStatus()},
+        {QStringLiteral("fixState"), gpsFixStateName(r->gpsFixState())},
         // Backend-normalized validity and source (GpsDelta::positionValid /
         // source), so a scenario can assert "usable fix" without parsing
         // family-specific status prose.
         {QStringLiteral("positionValid"), r->gpsPositionValid()},
+        {QStringLiteral("timeValid"), r->gpsTimeValid()},
         {QStringLiteral("source"), r->gpsSource()},
         {QStringLiteral("tracked"), r->gpsTracked()},
         {QStringLiteral("visible"), r->gpsVisible()},
@@ -1921,6 +1936,10 @@ QJsonObject transmitSnapshot(const TransmitModel* t,
     if (hasTxFilterControls) {
         snapshot.insert(QStringLiteral("txFilterLow"), t->txFilterLow());
         snapshot.insert(QStringLiteral("txFilterHigh"), t->txFilterHigh());
+    }
+    // Absent until the radio reports it: firmware before v4.3 has no such key.
+    if (t->havePttMicOverride()) {
+        snapshot.insert(QStringLiteral("pttMicOverride"), t->pttMicOverride());
     }
     return snapshot;
 }
@@ -2751,6 +2770,10 @@ bool isReadOnlyRequest(const QString& name, const QString& action,
     }
 
     const QString normalizedAction = action.trimmed().toLower();
+    // The probe constructs only an isolated TransmitModel and touches no session.
+    if (name == QLatin1String("interlock") && action == QLatin1String("probe")) {
+        return true;
+    }
     if (name == QLatin1String("radiocert") && normalizedAction == QLatin1String("persist")) {
         return true;  // snapshot only; the external supervisor owns transitions
     }
@@ -3309,13 +3332,20 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                 return s.doNotch(a.action, a.value);
             });
 
+        add("interlock", {},
+            "interlock probe source=<tokens> [vox=0|1] [owner=local|other] — isolated production TX-state reconciliation; no radio or device access",
+            parseActionRest,
+            [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
+                return s.doInterlock(a.action, a.value);
+            });
+
         add("gps", {},
-            "gps <fixture|clearfixture> [6000|8000] — disconnected GPS test data",
+            "gps <fixture|fixfixture|clearfixture> [profile|fix] — disconnected GPS test data",
             parseActionRest,
             [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
                 if (a.action.isEmpty()) {
                     return err(QStringLiteral(
-                        "gps requires an action (fixture|clearfixture)"));
+                        "gps requires an action (fixture|fixfixture|clearfixture)"));
                 }
                 return s.doGps(a.action, a.value);
             });
@@ -3596,10 +3626,10 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
         add("txwaterfall", {}, "txwaterfall <on|off> — show keyed TX in the waterfall",
             parseValueOnly,
             [](AutomationServer& s, A& a, QLocalSocket*) -> QJsonObject {
-                // Radio-authoritative display flag (`transmit set show_tx_in_waterfall`)
-                // that gates whether keyed-up TX renders FFT-derived rows in the
-                // waterfall. Off by default; enabling it lets a test confirm CWX/tune/ATU
-                // energy appears in the waterfall, not just the FFT trace (#3646/#3804).
+                // Whether keyed-up TX renders rows in the waterfall: radio-held on a
+                // Flex (`transmit set show_tx_in_waterfall`), a client flag where the
+                // backend declares one (RadioCapabilities::txWaterfallClientFlag), by
+                // the same route as Radio Setup. Off by default (#3646/#3804).
                 if (!s.m_radioModel)
                     return err(QStringLiteral("no radio model available"));
                 const QString v = a.value.trimmed().toLower();
@@ -3609,6 +3639,14 @@ const std::vector<AutomationServer::VerbSpec>& AutomationServer::verbRegistry()
                                   || v == QLatin1String("false") || v == QLatin1String("disable"));
                 if (!on && !off)
                     return err(QStringLiteral("txwaterfall requires on|off"));
+                if (s.m_radioModel->requestLocalShowTxInWaterfall(on)) {
+                    return QJsonObject{
+                        {QStringLiteral("ok"), true},
+                        {QStringLiteral("txwaterfall"), on},
+                        {QStringLiteral("note"),
+                         QStringLiteral("client-side flag on this radio, applied now; "
+                                        "get transmit showTxInWaterfall reads it")}};
+                }
                 s.m_radioModel->sendCommand(
                     QStringLiteral("transmit set show_tx_in_waterfall=%1").arg(on ? 1 : 0));
                 return QJsonObject{
@@ -4571,6 +4609,50 @@ QJsonObject AutomationServer::doInvoke(const QString& target, const QString& act
         done = true;
     } else if (action == QLatin1String("setText")) {
         if (auto* le = qobject_cast<QLineEdit*>(w)) { le->setText(value); done = true; }
+    } else if (action == QLatin1String("editText") || action == QLatin1String("commit")) {
+        auto* le = qobject_cast<QLineEdit*>(w);
+        if (!le || !le->property("aetherAutomationEditCommit").toBool()) {
+            return err(QStringLiteral("field has not opted into editText/commit"));
+        }
+        if (le->isReadOnly()) {
+            return err(QStringLiteral("field is read-only"));
+        }
+        if (action == QLatin1String("editText")) {
+            // setText resets modified; only an actual edit arms the owner's
+            // editingFinished handler. Empty text is a supported edit.
+            if (le->text() != value) {
+                const QPointer<QLineEdit> edit(le);
+                const QString previous = le->text();
+                const bool modified = le->isModified();
+                le->setText(value);
+                if (!edit) {
+                    return err(QStringLiteral("field was destroyed during edit"));
+                }
+                edit->setModified(modified || edit->text() != previous);
+            }
+        } else {
+            if (!value.isEmpty()) {
+                return err(QStringLiteral("commit takes no value; use editText first"));
+            }
+            if (!le->hasAcceptableInput()) {
+                return err(QStringLiteral("field input is not acceptable"));
+            }
+            QPointer<QLineEdit> edit = le;
+            const QPointer<AutomationServer> self(this);
+            const quint64 epoch = m_txPermissionEpoch;
+            const QString entered = le->text();
+            deferInvokeAction([edit, self, epoch, entered]() {
+                if (self && !self->m_readOnly && epoch == self->m_txPermissionEpoch
+                    && edit && edit->text() == entered
+                    && edit->isVisible() && edit->isEnabled() && !edit->isReadOnly()
+                    && edit->hasAcceptableInput()
+                    && edit->property("aetherAutomationEditCommit").toBool()) {
+                    emit edit->editingFinished();
+                }
+            }, false);
+            deferred = true;
+        }
+        done = true;
     } else if (action == QLatin1String("submit")) {
         // Commit a line edit: optionally set the value, then fire returnPressed —
         // the signal that actually drives the action (a frequency retune, etc.).
@@ -7874,16 +7956,26 @@ QJsonObject AutomationServer::doSlice(const QString& action, const QString& arg)
         if (!s)
             return err(QStringLiteral("no slice available"));
 
-        // LEVEL BEFORE ENABLE, for the reason the AGC branch above gives: the
-        // enable setter emits an intent carrying both values, so setting the
-        // level first makes one request reach the backend as a coherent pair.
-        // A radio with no radio-side NR / ANF (HL2, ANAN) cannot turn them
-        // on; the setter would only mark the model on.
-        if (on && which == QLatin1String("nr")
-            && !radio->radioSideNoiseReductionAvailable())
-            return err(QStringLiteral("refused: this radio has no radio-side noise reduction"));
-        if (on && which == QLatin1String("anf") && !radio->radioSideAutoNotchAvailable())
-            return err(QStringLiteral("refused: this radio has no auto notch"));
+        const auto receiveDsp = radio->backendCapabilities().receiveDspControl;
+        if (receiveDsp && which != QLatin1String("squelch")) {
+            using Feature = ReceiveDspControl::Feature;
+            const Feature feature = which == QLatin1String("nr") ? Feature::Nr
+                : which == QLatin1String("anf") ? Feature::Anf : Feature::Nb;
+            if (on && !receiveDsp->supports(feature, s->mode())) {
+                return err(QStringLiteral("refused: %1 is unavailable in receive mode %2")
+                           .arg(which, s->mode()));
+            }
+        } else {
+            if (on && which == QLatin1String("nr")
+                && !radio->radioSideNoiseReductionAvailable()) {
+                return err(QStringLiteral("refused: this radio has no radio-side noise reduction"));
+            }
+            if (on && which == QLatin1String("anf") && !radio->radioSideAutoNotchAvailable()) {
+                return err(QStringLiteral("refused: this radio has no auto notch"));
+            }
+        }
+        // Set the level before enabling. Confirmed receivers merge these
+        // field-specific requests into their pending recipe independently.
         if (which == QLatin1String("nr")) {
             if (level >= 0) s->setNrLevel(level);
             s->setNr(on);
@@ -7896,6 +7988,7 @@ QJsonObject AutomationServer::doSlice(const QString& action, const QString& arg)
                              : advanced ? AetherSDR::NoiseBlankerKind::Advanced
                                         : AetherSDR::NoiseBlankerKind::Impulse);
         } else if (which == QLatin1String("anf")) {
+            if (level >= 0) { s->setAnfLevel(level); }
             s->setAnf(on);
         } else {
             s->setSquelch(on, level >= 0 ? level : s->squelchLevel());
@@ -8111,6 +8204,41 @@ QJsonObject AutomationServer::doSlice(const QString& action, const QString& arg)
                + QStringLiteral(" (") + sliceActionList() + QStringLiteral(")"));
 }
 
+QJsonObject AutomationServer::doInterlock(const QString& action, const QString& arguments)
+{
+    if (action != QLatin1String("probe")) {
+        return err(QStringLiteral("interlock requires probe source=<tokens> [vox=0|1] [owner=local|other]"));
+    }
+    if (arguments.size() > 192) {
+        return err(QStringLiteral("interlock probe arguments too long"));
+    }
+    QMap<QString, QString> options;
+    const QStringList fields = arguments.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    for (const QString& field : fields) {
+        const qsizetype equals = field.indexOf(QLatin1Char('='));
+        if (equals < 0) {
+            return err(QStringLiteral("interlock probe requires key=value options"));
+        }
+        const QString key = field.left(equals);
+        if ((key != QLatin1String("source") && key != QLatin1String("vox")
+             && key != QLatin1String("owner")) || options.contains(key)) {
+            return err(QStringLiteral("unknown or duplicate interlock probe option"));
+        }
+        options.insert(key, field.mid(equals + 1));
+    }
+    static const QRegularExpression sourcePattern(QStringLiteral("\\A[A-Z0-9_,]{0,128}\\z"));
+    const QString source = options.value(QStringLiteral("source"));
+    const QString vox = options.value(QStringLiteral("vox"), QStringLiteral("0"));
+    const QString owner = options.value(QStringLiteral("owner"), QStringLiteral("local"));
+    if (!options.contains(QStringLiteral("source")) || !sourcePattern.match(source).hasMatch()
+        || (vox != QLatin1String("0") && vox != QLatin1String("1"))
+        || (owner != QLatin1String("local") && owner != QLatin1String("other"))) {
+        return err(QStringLiteral("invalid source, vox or owner for interlock probe"));
+    }
+    return RadioModel::automationInterlockProbe(source, vox == QLatin1String("1"),
+                                               owner == QLatin1String("local"));
+}
+
 QJsonObject AutomationServer::doGps(const QString& action, const QString& format)
 {
     if (!m_radioModel) {
@@ -8124,6 +8252,10 @@ QJsonObject AutomationServer::doGps(const QString& action, const QString& format
     GpsDelta delta;
     if (action == QLatin1String("clearfixture")) {
         delta.status = QString();
+        delta.fixState = GpsFixState::Unknown;
+        delta.positionValid = false;
+        delta.source = QString();
+        delta.date = QString();
         delta.tracked = 0;
         delta.visible = 0;
         delta.grid = QString();
@@ -8143,10 +8275,35 @@ QJsonObject AutomationServer::doGps(const QString& action, const QString& format
         return QJsonObject{{QStringLiteral("ok"), true},
                            {QStringLiteral("gps"), QStringLiteral("clearfixture")}};
     }
+    if (action == QLatin1String("fixfixture")) {
+        const QString state = format.toUpper();
+        if (state == QLatin1String("3D")) {
+            delta.fixState = GpsFixState::ThreeD;
+        } else if (state == QLatin1String("2D")) {
+            delta.fixState = GpsFixState::TwoD;
+        } else if (state == QLatin1String("TIME_ONLY")) {
+            delta.fixState = GpsFixState::TimeOnly;
+        } else if (state == QLatin1String("NO_FIX")) {
+            delta.fixState = GpsFixState::NoFix;
+        } else if (state == QLatin1String("UNKNOWN")) {
+            delta.fixState = GpsFixState::Unknown;
+        } else {
+            return err(QStringLiteral("gps fixfixture requires 3D, 2D, TIME_ONLY, NO_FIX or UNKNOWN"));
+        }
+        QString error;
+        if (!m_radioModel->automationApplyGpsFixture(
+                delta, m_radioModel->oscState(), m_radioModel->oscSetting(),
+                m_radioModel->oscLocked(), m_radioModel->gpsNtpServerAddress(), &error)) {
+            return err(error);
+        }
+        return QJsonObject{{QStringLiteral("ok"), true},
+                           {QStringLiteral("gps"), QStringLiteral("fixfixture")},
+                           {QStringLiteral("snapshot"), gpsSnapshot(m_radioModel)}};
+    }
     if (action != QLatin1String("fixture")) {
         return err(QStringLiteral(
             "unknown gps action: ") + action
-            + QStringLiteral(" (fixture|clearfixture)"));
+            + QStringLiteral(" (fixture|fixfixture|clearfixture)"));
     }
 
     const QString profile = format.trimmed().toLower();
@@ -8156,6 +8313,7 @@ QJsonObject AutomationServer::doGps(const QString& action, const QString& format
     }
 
     delta.status = QStringLiteral("Locked");
+    delta.fixState = GpsFixState::Unknown;
     // The dashboard, APRS beacon and clock agreement gate on the normalized
     // validity flag, not on the "Locked" prose, so the fixture must carry it.
     delta.positionValid = true;

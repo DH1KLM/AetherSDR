@@ -13,7 +13,9 @@
 #include "core/IambicKeyer.h"
 
 #include <QApplication>
+#include <QHelpEvent>
 #include <QKeyEvent>
+#include <QMouseEvent>
 
 #include "MainWindowHelpers.h"
 #include "VoiceModeGate.h"   // isCwMode() — one CW-mode list, not thirteen
@@ -38,6 +40,7 @@
 #include "core/LogManager.h"
 #include "core/ThemeManager.h"
 #include "models/BandDefs.h"
+#include "models/VoiceKeyerController.h"
 #include "models/SliceModel.h"
 #include "workspace/WorkspaceController.h"
 
@@ -819,24 +822,26 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         setPaTempDisplayUnit(!m_paTempUseFahrenheit);
         return true;
     }
-    if (obj == m_networkLabel && event->type() == QEvent::MouseButtonDblClick) {
-        showNetworkDiagnosticsDialog();
+    const bool isNetworkStatus = obj == m_networkStatusBlock || obj == m_networkLabel;
+    if (isNetworkStatus && event->type() == QEvent::MouseButtonDblClick) {
+        activateStatusIndicator(m_networkStatusBlock);
         return true;
     }
-    if (obj == m_networkLabel && event->type() == QEvent::Enter) {
+    if (isNetworkStatus && event->type() == QEvent::Enter) {
         m_networkTooltipRefreshTimer.start();
     }
-    if (obj == m_networkLabel && event->type() == QEvent::Leave) {
+    if (isNetworkStatus && event->type() == QEvent::Leave) {
         m_networkTooltipRefreshTimer.stop();
         QToolTip::hideText();
     }
-    if (obj == m_networkLabel && event->type() == QEvent::ToolTip) {
+    if (isNetworkStatus && event->type() == QEvent::ToolTip) {
         const QString tooltip = buildNetworkTooltip(m_radioModel,
                                                      m_adaptiveFpsCap,
                                                      m_radioModel.pendingThrottleLift());
         m_networkLabel->setToolTip(tooltip);
+        m_networkStatusBlock->setToolTip(tooltip);
         auto* helpEvent = static_cast<QHelpEvent*>(event);
-        QToolTip::showText(helpEvent->globalPos(), tooltip, m_networkLabel);
+        QToolTip::showText(helpEvent->globalPos(), tooltip, m_networkStatusBlock);
         m_networkTooltipRefreshTimer.start();
         return true;
     }
@@ -851,10 +856,36 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         toggleConnectionDialog();
         return true;
     }
+    // The context-menu key and Shift+F10 open the keyer-source chooser on the
+    // DVK indicator, so the choice is reachable without a mouse there too, not
+    // only from Settings.
+    if (obj == m_dvkIndicator && event->type() == QEvent::KeyPress) {
+        auto* key = static_cast<QKeyEvent*>(event);
+        if (key->key() == Qt::Key_Menu
+            || (key->key() == Qt::Key_F10 && key->modifiers().testFlag(Qt::ShiftModifier))) {
+            showVoiceKeyerSourceMenu(voiceKeyerSourceMenuAnchor());
+            return true;
+        }
+    }
     // Status-bar indicators: a press and the keyboard (StatusIndicator's
     // Return/Enter/Space and the accessible Press action) run one action.
     if (event->type() == QEvent::MouseButtonPress && isStatusIndicator(obj)) {
-        if (obj == m_txIndicator
+        // Right-click on the DVK indicator chooses the keyer (radio DVK or
+        // local recordings). It is handled here, not in
+        // activateStatusIndicator(), because that path is shared with the
+        // keyboard and cannot see which button was pressed; and it runs ahead
+        // of the enabled check because a dimmed indicator on an unlicensed
+        // radio is exactly where an operator needs to reach "Local".
+        if (obj == m_dvkIndicator
+            && static_cast<QMouseEvent*>(event)->button() == Qt::RightButton) {
+            showVoiceKeyerSourceMenu(
+                static_cast<QMouseEvent*>(event)->globalPosition().toPoint());
+            return true;
+        }
+        // Left button only for these two: TX must not key from a stray
+        // right-click, and the firmware row must not open a browser out from
+        // under a context menu.
+        if ((obj == m_txIndicator || obj == m_radioVersionLabel)
             && static_cast<QMouseEvent*>(event)->button() != Qt::LeftButton) {
             return true;
         }
@@ -877,11 +908,18 @@ bool MainWindow::isStatusIndicator(const QObject* obj) const
     return obj == m_cwxIndicator || obj == m_tnfIndicator
         || obj == m_fdxIndicator || obj == m_bandStackIndicator || obj == m_tgxlContainer
         || obj == m_pgxlContainer || obj == m_txIndicator || obj == m_addPanLabel
-        || obj == m_dvkIndicator;
+        || obj == m_dvkIndicator || obj == m_radioVersionLabel;
 }
 
 void MainWindow::activateStatusIndicator(QObject* obj)
 {
+    // Network uses this keyboard/AT path without joining the single-click indicators.
+    if (obj == m_networkStatusBlock) {
+        m_networkTooltipRefreshTimer.stop();
+        QToolTip::hideText();
+        showNetworkDiagnosticsDialog();
+        return;
+    }
 #ifdef AETHER_ASR_ENABLED
     if (obj == m_asrIndicator) {
         if (!m_asrIndicator->isEnabled()) return;
@@ -890,6 +928,10 @@ void MainWindow::activateStatusIndicator(QObject* obj)
         return;
     }
 #endif
+    if (obj == m_radioVersionLabel) {
+        openFirmwareReleaseNotes();   // no-op unless the row shows out-of-date firmware
+        return;
+    }
     if (obj == m_cwxIndicator) {
         if (!m_cwxIndicator->isEnabled()) return;
         toggleCwKeyerPanel();
@@ -1005,6 +1047,9 @@ void MainWindow::toggleVoiceKeyerPanel()
     const bool show = !m_dvkPanel->isVisible();
     if (show && m_cwxPanel && m_cwxPanel->isVisible()) {
         m_cwxPanel->hide();
+    }
+    if (show && m_voiceKeyer) {
+        m_voiceKeyer->reloadLocalSlots();  // pick up WAVs dropped into the folder
     }
 
     m_dvkPanel->setVisible(show);

@@ -368,7 +368,7 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
         // window stops this timer, so reaching here while keyed should be
         // impossible — but "should be impossible" is how a hold turns into an
         // unmute in the middle of a transmission, and this costs one test.
-        if (m_keyed && !m_txMonitor) {
+        if ((m_keyed || m_radioPtt) && !m_txMonitor) {
             return;
         }
         applyRxAudioMute(false);
@@ -487,7 +487,11 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
             applyBandscopeForAutoGain();
         }
     });
+    connect(m_metis, &MetisClient::radioPttChanged, this, &Hl2Backend::onRadioPttChanged);
     connect(m_metis, &MetisClient::linkDown, this, [this] {
+        // No link, no observation: a PTT the radio last reported ends here, so the
+        // model never stays in transmit on a radio it can no longer hear.
+        onRadioPttChanged(false);
         // The PA temperature pole belongs to the SESSION. Left standing, the
         // first sample of the next stream would be averaged against a reading
         // from before the drop — kPaTempAlpha would drag a cold radio toward a
@@ -544,8 +548,8 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
         if (m_keyed)
             m_txMicPeakMaxDbfs = std::max(m_txMicPeakMaxDbfs, dbfs);
     });
-    // The post-ALC transmit peak — the level the modulator is actually handing
-    // to the wire.
+    // The post-ALC audio peak — the level handed to the modulator, not the
+    // envelope it puts on the wire.
     //
     // MeterModel's TX:ALC is a LEVEL in dBFS, not a gain, which is why this is
     // fed from alcPeak() and not from the alcGain() signal sitting next to it.
@@ -1475,6 +1479,49 @@ void Hl2Backend::applyRxAudioMute(bool muted)
     }
 }
 
+void Hl2Backend::publishTransmitState()
+{
+    const bool transmitting = m_keyed || m_radioPtt;
+    if (transmitting == m_publishedTransmit) {
+        return;
+    }
+    m_publishedTransmit = transmitting;
+    TransmitDelta delta;
+    delta.mox = transmitting;
+    emit transmitChanged(delta);
+}
+
+void Hl2Backend::onRadioPttChanged(bool keyed)
+{
+    hl2RequireBackendThread(this, "onRadioPttChanged");
+    if (m_radioPtt == keyed) {
+        return;
+    }
+    m_radioPtt = keyed;
+    publishTransmitState();
+    // While the host is keyed its own key owns the mute and, at its unkey, the
+    // release. Nothing here reaches MetisClient: the radio keyed itself, and the
+    // host follows it for display and receive audio only (#5998).
+    if (m_keyed) {
+        return;
+    }
+    if (!keyed) {
+        // The same hold as a host unkey: the PA is decaying either way.
+        releaseRxAudioMuteAfterHold();
+        return;
+    }
+    if (m_txMonitor) {
+        return;
+    }
+    if (m_unkeyUnmuteTimer) {
+        m_unkeyUnmuteTimer->stop();
+    }
+    applyRxAudioMute(true);
+    for (auto& q : m_mixPending) {
+        q.clear();
+    }
+}
+
 void Hl2Backend::releaseRxAudioMuteAfterHold()
 {
     hl2RequireBackendThread(this, "releaseRxAudioMuteAfterHold");
@@ -1796,12 +1843,13 @@ RadioCapabilities Hl2Backend::capabilities() const
     // setTune() is the built-in test tone at ZERO offset — a single carrier
     // exactly on the TX NCO. Nothing here can produce a second tone.
     c.twoToneGenerator = std::nullopt;
+    c.firmwareUpdateSource = std::nullopt;  // gateware number; no published list covers it.
     c.manufacturer = QStringLiteral("Hermes-Lite");
     c.model = QStringLiteral("Hermes-Lite 2");
-    // No repeater duplex and no tone encode: FM/NFM are receive-only below on
-    // every build, so these would imply FM transmit. hasFmRepeaterOffset
-    // defaults true and this backend overrides no repeater-offset setter;
-    // Hidden tone presentation since there is no CTCSS/DCS encoder.
+    // No repeater duplex and no tone encode, although the TXA build keys FM:
+    // hasFmRepeaterOffset defaults true and this backend overrides no
+    // repeater-offset setter, and no tone control reaches TXA's CTCSS encoder,
+    // which WdspChannel::open() forces off. Simplex FM without a tone.
     c.hasFmRepeaterOffset = false;
     c.fmTonePresentation = FmTonePresentation::Hidden;
     c.fmDtcsCodes = {};
@@ -1878,6 +1926,7 @@ RadioCapabilities Hl2Backend::capabilities() const
         {QStringLiteral("SAM"), -12000, -10, 10, 12000, 20, 24000}}};
     c.receiveAudioControl = ReceiveAudioControl{SliceFrequencyControl::Authority::Engine};
     c.receiveAudioExport = std::nullopt; // native DAX export not qualified for this backend
+    c.dspParameterReset = std::nullopt;
     c.receivePanCenterControl = ReceivePanRangeControl{SliceFrequencyControl::Authority::Engine,
                                                       100'000, 38'400'000};
     c.receivePanBandwidthControl = std::nullopt; // radio-wide rate can retire other receivers
@@ -1891,21 +1940,28 @@ RadioCapabilities Hl2Backend::capabilities() const
     // Reported from the gate, not hardcoded: the engine's TX guard keys off this,
     // so a build with transmit disabled must look RX-only from above the seam.
     c.canTransmit = m_txAllowed;
-    // Modes this radio demodulates but cannot modulate: Hl2TxDsp only
-    // distinguishes sidebands, so these would go out as USB. SSB family and CW
-    // (gateware-keyed at the TX NCO) are not listed. Both spellings are listed
-    // because refuseKeyInReceiveOnlyMode() compares the slice's string. This
-    // also refuses TUNE in these modes, since the list has no per-activity
-    // granularity (same on IC-705, #5040).
-    c.receiveOnlyModes = {QStringLiteral("AM"),   QStringLiteral("SAM"),
-                          QStringLiteral("DSB"),  QStringLiteral("FM"),
-                          QStringLiteral("NFM"),  QStringLiteral("WBFM"),
+    // Modes this radio demodulates but does not modulate. SAM is a receive
+    // detector (TXA would send plain AM), WDSP TX has no WBFM mode, and there
+    // is no DRM encoder. Both spellings of an alias are listed because
+    // refuseKeyInReceiveOnlyMode() compares the slice's string. The list also
+    // refuses TUNE in these modes: it has no per-activity granularity.
+    c.receiveOnlyModes = {QStringLiteral("SAM"),  QStringLiteral("WBFM"),
                           QStringLiteral("WFM"),  QStringLiteral("DRM")};
+    // AM, DSB and FM (NFM is the same TXA mode) are modulated by the TXA build
+    // only. The phasing modulator only distinguishes sidebands and would send
+    // them as USB, so that build keeps refusing them.
+    if (!AETHER_HL2_TX_TXA) {
+        c.receiveOnlyModes << QStringLiteral("AM")  << QStringLiteral("DSB")
+                           << QStringLiteral("FM")  << QStringLiteral("NFM");
+    }
     c.hostModulates = true;
     // Same tap, same seam — see RadioCapabilities::takesTxAudioOverSeam.
     c.takesTxAudioOverSeam = true;             // PC runs the modulator; no on-radio mic jacks
-    // No PTT status plane: the command edge is the only keyed edge there is.
+    // ptt_resp is cw_on | ext_ptt (control.v:456): it never follows host MOX, so
+    // the command edge stays the keyed edge for our own keying and the readback is
+    // declared as an observation of the radio's own inputs only.
     c.hasRadioPttReadback = false;
+    c.radioPttObservation = RadioCapabilities::RadioPttObservation{};
     c.txPowerMaxWatts = 0.0;            // uncalibrated; see the oracle on power counts
     // HL2 publishes an instantaneous directional estimate; preserve the
     // established client-side PEP response above the backend seam.
@@ -1941,6 +1997,9 @@ RadioCapabilities Hl2Backend::capabilities() const
     // The pan's frame rate is paced on this host and the radio stores no
     // display state: the client is the only memory FFT FPS has.
     c.panFrameRateShaping = PanFrameRateShaping{/*clientPersistsFrameRate*/ true};
+    // Likewise the waterfall rate: no register holds it.
+    c.panWaterfallRateShaping =
+        PanWaterfallRateShaping{/*clientPersistsWaterfallRate*/ true};
     // No band/segment zoom: this backend vends no command plane at all, so
     // `display pan set ... band_zoom=` is dropped inside RadioModel::sendCmd.
     // Declaring absence is what makes the control refuse rather than lie.
@@ -2074,6 +2133,10 @@ RadioCapabilities Hl2Backend::capabilities() const
     c.voxControl = std::nullopt;
     c.txMonitorControl = std::nullopt;
     c.lineoutControl = std::nullopt;
+    // No register holds "Show TX in Waterfall" and nothing echoes it: the
+    // client is the only memory the flag has.
+    c.txWaterfallClientFlag = RadioCapabilities::TxWaterfallClientFlag{
+        /*clientPersistsFlag*/ true};
     c.hasMainFanTelemetry = false;
     // The HL2 persists NOTHING across power cycles — "the radio reports no
     // VFO, so the app is authoritative and must push" (pushInitialState).
@@ -3184,6 +3247,107 @@ void Hl2Backend::setSliceNoiseBlanker(int sliceId, AetherSDR::NoiseBlankerKind k
     r->nbFill = fill;
     pushNoiseBlanker(*r);
     notifyOperatingStateChanged();
+}
+
+ReceiveDispatch Hl2Backend::requestSliceControl(int sliceId, const SliceControlRequest& request)
+{
+    using Field = SliceControlRequest::Field;
+    if (!request.valid() || !rx(ddcForSlice(sliceId))) { return ReceiveDispatch::Unsupported; }
+    switch (request.field) {
+    case Field::Rit: case Field::Xit: {
+        const IncrementalTuning tuning = std::get<IncrementalTuning>(request.value);
+        const int ddc = ddcForSlice(sliceId);
+        Receiver* receiver = rx(ddc);
+        const int hz = clampRitXit(request.field == Field::Rit ? "RIT" : "XIT", tuning.hz);
+        const QPointer<Hl2Backend> alive(this);
+        // Commit the pair before publishing. An enable echo can synchronously
+        // trigger a newer request; no tail of this request may overwrite it.
+        if (request.field == Field::Rit) {
+            if (receiver->ritOn == tuning.enabled && receiver->ritHz == hz && hz == tuning.hz) {
+                return ReceiveDispatch::Dispatched;
+            }
+            const bool moves = (receiver->ritOn ? receiver->ritHz : 0) != (tuning.enabled ? hz : 0);
+            receiver->ritOn = tuning.enabled;
+            receiver->ritHz = hz;
+            logRitXit("RIT", ddc, receiver->ritOn, receiver->ritHz);
+            if (moves) { retuneReceiver(ddc); }
+            else { emitSliceState(ddc); }
+        } else {
+            if (receiver->xitOn == tuning.enabled && receiver->xitHz == hz && hz == tuning.hz) {
+                return ReceiveDispatch::Dispatched;
+            }
+            const bool moves = (receiver->xitOn ? receiver->xitHz : 0) != (tuning.enabled ? hz : 0);
+            receiver->xitOn = tuning.enabled;
+            receiver->xitHz = hz;
+            logRitXit("XIT", ddc, receiver->xitOn, receiver->xitHz);
+            if (moves && ddc == m_txDdc) { setTxFrequency(receiver->sliceFreqHz); }
+            emitSliceState(ddc);
+        }
+        if (alive) { notifyOperatingStateChanged(); }
+        break;
+    }
+    case Field::ActiveSlice:
+        if (std::get<bool>(request.value)) { setActiveSlice(sliceId); }
+        break;
+    case Field::TxSlice:
+        if (std::get<bool>(request.value)) { setTxSlice(sliceId); }
+        break;
+    case Field::TxAntenna: case Field::DaxChannel: case Field::RttyMark:
+    case Field::RttyShift: case Field::DiglOffset: case Field::DiguOffset:
+    case Field::Record: case Field::Play: case Field::FmToneMode:
+    case Field::FmToneValue: case Field::FmRxToneValue: case Field::FmDtcs:
+    case Field::RepeaterDirection: case Field::RepeaterOffset: case Field::TxOffset:
+    case Field::FmDeviation: case Field::RfGain: case Field::Diversity:
+    case Field::EscEnabled: case Field::EscGain: case Field::EscPhase:
+    case Field::RepeaterRecall: case Field::Count:
+        return ReceiveDispatch::Unsupported;
+    }
+    return ReceiveDispatch::Dispatched;
+}
+
+ReceiveDispatch Hl2Backend::requestTransmitControl(const TransmitControlRequest& request,
+                                               TunePowerContext context)
+{
+    using Field = TransmitControlRequest::Field;
+    if (!request.valid()) { return ReceiveDispatch::Unsupported; }
+    switch (request.field) {
+    case Field::RfPower: setTxPower(std::get<int>(request.value)); break;
+    case Field::TunePower:
+        if (context == TunePowerContext::Deferred) {
+            if (recordTunePower(std::get<int>(request.value))) { notifyOperatingStateChanged(); }
+            return ReceiveDispatch::LocalOnly;
+        }
+        if (context != TunePowerContext::LiveLocalCarrier || !m_tuning
+            || !TxCoordinator::Command{m_tuneOperation, true}.permitsDispatch(TxCoordinator::monotonicMs())) {
+            return ReceiveDispatch::Unsupported;
+        }
+        setTunePower(std::get<int>(request.value)); break;
+    case Field::MicGain: setMicGain(std::get<int>(request.value)); break;
+    case Field::CwPitch: setCwPitch(std::get<int>(request.value)); break;
+    case Field::Filter: {
+        const TxPassband filter = std::get<TxPassband>(request.value);
+        setTxFilter(filter.lowHz, filter.highHz); break;
+    }
+    // ClientComp and the host keyer consume the model's local notifications.
+    case Field::ProcessorEnabled: case Field::ProcessorLevel:
+    case Field::CwSpeed: case Field::CwBreakIn: case Field::CwDelay:
+    case Field::CwSidetone: case Field::CwIambic: case Field::CwIambicMode:
+    case Field::CwSwap: case Field::CwMonitorGain: case Field::CwMonitorPan:
+        return ReceiveDispatch::LocalOnly;
+    case Field::MicInput:
+        return std::get<QString>(request.value) == QLatin1String("PC")
+            ? ReceiveDispatch::LocalOnly : ReceiveDispatch::Unsupported;
+    case Field::TuneMode: case Field::MicAccessory: case Field::Dax:
+    case Field::MonitorEnabled: case Field::MonitorLevel: case Field::VoxEnabled:
+    case Field::VoxLevel: case Field::VoxDelay: case Field::MicBoost:
+    case Field::MicBias: case Field::AmCarrier: case Field::ExpanderEnabled:
+    case Field::ExpanderLevel: case Field::CwlEnabled: case Field::TxProfile:
+    case Field::MicProfile: case Field::ApdEnabled: case Field::ApdSampler:
+    case Field::ApdReset: case Field::AtuMemories: case Field::AtuClear:
+    case Field::PttMicOverride: case Field::Count:
+        return ReceiveDispatch::Unsupported;
+    }
+    return ReceiveDispatch::Dispatched;
 }
 
 ReceiveDispatch Hl2Backend::requestSliceDsp(int sliceId, const SliceDspRequest& request)
@@ -4327,23 +4491,20 @@ void Hl2Backend::applyKeying(bool key, const TxCoordinator::Operation& operation
         m_sinceUnkey.start();
     }
     m_keyed = key;
-    if (keyChanged) {
-        // Manual PTT is already mirrored optimistically by RadioModel, but CW
-        // break-in keys inside this backend. Publish that edge so the TX
-        // indicator, TCI clients and receive-side TX gates see the real state.
-        // TransmitDelta::mox is observed state, not client intent, so this does
-        // not start microphone capture or feed a second key command back down.
-        TransmitDelta delta;
-        delta.mox = key;
-        emit transmitChanged(delta);
-    }
+    // Manual PTT is already mirrored optimistically by RadioModel, but CW
+    // break-in keys inside this backend. Publish that edge so the TX
+    // indicator, TCI clients and receive-side TX gates see the real state.
+    // TransmitDelta::mox is observed state, not client intent, so this does
+    // not start microphone capture or feed a second key command back down.
+    publishTransmitState();
     // Mute receive audio while keyed: the HL2 hears its own transmission, and
     // with an open mic that closes an acoustic feedback loop. Muted at the
     // demodulator (clocked with silence) so the spectrum keeps running and
     // nothing drains on unkey. Every receiver, since all share the antenna,
     // unless the TX audio monitor is on (radiocert's sideband stage
     // demodulates our own transmission).
-    const bool muteWhileKeyed = key && !m_txMonitor;
+    // A PTT the radio itself still reports keeps the mute through a host unkey.
+    const bool muteWhileKeyed = (key || m_radioPtt) && !m_txMonitor;
     // The edges are asymmetric (#5497). Key down mutes here, first. Key up
     // releases at the bottom, after the MOX-off is queued, then holds past the
     // T/R turnaround (releaseRxAudioMuteAfterHold()). Receivers and
@@ -4666,85 +4827,6 @@ void Hl2Backend::logRitXit(const char* what, int ddc, bool on, int hz) const
     qCInfo(lcHl2) << "HL2:" << what << (on ? "on," : "off,") << "offset" << hz
                   << "Hz on receiver DDC" << ddc << "slice" << (ids ? ids->uiNumber : -1)
                   << (ddc == m_txDdc ? "(transmit)" : "(receive only)");
-}
-
-// Each setter ends by publishing the receiver's RIT/XIT, so the readout follows
-// what the receiver holds: an offset the clamp cut, and the final value of an
-// enable-then-offset pair. retuneReceiver() publishes as part of the re-tune.
-void Hl2Backend::setSliceRitEnabled(int sliceId, bool on)
-{
-    const int ddc = ddcForSlice(sliceId);
-    Receiver* r = rx(ddc);
-    if (!r || on == r->ritOn) {
-        return;
-    }
-    r->ritOn = on;
-    logRitXit("RIT", ddc, r->ritOn, r->ritHz);
-    if (r->ritHz != 0) {
-        retuneReceiver(ddc);
-    } else {
-        emitSliceState(ddc);
-    }
-    notifyOperatingStateChanged();
-}
-
-void Hl2Backend::setSliceRitOffset(int sliceId, int hz)
-{
-    const int ddc = ddcForSlice(sliceId);
-    Receiver* r = rx(ddc);
-    if (!r) {
-        return;
-    }
-    const int clamped = clampRitXit("RIT", hz);
-    if (clamped == r->ritHz && clamped == hz) {
-        return;
-    }
-    const bool moves = r->ritOn && clamped != r->ritHz;
-    r->ritHz = clamped;
-    logRitXit("RIT", ddc, r->ritOn, r->ritHz);
-    if (moves) {
-        retuneReceiver(ddc);
-    } else {
-        emitSliceState(ddc);
-    }
-    notifyOperatingStateChanged();
-}
-
-void Hl2Backend::setSliceXitEnabled(int sliceId, bool on)
-{
-    const int ddc = ddcForSlice(sliceId);
-    Receiver* r = rx(ddc);
-    if (!r || on == r->xitOn) {
-        return;
-    }
-    r->xitOn = on;
-    logRitXit("XIT", ddc, r->xitOn, r->xitHz);
-    if (r->xitHz != 0 && ddc == m_txDdc) {
-        setTxFrequency(r->sliceFreqHz);
-    }
-    emitSliceState(ddc);
-    notifyOperatingStateChanged();
-}
-
-void Hl2Backend::setSliceXitOffset(int sliceId, int hz)
-{
-    const int ddc = ddcForSlice(sliceId);
-    Receiver* r = rx(ddc);
-    if (!r) {
-        return;
-    }
-    const int clamped = clampRitXit("XIT", hz);
-    if (clamped == r->xitHz && clamped == hz) {
-        return;
-    }
-    const bool moves = r->xitOn && clamped != r->xitHz && ddc == m_txDdc;
-    r->xitHz = clamped;
-    logRitXit("XIT", ddc, r->xitOn, r->xitHz);
-    if (moves) {
-        setTxFrequency(r->sliceFreqHz);
-    }
-    emitSliceState(ddc);
-    notifyOperatingStateChanged();
 }
 
 void Hl2Backend::setCwPitch(int hz)
@@ -5141,12 +5223,13 @@ void Hl2Backend::setTxAudioMonitor(bool on)
     // mixReceiverAudio() also honours m_txMonitor. applyRxAudioMute() stamps
     // SliceSamplingGate on resume. No #5497 hold here: that covers the PA's
     // T/R turnaround, and a monitor change while keyed must take effect now.
-    if (m_keyed && !on) {
+    const bool keyed = m_keyed || m_radioPtt;
+    if (keyed && !on) {
         if (m_unkeyUnmuteTimer) {
             m_unkeyUnmuteTimer->stop();
         }
         applyRxAudioMute(true);
-    } else if (!on && !m_keyed && m_unkeyUnmuteTimer && m_unkeyUnmuteTimer->isActive()) {
+    } else if (!on && !keyed && m_unkeyUnmuteTimer && m_unkeyUnmuteTimer->isActive()) {
         // Unkeyed with the post-unkey hold armed: monitor OFF leaves the
         // timer running and the receiver muted until it expires, so it cannot
         // unmute inside the T/R turnaround. Monitor ON takes the immediate
@@ -5318,7 +5401,7 @@ std::pair<int, int> Hl2Backend::effectiveTxPassband(const QString& mode) const
 // Push the effective passband to the modulator and echo it upward, so the
 // Phone applet shows what the modulator runs (including a restored
 // passband). TransmitModel::applyChanges() does not emit
-// txFilterCommandIssued, so the echo cannot loop (pinned by
+// controlRequested, so the echo cannot loop (pinned by
 // transmit_model_test).
 void Hl2Backend::pushTxPassband(const QString& mode)
 {
@@ -5993,6 +6076,11 @@ void Hl2Backend::publishFrontEndOverload()
 
 IRadioBackend::HealthSnapshot Hl2Backend::healthSnapshot() const
 {
+    return healthSnapshot(hl2::steadyNowNs());
+}
+
+IRadioBackend::HealthSnapshot Hl2Backend::healthSnapshot(std::int64_t nowNs) const
+{
     HealthSnapshot h;
     auto put = [&h](const char* key, const QString& label, const QVariant& v) {
         const QString k = QString::fromLatin1(key);
@@ -6070,9 +6158,10 @@ IRadioBackend::HealthSnapshot Hl2Backend::healthSnapshot() const
         // it stops advancing again if the IQ stream stalls. Without an age on
         // it, a frozen number reads as a current one. The pairing row below
         // does not merely display this age, it is GATED on it: see
-        // kSliceStaleMs.
+        // kSliceStaleMs. Row and gate share this one value, taken at `nowNs`.
         const std::optional<std::int64_t> ago =
-            r->dsp ? r->dsp->adcPeakObservedAgoMs() : std::nullopt;
+            r->dsp ? hl2::slicePeakAgeMs(r->dsp->adcPeakObservedAtNs(), nowNs)
+                   : std::nullopt;
         put(QStringLiteral("adcSliceObservedAgoMs%1").arg(ids.uiNumber).toUtf8().constData(),
             QStringLiteral("Post-DDC slice peak observed (ms ago)") + suffix,
             ago ? QVariant(static_cast<qulonglong>(*ago)) : QVariant());
@@ -7962,8 +8051,11 @@ void Hl2Backend::pushInitialState()
     }
 
     // Keying state is ours, not the radio's: a reconnect must never come up
-    // keyed because the previous session ended mid-transmission.
+    // keyed because the previous session ended mid-transmission. The radio's own
+    // PTT is re-read from the first EP6 frame after this.
     m_keyed = false;
+    m_radioPtt = false;
+    publishTransmitState();
     m_tuning = false;
     m_tuneOperation = {};
     cancelTxTail();
@@ -8028,12 +8120,12 @@ void Hl2Backend::defineMeters()
         0.0, 100.0,    QStringLiteral("PA temperature"));
     def(6, QStringLiteral("TX"),  QStringLiteral("MICPEAK"), QStringLiteral("dBFS"),
         -100.0, 0.0,   QStringLiteral("Microphone peak"));
-    // The post-ALC transmit level. Named ALC because that is the name MeterModel
-    // binds to its swAlc() accessor, which is what the Phone/CW applet's ALC
-    // gauges read — the meter is defined by what consumes it, not by which stage
-    // happens to produce it.
+    // The post-ALC audio peak, before the modulator. Named ALC because that is
+    // the name MeterModel binds to its swAlc() accessor, which the Phone/CW
+    // applet's ALC gauges read: the meter is defined by what consumes it, not
+    // by which stage produces it.
     def(7, QStringLiteral("TX"),  QStringLiteral("ALC"),     QStringLiteral("dBFS"),
-        -100.0, 0.0,   QStringLiteral("Post-ALC transmit peak"));
+        -100.0, 0.0,   QStringLiteral("Post-ALC audio peak, before the modulator"));
     // Speech-processor gain reduction, as a POSITIVE amount of compression in
     // dB — the sign convention MeterModel's COMPPEAK path already expects, and
     // the opposite of ClientComp::gainReductionDb()'s own (which is <= 0).

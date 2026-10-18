@@ -9,12 +9,17 @@
 #include "models/SliceModel.h"
 #include "core/backends/flex/FlexBackend.h"
 #include "core/backends/flex/FlexPttWireSession.h"
+#include "core/backends/flex/CommandParser.h"
 #include "core/ClientQuindarTone.h"
 #include "core/backends/flex/PanadapterStream.h"
 #include "core/RigctlProtocol.h"
 #include "core/SmartCatProtocol.h"
 #include "core/AudioEngine.h"
 #include "core/TciServer.h"
+#include "core/LocalVoiceKeyerStore.h"
+#include "core/VoiceKeyerSettings.h"
+#include "models/VoiceKeyer.h"
+#include "models/VoiceKeyerController.h"
 #ifdef HAVE_WEBSOCKETS
 #include "core/TciClient.h"
 #endif
@@ -34,6 +39,10 @@ using namespace AetherSDR;
 namespace AetherSDR {
 class TxOperationIntegrationTestAccess {
 public:
+    static void setClientIdentity(RadioConnection& connection, quint32 handle)
+    {
+        connection.m_handle.store(handle);
+    }
     static unsigned activeTxActivities(const RadioModel& radio) { return radio.activeTxActivities(); }
     static void flexPrologue(FlexBackend& backend, const QString& version)
     {
@@ -51,6 +60,28 @@ public:
     }
     static void serialClose(SerialPortController& source) { source.retireTxInputs(); }
 #ifdef HAVE_WEBSOCKETS
+    static void bindTciOwnershipIdentity(RadioModel& radio, RadioConnection* connection,
+                                         quint32 handle = 0x12345678)
+    {
+        // Unopened connection, used only as the parser's local identity source.
+        radio.m_connection = connection;
+        if (connection) {
+            connection->m_handle.store(handle);
+        }
+    }
+    static bool tciPromotion(TciServer& server, int sliceId)
+    {
+        bool called = false;
+        bool permitted = true;
+        server.promoteTxSliceAndContinue(sliceId, [&](bool accepted) {
+            called = true;
+            permitted = accepted;
+        });
+        if (!called) {
+            qFatal("TCI ownership test unexpectedly entered asynchronous promotion");
+        }
+        return permitted;
+    }
     static void addTciClient(TciServer& server, TciClient& socket, RadioModel& radio)
     {
         TciServer::ClientState client;
@@ -58,9 +89,26 @@ public:
         client.txProducer = radio.registerTxProducer(&socket);
         server.m_clients.append(std::move(client));
     }
-    static void tciRequest(TciServer& server, TciClient& socket, bool on)
+    static void tciRequest(TciServer& server, TciClient& socket, bool on, int receiver = 0)
     {
-        server.handleTrxRequest(&socket, {0, on, QStringLiteral("tci")});
+        server.handleTrxRequest(&socket, {receiver, on, QStringLiteral("tci")});
+    }
+    static void tciSplit(TciServer& server, bool enabled)
+    {
+        server.m_routingState.setSplitRequested(enabled);
+    }
+    static void beginTciPromotion(TciServer& server, int sliceId,
+                                  std::function<void(bool)> continuation)
+    {
+        server.promoteTxSliceAndContinue(sliceId, std::move(continuation));
+    }
+    static void completePromotionReply(RadioModel& radio, quint32 sequence)
+    {
+        RadioModel::ResponseCallback callback = radio.m_pendingCallbacks.take(sequence);
+        if (!callback) {
+            qFatal("TCI promotion test lost its outstanding reply");
+        }
+        callback(0, QString());
     }
     static void discardTciInputs(TciServer& server, TciClient& socket)
     {
@@ -298,12 +346,14 @@ struct Fixture {
     QStringList commands;
     RadioModel radio;
     RecordingBackend* backend;
-    Fixture()
+    explicit Fixture(bool installSlice = true)
     {
         auto owned = std::make_unique<RecordingBackend>(commands);
         backend = owned.get();
         radio.setBackendForTest(std::move(owned), QStringLiteral("test"));
-        installTxSlice();
+        if (installSlice) {
+            installTxSlice();
+        }
         backend->connected = true;
         radio.transmitModel().setTxModeGetter([] { return QStringLiteral("USB"); });
         commands.clear();
@@ -337,6 +387,113 @@ struct GrantedFixture : Fixture {
         check(ga.accepted() && gb.accepted(), "model fixture has two injected independent grants");
     }
 };
+
+void interlockSourceReconciliation()
+{
+    // FlexLib 4.3.16 Radio.cs:8236-8261 defines these list shapes. Inject
+    // status through the production parser/router; the transport only records.
+    struct Case {
+        QString source;
+        bool hardware;
+    };
+    const Case cases[]{
+        {QStringLiteral("MIC"), true}, {QStringLiteral("ACC"), true},
+        {QStringLiteral("RCA"), true}, {QStringLiteral("MIC,VOX"), true},
+        {QStringLiteral("VOX,MIC"), true}, {QStringLiteral("ACC,SW"), true},
+        {QStringLiteral("SW,RCA"), true}, {QStringLiteral("TC2,MIC,DVK"), true},
+        {QStringLiteral("VOX"), false}, {QStringLiteral("SW,VOX"), false},
+        {QStringLiteral("SW"), false}, {QString(), false},
+        {QStringLiteral("UNKNOWN"), false}, {QStringLiteral("MICROPHONE,RCAX"), false}};
+    for (const Case& sample : cases) {
+        for (bool voxEnabled : {false, true}) {
+            QStringList wire;
+            RadioConnection connection;
+            bool audioGate = false;
+            std::vector<bool> meterEdges;
+            std::vector<bool> audioEdges;
+            Fixture f;
+            TxOperationIntegrationTestAccess::injectTcp(f.radio, connection, wire);
+            TxOperationIntegrationTestAccess::setClientIdentity(connection, 0x12345678);
+            TransmitDelta delta;
+            delta.voxEnable = voxEnabled;
+            TxOperationIntegrationTestAccess::transmitDelta(f.radio, delta);
+            QObject::connect(&f.radio, &RadioModel::txAudioGateChanged, &f.radio, [&](bool on) {
+                audioGate = on;
+                audioEdges.push_back(on);
+            });
+            QObject::connect(&f.radio.transmitModel(), &TransmitModel::transmittingChanged,
+                             &f.radio, [&](bool on) { meterEdges.push_back(on); });
+            const auto feed = [&](const QString& state, const QString& owner, bool includeSource = true) {
+                const QString body = QStringLiteral("tx_client_handle=%1 state=%2%3 tx_allowed=1")
+                    .arg(owner, state, includeSource ? QStringLiteral(" source=") + sample.source : QString());
+                f.radio.handleStatusForTest(QStringLiteral("interlock"), CommandParser::parseKVs(body));
+            };
+            const QString ours = QStringLiteral("0x12345678");
+            feed(QStringLiteral("PTT_REQUESTED"), ours);
+            check(!f.radio.transmitModel().isTransmitting() && !audioGate,
+                  "external source in pre-TX status cannot start local TX");
+            feed(QStringLiteral("TRANSMITTING"), ours);
+            const bool expected = sample.hardware || voxEnabled;
+            check(f.radio.transmitModel().isTransmitting() == expected && audioGate == expected,
+                  "production interlock reconciles both meter state and local audio gate");
+            feed(QStringLiteral("TRANSMITTING"), ours, false);
+            check(f.radio.transmitModel().isTransmitting() == expected && audioGate == expected,
+                  "partial status retains exact latched source list without duplicate edges");
+            check(meterEdges.size() == (expected ? 1u : 0u)
+                      && audioEdges.size() == (expected ? 1u : 0u),
+                  "repeated TX status publishes at most one meter/audio start edge");
+            f.radio.handleStatusForTest(QStringLiteral("interlock"), {
+                {QStringLiteral("state"), QStringLiteral("TRANSMITTING")},
+                {QStringLiteral("source"), QStringLiteral("VOX")}});
+            check(f.radio.transmitModel().isTransmitting() == voxEnabled && audioGate == voxEnabled,
+                  "releasing hardware PTT to bare VOX retains only the existing VOX enable gate");
+            f.radio.handleStatusForTest(QStringLiteral("interlock"), {
+                {QStringLiteral("state"), QStringLiteral("TRANSMITTING")},
+                {QStringLiteral("source"), QString()}});
+            check(f.radio.transmitModel().isTransmitting() == voxEnabled && audioGate == voxEnabled,
+                  "explicit empty source clears the latched hardware source during TX");
+            feed(QStringLiteral("TRANSMITTING"), QStringLiteral("0x87654321"));
+            check(!f.radio.transmitModel().isTransmitting() && !audioGate,
+                  "another client forces both local meter and audio gate off");
+            feed(QStringLiteral("TRANSMITTING"), QStringLiteral("0x00000000"));
+            check(f.radio.transmitModel().isTransmitting() == expected && audioGate == expected,
+                  "unclaimed transmitter preserves existing local-ownership convention");
+            feed(QStringLiteral("TRANSMITTING"), ours);
+            feed(QStringLiteral("READY"), ours);
+            check(!f.radio.transmitModel().isTransmitting() && !audioGate,
+                  "READY releases local meter and audio state even while VOX enabled");
+            delta.voxEnable = false;
+            TxOperationIntegrationTestAccess::transmitDelta(f.radio, delta);
+            feed(QStringLiteral("TRANSMITTING"), ours, false);
+            check(!f.radio.transmitModel().isTransmitting() && !audioGate,
+                  "READY clears stale source list before a later source-less TX");
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+            check(wire.isEmpty() && f.commands.isEmpty()
+                      && !TxOperationIntegrationTestAccess::coordinator(f.radio).hasOwnership()
+                      && !f.radio.transmitOperation().permitsDispatch(TxCoordinator::monotonicMs())
+                      && TxOperationIntegrationTestAccess::activeTxActivities(f.radio) == 0,
+                  "status reconciliation emits no commands and grants no TX operation or activity");
+        }
+    }
+    bool audioGate = false;
+    Fixture f;
+    QObject::connect(&f.radio, &RadioModel::txAudioGateChanged, &f.radio,
+                     [&](bool on) { audioGate = on; });
+    const QMap<QString, QString> softwareTx{
+        {QStringLiteral("tx_client_handle"), QStringLiteral("0x00000000")},
+        {QStringLiteral("state"), QStringLiteral("TRANSMITTING")},
+        {QStringLiteral("source"), QStringLiteral("SW")}};
+    f.radio.setTransmit(true);
+    f.radio.handleStatusForTest(QStringLiteral("interlock"), softwareTx);
+    check(f.radio.transmitModel().isTransmitting() && audioGate
+              && f.commands == QStringList{QStringLiteral("mox:on")},
+          "explicit operator MOX still reconciles software TX without a duplicate key command");
+    f.radio.setTransmit(false);
+    f.radio.handleStatusForTest(QStringLiteral("interlock"), softwareTx);
+    check(!f.radio.transmitModel().isTransmitting() && !audioGate
+              && f.commands == QStringList({QStringLiteral("mox:on"), QStringLiteral("mox:off")}),
+          "stale SW transmitting after explicit unkey cannot reopen local audio or restart TX");
+}
 
 void grantedModelBindingAndHandoff()
 {
@@ -974,6 +1131,94 @@ void queuedPrimaryKeying()
         } else {
             check(wire == QStringList({on}), "idle cleanup cannot unkey the newly acquired operation");
         }
+    }
+}
+
+// The client-side voice keyer on air when the radio disconnects (#6292
+// review). The keyer's own unkey runs from connectionStateChanged(false), after
+// resetTxOperations() has unbound its request, so that unkey finds nothing to
+// release. What stops the transmission is the reset itself:
+// TxCoordinator::reset() stops the active operation, whoever keyed it, so the
+// backend is told to unkey the keyer's playback exactly as it is told to unkey
+// the operator's own MOX. On LAN that queued `xmit 0` is then cancelled by the
+// same reset's fence before the terminal writer, for both sources alike, so the
+// wire is compared with the operator's MOX rather than asserted absolute.
+// Real Flex encoder and fence; the TCP sink is inert.
+void voiceKeyerDisconnectStopsLikeMox()
+{
+    const auto spin = [] {
+        QEventLoop loop;
+        QTimer::singleShot(10, &loop, &QEventLoop::quit);
+        loop.exec();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+    };
+    struct Result { QStringList wire; QStringList backend; bool keyed{false}; bool idle{false}; };
+    const auto run = [&spin](bool keyer) {
+        Result r;
+        RadioConnection connection;
+        FlexBackend encoder;
+        Fixture f;
+        TxOperationIntegrationTestAccess::injectTcp(f.radio, connection, r.wire);
+        TxOperationIntegrationTestAccess::bindTxEncoder(f.radio, encoder);
+        f.backend->keyingWriter = [&encoder](bool on, const auto& operation, const auto& completion) {
+            encoder.setKeying(on, operation, completion);
+        };
+        // Audio over the seam (no DAX stream to wait for); playback waits for
+        // the radio's PTT echo, as on a Flex.
+        f.backend->caps.takesTxAudioOverSeam = true;
+        f.backend->caps.hasRadioPttReadback = true;
+        AudioEngine audio;
+        VoiceKeyerController controller(f.radio, &audio, nullptr);
+        if (keyer) {
+            controller.bound()->playbackStart(1);
+        } else {
+            f.radio.setTransmit(true);
+        }
+        for (int i = 0; i < 300 && !r.wire.contains(QStringLiteral("xmit 1")); ++i) {
+            spin();
+        }
+        TransmitDelta echo;
+        echo.mox = true;
+        TxOperationIntegrationTestAccess::transmitDelta(f.radio, echo);
+        spin();
+        r.keyed = r.wire.contains(QStringLiteral("xmit 1"))
+                  && (!keyer || controller.bound()->status() == VoiceKeyer::Playback);
+        f.backend->connected = false;
+        f.radio.forceDisconnect();
+        TxOperationIntegrationTestAccess::disconnect(f.radio);
+        spin();
+        r.backend = f.commands;
+        r.idle = controller.bound()->status() == VoiceKeyer::Idle;
+        return r;
+    };
+
+    QString error;
+    const int frames = LocalVoiceKeyerStore::kSampleRate * 3;   // 3 s
+    QByteArray pcm(frames * LocalVoiceKeyerStore::kChannels * int(sizeof(qint16)), '\0');
+    auto* sample = reinterpret_cast<qint16*>(pcm.data());
+    for (int i = 0; i < frames * LocalVoiceKeyerStore::kChannels; ++i) {
+        sample[i] = qint16((i / 24) % 2 ? 4000 : -4000);
+    }
+    LocalVoiceKeyerStore store(VoiceKeyerSettings::recordingsDir());
+    check(store.writeSlot(1, pcm, error), "voice keyer slot fixture written");
+    VoiceKeyerSettings::setSource(VoiceKeyerSourceSetting::Local);
+
+    const Result keyer = run(true);
+    const Result mox = run(false);
+    const auto unkeyedAfterKey = [](const QStringList& backend) {
+        return backend.lastIndexOf(QStringLiteral("mox:off")) > backend.indexOf(QStringLiteral("mox:on"))
+               && backend.indexOf(QStringLiteral("mox:on")) >= 0;
+    };
+    check(keyer.keyed && mox.keyed, "voice keyer playback and operator MOX both keyed the radio");
+    check(unkeyedAfterKey(keyer.backend),
+          "a disconnect mid-playback tells the backend to unkey the voice keyer's transmission");
+    check(keyer.wire == mox.wire,
+          "a disconnect mid-playback leaves the wire exactly as it leaves the operator's own MOX");
+    check(keyer.idle, "the voice keyer is idle after the disconnect");
+    if (keyer.wire != mox.wire || !unkeyedAfterKey(keyer.backend)) {
+        std::printf("  keyer wire=[%s] backend=[%s]\n  mox   wire=[%s] backend=[%s]\n",
+                    qPrintable(keyer.wire.join(",")), qPrintable(keyer.backend.join(",")),
+                    qPrintable(mox.wire.join(",")), qPrintable(mox.backend.join(",")));
     }
 }
 
@@ -2358,6 +2603,154 @@ void tciProducerLifetimes()
     check(g.commands.contains("mox:off"),
           "worker-side input revocation still permits owner-thread PTT cleanup");
 }
+
+void tciPermissionRequiresConfirmedOwnership()
+{
+    QStringList sent;
+    Fixture f(false);
+    f.backend->caps.hasMultiClientSessions = true;
+    RadioConnection identity;
+    TxOperationIntegrationTestAccess::bindTciOwnershipIdentity(f.radio, &identity, 0);
+    const auto detachIdentity = qScopeGuard([&] {
+        TxOperationIntegrationTestAccess::bindTciOwnershipIdentity(f.radio, nullptr);
+    });
+    TciServer server(&f.radio);
+    TciClient client;
+    TxOperationIntegrationTestAccess::addTciClient(server, client, f.radio);
+    QObject::connect(&server, &TciServer::tciMessage,
+                     [&sent](const QString& direction, const QString& text) {
+        if (direction == QLatin1String("tx")) {
+            sent.append(text.trimmed());
+        }
+    });
+    const QMap<QString, QString> early{{QStringLiteral("in_use"), QStringLiteral("1")}};
+    f.radio.handleSliceStatusForTest(0, early);
+    f.radio.handleSliceStatusForTest(1, early);
+    SliceDelta tx;
+    tx.txSlice = true;
+    tx.mode = QStringLiteral("USB");
+    f.radio.emitBackendSliceChangedForTest(0, tx);
+    f.radio.emitBackendSliceChangedForTest(1, tx);
+    TciProtocol protocol(&f.radio);
+    const QString init = protocol.generateInitBurst();
+    check(f.radio.slice(0) && f.radio.slice(1)
+              && init.contains(QStringLiteral("tx_enable:0,false;"))
+              && init.contains(QStringLiteral("tx_enable:1,false;"))
+              && !sent.contains(QStringLiteral("tx_enable:0,true;"))
+              && !sent.contains(QStringLiteral("tx_enable:1,true;")),
+          "early multi-client RX models never advertise TX permission");
+    check(!TxOperationIntegrationTestAccess::tciPromotion(server, 0),
+          "an unknown owner cannot bypass permission by requesting TX directly");
+    for (const QString& owner : {QStringLiteral("0x0"), QStringLiteral("invalid")}) {
+        f.radio.handleSliceStatusForTest(0, {{QStringLiteral("client_handle"), owner}});
+        check(!TciProtocol::transmitPermitted(&f.radio, f.radio.slice(0)),
+              "zero or malformed ownership does not grant TX permission");
+    }
+    TxOperationIntegrationTestAccess::bindTciOwnershipIdentity(f.radio, &identity);
+    sent.clear();
+    f.radio.handleSliceStatusForTest(0, {
+        {QStringLiteral("client_handle"), QStringLiteral("0x12345678")}});
+    check(sent.contains(QStringLiteral("tx_enable:0,true;"))
+              && !sent.contains(QStringLiteral("tx_enable:1,true;"))
+              && TxOperationIntegrationTestAccess::tciPromotion(server, 0),
+          "local owner confirmation enables the existing bound receiver immediately");
+    SliceDelta notTx;
+    notTx.txSlice = false;
+    f.radio.emitBackendSliceChangedForTest(1, notTx);
+    f.commands.clear();
+    TxOperationIntegrationTestAccess::tciSplit(server, true);
+    TxOperationIntegrationTestAccess::tciRequest(server, client, true, 1);
+    check(f.commands.isEmpty() && !f.radio.isRadioTransmitting(),
+          "an unconfirmed RX receiver cannot key an owned TX slice through split routing");
+    TxOperationIntegrationTestAccess::tciRequest(server, client, false, 1);
+    TxOperationIntegrationTestAccess::tciSplit(server, false);
+    sent.clear();
+    f.radio.handleSliceStatusForTest(1, {
+        {QStringLiteral("client_handle"), QStringLiteral("0x87654321")}});
+    check(!f.radio.slice(1) && f.radio.isSlotForeign(1)
+              && sent.contains(QStringLiteral("tx_enable:1,false;"))
+              && !TxOperationIntegrationTestAccess::tciPromotion(server, 1),
+          "foreign owner settlement removes RX and explicitly denies TX");
+    sent.clear();
+    f.radio.handleSliceStatusForTest(0, {
+        {QStringLiteral("client_handle"), QStringLiteral("0x87654321")}});
+    check(!f.radio.slice(0) && sent.contains(QStringLiteral("tx_enable:0,false;")),
+          "a receiver transferred away loses permission before the close debounce");
+    f.radio.handleSliceStatusForTest(0, {
+        {QStringLiteral("in_use"), QStringLiteral("1")},
+        {QStringLiteral("client_handle"), QStringLiteral("0x12345678")}});
+    check(TciProtocol::transmitPermitted(&f.radio, f.radio.slice(0)),
+          "a transferred receiver can regain confirmed local ownership");
+    f.backend->connected = false;
+    emit f.radio.connectionStateChanged(false);
+    f.radio.stageSessionModelsForReconnectForTest();
+    f.backend->connected = true;
+    emit f.radio.connectionStateChanged(true);
+    sent.clear();
+    f.radio.emitBackendSliceChangedForTest(0, tx);
+    check(f.radio.slice(0) && !TciProtocol::transmitPermitted(&f.radio, f.radio.slice(0))
+              && !sent.contains(QStringLiteral("tx_enable:0,true;"))
+              && !TxOperationIntegrationTestAccess::tciPromotion(server, 0),
+          "reconnect reclamation cannot reuse the old session's ownership proof");
+    sent.clear();
+    f.radio.handleSliceStatusForTest(0, {
+        {QStringLiteral("client_handle"), QStringLiteral("0x12345678")}});
+    check(sent.contains(QStringLiteral("tx_enable:0,true;")),
+          "fresh owner confirmation republishes permission after reconnect");
+}
+
+void tciPromotionRechecksPermissionAfterReply()
+{
+    Fixture f(false);
+    f.backend->caps.hasMultiClientSessions = true;
+    f.backend->caps.receiveOnlyModes = QStringList{QStringLiteral("WFM")};
+    RadioConnection identity;
+    TxOperationIntegrationTestAccess::injectTcp(f.radio, identity, f.commands);
+    TxOperationIntegrationTestAccess::bindTciOwnershipIdentity(f.radio, &identity);
+    const auto detachIdentity = qScopeGuard([&] {
+        TxOperationIntegrationTestAccess::bindTciOwnershipIdentity(f.radio, nullptr);
+    });
+    bool replied = false;
+    bool permitted = true;
+    TciServer server(&f.radio);
+    const QMap<QString, QString> ours{
+        {QStringLiteral("in_use"), QStringLiteral("1")},
+        {QStringLiteral("client_handle"), QStringLiteral("0x12345678")}};
+    const auto begin = [&] {
+        replied = false;
+        permitted = true;
+        TxOperationIntegrationTestAccess::beginTciPromotion(server, 0, [&](bool accepted) {
+            replied = true;
+            permitted = accepted;
+        });
+        check(!replied && TxOperationIntegrationTestAccess::pendingReplyCount(f.radio) == 1,
+              "owned receiver promotion waits for the injected command reply");
+        return TxOperationIntegrationTestAccess::firstPendingReplySequence(f.radio);
+    };
+    f.radio.handleSliceStatusForTest(0, ours);
+    quint32 sequence = begin();
+    f.radio.handleSliceStatusForTest(0, {
+        {QStringLiteral("client_handle"), QStringLiteral("0x87654321")}});
+    TxOperationIntegrationTestAccess::completePromotionReply(f.radio, sequence);
+    check(replied && !permitted,
+          "a successful promotion reply cannot key a receiver whose ownership changed");
+
+    f.radio.handleSliceStatusForTest(0, ours);
+    sequence = begin();
+    SliceDelta mode;
+    mode.mode = QStringLiteral("WFM");
+    f.radio.emitBackendSliceChangedForTest(0, mode);
+    TxOperationIntegrationTestAccess::completePromotionReply(f.radio, sequence);
+    check(replied && !permitted,
+          "a successful promotion reply cannot key a newly receive-only mode");
+
+    mode.mode = QStringLiteral("USB");
+    f.radio.emitBackendSliceChangedForTest(0, mode);
+    sequence = begin();
+    TxOperationIntegrationTestAccess::completePromotionReply(f.radio, sequence);
+    check(replied && permitted,
+          "a successful promotion reply still accepts an owned transmit-capable receiver");
+}
 #endif
 } // namespace
 
@@ -2366,6 +2759,7 @@ int main(int argc, char** argv)
     TestSettingsProfile settings(QStringLiteral("tx-operation-integration"));
     if (!settings.isValid()) { return 1; }
     QCoreApplication app(argc, argv);
+    interlockSourceReconciliation();
     primaryRoutes();
     perIntentCompletion();
     overlappingCwContributions();
@@ -2377,6 +2771,7 @@ int main(int argc, char** argv)
     flexEncoding();
     flexSharedProtocolEligibility();
     queuedPrimaryKeying();
+    voiceKeyerDisconnectStopsLikeMox();
     teardownAdmission();
     pendingCallbackDisconnectExpiry();
     guiRegistrationDropIsNotARejection();
@@ -2414,6 +2809,8 @@ int main(int argc, char** argv)
     protocolCwxLifetimes();
 #ifdef HAVE_WEBSOCKETS
     tciProducerLifetimes();
+    tciPermissionRequiresConfirmedOwnership();
+    tciPromotionRechecksPermissionAfterReply();
 #endif
     return failures ? 1 : 0;
 }
