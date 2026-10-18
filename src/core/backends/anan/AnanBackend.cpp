@@ -1558,6 +1558,9 @@ void AnanBackend::loadHardwareFilters(int boardId)
 {
     const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
     if (!profile) { return; }
+    m_rxAntenna = AnanSettings::radioRxAntenna(m_radioSerial,
+        static_cast<int>(m_pendingParams.model), boardId);
+    m_pendingParams.rxAntenna = m_rxAntenna;
     const auto saved = AnanSettings::hardwareFilters(m_radioSerial,
         static_cast<int>(m_pendingParams.model), boardId);
     FilterConfig config = parseFilterOptions(saved).value_or(
@@ -1573,6 +1576,8 @@ void AnanBackend::loadHardwareFilters(int boardId)
         const QVariantMap options = filterOptions(config);
         QMetaObject::invokeMethod(m_client, "setHardwareFilters", Qt::QueuedConnection,
                                   Q_ARG(QVariantMap, options));
+        QMetaObject::invokeMethod(m_client, "setRxAntenna", Qt::QueuedConnection,
+                                  Q_ARG(int, m_rxAntenna));
     }
 }
 
@@ -1656,8 +1661,8 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         emit extensionResult(requestId, hardwareFilterStatus());
         return;
     }
-    //DH1KLM: ALEX RX antenna control is deliberately an explicit extension;
-    //the P2 client applies only the verified Saturn Alex0 bit mapping.
+    //DH1KLM: ALEX RX antenna control stays behind the ANAN extension. Only
+    // the validated device's saved receive path is changed.
     if (ns == QLatin1String("anan") && verb == QLatin1String("rx-antenna.get")) {
         if (requestId != 0) {
             emit extensionResult(requestId, QVariantMap{
@@ -1667,15 +1672,23 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         return;
     }
     if (ns == QLatin1String("anan") && verb == QLatin1String("rx-antenna.set")) {
+        if (!m_connected || !m_client || m_radioSerial.isEmpty() || !m_discoveryInfoReceived) {
+            emit extensionError(requestId, QStringLiteral("Connect a validated ANAN before changing its RX antenna"));
+            return;
+        }
         bool ok = false;
         const int antenna = arg.toInt(&ok);
         if (!ok || antenna < 1 || antenna > 3) {
             emit extensionError(requestId, QStringLiteral("RX antenna must be 1 (ANT1), 2 (ANT2), or 3 (ANT3)"));
             return;
         }
+        if (!AnanSettings::setRadioRxAntenna(m_radioSerial,
+                static_cast<int>(m_pendingParams.model), m_discoveredBoardId, antenna)) {
+            emit extensionError(requestId, QStringLiteral("RX antenna was not changed: device settings could not be saved"));
+            return;
+        }
         m_rxAntenna = antenna;
         m_pendingParams.rxAntenna = antenna;
-        AnanSettings::setRxAntenna(antenna);
         if (m_client && m_connected) {
             QMetaObject::invokeMethod(m_client, "setRxAntenna", Qt::QueuedConnection,
                                       Q_ARG(int, antenna));

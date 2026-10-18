@@ -344,6 +344,29 @@ int main(int argc, char** argv)
         malformed = filterOptions(config); malformed.insert(QStringLiteral("disable6mLnaOnRx"),QStringLiteral("true"));
         check(!parseFilterOptions(malformed), "LNA bypass flag requires a boolean");
     }
+    {
+        AnanSettings::setRxAntenna(1); // Existing global value becomes a legacy fallback only.
+        const QString a = QStringLiteral("ANTENNA-MAC-A"), b = QStringLiteral("ANTENNA-MAC-B");
+        check(AnanSettings::setRadioRxAntenna(a,7,5,3), "save antenna for one MAC/model/board");
+        check(AnanSettings::radioRxAntenna(a,7,5) == 3, "antenna choice round-trips");
+        check(AnanSettings::radioRxAntenna(b,7,5) == 1
+              && AnanSettings::radioRxAntenna(a,9,5) == 1
+              && AnanSettings::radioRxAntenna(a,7,4) == 1,
+              "another device, override model or physical board cannot inherit a live antenna change");
+        check(AnanSettings::rxAntenna() == 1, "per-device antenna writes leave legacy defaults unchanged");
+        check(!AnanSettings::setRadioRxAntenna(QString(),7,5,2)
+              && !AnanSettings::setRadioRxAntenna(a,7,5,0)
+              && !AnanSettings::setRadioRxAntenna(a,7,5,4), "unknown identity and invalid antenna refused");
+        const RadioSettingsScope scope(QStringLiteral("anan"),a);
+        check(scope.setFeature(QStringLiteral("ReceiveAntenna"),1,
+              QJsonObject{{QStringLiteral("7:5"),1.5}}), "seed malformed antenna value");
+        check(AnanSettings::radioRxAntenna(a,7,5) == 1, "fractional antenna cannot be applied");
+        check(scope.setFeature(QStringLiteral("ReceiveAntenna"),99,
+              QJsonObject{{QStringLiteral("future"),true}}), "seed future antenna schema");
+        check(!AnanSettings::setRadioRxAntenna(a,7,5,2)
+              && scope.featureExact(QStringLiteral("ReceiveAntenna")).value(QStringLiteral("future")).toBool(),
+              "future antenna settings are not overwritten");
+    }
     // The rate list a setup page offers. It exists on this header because a
     // page above the radio seam may not include the protocol header that owns
     // the constant.

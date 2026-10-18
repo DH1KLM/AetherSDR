@@ -107,7 +107,10 @@ validated session. It follows the Nereus hardware-page arrangement:
   receiver count, firmware, MAC, IP) and **Operating Parameters**. The effective
   model and override remain distinct from the physical board. One receiver is active.
 - **Antenna / ALEX**: **Antenna Control**, **Alex-1 Filters**, **Alex-2 Filters**.
-  ANT1/2/3 selection applies immediately. ADC0 filter limits and bypass are on
+  ANT1/2/3 selection applies immediately and is saved separately for this
+  MAC address, effective model and physical board. A live antenna change does
+  not change another device’s starting selection. Existing global antenna
+  defaults remain a fallback until this device/model has its own choice. ADC0 filter limits and bypass are on
   Alex-1. **Alex-2 Filters** appears only for the dual-ADC MkII filter profiles
   (ANAN-7000/8000, Orion MkII, Anvelina and G2). It is hidden for legacy models,
   including an Orion MkII explicitly mapped as ANAN-200D, and for single-ADC
