@@ -424,3 +424,27 @@ float-cast-overflow sanitizers. Removing only the rate allow-list check in an
 external mutation causes the invalid-rate and state-preservation checks to
 fail. Backend and backend-test syntax checks pass; the full backend-linked
 test and Windows build remain unrun locally.
+
+
+## Active input and antenna-save feedback, 2026-10-18
+
+The Antenna Control page labels the ANT1/2/3 bank as ADC0 rather than RX1.
+Its input readout follows the existing hardware status ADC index, antenna
+number and effective profile ADC count; single-ADC profiles no longer imply
+a fitted RX2 input. ADC1 reception leaves ADC0 relay control available and
+explicitly states that this does not change the active RX2 route. This is
+commanded session state, not physical relay feedback.
+
+Antenna changes now use nonzero request IDs through the page's existing
+backend result/error guard. The partial antenna reply updates only the
+antenna field of the current hardware snapshot without marking filter edits
+clean. Refused saves restore the displayed last-confirmed antenna under a
+signal blocker and surface the backend error. Antenna replies/errors are
+ignored if MAC/model/board changed before delivery. The active route label
+announces actual text changes through the accessibility channel and resets
+on disconnect. Protocol, persistence and hardware defaults are unchanged.
+
+The modified GUI translation unit passes syntax checking with an external
+forward declaration for Qt MotionPreference (local Qt 6.4 vs pinned 6.12).
+Accessibility and engine-boundary checks pass. A full GUI build and interactive
+Windows verification remain operator checks.

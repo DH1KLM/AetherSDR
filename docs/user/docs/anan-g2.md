@@ -107,8 +107,13 @@ validated session. It follows the Nereus hardware-page arrangement:
   receiver count, firmware, MAC, IP) and **Operating Parameters**. The effective
   model and override remain distinct from the physical board. One receiver is active.
 - **Antenna / ALEX**: **Antenna Control**, **Alex-1 Filters**, **Alex-2 Filters**.
-  ANT1/2/3 selection applies immediately and is saved separately for this
-  MAC address, effective model and physical board. A live antenna change does
+  **Receive Antenna → ADC0** selects ANT1/2/3 immediately. The active input
+  readout distinguishes **ADC0 / ANT1/2/3** from **ADC1 / RX2**. When ADC1
+  feeds the receiver, this selector still controls ADC0 and does not switch
+  the active receiver away from RX2. Single-ADC profiles are identified as
+  such. The choice is saved separately for this MAC address, effective model
+  and physical board. A refused antenna change displays the backend error
+  and restores the last confirmed selection; pending filter edits remain. A live antenna change does
   not change another device’s starting selection. Existing global antenna
   defaults remain a fallback until this device/model has its own choice. ADC0 filter limits and bypass are on
   Alex-1. **Alex-2 Filters** appears only for the dual-ADC MkII filter profiles
