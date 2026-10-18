@@ -163,6 +163,41 @@ baseline warn; a new violation or a grown baseline errors.
   nothing. New controls use a typed intent through `IRadioBackend`. Growth
   under `src/core/backends/flex/` is not counted.
 
+`SliceModel` and `TransmitModel` no longer encode Flex commands. Their remaining
+desktop setters emit validated `SliceControlRequest` / `TransmitControlRequest`
+values through the identity-guarded `RadioModel` route. `FlexModelControls.cpp`
+owns the encoding; HL2 and Icom adapt only implemented controls and return
+explicit dispatch, local-only, or unsupported receipts. RX-only backends refuse
+TX controls. RTL active-slice selection validates accepted membership and
+publishes confirmed focus; other RX-only backends inherit local selection.
+These are desktop intents,
+not new daemon methods or TX permissions.
+`RadioSetupDialog`, `TxBandDialog` and `UsbCableModel` also have no raw command
+emitters. Their configuration requests use `RadioModel` and `FlexSetupControls`;
+unsupported families explicitly refuse vendor operations. `radioSetupControl`
+is a desktop-only field-set record, consumed at dispatch and by timing/power
+availability, not serialized into the daemon catalogue. Reply contexts and
+connection/backend generations fence calibration and transverter creation;
+acceptance does not confirm completion. Entity editors retain their original
+session, and USB inventory is retired at disconnect/replacement. Preserve the
+client-owned TX-waterfall flag and station settings separately from radio state.
+Profile and memory dialogs use typed `ProfileRequest` / `MemoryRequest` values
+through `RadioModel`; `FlexStoredControls` owns encoding, including recall
+corrections. Local memories consume neutral patches directly and retain their
+existing shared-bank persistence. Create/populate/rollback is engine-owned;
+session fences, bounded completions and slot revisions reject stale work.
+Slot retirement is tracked even before a create reply or initial slot status;
+retired/reused slots must not be populated or rolled back. Reply owners and
+sessions are rechecked after cache signals, which can synchronously retire them.
+Neutral storage validation covers supported backend modes and wide FM filters;
+the legacy Flex editor dropdown is not the storage vocabulary.
+These desktop operations add no daemon catalogue methods or TX authority.
+MOX, TUNE and ATU start/stop still use the existing operation-fenced TX path;
+host TUNE-power edits additionally require a live locally admitted carrier.
+HL2 host-keyer, sidetone and compressor settings return local-only receipts;
+their existing local consumers still apply them (#6153). Icom CW controls retain
+the current keyer capability gate; its replacement belongs to #6110.
+
 If your change trips any of these, restructure the change — do not move the
 file, weaken the check, or add an exemption. Engine code that needs a UI
 callback defines a gui-free interface in `core/` (e.g. `IConnectionAutomation`)

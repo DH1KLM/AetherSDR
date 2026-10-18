@@ -9,7 +9,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7770,
+          "line": 7906,
           "text": "else if (key == \"model\")"
         }
       ]
@@ -21,7 +21,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7779,
+          "line": 7915,
           "text": "else if (key == \"software_ver\")"
         }
       ]
@@ -94,7 +94,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7502,
+          "line": 7638,
           "text": "\"RadioModel: terminal GUI client registration failure\""
         }
       ]
@@ -111,12 +111,12 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7432,
+          "line": 7568,
           "text": "RadioModel: this GUI client was force-disconnected by another client"
         },
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7476,
+          "line": 7612,
           "text": "RadioModel: radio disconnected this session because another GUI client used the same ID"
         }
       ]
@@ -133,7 +133,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7342,
+          "line": 7478,
           "text": "RadioModel: multiFLEX disabled, other clients present"
         }
       ]
@@ -150,7 +150,7 @@
       "source": [
         {
           "file": "src/core/backends/flex/RadioConnection.cpp",
-          "line": 607,
+          "line": 624,
           "text": "RadioConnection: socket error:"
         }
       ]
@@ -167,7 +167,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 8473,
+          "line": 8787,
           "text": "consecutive pings unanswered — forcing disconnect"
         }
       ]
@@ -188,12 +188,12 @@
       "source": [
         {
           "file": "src/core/backends/flex/RadioConnection.cpp",
-          "line": 668,
+          "line": 685,
           "text": "qCDebug(lcConnection) << \"RX:\" << line;"
         },
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7779,
+          "line": 7915,
           "text": "else if (key == \"software_ver\")"
         }
       ]
@@ -210,7 +210,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7667,
+          "line": 7803,
           "text": "RadioModel: no VITA-49 UDP data received after 10s"
         }
       ]
@@ -227,17 +227,17 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7645,
+          "line": 7781,
           "text": "RadioModel: UDP stream setup failed"
         },
         {
           "file": "src/core/backends/flex/PanadapterStream.cpp",
-          "line": 234,
+          "line": 231,
           "text": "PanadapterStream: failed to bind UDP socket:"
         },
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7720,
+          "line": 7856,
           "text": "RadioModel: client udpport collision"
         }
       ]
@@ -254,7 +254,7 @@
       "source": [
         {
           "file": "src/core/backends/flex/PanadapterStream.cpp",
-          "line": 188,
+          "line": 171,
           "text": "capped by net.core.rmem_max"
         }
       ]
@@ -452,12 +452,12 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 1335,
+          "line": 1364,
           "text": "RadioModel: dax_rx stream create for channel"
         },
         {
           "file": "src/core/backends/flex/PanadapterStream.cpp",
-          "line": 1790,
+          "line": 1836,
           "text": "stream create failed/dropped"
         }
       ]
@@ -474,7 +474,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 12733,
+          "line": 13247,
           "text": "RadioModel: DAX TX create failed"
         }
       ]
@@ -491,12 +491,12 @@
       "source": [
         {
           "file": "src/models/DaxIqModel.cpp",
-          "line": 353,
+          "line": 399,
           "text": "DaxIqWorker: pactl load-module failed for IQ ch"
         },
         {
           "file": "src/models/DaxIqModel.cpp",
-          "line": 362,
+          "line": 408,
           "text": "DaxIqWorker: cannot open IQ pipe"
         }
       ]
@@ -547,7 +547,7 @@
       "source": [
         {
           "file": "src/gui/SpectrumWidget.cpp",
-          "line": 13049,
+          "line": 13201,
           "text": "\"SpectrumWidget: QRhi failure:\""
         },
         {
@@ -557,7 +557,7 @@
         },
         {
           "file": "src/gui/WaveformWidget.cpp",
-          "line": 1316,
+          "line": 1329,
           "text": "WaveformWidget: QRhi initialization failed"
         }
       ]
@@ -574,7 +574,7 @@
       "source": [
         {
           "file": "src/gui/SpectrumWidget.cpp",
-          "line": 1995,
+          "line": 2002,
           "text": "SpectrumWidget: AETHER_NO_GPU/QT_OPENGL=software"
         }
       ]
@@ -726,7 +726,7 @@
       "match": {
         "substring": "NvAFX_Load() failed (GPU unsupported or model incompatible)"
       },
-      "docs": "/bnr-gpu-noise-removal#bnr-is-greyed-out-bnr-requires-an-nvidia-rtx-40-series-or-later-gpu",
+      "docs": "/bnr-gpu-noise-removal#bnr-is-grayed-out-bnr-requires-an-nvidia-rtx-40-series-or-later-gpu",
       "source": [
         {
           "file": "src/core/NvidiaAfxFilter.cpp",
@@ -743,7 +743,7 @@
       "match": {
         "regex": "AFX pack directory not found: |denoiser model \\(sm_\\w+/denoiser_48k\\.trtpkg\\) not found"
       },
-      "docs": "/bnr-gpu-noise-removal#bnr-is-greyed-out-no-bnr-pack-for-your-gpu--yet",
+      "docs": "/bnr-gpu-noise-removal#bnr-is-grayed-out-no-bnr-pack-for-your-gpu--yet",
       "source": [
         {
           "file": "src/core/NvidiaAfxFilter.cpp",
@@ -890,7 +890,7 @@
       "source": [
         {
           "file": "src/core/backends/hl2/Hl2Backend.cpp",
-          "line": 2736,
+          "line": 2849,
           "text": "HL2: could not open the UDP socket"
         }
       ]
@@ -910,7 +910,7 @@
       "source": [
         {
           "file": "src/core/backends/hl2/MetisClient.cpp",
-          "line": 508,
+          "line": 510,
           "text": "MetisClient: no EP6 for"
         }
       ]

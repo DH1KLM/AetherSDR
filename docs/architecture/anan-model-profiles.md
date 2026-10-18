@@ -316,3 +316,26 @@ Future schemas remain protected against overwrite. Restore model defaults
 removes the separate table and restores inherited model ranges and bypasses.
 Independent-table physical qualification on an appropriate MkII model remains
 pending; an ANAN-200D mapping does not expose this editor.
+
+
+## Main integration, 2026-10-18
+
+Merge main `1f8a3fc1` (64 previously unmerged commits) into the ANAN branch
+based on `6e6f530f`. Preserve physical/model identity, P1/P2 probing, overrides,
+per-device filters and the operator-confirmed relay path. P2 General refresh,
+P1/P2 filter encoders and independent ADC1 tables are unchanged by this merge.
+
+Adopt main's ANAN Front End page for next-connect sample rate, ADC choice,
+dither/randomization, initial bypass and radio-speaker defaults. Keep
+model/protocol/board-override choices on Connect by IP, and per-device live
+filter controls under Anan Hardware. Correct main's pre-filter-support bypass
+instructions to describe automatic selection and per-device precedence. Both
+pages coexist in the new CanonWindow setup workspace. Extend main's directed
+IPv4 broadcast sweep with both P1 and P2 requests while retaining the existing
+MAC/protocol de-duplication policy. Retain both branches' settings tests and
+main's capability record and valid-rate accessor.
+
+Targeted protocol/profile/audio/telemetry, settings and main's broadcast-target
+tests qualify the merged receive paths in software. A full Windows application
+build and physical discovery/RX/override/relay regression check remain operator
+checks; source and targeted checks do not substitute for those.

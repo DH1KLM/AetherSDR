@@ -45,6 +45,8 @@ Supply voltage for these additional profiles is not reported until qualified.
 
 The G2 is found automatically on your LAN: open **File → Connect to Radio...** → **On This Network**, select it and click **Connect Selected Radio**.
 
+Discovery also sends a directed broadcast to each attached IPv4 subnet. This can find a G2 on a second NIC with its own subnet. Two NICs sharing a subnet still use the preferred route; VPNs and routers may block broadcast discovery. If the G2 does not appear, use **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P1/P2)** (see [Manual Connection](./manual-connection.md)).
+
 Click **Scan** on **On This Network** to request discovery immediately, even
 when radios are already listed. This also sends the HL2 and ANAN P1/P2 probes.
 The status shows **Scanning…**, then the end time of the two-second response
@@ -84,16 +86,16 @@ override OFF. To change the override, disconnect and reconnect through this
 page. The firmware's actual P1/P2 protocol and the discovered device identity
 are retained; busy, unknown and unsupported devices are still refused.
 
-Connection options:
+Configure the receive front end under **Settings → Radio Setup... → Radio → ANAN Front End**. The page is available while disconnected, and while connected to a G2. Its options apply on the next connection, whether you use **Available radios** or **Connect by IP**:
 
 | Option | Default | What it does |
 |--------|---------|--------------|
 | **Sample rate:** | 48 ksps | Receiver sample rate (G2 DDC0, 7000DLE DDC2): 48, 96, 192, 384, 768 or 1536 ksps. It is also the starting width of the panadapter. Higher rates use more of the radio's Ethernet link. |
-| **Select ADC:** | ADC0 (ANT1/2/3) | Which receive chain feeds the receiver: **ADC0 (ANT1/2/3)**, behind the switched antenna relays, or **ADC1 (RX2)**, wired straight to the RX2 jack. |
-| **Dither** / **Random** | On | The ADC's linearisation bits. Leave them on unless you are testing. |
-| **ADC0 RF filter bypass** | Off | MkII/Saturn BPF1 is selected automatically from the tuned frequency using the Thetis-compatible band map. Check this only to force ADC0 around that filter. |
-| **ADC1 RF filter bypass** | On | Bypass RX2/ADC1's separate filter bank. Uncheck to select its receive filter automatically at the single receiver's tuned frequency. |
-| **Send RX audio to the radio's speaker** | Off | Also plays receive audio through the G2's own speaker and headphone jack. Takes effect on the next connect. |
+| **Feed the receiver from:** | ADC0 (ANT1/2/3) | Which receive chain feeds the receiver: **ADC0 (ANT1/2/3)**, behind the switched antenna relays, or **ADC1 (RX2)**, wired straight to the RX2 jack. |
+| **Dither** / **Randomization** | On | The ADC's linearisation bits. Leave them on unless you are testing. |
+| **Bypass ADC0's bank** | Off | MkII/Saturn BPF1 is selected automatically from the tuned frequency using the Thetis-compatible band map. Check this only to force ADC0 around that filter. |
+| **Bypass ADC1's bank (RX2)** | On | Bypass RX2/ADC1's separate filter bank. Uncheck to select its receive filter automatically at the single receiver's tuned frequency. |
+| **Send receive audio to the radio** | Off | Also plays receive audio through the G2's own speaker and headphone jack. Takes effect on the next connect. |
 
 ## Anan Hardware
 
@@ -281,15 +283,19 @@ application continues to provide one receiver and one panadapter.
 ## Receiving with the G2
 
 - **Receive** with live tuning and zoom. Changing the zoom changes the DDC rate live, without rebuilding the session.
-- **Panadapter** computed by WDSP's display analyser: a ≥16384-point windowed FFT at one point per screen pixel. **FFT AVG** and **Weighted** averaging drive it, and noise-floor auto-adjust works.
+- **Panadapter** computed by WDSP's display analyzer: a ≥16384-point windowed FFT at one point per screen pixel. **FFT AVG** and **Wt Avg** drive it, and noise-floor auto-adjust works.
 - **S-meter.**
-- **NB** (noise blanker): WDSP's impulse blanker, run on this computer before the demodulator.
+- **NB** cycles Off → **NB** → **NB2** → Off: WDSP's two impulse blankers, run on this computer before the demodulator. **NB** silences each impulse; **NB2** reconstructs the blanked window from the samples either side, and shows an **NB2** fill selector (**Zero**, **Sample hold**, **Mean hold**, **Hold sample** or **Interpolate**) while it runs. Neither is offered in FM.
+- **AGC-T** sets the AGC's maximum gain from −20 to 120 dB, 1.4 dB per slider step, starting at 71 (79.4 dB). With AGC off it sets the fixed gain instead, starting at 29 (20.6 dB). AGC-T and the AGC-off level are not remembered across launches; each launch starts at 71 and 29.
 - **RF Gain** from −31 to 0 dB drives the G2's ADC step attenuator, and is restored per radio.
-- **AF gain, mute and balance** apply. With **Send RX audio to the radio's speaker** on, the receiver's mute and volume apply to both the computer and the radio's speaker, and the title-bar speaker button mutes the radio's speaker too.
+- **AF gain, mute and balance** apply. With **Send receive audio to the radio** on, the receiver's mute and volume apply to both the computer and the radio's speaker, and the title-bar speaker button mutes the radio's speaker too.
 - Manual **Black Level** and waterfall **NB Blank**. See [Panadapter Controls](./panadapter-controls.md).
+- **Status bar:** the **Network:** indicator follows the G2's link (received data and packet loss; round-trip time and jitter are not measured on this radio). The G2's supply voltage is shown in the status bar and the Meter applet. The G2 reports no PA temperature, so that reading is not shown.
 - **Tools → Radio Health...**
 
 The panadapter is not dBm-calibrated: its levels are relative.
+
+> **Upgrading from an older version:** **AGC-T** covers −20 to 120 dB, so a given slider position gives more gain than before (at 100, 120 dB instead of 60 dB). Band-stack bookmarks saved earlier replay their slider position on this scale, so they come back louder. Lower **AGC-T** on each one and save it again.
 
 ## Droop Correction
 
@@ -305,17 +311,21 @@ To measure your own radio instead, open **Settings → Radio Setup... → Droop 
 
 ## Reference
 
+### What is remembered
+
+The G2 stores none of its settings, so AetherSDR keeps these per radio: frequency and mode (14.175 MHz USB on a first connect), tuning step, **RF Gain**, the radio's own output level (what the volume slider sets with PC Audio off) and the panadapter dBm range. The span always starts at the connect form's **Sample rate:**. AGC settings and FFT averaging start from their defaults.
+
 ### Not available on the G2
 
 - **Transmit.** Keying is refused; transmit is a future phase.
 - DAX, SmartLink or Multi-Flex.
 - More than one receiver or panadapter.
+- A headphone level control: the **Headphone:** row under **Settings → Radio Setup... → Audio → Radio Audio Outputs** is dimmed; **Line Out:** stays available.
 
-Controls the G2 cannot honour are dimmed with a reason, or refuse with a notice; see [Supported Radios](./supported-radios.md).
+Controls the G2 cannot honor are dimmed with a reason, or refuse with a notice; see [Supported Radios](./supported-radios.md).
 
 ## Known issues
 
-- Weak signals sound quieter than in Thetis on the same radio unless the **AGC-T** slider is near the top ([#5988](https://github.com/aethersdr/AetherSDR/issues/5988)).
 - DX cluster, RBN, WSJT-X, POTA and manual spots are never drawn on the panadapter ([#6039](https://github.com/aethersdr/AetherSDR/issues/6039)).
 
 ## Troubleshooting
@@ -325,14 +335,14 @@ Controls the G2 cannot honour are dimmed with a reason, or refuse with a notice;
 If the signal path is wrong after changing RF filter options, first restore the Saturn BPF1 selection.
 
 1. Disconnect from the G2.
-2. Open **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P1/P2)**.
-3. Uncheck **ADC0 RF filter bypass** so the tuned-frequency BPF1 selection is active. ADC1/RX2 has a separate bypass option under **Radio Setup → Anan Hardware**.
+2. Open **Settings → Radio Setup... → Radio → ANAN Front End**.
+3. Uncheck **Bypass ADC0's bank** so the tuned-frequency BPF1 selection is active. ADC1/RX2 has a separate bypass option under **Radio Setup → Anan Hardware**.
 
 ### No audio from the radio's own speaker
 
-**Send RX audio to the radio's speaker** is off, or was turned on during the session. It takes effect on the next connect.
+**Send receive audio to the radio** is off, or was turned on during the session. It takes effect on the next connect.
 
-1. Tick **Send RX audio to the radio's speaker** in the ANAN-G2 options.
+1. Open **Settings → Radio Setup... → Radio → ANAN Front End** and tick **Send receive audio to the radio**.
 2. Disconnect and connect again.
 3. Check that the receiver and the title-bar speaker button are not muted; they mute the radio's speaker too.
 

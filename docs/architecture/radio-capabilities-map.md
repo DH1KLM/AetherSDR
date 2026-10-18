@@ -55,11 +55,39 @@ semantics see [local frequency control](../aetherd-local-slice-frequency-control
 
 ## Wired and consumed
 
+### Desktop Radio Setup controls
+
+`radioSetupControl` is an optional field-set record for implemented desktop
+configuration operations. Flex declares the fields backed by `requestRadioSetup`;
+other backends leave it absent. `RadioModel::requestRadioSetup` checks it at action
+time, and Radio Setup uses it for timing and maximum-power availability. Station
+identity and the explicitly client-owned TX-waterfall preference retain their
+local consumers. This record adds no daemon methods, remote permissions or
+`welcome` fields. Calibration acceptance and radio-confirmed completion remain
+distinct; unsupported vendor operations return refusal, not local success.
+Saving client-owned station identity locally does not require dispatching a
+radio copy.
+
+| Record | Flex | HL2 | Sim | Icom | ANAN | RTL-SDR | Consumers |
+|---|---|---|---|---|---|---|---|
+| `radioSetupControl` | All implemented `RadioSetupRequest` fields | absent | absent | absent | absent | absent | `RadioModel::requestRadioSetup` admission; Radio Setup timing and maximum-power availability |
+
 ### Broadcast FM receiver controls
 
 | Record | Flex | HL2 | Sim | Icom | ANAN | RTL-SDR | Consumers |
 |---|---|---|---|---|---|---|---|
 | `broadcastFmReceive` | absent | absent | absent | absent | absent | de-emphasis 50/75 µs, force Mono, measured reception diagnostics | `WfmApplet` availability; `RadioModel::dispatchSliceWfm` validates the capability and routes `requestSliceWfm`, with explicit refusal reporting |
+
+### DSP parameter reset
+
+| Record | Flex | HL2 | Sim | Icom | ANAN | RTL-SDR | Consumers |
+|---|---|---|---|---|---|---|---|
+| `dspParameterReset` | Known hardware on numeric firmware 4.3.16+: target whitelist, applicable modes and unknown/denied/granted advanced entitlement | absent | absent | absent | absent | absent | `RadioModel` validates exact slice/session ownership and observed mode before `requestDspParameterReset`; `VfoWidget` dims unavailable targets and Reset with reasons |
+
+Absence refuses reset. All and supported NRS are Basic operations; individual
+advanced targets require explicitly granted entitlement. This record grants no
+host DSP, daemon or TX operation. See [DSP parameter reset](../dsp-parameter-reset-protocol.md)
+for protocol evidence and the conservative entitlement mapping.
 
 ### Local receive-control records
 
@@ -103,6 +131,14 @@ manual/Auto state in its accepted receiver configuration (`RtlSlices`);
 existing `requestSliceSquelch` path carries both manual and Automatic requests
 through the confirmed transaction. Other families leave `modesExclusive` and
 `automaticInEngine` false, preserving the #2504 mode rule and radio-owned state.
+`controlUnavailableModes` lists modes where the manual control, display Auto,
+threshold line and floor line are unavailable, independently of the level-to-axis
+mapping. Flex declares DIGU/DIGL, RTTY, NT, DFM and CW/CWU/CWL. RADE uses its
+underlying DIGU/DIGL mode. An empty list retains the existing mode policy,
+including native mode-independent manual SQL on supported Icom profiles.
+DFM is excluded because digital voice gates on synchronization, rather than
+an analog audio threshold.
+
 The record grants no headless squelch verb or calibrated-power claim.
 
 ### Receive capture placement
@@ -132,6 +168,49 @@ consumer never names a family.
 | ANAN | — | Protocol 2. The specification is *believed* to carry a wideband stream and the hardware shares the HL2's lineage, but `P2Protocol.h` defines no such endpoint and nobody here has measured one. Absence means **not implemented**, not "cannot" |
 | Flex | — | Structural: the radio computes the panadapter and sends the result, so there is no raw converter stream on the host to build a wideband view from |
 | Icom / RTL / Sim | — | No such stream |
+
+### Firmware update source
+
+`firmwareUpdateSource` is the optional record for *"this radio's firmware version
+can be compared against a list its vendor publishes"*. It carries the
+release-notes URL template and **the newest published release for each major
+line**, which the backend fetches and caches itself — so the status bar can say a
+radio is behind without naming a family.
+
+**Per line, not one "latest".** A vendor can offer several lines for download at
+once — FlexRadio currently lists 2.10.1, 3.10.15 and three v4 releases — and a
+radio belongs to exactly one of them. A consumer compares against the entry whose
+major matches the radio's own reported version, and shows nothing when that line
+is absent. Reducing the list to a single maximum tells an operator on v3 they are
+behind a v4 release and links release notes for a line they are not on.
+
+**Not the radio's licensed version.** A radio's license fields cannot stand in
+for this. Measured on a FLEX-6500 running 4.2.20.41343: the discovery broadcast
+reported `max_licensed_version=v1` and the connected `license` status
+`highest_major_version=v1`, both *below* the firmware actually running, while
+FlexRadio's own SmartLink record for the same radio said `v3`. The line a radio
+is running is observable and self-consistent; what it is licensed for is not.
+
+Presence currently also means *"compare me against the SmartSDR software page"*,
+because that is the only published list AetherSDR reads. A backend from another
+vendor must not simply declare a template: it needs its own lookup, and this
+record then needs a field naming which list it belongs to. The Flex declaration
+is unconditional across models, which assumes every Flex reports a version on
+the SmartSDR line. Installer payload routing is separate: Microburst/DeepEddy
+use `FLEX-6x00`, BigBend uses the MSI's `FLEX-9600` entry, and DragonFire
+(RT-2122) has no verified public-installer mapping. No commercial radio has
+been checked against the index.
+
+| Backend | Declares | Why |
+|---|---|---|
+| Flex | ✅ always; `publishedReleases` empty until the lookup answers | Reports a SmartSDR version, and SmartSDR releases are listed in FlexRadio's REST software index. The lookup runs on connecting to a Flex, over LAN or SmartLink, so a station that never reaches a Flex never contacts the vendor. A successful answer is cached for a day; a failed one starts no window, so the next connect asks again |
+| HL2 / ANAN | — | Reports a gateware number, which no published list covers. Measuring one against a SmartSDR version would read as catastrophically out of date |
+| Icom | — | Reports no firmware version to compare |
+| RTL / Sim | — | No published firmware list is read |
+
+Absence means **nobody has said**: it is not a claim that the radio's firmware is
+current, nor that it cannot be checked. A radio whose backend declares nothing
+draws its version row exactly as it always has.
 
 Read by `BandscopeDialog` (the Tools ▸ Wideband Bandscope window) and by nothing
 else. **The record is what gates the menu entry** — not `family == "hl2"`, which
@@ -165,10 +244,11 @@ the production dialog and checks its displayed peak level and frequency.
 | `tuningMinHz` / `tuningMaxHz` | — (0/0) | 0.1–38.4 MHz | — (0/0) | `MainWindow_Wiring.cpp`, `applyTuningRangeToOverlayMenu` | Refuses band buttons the receiver cannot reach. 0/0 means unconstrained |
 | `declaredBandRanges` | — (empty) | — (empty) | — (empty) | `SpectrumOverlayMenu::setDeclaredBands` | Optional canonical-name + native coverage list used for backend-authoritative band labels. Icom publishes the IC-9700's three discontinuous deck ranges; empty keeps canonical labels and existing Flex/HL2/Sim presentation |
 | `canTransmit` | ✅ | `m_txAllowed` | ❌ | `RadioModel::setTransmit`, MOX/TUNE key guards | **TX safety gate.** Fail-closed: false denies any keying intent |
-| `receiveOnlyModes` | — (empty) | AM · SAM · DSB · FM · NFM · WBFM · WFM · DRM | — (empty) | `RadioModel::refuseKeyInReceiveOnlyMode` (MOX / TUNE / CW-key / `setTransmit`) | Modes the radio **demodulates but will not transmit in**, in the neutral vocabulary. Empty = transmits in everything it receives. Refusing here (not in the backend) is what rolls back `TransmitModel`'s optimistic MOX/TUNE state — a backend cannot reach `TransmitModel`, so a refusal made down there leaves the TX indicator lit and TUNE latched. Icom: `["WFM"]` on the IC-705, which receives 76–108 MHz broadcast and does not transmit there (#5040). HL2: `Hl2TxDsp` is a phasing SSB modulator whose stored mode is read only by `isLowerSideband()`, so every mode above takes the USB branch and would go on the air as SSB announcing nothing — both spellings of each alias are listed because the guard is a membership test on the string the slice holds, not alias normalisation — `Hl2Backend::setSliceMode` and `applyRestoredState` both canonicalise now, so an HL2 slice should only ever hold the offered spelling, and the alias entries are kept because a list that is only correct while every writer stays canonical is the wrong kind of correct. **Note what a non-empty list costs:** `beginLocalTxActivity` runs this guard for EVERY `TxActivity`, so it withdraws TUNE in those modes as well as MOX and CW keying, even where the tune carrier itself would be clean |
+| `receiveOnlyModes` | — (empty) | SAM · WBFM · WFM · DRM (default TXA build); plus AM · DSB · FM · NFM with `-DAETHER_HL2_TX_TXA=OFF` | — (empty) | `RadioModel::refuseKeyInReceiveOnlyMode` (MOX / TUNE / CW-key / `setTransmit`) | Modes the radio **demodulates but will not transmit in**, in the neutral vocabulary. Empty = transmits in everything it receives. Refusing here (not in the backend) is what rolls back `TransmitModel`'s optimistic MOX/TUNE state — a backend cannot reach `TransmitModel`, so a refusal made down there leaves the TX indicator lit and TUNE latched. Icom: `["WFM"]` on the IC-705, which receives 76–108 MHz broadcast and does not transmit there (#5040). HL2: the list depends on the modulator `AETHER_HL2_TX_TXA` selects at build time. The default WDSP TXA build modulates AM, DSB, FM and NFM — a symmetric `bp0` (`Hl2TxDsp::txaPassband`), CTCSS forced off, explicit AM carrier 0.5 and FM deviation 5000 Hz — and `hl2_txdsp_test` reads carrier-plus-sidebands, suppressed carrier and constant-envelope FM off the emitted IQ. SAM stays (a receive detector; TXA would send plain AM), WBFM/WFM stay (WDSP TX defines no WBFM mode, `WdspChannel::validateConfig`), DRM stays (no encoder). The phasing build (`OFF`) reads the stored mode only through `isLowerSideband()`, so every mode on the longer list would go on the air as USB announcing nothing, and that build keeps all eight. Both spellings of each alias are listed because the guard is a membership test on the string the slice holds, not alias normalisation — `Hl2Backend::setSliceMode` and `applyRestoredState` both canonicalise now, so an HL2 slice should only ever hold the offered spelling, and the alias entries are kept because a list that is only correct while every writer stays canonical is the wrong kind of correct. **Note what a non-empty list costs:** `beginLocalTxActivity` runs this guard for EVERY `TxActivity`, so it withdraws TUNE in those modes as well as MOX and CW keying, even where the tune carrier itself would be clean |
 | `hostModulates` | — (❌) | ✅ | — (❌) | `TciServer`, `MainWindow_Session` | Mic source collapses to PC; PC-audio lock. **Not the same question as `takesTxAudioOverSeam`** — see below |
 | `takesTxAudioOverSeam` | ❌ | ✅ | ❌ | `MainWindow_Session` (capture, TX stream, PC-audio lock), `AudioEngine::setHostModulation`, `RadioModel::ensureDaxTxStream` | Whether transmit audio leaves through `submitTxAudio` rather than a DAX/VITA-49 stream. Icom: ✅ |
 | `hasRadioPttReadback` | ❌ | ❌ | ❌ | `RadioModel::publishCommandedBackendTransmitEdge`, `Ax25HfPacketDecodeDialog::beginTransmitWhenReady` | The backend's `transmitChanged` / `keyingStateConfirmed` carry the **radio's own** PTT readback and `setKeying()` is intent only. True suppresses RadioModel's command-edge fallback, and makes AetherModem wait for `radioTransmittingChanged` / `radioTransmitConfirmed` (or an already-keyed radio) before releasing sample zero. Flex: ❌ because its interlock edge is decoded inside RadioModel, not through the seam. Icom: ✅ (decoded CI-V `1C 00`, #5311) |
+| `radioPttObservation` | absent | ✅ | absent | `RadioModel::applyBackendTransmitDelta`, `RadioModel::publishCommandedBackendTransmitEdge` | Optional record (#5998): `transmitChanged` also carries keying the radio did by itself, which `setKeying()` never commanded. Observed state only: it reaches `radioTransmittingChanged` and nothing that keys. RadioModel keeps the command-edge fallback and ORs the two, so a host unkey does not clear a PTT the radio still reports. HL2: EP6 `ptt_resp` (`cw_on \| ext_ptt`), which host MOX never raises, so `hasRadioPttReadback` stays false. Icom, ANAN, RTL: absent |
 | `hasSelectableMicInputs` | ✅ | ❌ | ❌ | `MainWindow::applyCapabilitiesToUi` → `PhoneCwApplet::setSelectableMicInputs` | The MIC/BAL/LINE/ACC/PC list. False collapses it to PC and adopts that into TransmitModel. Icom: ❌ (the radio picks its own input) |
 | `hasDownwardExpander` | ✅ | ❌ | ❌ | `MainWindow::applyCapabilitiesToUi` → `PhoneApplet::setDexpVisible`; `AutomationServer` transmit snapshot | The radio has an authoritative DEXP/downward-expander command and read-back path. False hides the complete row and omits `dexp`/`dexpLevel` from automation state. Icom: ❌ until a model profile evidences and implements that full path; the IC-9700 does not borrow Flex's compander surface |
 | `rxFilterWidthsHz` | empty | empty | empty | `MainWindow::applyCapabilitiesToUi` → `RxApplet::setRadioFilterWidths` **and** `VfoWidget::setRadioFilterWidths` | The RX filter widths a radio can actually reach, **narrowest first**. **Empty = continuous or unknown**, and the operator's configurable list stays in force. Icom publishes the selected slot's actual 1A 03 width plus factory defaults for the two unselected slots that CI-V cannot read, and republishes on mode, slot, or width changes. Both filter surfaces read it — the VFO grid did not, which is how the two disagreed about what the radio could do |
@@ -190,11 +270,13 @@ the production dialog and checks its displayed peak level and frequency.
 | `hasPrivateIpConnectionPolicy` | ✅ | ❌ | ❌ | `RadioSetupDialog` | Shows the SmartSDR `enforce_private_ip_connections` control. Icom: ❌; having a command plane does not imply support for this Flex command. |
 | `hasTuner` | ✅ | ❌ | per profile | `TransmitModel::setHasTuner` → `TxApplet` | Shared ATU matching control and Success/Byp indicators remain visible on every radio. False renders them dimmed/unavailable; true permits grey inactive or enabled active state. Icom opts in the evidenced IC-705, IC-7300MK2, IC-7300, IC-7610, and IC-785x tuner paths; IC-9700, IC-905, and unidentified models fail closed. ANAN-G2 explicitly reports false because it has no internal ATU. |
 | `hasTunerMemories` | ✅ | ❌ | ❌ | `TransmitModel::setHasTunerMemories` → `TxApplet` | Independent availability for the shared MEM control, Mem indicator, and memory-only ATU menu actions. This is Flex's radio-side memory recall/database contract; an Icom `1C 01` matching path does not imply it. False keeps those shared surfaces visible but dimmed. ANAN-G2 explicitly reports false. |
-| `transmitDriveControl` | `Radio` | `Radio` | `Engine` | `MainWindow::refreshRadioStateDriveAuthority` → `aethersdr/radio/state` `drive_confirmed` (#5518) | WHO OWNS the drive value `TransmitModel::rfPower()` carries. Optional record (#5262 M2), three states. `Authority::Radio` — parsed back off the wire, so confirmed radio state: Flex reads `transmit rfpower=` off status, Icom reads the CI-V level `kRfPower`. `Authority::Engine` — the host owns the register and `rfPower()` is operator intent: HL2's `setTxPower()` records the request before the transmit gate and `applyDrive()` pins the register at 0 while TX is blocked, so `rfPower()` can read 100 with no RF out; ANAN is host-modulated the same way. **Absent** — no transmitter at all, so no drive to own: Sim and RTL, which populate no `TransmitDelta::rfPower` and publish no `drive_confirmed`. Absence is the default, so a backend that says nothing claims nothing. Published ANDed with `TransmitModel::rfPowerIsFromRadio()`, so the flag describes the value in that message rather than the backend in general (Principle II). Field `tunePowerAppliesLive` (HL2, Icom): `IRadioBackend::setTunePower()` re-applies TUNE power to a carrier in progress, so `RadioModel` hands it a mid-TUNE change and withholds the `tunepower` drop notice while keyed; false elsewhere, where TUNE power reaches the backend only at key-down |
+| `transmitDriveControl` | `Radio` | `Radio` | `Engine` | `MainWindow::refreshRadioStateDriveAuthority` → `aethersdr/radio/state` `drive_confirmed` (#5518) | WHO OWNS the drive value `TransmitModel::rfPower()` carries. Optional record (#5262 M2), three states. `Authority::Radio` — parsed back off the wire, so confirmed radio state: Flex reads `transmit rfpower=` off status, Icom reads the CI-V level `kRfPower`. `Authority::Engine` — the host owns the register and `rfPower()` is operator intent: HL2's `setTxPower()` records the request before the transmit gate and `applyDrive()` pins the register at 0 while TX is blocked, so `rfPower()` can read 100 with no RF out; ANAN is host-modulated the same way. **Absent** — no transmitter at all, so no drive to own: Sim and RTL, which populate no `TransmitDelta::rfPower` and publish no `drive_confirmed`. Absence is the default, so a backend that says nothing claims nothing. Published ANDed with `TransmitModel::rfPowerIsFromRadio()`, so the flag describes the value in that message rather than the backend in general (Principle II). Field `tunePowerAppliesLive` (HL2, Icom): `RadioModel` routes typed `TunePower` requests with a carrier-ownership context. Each backend returns `LocalOnly` for a deferred setpoint, admits a live update only through its existing TX-operation gate, and refuses unqualified carriers; the receipt determines the unsupported-control notice. False elsewhere, where the stored TUNE setpoint reaches the backend at key-down |
 | `forwardPowerRequiresSmoothing` | ✅ | ✅ | ❌ | `TxApplet::updateMeters` | Applies the established client-side PEP response only when the backend's forward-power samples require it. Icom: ✅ for native-watt profiles; ❌ for the IC-9700's already-indicated relative Po samples. The default is ❌ and every backend declares the choice explicitly |
+| `nrsLevelControl` | engaged | — | — | `RadioModel::publishCapabilities` and slice creation/reclaim → `SliceModel::setNrsLevel`, `VfoWidget::setDspLevelTarget` | Existing desktop NRS request bound: 0..50 for fully identified firmware 4.3.16+, otherwise 0..100. Absence and disconnect preserve 0..100. Firmware/range updates leave radio readback unchanged and send no request; the Flex encoder also enforces the bound. No new daemon method. |
 | `hasExtendedDsp` | from table | ❌ | ❌ | `RadioModel::hasExtendedDspFilters()` | NRS / RNN / NRF buttons |
 | `hasProfiles` | ✅ | ❌ | ❌ | `MainWindow::applyCapabilitiesToUi` | PROF applet, Profiles menu, Profile Manager, Import/Export |
 | `hasDaxStreams` | ✅ | ❌ | ❌ | `MainWindow::applyCapabilitiesToUi` | DAX + DAX-IQ applets, Autostart DAX |
+| `daxIqSampleRates` | model table | empty | empty | `RadioModel` → `DaxIqModel`, `DaxIqApplet`, `TciServer` | Discrete supported DAX IQ rates in Hz. Flex publishes 24/48/96 kHz, plus 192 kHz where its model table permits; an unidentified model has an empty list. Empty prevents IQ creation and rate commands. Saved 192 kHz intent uses 96 kHz on limited models without replacing the saved preference. TCI retains valid pre-identification negotiation and reconciles it when capabilities arrive. Icom, ANAN and RTL also leave this list empty. |
 | `hasRadioSideDsp` | ✅ | ❌ | ❌ | `RadioModel::hasRadioSideDsp()` | NR/NB/ANF/NRL/ANFL/ANFT, the APD row, the WNB row |
 | `hasLmsNoiseFilters` | ✅ | ❌ | ❌ | `RadioModel::hasLmsNoiseFilters()` → `VfoWidget::setHasLmsNoiseFilters` | NRL / ANFL / ANFT alone — the WDSP LMS/FFT family, a THIRD tier under `hasRadioSideDsp`. Icom: ❌ (it has NR, NB and both notches, and no register these three could reach). Keeps `hasRadioSideDsp`'s permissive-on-disconnect rule |
 | `hasAudioPeakingFilter` | ✅ | ✅ | ❌ | `RadioModel::hasAudioPeakingFilter()` → `PhoneCwApplet::setHasAudioPeakingFilter` | CW audio peaking filter on the P/CW CW face. Flex: the radio's own APF (`slice set <n> apf=`/`apf_level=`). HL2: **THIS HOST** runs it — WDSP's SPCW double-pole, centred on the CW pitch and in circuit only in CW, reached through `IRadioBackend::setSliceApf`; the HL2 has no firmware DSP (`hasRadioSideDsp` ❌), so like `hasHostNoiseBlanker` this is an exception to that tier, not a tier under it. Icom: ❌ (declares `hasRadioSideDsp` for NR/NB/notch and has no APF register). The P/CW gate reads this flag alone. Permissive on disconnect so a Flex unplug does not blink the row |
@@ -203,8 +285,9 @@ the production dialog and checks its displayed peak level and frequency.
 | `voxControl` | ✅ `hasDelay` | absent | absent | `MainWindow::applyCapabilitiesToUi` (`hasDelay`), the `voxCommandIssued` seam connection, `transmitCommandDeliveredThroughSeam` | Optional record (#6086), replacing `hasVoxDelay`: the radio has its own VOX — Flex by its command plane, otherwise `IRadioBackend::setVox` must apply enable and level. `hasDelay` says the hang time is applied too; false dims the VOX delay control and keeps the `vox_delay` drop notice. Icom: present on transmitting models with `hasDelay` false (`setVox` ignores the delay). RTL, ANAN and the unidentified Icom declare none |
 | `txMonitorControl` | ✅ | absent | absent | the `monitorCommandIssued` seam connection, `transmitCommandDeliveredThroughSeam` | Optional record (#6086): the radio has its own SSB transmit monitor — Flex by its command plane, otherwise `IRadioBackend::setTxMonitor` must apply MON and its gain (`mon`, `mon_gain_sb`). Icom: present on transmitting models. CW monitor gain and pan have no seam setter and keep their notice everywhere |
 | `lineoutControl` | ✅ | absent | absent | `RadioModel::lineoutThroughSeam`, `lineoutControlsAvailable` (title-bar speaker, Radio Setup Line Out row) | Optional record: the radio has its own line out. Flex by its command plane (`mixer lineout`); otherwise `IRadioBackend::setLineoutGain` / `setLineoutMute` must apply it, and RadioModel sends them typed instead of the text. ANAN: present (speaker silence and host-side scaling). Absent (HL2, Icom, RTL): the title-bar speaker mutes only this computer's output (refused with the unsupported-control notice when PC Audio is off too), Radio Setup's Line Out row is dimmed with its reason, and any other `mixer lineout` text keeps its drop notice (#4665). Sim: absent, but its synthetic command plane takes the text, so it behaves as a Flex here |
+| `txWaterfallClientFlag` (record) | absent | **engaged**, `clientPersistsFlag` ✅ | absent | `RadioModel::requestLocalShowTxInWaterfall` and `RadioModel::restoreClientShowTxInWaterfall` → `RadioCapabilities::clientPersistsShowTxInWaterfall()` | Who owns "Show TX in Waterfall" (`TransmitModel::showTxInWaterfall()`) on a radio that neither stores nor echoes it. Engaged with `clientPersistsFlag` true makes the client the owner: Radio Setup and the bridge's `txwaterfall` set the transmit model directly instead of sending `transmit set show_tx_in_waterfall=`, the value is written per radio to `ClientDisplay.showTxInWaterfall`, and it is restored on connect, all three through the one accessor. Absent keeps a family's existing behavior. **HL2 only** (no register, no echo, stores nothing itself). Flex: absent, the radio stores and echoes the flag. Icom, ANAN, RTL and Sim: absent, no owner declared; the wire text is sent, nothing answers it and the client stores nothing. Engaging another family is that family's declaration to make |
 | `hasTransmitFrequencyCheck` | ❌ | ❌ | ❌ | `VfoWidget` and `RxApplet` through `RadioModel` | Replaces persistent REV with momentary XFC on verified radios. Icom: ✅ for IC-705 and IC-9700 (`1C 02`); radio readback/polling owns the visual state, and release always sends OFF |
-| `fmTonePresentation` | Legacy | **Hidden** | Legacy | `VfoWidget`, `RxApplet` | Icom is model-profile driven: IC-705 and IC-9700 expose their documented extended CTCSS/DTCS surface; basic repeater models retain Legacy; unattested models hide tone controls. **HL2 is Hidden**: Legacy fills the tone-mode combo from `legacyFmToneModes()`, i.e. it OFFERS `ctcss_tx`, and this radio has no CTCSS encoder — nothing under `src/core/backends/hl2/` mentions CTCSS at all, and `Hl2Backend` overrides none of `setSliceFmToneMode`/`setSliceFmToneValue`/`setSliceFmToneRxValue`/`setSliceFmDtcs`, which are empty virtuals in `IRadioBackend`. The ground that holds in BOTH build configurations is that FM and NFM are on `receiveOnlyModes`, so `RadioModel::refuseKeyInReceiveOnlyMode` refuses every `TxActivity` in them — not an argument from the modulator, which `AETHER_HL2_TX_TXA` selects at build time and which defaults to WDSP's TXA. Receive is untouched; what is withdrawn is a transmit-side control |
+| `fmTonePresentation` | Legacy | **Hidden** | Legacy | `VfoWidget`, `RxApplet` | Icom is model-profile driven: IC-705 and IC-9700 expose their documented extended CTCSS/DTCS surface; basic repeater models retain Legacy; unattested models hide tone controls. **HL2 is Hidden**: Legacy fills the tone-mode combo from `legacyFmToneModes()`, i.e. it OFFERS `ctcss_tx`, and this backend exposes no tone-encode verb — `Hl2Backend` overrides none of `setSliceFmToneMode`/`setSliceFmToneValue`/`setSliceFmToneRxValue`/`setSliceFmDtcs`, which are empty virtuals in `IRadioBackend`. The ground that holds in BOTH build configurations is that no verb is behind the control: in the default TXA build FM keys, and TXA's own CTCSS encoder (on by default in `create_txa`) is forced off by `WdspChannel::open()` rather than wired to these controls; in the phasing build (`-DAETHER_HL2_TX_TXA=OFF`) FM and NFM are on `receiveOnlyModes` and cannot key at all. Receive is untouched; what is withdrawn is a transmit-side control |
 | `fmToneModes` | empty | empty | empty | `VfoWidget`, `RxApplet` | Authoritative selectable access-mode vocabulary. IC-705 and IC-9700 publish all eight states documented for each model at `16 5D`; IC-7300MK2 retains its narrower activated path |
 | `fmDtcsCodes` | empty | empty | empty | `VfoWidget`, `RxApplet` | Authoritative operator-intent vocabulary for the DTCS selector. Every backend declares empty explicitly; the activated IC-705 and IC-9700 extended profiles publish the standard 104-code set. Empty means no DTCS control, never an invented default |
 | `hasHostNoiseBlanker` | ❌ | ✅ | ❌ | `RadioModel::hasHostNoiseBlanker()` → `VfoWidget::setHasHostNoiseBlanker` | **THIS HOST** blanks impulse noise in the radio's IQ (WDSP ANB, ahead of the demodulator). OR'd with `hasRadioSideDsp` at the NB button, so a direct-sampling radio gets NB without claiming firmware DSP it does not have — the same exception the manual notch makes. Requires an IQ path this host demodulates: a backend fed finished audio has nothing to blank. Icom: ❌ (the radio's own blanker, under `hasRadioSideDsp`). ANAN: ✅ — the same WDSP ANB, in `AnanRxDsp`. **Not** permissive on disconnect — it can only ADD the button |
@@ -212,6 +295,7 @@ the production dialog and checks its displayed peak level and frequency.
 | `hasDdcPanEdgeRolloff` | ❌ | ❌ | ❌ | `MainWindow::onConnectionStateChanged()` → `SpectrumWidget::setPanEdgeTaperEnabled()` | Real, bench-measured attenuation baked into the sampled data itself toward the extreme edges of the panadapter bandwidth — not a display artifact. True only for ANAN-G2, the first (and so far only) DDC-based backend; Flex/HL2/Sim report false since none of their receive chains have this shape. A capability flag rather than a family-string check, so a future DDC backend gets the same display-only edge crop automatically. Icom: ❌ (CI-V ships finished audio, not a decimated IQ stream with an edge to taper) |
 | `backendPanAveraging` (record) | absent | **10 ms** | absent | `MainWindow::onConnectionStateChanged()` → `SpectrumWidget::setClientFftSmoothingEnabled()` | The backend already averages the panadapter per the operator's FFT AVG before the frame leaves it, so the widget skips its fixed client-side EMA (`SMOOTH_ALPHA`) instead of averaging twice. Engaged by ANAN (WDSP's display analyzer, `AnanPanAnalyzer`) and HL2 (`Hl2Spectrum`'s time-constant average, power domain unless the weighted toggle selects log-recursive); `msPerAverageStep` is what one FFT AVG step means (10 ms on both). Engaged by RTL too (`SpectrumTemporalAverage` in its acquisition-owned accumulator, 10 ms per step). `clientPersistsAveraging` makes the client the persistence owner for FFT AVG and Wt Avg (per-radio `ClientDisplay.fftAverages`); ✅ for RTL and HL2, false for ANAN. `averageDescription` / `weightedDescription` replace the controls' default wording where the backend's units or weighted semantics differ; RTL supplies both, others leave them empty. Icom: absent |
 | `panFrameRateShaping` (record) | absent | **engaged**, `clientPersistsFrameRate` ✅ | absent | `MainWindow::clientPersistsFftFps()` → `RadioCapabilities::clientPersistsPanFrameRate()`, from `scheduleClientFftFpsSave` and `wirePanDisplayStatus` | Who keeps a pan's FFT frame rate (Display ▸ FFT FPS) where this engine paces the frames. Engaged with `clientPersistsFrameRate` true makes the client the persistence owner: the per-radio `ClientDisplay.fftFps` table is written and restored. Absent keeps a family's existing behavior, which is to store nothing. HL2 only; Flex (the radio stores and reports it), Icom, ANAN, RTL and Sim leave it absent. The save and the restore read the one accessor |
+| `panWaterfallRateShaping` (record) | absent | **engaged**, `clientPersistsWaterfallRate` ✅ | **engaged**, `clientPersistsWaterfallRate` ✅ | `MainWindow::clientPersistsWaterfallRate()` → `RadioCapabilities::clientPersistsPanWaterfallRate()`, from `scheduleClientWaterfallRateSave` and `wirePanDisplayStatus` | Who keeps a pan's waterfall rate (Display ▸ Rate) where this engine paces the rows. Engaged with `clientPersistsWaterfallRate` true makes the client the persistence owner: the per-radio `ClientDisplay.waterfallRates` table is written and restored. Engaged with false, or absent, stores and restores nothing. HL2, ANAN, Icom, RTL and Sim each engage it with true, since none of them holds a line duration; Flex (the radio stores and reports it) leaves it absent. A family stops storing the rate with one edit in its own `capabilities()`. The save and the restore read the one accessor |
 | `panZoomModes` (record) | ✅ engaged | — (absent) | — (absent) | `MainWindow::onConnectionStateChanged()` and the `PanadapterStack::panAdded` lambda → `SpectrumWidget::setBandSegmentZoomAvailable()`; `MainWindow::togglePanZoomModeForPan` and `MainWindow::setPanZoomMode` → `gui/PanZoomModeGate.h` | Per-pan band/segment zoom (`display pan set <pan> band_zoom=`/`segment_zoom=`). ENGAGED means the radio answers that wire text; ABSENT means undeclared and the gate REFUSES — the write would otherwise be dropped inside `RadioModel::sendCmd` while the control moved anyway. One predicate serves both the B/S button enable and all six command surfaces (shortcuts, MIDI, FlexControl, the RC28/Stream Deck/T-Mate2 chain, the wheel, the automation bridge), so "the button is grey" and "the keystroke is refused" cannot drift apart. A refusal on this rung logs and calls `MainWindow::showUnsupportedControlNotice()`, because a gate refuses before the send and `commandDropped()` never fires. A record and not a bool per #5262 M2 — the two zoom modes are separate wire keys — and a record and not a family string per the standing #5554 notice. Icom/ANAN/RTL: absent |
 | `hasRadioSideWaterfallAutoBlack` | ✅ | ❌ | ❌ | `MainWindow::applyRadioSideDspToPanDisplay` | The HW position of the Display ▸ Black Level button. False cycles Off ↔ SW. **Masks, never rewrites** the stored preference — see below |
 | `hasRadioSideCwKeyer` | ✅ | ❌ | ❌ | `RadioModel::hasRadioSideCwKeyer()` | Status-bar text-keyer indicator and every text-send entry point. Icom: ✅ only for the verified IC-705 / IC-7300MK2 command-17 profiles |
@@ -231,6 +315,7 @@ the production dialog and checks its displayed peak level and frequency.
 | `hasPaTemperatureTelemetry` | ✅ | ✅ | ❌ | `MainWindow::applyCapabilitiesToUi` | PA-temperature gauge and °C/°F selector in Radio Vitals. Icom: ❌ until a model profile declares and implements a PA-temperature meter; the IC-9700 has no such declared telemetry |
 | `hasPaCurrentTelemetry` | ❌ | ❌ | ❌ | `MainWindow::applyCapabilitiesToUi` | Calibrated PA drain-current face in Radio Vitals, used only when PA-temperature telemetry is unavailable. Icom: ✅ only for the IC-9700 profile's documented 0–20 A Id calibration. Flex remains ❌ because its PACURRENT meter is known to clip below real full-power draw |
 | `paTelemetryAudit` (record) | — (absent) | — (absent) | — (absent) | `MainWindow::applyCapabilitiesToUi` | A PROTOCOL audit of the PA telemetry the wire format can carry at all, as opposed to what a session has so far RECEIVED. ENGAGED with `temperatureAbsent` means the payload was read field by field and there is no temperature in it, so the status bar WITHDRAWS its PA temperature row instead of leaving it on `PA --°C` forever. ABSENT (the default) means NOT AUDITED and every consumer keeps its historical presentation — which is what holds Flex, HL2, Icom, Sim and RTL at today's behaviour rather than reclassifying a default `false` above as "proven absent". ANAN: engaged, because Protocol 2's whole analog payload is six fields and none is a temperature. A record and not a bool per #5262 M2, whose boolean count is frozen and shrink-only; the audit can also grow a current/supply field without a second ratchet argument |
+| `adcFrontEnd` (record) | — (absent) | — (absent) | — (absent) | `RadioSetupDialog` (ANAN Front End page) | ENGAGED means the radio's session takes its receive front-end options (sample rate, ADC, dither, randomization, filter-bank bypass, the radio-speaker stream) from the settings the ANAN Front End page edits, so the page applies to it; ABSENT (the default) means no such page for that radio. No fields: the page offers all of its controls or none, so a per-control field would be a claim nothing reads (#5554); a field arrives with the consumer that leaves a control out. ANAN: engaged. A record and not a bool per #5262 M2 (the boolean count is frozen and shrink-only). NOTE the page is shown with NOTHING CONNECTED as well — its options take effect only at the start of a session, so a page that required a connection could never configure a first connect; the capability is what gates it once a radio IS attached |
 | `hasMainFanTelemetry` | ✅ | ❌ | ❌ | `MainWindow::applyCapabilitiesToUi` | Main Fan gauge in Radio Vitals. All current Icom models are ❌ because the backend does not publish fan-speed telemetry |
 | `hostFrequencyCalibration` | ❌ | ✅ | ❌ | `RadioSetupDialog` (Calibration page), `AutomationServer::doFreqCal` | Shows the Calibration page and enables the `freqcal` bridge verb. Means "**the client** owns the frequency-error correction", not "this radio has an error" — every radio does. Flex is ❌ because it calibrates itself (`radio set cal_freq` / `pll_start`), and that surface stays in the Frequency Offset group on the Receive page. HL2 is ✅ because its 76.8 MHz NCO scale is a `localparam` in the bitstream (`radio.v` M2) and no register in the HPSDR map accepts a correction — see `docs/architecture/hl2-frequency-calibration.md` |
 | `hostDroopCalibration` | ❌ | ❌ | ❌ | `RadioSetupDialog` (Droop Correction page), `AutomationServer::doDroopCal` | Shows the Droop Correction page and enables the `droopcal` bridge verb. Means "the client has measured and can correct a real DDC edge droop on this radio", not "this radio has no droop" — HL2's own DDC decimation chain looks architecturally similar and has never been characterised, so its ❌ is "not yet measured", not "known absent". ANAN: ✅ — the Saturn FPGA's DDC0 CIC/decimation chain has a real, bench-measured sin(x)/x droop near the edges of the displayed span (`AnanDroopCorrection.h`), corrected in-app via `AnanDroopCalibrator` |
@@ -584,7 +669,7 @@ and conflating them would hide one of them.
 | `dbmAxisIsCalibrated()` (`panAmplitude->calibratedDbm`) | ✅ (absent) | ❌ | ✅ (absent) | ❌ | Do the numbers on that axis mean absolute dBm at the antenna? |
 | `panBinsAbsolute()` (`panAmplitude->binsAbsolute`) | ❌ (absent) | ✅ | ❌ (absent) | ✅ | Do the spectrum bins hold still while the reference level moves? |
 | `clientPersistsDbmRange()` (`panAmplitude->clientPersistsDbmRange`, with `binsAbsolute`) | ❌ (absent) | ✅ | ❌ (absent) | ❌ (declared false) | May the client store and restore the dBm range the operator sets? RTL: ❌ (declared false). Sim: ❌ (absent) |
-| `squelchLevelScale` | −160 + 1·L, all modes, Auto SQL | −119 + 0.7·L, AM/SAM/DSB/LSB/USB, no Auto SQL | IC-7300MK2: −194.8 + 1.49·L on the pan, USB/LSB/CW/CWU/CWL/AM/DIGU/DIGL, no Auto SQL (measured, #6180); Flex's for every other Icom | Flex's (no measured map) | Where does squelch level L open, on this axis? |
+| `squelchLevelScale` | −160 + 1·L, eligible voice modes, display Auto SQL | −119 + 0.7·L, AM/SAM/DSB/LSB/USB, no Auto SQL | IC-7300MK2: −194.8 + 1.49·L on the pan, USB/LSB/CW/CWU/CWL/AM/DIGU/DIGL, no Auto SQL (measured, #6180); Flex's for every other Icom | Flex's (no measured map) | Where does squelch level L open, on this axis? |
 
 **`squelchLevelScale` draws the SQL line and drives Auto SQL** (#6092).
 The demo keeps Flex's scale. RTL-SDR publishes its own gate, −120 + 1.2·L dBFS/2048-bin in FM/FM-N, with engine-owned Auto and no display line (see Native squelch above). For display-driven Auto, an absent record or an unlisted mode means no line, and the SQL button
@@ -881,9 +966,11 @@ predicates the readouts ask before printing. See [`HERMES.md`](../HERMES.md)
 - **Hl2Backend** reports `canTransmit` from its own TX gate (`m_txAllowed`) so a
   build with transmit disabled looks RX-only from above the seam. Its
   `receiveOnlyModes` is hand-listed rather than derived, and the evidence for the
-  list is a test, not the list: `tests/hl2_txdsp_test.cpp` asserts each declared
-  mode produces IQ **bit-identical** to USB, and `tests/hl2_family_transition_test.cpp`
-  asserts the live backend still declares every one of them.
+  list is a test, not the list. In the default TXA build `tests/hl2_txdsp_test.cpp`
+  measures AM, DSB and FM off a real TXA channel; in the phasing build it asserts
+  each declared mode produces IQ **bit-identical** to USB. In both,
+  `tests/hl2_family_transition_test.cpp` asserts the live backend declares exactly
+  the list for that build.
 - **IcomCivBackend** derives `receiveOnlyModes` from `modeListFor()` filtered by
   `modeIsReceiveOnly()` rather than listing it a third time, so a mode cannot be
   offered in the combo without a consistent transmit answer for it. It also
@@ -919,10 +1006,54 @@ prevent.
 pins the two FM-control declarations this radio must NOT make —
 `hasFmRepeaterOffset` (whose struct default is the opposite value, so the
 default is asserted separately and the two facts fail apart) and
-`fmTonePresentation`. The reason for both is read from production —
-`receiveOnlyModes` and `legacyFmToneModes()` — rather than re-typed, so if the
-HL2 ever gains an FM transmit chain that target is the one that fails first.
+`fmTonePresentation`. In the default TXA build the HL2 has an FM transmit chain,
+and that target asserts it (FM and NFM are off `receiveOnlyModes`) beside the two
+withdrawals, which stand because no verb is behind either. In the phasing build
+it asserts FM and NFM are still on the list.
+
+[`tests/show_tx_in_waterfall_client_flag_test.cpp`](../../tests/show_tx_in_waterfall_client_flag_test.cpp)
+pins `txWaterfallClientFlag` on the real backends: the HL2 stores and restores
+the flag; Icom, ANAN, RTL and Sim decline and leave a `ClientDisplay` document
+that already holds it untouched; Flex keeps its wire route.
 
 The wider per-backend declaration sweep lived in
 `tests/radio_capability_gating_test.cpp` until #5452 removed it for an
 ASan-flaky IC-9700 block; #5443 tracks recovering the rest of that coverage.
+
+
+## Confirmed host receive controls
+
+`receiveCwPitchControl` declares a session-wide receive BFO pitch range and step.
+It uses the existing `setCwPitch` verb, with accepted pitch reported through
+`TransmitDelta::cwPitch`. The record grants no transmit or microphone path;
+`hostModulates` remains independent. A backend using confirmed receive controls
+publishes pitch only after DSP adoption, and the shared model forwards operator
+intent without optimistically changing the observed pitch or sending a raw Flex
+command. An accepted pitch report is never routed back as another pitch request.
+The backend owns restoration; connecting does not push the preceding session's
+pitch into an engine declaring this record.
+
+`receiveDspControl` declares the qualified modes and individually supported
+signal controls (AGC, NB, NR, ANF, manual notch, APF and RIT). This can expose host
+DSP without claiming `hasRadioSideDsp`. An absent record retains existing family
+capability behavior; a present record makes unlisted features/modes unavailable.
+The optional entries in `featureModes` restrict an individual feature to a
+subset of those modes: RTL declares APF only for CW/CWR while its other receive
+controls cover AM/SAM/USB/LSB/CW/CWR. A missing entry preserves the common mode
+list; an empty entry makes the feature unavailable. A restriction cannot add a
+mode or feature absent from the common lists.
+The VFO and RX applet retain accepted state while a confirmed engine prepares a
+request. AGC/DSP requests identify the changed field: a confirmed backend merges
+that field into its pending recipe rather than overwriting independent pending
+edits with companion fields from the last observation.
+
+These desktop records do not themselves grant an aetherd control verb. Flex's
+radio-authoritative command/status and persistence contracts remain unchanged.
+
+Tracking-notch engines with `ReceiveControlPolicy::Confirmed` use the existing
+`createNotch`, `setNotch`, `removeNotch` and `setNotchesEnabled` verbs. `TnfModel`
+keeps moves, widths, removals and global bypass at accepted state until
+`notchChanged`, `notchRemoved` or `RadioDelta::tnfEnabled` arrives. Legacy
+optimistic sessions retain their existing behavior. Notch capability limits
+remain the existing `maxNotchFilters`, width bounds and `notchHasDepth` fields;
+a single relative MN control does not imply a tracking-notch bank.

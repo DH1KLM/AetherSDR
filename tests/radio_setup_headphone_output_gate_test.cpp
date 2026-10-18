@@ -32,14 +32,20 @@
 #include "models/RadioModel.h"
 
 #include <QApplication>
+#include <QColor>
+#include <QCoreApplication>
+#include <QFont>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHostAddress>
 #include <QImage>
 #include <QLabel>
+#include <QList>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSignalSpy>
 #include <QSlider>
+#include <QStringList>
 #include <QtTest>
 
 #include <memory>
@@ -313,12 +319,13 @@ private slots:
     {
         auto& tm = ThemeManager::instance();
         const ThemeRestore restoreTheme;
-        const QColor engagedRed(0x8b, 0x00, 0x00);
         QStringList failures;
         for (const char* theme : {"Default Dark", "Default Light"}) {
             QVERIFY2(tm.setActiveTheme(QLatin1String(theme)), theme);
             const QString unavailable =
                 tm.color(QStringLiteral("color.control.unavailable")).name();
+            // The engaged Mute's border is drawn in the danger token, solid.
+            const QColor engagedRed = tm.color(QStringLiteral("color.accent.danger"));
 
             RadioModel hl2;
             NoCommandPlaneBackend* backend = installConnected(hl2, QStringLiteral("hl2"));
@@ -371,7 +378,9 @@ private slots:
                     failures << where + QStringLiteral(": regions differ in size");
                 else if (diff == 0)
                     failures << where + QStringLiteral(": dimmed renders as live");
-                if (!p.dimmed->styleSheet().contains(unavailable, Qt::CaseInsensitive))
+                // The window's canon sheet paints a disabled label, value and
+                // Mute in the unavailable token: its color is in the render.
+                if (pixelsOfColour(dimmed, QColor(unavailable)) <= 0)
                     failures << where + QStringLiteral(": not the unavailable token ")
                                     + unavailable;
             }
@@ -453,6 +462,13 @@ int main(int argc, char** argv)
     TestSettingsProfile profile(QStringLiteral("radio-setup-headphone-output-gate"));
     QApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false);
+    // Text without antialiasing: every glyph pixel is the label's color, so
+    // "the unavailable token is in the render" holds under any fontconfig. With
+    // subpixel antialiasing (the Ubuntu CI image) no pixel of "Headphone:" is
+    // fully covered, and the token's exact color never appears.
+    QFont font = QApplication::font();
+    font.setStyleStrategy(QFont::NoAntialias);
+    QApplication::setFont(font);
     AppSettings::instance().load();
     RadioSetupHeadphoneOutputGateTest test;
     return QTest::qExec(&test, argc, argv);
