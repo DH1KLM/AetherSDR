@@ -152,6 +152,8 @@ ranges and commanded-filter LEDs. Its master bypass still takes precedence.
 The single receiver frequency drives both banks; changing ADC1 limits does
 not create another receiver or alter ADC0 limits. TX/PureSignal bypass and
 **Disable 6m LNA on TX** remain disabled because ANAN transmit is unsupported.
+The 6m LNA and TX/PureSignal bypass switches are grouped below the HPF/BPF
+filter table, alongside the LPF options below their own table.
 
 **Apply** and **Restore model defaults** are above the hardware tabs, with
 the pending/saved status directly below. Complete filter banks retain their

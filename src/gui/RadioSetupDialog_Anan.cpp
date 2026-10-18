@@ -468,12 +468,12 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         check->setAccessibleName(text);
         check->setAccessibleDescription(QStringLiteral("Unavailable: ANAN TX and PureSignal are not implemented"));
         check->setEnabled(false);
-        receiveOptions->insertWidget(0,check);
+        receiveOptions->insertWidget(1,check);
     }
     auto* disable6mRx = new QCheckBox(QStringLiteral("Disable 6m LNA on RX"), receiveGroup);
     disable6mRx->setAccessibleName(QStringLiteral("Disable 6m LNA on receive"));
     disable6mRx->setAccessibleDescription(QStringLiteral("Select receive bypass instead of the 6m filter/LNA on ADC0; applies after Apply"));
-    receiveOptions->insertWidget(0,disable6mRx);
+    receiveOptions->insertWidget(1,disable6mRx);
     receive->setAccessibleName(QStringLiteral("ADC receive filter frequency ranges"));
     auto* lpf = makeTable(lpfGroup, 7);
     lpf->setAccessibleName(QStringLiteral("ALEX low pass filter frequency ranges"));
