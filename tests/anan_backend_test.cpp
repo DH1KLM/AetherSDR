@@ -42,6 +42,15 @@ public:
     {
         backend.m_connected = connected;
     }
+    static void prepareRate(AnanBackend& backend, int protocol, bool redPitaya, int rate)
+    {
+        backend.m_pendingParams.protocol = protocol;
+        backend.m_pendingParams.redPitayaP1 = redPitaya;
+        backend.m_pendingParams.ddc0RateKsps = rate;
+        backend.m_pendingDspConfig.inputSampleRateHz = rate * 1000;
+    }
+    static bool rateChanging(const AnanBackend& backend) { return backend.m_rateChanging; }
+    static int rate(const AnanBackend& backend) { return backend.m_pendingParams.ddc0RateKsps; }
     static void snapshot(AnanBackend& backend, quint64 rxBytes)
     {
         P2Client::LinkCounters counters;
@@ -420,6 +429,29 @@ int main(int argc, char** argv)
             check(slice->agcThreshold() == 60 && slice->agcOffLevel() == 35,
                   "the published values match what the operator set");
         }
+    }
+
+    //DH1KLM: Invalid zoom must not schedule a DSP rebuild on a live backend.
+    {
+        AnanBackend backend;
+        AnanLinkStatsTestAccess::setConnected(backend, true);
+        const int originalRate = AnanLinkStatsTestAccess::rate(backend);
+        for (const double hz : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN(),
+                std::numeric_limits<double>::infinity()}) {
+            backend.setPanBandwidth(QStringLiteral("0x80000000"), hz);
+            check(!AnanLinkStatsTestAccess::rateChanging(backend)
+                  && AnanLinkStatsTestAccess::rate(backend) == originalRate,
+                  "invalid zoom neither schedules DSP work nor changes the session rate");
+        }
+        for (const int ceiling : {192, 384, 1536}) {
+            AnanLinkStatsTestAccess::prepareRate(backend, ceiling == 1536 ? 2 : 1,
+                ceiling == 384, ceiling);
+            backend.setPanBandwidth(QStringLiteral("0x80000000"), 1e300);
+            check(!AnanLinkStatsTestAccess::rateChanging(backend)
+                  && AnanLinkStatsTestAccess::rate(backend) == ceiling,
+                  "oversized finite zoom retains the appropriate P1/P2 rate ceiling");
+        }
+        AnanLinkStatsTestAccess::setConnected(backend, false);
     }
 
     // ---- nearestDdc0RateKsps: nearest by RATIO, not linear distance ----

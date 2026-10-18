@@ -1213,10 +1213,13 @@ int AnanBackend::nearestSessionRateKsps(int requestedKsps) const noexcept
 void AnanBackend::setPanBandwidth(const QString& panId, double hz)
 {
     Q_UNUSED(panId);   // one pan in this phase
-    if (hz <= 0.0 || !m_connected)
+    if (!std::isfinite(hz) || hz <= 0.0 || !m_connected) {
         return;
-
-    const int requestedKsps = static_cast<int>(hz / 1000.0 + 0.5);
+    }
+    //DH1KLM: Clamp in floating point before narrowing; oversized finite
+    // spans still select the widest supported rate without integer overflow.
+    const int requestedKsps = static_cast<int>(std::min(hz / 1000.0 + 0.5,
+        static_cast<double>(kDdc0RatesKsps.back())));
     const int snappedKsps = nearestSessionRateKsps(requestedKsps);
 
     if (snappedKsps == m_pendingParams.ddc0RateKsps) {

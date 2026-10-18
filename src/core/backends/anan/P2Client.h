@@ -48,10 +48,9 @@ public:
         bool redPitayaP1 = false;
         AnanModel model = AnanModel::Automatic;
         bool overrideDetection = false; //DH1KLM: Explicit effective-board override.
-        // Valid rates: 48/96/192/384/768/1536 (spec p.24). Not validated here
-        // -- P2Protocol::buildDdcSpecific() is the single place that would
-        // reject or clamp one, and it does neither yet; an invalid value is
-        // simply sent as-is and the radio's own reaction is the feedback.
+        //DH1KLM: Valid rates: 48/96/192/384/768/1536 (spec p.24).
+        // Discovery validates the initial DDC list against the resolved board;
+        // live rate changes use the same allow-list before updating that list.
         int ddc0RateKsps = 48;
         // ADC routing and linearisation are connect-time; RF filter options have a live setter.
         bool ditherEnabled = true;
@@ -127,7 +126,8 @@ public:
     }
 
     // Change one DDC's rate on a LIVE session, no restart. Returns false (sending
-    // nothing) if not running or ddcIndex is not enabled. An unchanged rate still
+    // nothing) if not running, ddcIndex is not enabled, or the rate is unsupported.
+    // An unchanged rate still
     // sends: the caller retries across the settle window. p2app supports this:
     // IncomingDDCSpecific.c loops on DDC-Specific packets and calls
     // WriteP2DDCRateRegister() (RegisterWrite(VADDRDDCRATES)) with no teardown. The
@@ -296,6 +296,9 @@ private:
     int m_adc1AttenuationDb = 0;
     int m_rxAntenna = 1;
     int m_numAdcs = 2; //DH1KLM: board profile; defaults to the currently supported Saturn family.
+
+    //DH1KLM: Socket-free preparation shared by live dispatch and injected tests.
+    std::optional<std::array<std::uint8_t, 1444>> prepareDdcRateChange(int ddcIndex, int rateKsps);
 
     // The session's resolved DDC list and the dither/random flags that went
     // with it, RETAINED (rather than consumed and dropped in start()) so
