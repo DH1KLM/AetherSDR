@@ -134,7 +134,9 @@ a board family, not a guaranteed commercial model or external DIY filter board.
 Edit **Low MHz** and **High MHz** with six decimal places (1 Hz resolution).
 The Bypass column is compact; filter names and six-decimal frequency fields
 retain readable widths. LEDs occupy the same fixed position in each row.
-On narrow windows, scroll horizontally to view both complete filter tables.
+On narrow windows, HPF/BPF and LPF tables stack vertically; enlarge the
+resizable setup window to place them side by side. Each filter name is drawn
+once, with the LED in a fixed position before the name.
 Rows must be ordered, non-overlapping, and within 0–61.44 MHz. Frequencies in
 receive-table gaps select bypass. LPF gaps select the 6 m LPF fallback.
 **ADC0 RF filter bypass** and **ADC1 RF filter bypass** override the respective
