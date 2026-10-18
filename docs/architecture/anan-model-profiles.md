@@ -397,3 +397,30 @@ and connect refusal checks for both protocols. The backend test's supply-rail
 fixture now uses the actual AnanClient dispatcher type rather than its former
 P2Client pointer. Targeted P2Client tests run locally; the full backend-linked
 test still requires the complete application dependency build.
+
+
+## Live receive-rate validation, 2026-10-18
+
+P2 applies the same six-rate allow-list during live DDC changes that it
+already uses during discovery validation. Unsupported rates or inactive
+logical DDC indices produce no packet and leave the cached session and
+sequence expectations unchanged. Packet preparation is socket-free and shared
+with the actual live send path. Valid repeated requests still generate full
+DDC-Specific packets for the existing UDP-loss retries; only a real rate
+change resets that DDC's sequence expectation. Sibling DDCs, physical offsets,
+ADC routes and dither/randomization flags are retained. No restart or new
+thread is introduced.
+
+The injected test covers all implemented physical P2 board profiles, every
+supported rate, rejected rates/indices, sibling preservation, retry equality
+and sequence reset behavior. The backend also rejects nonfinite/nonpositive
+zoom requests before conversion and clamps oversized finite spans before
+narrowing to integer ksps. Backend regression cases retain P1's 192 ksps
+ceiling, Red Pitaya's 384 ksps ceiling and P2's 1536 ksps ceiling. These tests
+do not qualify a live radio's response to a rate change.
+
+The targeted P2 receive-profile tests pass under undefined-behavior and
+float-cast-overflow sanitizers. Removing only the rate allow-list check in an
+external mutation causes the invalid-rate and state-preservation checks to
+fail. Backend and backend-test syntax checks pass; the full backend-linked
+test and Windows build remain unrun locally.

@@ -11,6 +11,7 @@
 #include <limits>
 #include <cstdio>
 #include <span>
+#include <utility>
 #include <vector>
 
 using namespace AetherSDR::anan;
@@ -43,6 +44,20 @@ struct P2ClientTestAccess {
     static ReceiveFilterKind filters(const P2Client& client) { return client.m_receiveFilterKind; }
     static bool swapsSpeaker(const P2Client& client) { return client.m_swapSpeakerChannels; }
     static void setDdc(P2Client& client, DdcConfig config) { client.m_activeDdcs = {config}; }
+    static void setDdcs(P2Client& client, std::vector<DdcConfig> ddcs)
+    {
+        client.m_activeDdcs = std::move(ddcs);
+        client.m_activeDdcCount = static_cast<int>(client.m_activeDdcs.size());
+    }
+    static void setExpected(P2Client& client, int ddc, std::uint32_t sequence)
+    {
+        client.m_expectedSeq[ddc] = sequence;
+    }
+    static auto expected(const P2Client& client, int ddc) { return client.m_expectedSeq[ddc]; }
+    static auto ratePacket(P2Client& client, int ddc, int rate)
+    {
+        return client.prepareDdcRateChange(ddc, rate);
+    }
     static auto refresh(P2Client& client, qint64 nowMs)
     {
         return client.takeGeneralRefresh(nowMs);
@@ -104,6 +119,67 @@ int main(int argc, char** argv)
             check(P2ClientTestAccess::frequencyWord(client) == phaseWord(hz),
                   "P2 keeps the established inclusive P1 tuning boundaries");
         }
+    }
+    //DH1KLM: Exercise the actual rate-packet preparation with no socket.
+    for (const int board : {1, 2, 3, 4, 5, 10, 20}) {
+        P2Client client;
+        P2ClientTestAccess::prepare(client, board);
+        check(!P2ClientTestAccess::ratePacket(client, 0, 96), "no rate change before discovery validation");
+        P2ClientTestAccess::feed(client, discovery(board), 1024);
+        const auto profile = *receiveProfile(board);
+        P2ClientTestAccess::setDdcs(client, {{48, 0}, {192, profile.numAdcs - 1}});
+        const auto original = P2ClientTestAccess::ratePacket(client, 0, 48);
+        check(original && (*original)[7] == (3u << profile.firstDdcIndex),
+              "rate packet enables exactly the two selected physical DDC rows");
+        P2ClientTestAccess::setExpected(client, 0, 100);
+        P2ClientTestAccess::setExpected(client, 1, 200);
+        for (const int rate : {-1, 0, 47, 49, 65536, std::numeric_limits<int>::max()}) {
+            check(!P2ClientTestAccess::ratePacket(client, 0, rate), "invalid live rate produces no packet");
+            check(P2ClientTestAccess::ratePacket(client, 0, 48) == original
+                  && P2ClientTestAccess::expected(client, 0) == 100
+                  && P2ClientTestAccess::expected(client, 1) == 200,
+                  "refused rate preserves cached configuration and sequence tracking");
+        }
+        for (const int ddc : {-1, 2, 4}) {
+            check(!P2ClientTestAccess::ratePacket(client, ddc, 96), "inactive logical DDC cannot change rate");
+        }
+        for (const int rate : kDdc0RatesKsps) {
+            P2ClientTestAccess::setExpected(client, 0, 100);
+            const auto packet = P2ClientTestAccess::ratePacket(client, 0, rate);
+            check(packet.has_value(), "each supported P2 rate prepares a live packet");
+            if (!packet) { continue; }
+            const std::size_t row = 17 + 6 * profile.firstDdcIndex;
+            check((((*packet)[row + 1] << 8) | (*packet)[row + 2]) == rate,
+                  "selected rate uses the correct physical DDC row");
+            auto normalized = *packet;
+            normalized[row + 1] = (*original)[row + 1];
+            normalized[row + 2] = (*original)[row + 2];
+            check(normalized == *original, "rate change preserves sibling DDC, ADC routes and flags");
+            check(P2ClientTestAccess::expected(client, 0).has_value() == (rate == 48)
+                  && P2ClientTestAccess::expected(client, 1) == 200,
+                  "only a changed DDC loses its previous sequence expectation");
+            P2ClientTestAccess::setExpected(client, 0, 101);
+            check(P2ClientTestAccess::ratePacket(client, 0, rate) == packet
+                  && P2ClientTestAccess::expected(client, 0) == 101,
+                  "unchanged-rate retry emits the same packet and keeps gap detection");
+            P2ClientTestAccess::ratePacket(client, 0, 48);
+        }
+        P2ClientTestAccess::setExpected(client, 0, 300);
+        const auto second = P2ClientTestAccess::ratePacket(client, 1, 384);
+        check(second.has_value(), "second logical DDC can change rate independently");
+        if (second) {
+            const std::size_t row = 17 + 6 * (profile.firstDdcIndex + 1);
+            check((((*second)[row + 1] << 8) | (*second)[row + 2]) == 384,
+                  "second logical DDC uses its own physical row");
+            auto normalized = *second;
+            normalized[row + 1] = (*original)[row + 1];
+            normalized[row + 2] = (*original)[row + 2];
+            check(normalized == *original && P2ClientTestAccess::expected(client, 0) == 300
+                  && !P2ClientTestAccess::expected(client, 1),
+                  "second-DDC change preserves the first receiver and its sequence tracking");
+        }
+        client.stop();
+        check(!P2ClientTestAccess::ratePacket(client, 0, 96), "stopped session cannot prepare rate changes");
     }
     //DH1KLM: Discard the initial General as a lost UDP datagram. Continued IQ
     // must not prevent later General packets from restoring ALEX enable. The

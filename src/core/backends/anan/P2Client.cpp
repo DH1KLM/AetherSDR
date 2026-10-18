@@ -439,35 +439,34 @@ void P2Client::setStepAttenuationDb(int adcIndex, int db)
 
 bool P2Client::setDdcRateLive(int ddcIndex, int rateKsps)
 {
-    if (!m_running || !m_socket || !m_discoveryValidated)
-        return false;
-    if (ddcIndex < 0 || ddcIndex >= static_cast<int>(m_activeDdcs.size()))
-        return false;
+    if (!m_socket) { return false; }
+    const auto packet = prepareDdcRateChange(ddcIndex, rateKsps);
+    if (!packet) { return false; }
+    //DH1KLM: Repeat unchanged valid rates for the backend's UDP-loss retries.
+    sendTo(*m_socket, *packet, m_host, kDdcSpecificPort, m_txBytes);
+    return true;
+}
 
+std::optional<std::array<std::uint8_t, 1444>> P2Client::prepareDdcRateChange(int ddcIndex, int rateKsps)
+{
+    if (!m_running || !m_discoveryValidated
+        || ddcIndex < 0 || ddcIndex >= static_cast<int>(m_activeDdcs.size())
+        || std::find(kDdc0RatesKsps.begin(), kDdc0RatesKsps.end(), rateKsps) == kDdc0RatesKsps.end()) {
+        return std::nullopt;
+    }
     auto& slot = m_activeDdcs[static_cast<std::size_t>(ddcIndex)];
     const bool rateChanged = slot.rateKsps != rateKsps;
     slot.rateKsps = rateKsps;
-    // Whole packet, every DDC's row -- see this function's declaration
-    // comment. Same destination port start() used: p2app tells DDC-Specific
-    // from High Priority by which port it arrives on, so this is not
-    // interchangeable with kRadioPort. Sent even when rateChanged is false:
-    // AnanBackend retries this call at 60/140 ms for UDP loss, and those
-    // retries must not no-op after the first write (#5547).
-    sendTo(*m_socket,
-          buildDdcSpecific(m_activeDdcs, m_numAdcs,
-                           m_ditherEnabled, m_randomEnabled, m_firstDdcIndex),
-          m_host, kDdcSpecificPort, m_txBytes);
-
-    // The stream's sample cadence changes underneath us from here, so the
-    // sequence expectation for THIS DDC is no longer meaningful -- clear it
-    // rather than let the next frame look like a gap and inflate the drop
-    // counter for what is a deliberate, operator-initiated change. Retries
-    // of the same rate leave the tracker alone: the cadence did not change
-    // again.
+    //DH1KLM: Preserve every other enabled DDC, ADC route and linearisation
+    // flag when replacing one rate. Disabled physical rows remain disabled.
+    const auto packet = buildDdcSpecific(m_activeDdcs, m_numAdcs,
+        m_ditherEnabled, m_randomEnabled, m_firstDdcIndex);
+    // A real cadence change invalidates this DDC's sequence expectation.
+    // Retrying an unchanged rate must not hide a subsequent packet gap.
     if (rateChanged) {
         m_expectedSeq[static_cast<std::size_t>(ddcIndex)].reset();
     }
-    return true;
+    return packet;
 }
 
 std::optional<std::array<std::uint8_t, 60>> P2Client::takeGeneralRefresh(qint64 nowMs)
