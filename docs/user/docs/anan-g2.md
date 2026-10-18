@@ -136,7 +136,10 @@ and HL2 retain their own hardware settings.
 **ALEX HPF bands** is used by the legacy Hermes, Angelia and Orion profiles
 (including ANAN-100/100D/200D). **ALEX BPF bands** is used by Orion MkII
 (including ANAN-7000DLE/8000DLE), Saturn/G2 and G2E profiles. Red Pitaya uses
-the existing legacy HPF receive profile. An automatic board profile identifies
+the existing legacy HPF receive profile. Board ID 11 (**Saturn MkII**) is
+recognized but cannot connect: the checked Thetis and public Saturn sources
+do not establish a separate receive profile for this ID. A newer PCB revision
+alone does not imply board ID 11. An automatic board profile identifies
 a board family, not a guaranteed commercial model or external DIY filter board.
 
 Edit **Low MHz** and **High MHz** with six decimal places (1 Hz resolution).
