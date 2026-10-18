@@ -8990,6 +8990,36 @@ add_test(NAME vfo_dsp_launcher_width_test
 set_tests_properties(vfo_dsp_launcher_width_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Socket-free NRS requests/readback through the production bridge dispatcher,
+# model, Flex encoder and VFO. Firmware/status/transport are injected; no listener.
+add_executable(nrs_level_range_test
+    tests/nrs_level_range_test.cpp
+    ${THEME_TEST_RESOURCES}
+    src/gui/RxApplet.cpp
+    src/gui/ControlAvailabilityRegistry.cpp
+    src/gui/VfoWidget.cpp
+    src/gui/ModeFilterPresets.cpp
+    src/gui/VfoDisplayDefaults.cpp
+    src/gui/FrequencyEntryParser.cpp
+    src/gui/DragValuePopup.cpp
+    src/gui/FilterPassbandWidget.cpp
+    src/gui/SliceColorManager.cpp
+    src/gui/SliceLabel.cpp
+    src/gui/PhaseKnob.cpp
+    src/gui/SmartMtrWidget.cpp
+    src/gui/SmartMtrConfig.cpp
+    src/gui/MeterViewController.cpp
+    src/gui/AdaptiveFilterControls.cpp
+    src/gui/GuardedSlider.h
+)
+target_include_directories(nrs_level_range_test PRIVATE src tests)
+target_link_libraries(nrs_level_range_test PRIVATE
+    aethercore Qt6::Widgets Qt6::Test
+)
+add_test(NAME nrs_level_range_test COMMAND nrs_level_range_test)
+set_tests_properties(nrs_level_range_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # Socket-free production-widget lifetime regression coverage (#5568).
 add_executable(gui_nested_lifetime_test
     tests/gui_nested_lifetime_test.cpp
@@ -9325,6 +9355,7 @@ set(AETHER_SETTINGS_CONSUMERS
     radio_setup_operations_test
     stored_control_routing_test
     stored_control_dialogs_test
+    nrs_level_range_test
     pan_display_drop_notice_test
     backend_capability_revision_test
     icom_panadapter_capacity_test
@@ -9490,6 +9521,7 @@ endforeach()
 # library as AetherSDR so moving QtWidgets out of aethercore cannot silently
 # leave these harnesses with unresolved bridge symbols.
 set(AETHER_AUTOMATION_SERVER_TESTS
+    nrs_level_range_test
     anan_noise_blanker_readback_test
     automation_cell_test
     automation_boundary_core_test
