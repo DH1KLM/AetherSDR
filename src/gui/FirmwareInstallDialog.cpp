@@ -57,16 +57,13 @@ constexpr int kBackupRole = Qt::UserRole + 1;     // QString: the backup's path
 constexpr int kFileRole = Qt::UserRole + 2;       // QString: a kept Lynovation firmware
 constexpr int kDownloadRole = Qt::UserRole + 3;   // int: a release on lynovation.com, not kept yet
 
-bool isStock(const FirmwareInstallModel::Target& target)
-{
-    return target.device == FirmwareInstallModel::Device::Stock;
-}
-
-// Whether getting the unit into download mode takes its buttons: stock
-// firmware, unless it takes the link's commands as AetherCTR2 does.
+// Whether getting the unit into download mode takes its buttons: unless it
+// is there already, or its firmware restarts into it on request (AetherCTR2
+// from 0.9.2, stock firmware offering the commands).
 bool needsButtons(const FirmwareInstallModel& fw, const FirmwareInstallModel::Target& target)
 {
-    return isStock(target) && !fw.takesCommands(target);
+    return target.device != FirmwareInstallModel::Device::Bootloader
+           && !fw.restartsIntoDownloadMode(target);
 }
 
 // The unit to act on after the download-mode alert, which says to put it in
@@ -682,12 +679,13 @@ void FirmwareInstallDialog::started(bool ok, const QString& problem, const QStri
     sync();
 }
 
-bool FirmwareInstallDialog::askDownloadMode(bool stock)
+bool FirmwareInstallDialog::askDownloadMode(bool buttons)
 {
-    // Only a unit on its stock firmware needs its buttons: AetherCTR2
-    // restarts into download mode on request, and a unit there already is.
-    if (!stock)
+    // Only a unit whose firmware cannot restart into download mode on
+    // request needs its buttons (needsButtons()).
+    if (!buttons) {
         return true;
+    }
     ScopedChildWidget<QMessageBox> ask(QMessageBox::Information,
                                        tr("Put the CTR2-Max in download mode"),
                                        tr("Put the CTR2-Max in download mode now."),
@@ -864,15 +862,20 @@ void FirmwareInstallDialog::restartInto(int which)
     using Firmware = FirmwareInstallModel::Firmware;
     const auto firmware = static_cast<Firmware>(which);
     FirmwareInstallModel::Target target = m_fw->target();
-    // From the stock firmware, download mode takes the unit's buttons: the
+    // Firmware that cannot restart into download mode takes the unit's buttons: the
     // alert is all there is to it, and Status follows when it gets there.
     if (needsButtons(*m_fw, target) && firmware == Firmware::Bootloader) {
         askDownloadMode(true);
         m_step->clear();
         return;
     }
-    if (firmware != Firmware::Bootloader && !askDownloadMode(needsButtons(*m_fw, target)))
+    // The other firmware: SWITCH where the firmware takes the commands,
+    // else a start from download mode.
+    if (firmware != Firmware::Bootloader
+        && !askDownloadMode(target.device != FirmwareInstallModel::Device::Bootloader
+                            && !m_fw->takesCommands(target))) {
         return;
+    }
     target = afterAlert(*m_fw, target);
     const QString done = firmware == Firmware::AetherCtr2
                              ? tr("The CTR2-Max is restarting into AetherCTR2.")
