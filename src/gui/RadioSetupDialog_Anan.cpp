@@ -12,6 +12,7 @@
 #include "models/BandPlanManager.h"
 #include <QCheckBox>
 #include <QDoubleSpinBox>
+#include <QFontMetrics>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QLabel>
@@ -345,7 +346,19 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             ? QStringList{QStringLiteral("Filter"), QStringLiteral("Low MHz"), QStringLiteral("High MHz"), QStringLiteral("Bypass")}
             : QStringList{QStringLiteral("Filter"), QStringLiteral("Low MHz"), QStringLiteral("High MHz")});
         table->verticalHeader()->hide();
-        table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        const QFontMetrics metrics(table->font());
+        const int filterWidth = metrics.horizontalAdvance(QStringLiteral("9.5 MHz HPF")) + 34;
+        const int bypassWidth = metrics.horizontalAdvance(QStringLiteral("Bypass")) + 20;
+        auto* header = table->horizontalHeader();
+        header->setSectionResizeMode(0, QHeaderView::Fixed);
+        table->setColumnWidth(0, filterWidth);
+        for (int column = 1; column < 3; ++column) {
+            header->setSectionResizeMode(column, QHeaderView::Stretch);
+        }
+        if (hasBypass) {
+            header->setSectionResizeMode(3, QHeaderView::Fixed);
+            table->setColumnWidth(3, bypassWidth);
+        }
         table->setSelectionMode(QAbstractItemView::NoSelection);
         table->setMinimumHeight(280);
         for (int row = 0; row < rows; ++row) {
@@ -357,8 +370,8 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             nameLayout->setContentsMargins(2,0,2,0);
             auto* name = new QLabel(nameCell);
             name->setObjectName(QStringLiteral("filterBandName"));
-            nameLayout->addWidget(name);
             nameLayout->addWidget(makeFilterLed(nameCell, QStringLiteral("Filter %1").arg(row+1)));
+            nameLayout->addWidget(name);
             nameLayout->addStretch();
             table->setCellWidget(row,0,nameCell);
             if (hasBypass) {
@@ -379,6 +392,12 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                 table->setCellWidget(row, column, spin);
             }
         }
+        //DH1KLM: Preserve full localized six-decimal values; the setup scroll
+        // area can scroll when the window cannot fit both complete tables.
+        const int frequencyWidth = qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,1))->sizeHint().width();
+        table->setMinimumWidth(filterWidth + 2 * frequencyWidth
+            + (hasBypass ? bypassWidth : 0) + 2 * table->frameWidth()
+            + table->style()->pixelMetric(QStyle::PM_ScrollBarExtent));
         box->addWidget(table);
         return table;
     };

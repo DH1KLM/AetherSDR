@@ -1440,10 +1440,10 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
             m_hl2HardwareReseed();
     });
     //DH1KLM: Hardware controls are discovered through their extension verbs.
-    QTreeWidgetItem* ananHardwareItem = addPage(radioCategory, QStringLiteral("Anan Hardware"),
+    QTreeWidgetItem* ananHardwareItem = addPage(radioCategory, QStringLiteral("ANAN Hardware"),
         QStringLiteral("anan alex hpf bpf lpf hardware filters bypass model override"),
         [this] { return buildAnanHardwareTab(); });
-    m_ananHardwarePageIndex = m_pageIndexes.value(QStringLiteral("Anan Hardware"));
+    m_ananHardwarePageIndex = m_pageIndexes.value(QStringLiteral("ANAN Hardware"));
     setNavigationItemHidden(ananHardwareItem, false);
     connect(m_model, &RadioModel::connectionStateChanged, this, [this] {
         if (m_ananHardwareReseed) { m_ananHardwareReseed(); }
@@ -5482,7 +5482,7 @@ QWidget* RadioSetupDialog::buildAnanFrontEndTab()
 
     auto* feFilterIntro = new QLabel(
         "Receive filters are selected automatically for the effective model and tuned frequency. "
-        "These are initial connection defaults; saved Anan Hardware settings take precedence. "
+        "These are initial connection defaults; saved ANAN Hardware settings take precedence. "
         "Leave ADC0 bypass off for automatic filtering.");
     themed(feFilterIntro, kHint);
     feFilterIntro->setWordWrap(true);
@@ -5497,7 +5497,7 @@ QWidget* RadioSetupDialog::buildAnanFrontEndTab()
     const QString bypassHint = QStringLiteral(
         "Bypass this ADC's automatically selected receive filter bank. "
         "Normally leave ADC0 bypass off. ADC1 bypass defaults on. "
-        "These are next-connect defaults; saved Anan Hardware settings take precedence.");
+        "These are next-connect defaults; saved ANAN Hardware settings take precedence.");
     feBypass0Chk->setToolTip(bypassHint);
     feBypass1Chk->setToolTip(bypassHint);
     const QString bypassAccessible = bypassHint;
