@@ -357,3 +357,20 @@ writes. The backend saves before updating live state or dispatching a command,
 and requires an active validated session and known identity. Profile load
 restores the per-device antenna for both transports, including address-only
 connection after the board identity arrives. No transmit path is introduced.
+
+
+## Antenna acceptance and profile regression coverage, 2026-10-18
+
+DH1KLM confirms the per-device receive-antenna change works on the operator's
+setup. This does not qualify every model or a second ADC antenna path.
+
+The socket-free model-profile test now exercises ANT1/2/3 across every
+implemented physical-board/explicit-model override combination. At 3.8, 14.2
+and 51 MHz, with receive bypass both enabled and disabled, it checks the
+P2 ALEX antenna bits (including the profile-dependent shared upper word)
+and verifies that every other packet byte remains unchanged. P1 checks its
+bank-0 selector and preservation of ADC routing, tuning, OC, filters and
+attenuation in every accepted control bank. Saturn G2/G2 1K remain excluded
+from P1, and the dedicated HL2 backend is not part of this matrix. MOX/PTT
+remain clear. These are encoder regressions, not new hardware qualification
+or expanded protocol support. Droop expansion remains deferred.

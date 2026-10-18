@@ -1,5 +1,6 @@
 //DH1KLM: Source-pinned logical models, independent of sockets and GUI labels.
 #include "core/backends/anan/P2Protocol.h"
+#include <array>
 #include <cstdlib>
 #include <iostream>
 
@@ -7,6 +8,61 @@ using namespace AetherSDR::anan;
 static void check(bool value, const char* claim)
 {
     if (!value) { std::cerr << "FAIL: " << claim << '\n'; std::exit(1); }
+}
+//DH1KLM: ANT1/2/3 use P2 ALEX bits 24..26 and P1 bank-0 C4 bits 0..1.
+// Switching antennas must preserve the rest of the receive configuration.
+static void antennaIsolation(const ReceiveProfile& profile, bool supportsP1)
+{
+    for (const int hz : {3'800'000, 14'200'000, 51'000'000}) {
+        for (const bool bypass : {false, true}) {
+            auto filters = defaultFilterConfig(profile.filterKind == ReceiveFilterKind::MkIIBpf);
+            filters.ocEnabled = true;
+            filters.ocReceive[0] = {0, 61'440'000, 0x55};
+            const std::array<std::uint32_t, 1> words{phaseWord(hz)};
+            const auto highPriority = [&](int antenna) {
+                return buildHighPriority(true, words, bypass, bypass, 17, 23, antenna,
+                    profile.firstDdcIndex, profile.selectReceiveLpf, profile.filterKind,
+                    profile.numAdcs, &filters);
+            };
+            const auto baseline = highPriority(1);
+            for (int antenna = 1; antenna <= 3; ++antenna) {
+                auto packet = highPriority(antenna);
+                check((packet[1432] & 7u) == (1u << (antenna - 1)), "P2 exact ANT1/2/3 relay bit");
+                check((packet[1428] & 7u) == (profile.selectReceiveLpf ? (1u << (antenna - 1)) : 0u),
+                      "P2 mirrored antenna only on profiles using the shared LPF word");
+                check(packet[4] == 1, "antenna selection keeps P2 in RX without PTT");
+                packet[1432] = (packet[1432] & ~7u) | (baseline[1432] & 7u);
+                packet[1428] = (packet[1428] & ~7u) | (baseline[1428] & 7u);
+                check(packet == baseline, "P2 antenna leaves tuning, filters, OC and attenuation unchanged");
+            }
+            if (!supportsP1) { continue; }
+            p1::ReceiveConfig config;
+            config.numAdcs = profile.numAdcs;
+            config.adcIndex = profile.numAdcs - 1;
+            config.frequencyHz = hz;
+            config.rxOcMask = 0x55;
+            config.receiveFilterBits = bypass ? 0x20 : 0x02;
+            config.adc1ReceiveFilterBits = bypass ? 0x20 : 0x04;
+            config.adc0AttenuationDb = 17;
+            config.adc1AttenuationDb = 23;
+            for (int address = 0; address <= 0x26; ++address) {
+                config.antenna = 1;
+                const auto original = p1::receiveControl(address, config);
+                for (int antenna = 1; antenna <= 3; ++antenna) {
+                    config.antenna = antenna;
+                    auto control = p1::receiveControl(address, config);
+                    check(control.has_value() == original.has_value(), "P1 antenna cannot authorize another control bank");
+                    if (!control) { continue; }
+                    check(((*control)[0] & 1) == 0, "P1 antenna keeps MOX clear");
+                    if (address == 0) {
+                        check(((*control)[4] & 3) == antenna - 1, "P1 exact ANT1/2/3 selector");
+                        (*control)[4] = (*original)[4];
+                    }
+                    check(control == original, "P1 antenna leaves ADC routing, frequency, filters and OC unchanged");
+                }
+            }
+        }
+    }
 }
 int main()
 {
@@ -36,6 +92,7 @@ int main()
             if (entry.model == AnanModel::Automatic || !receiveProfile(entry.nativeBoardId)) { continue; }
             const auto actual = receiveProfile(board, entry.model, true);
             const auto wanted = receiveProfile(entry.nativeBoardId, entry.model);
+            if (actual) { antennaIsolation(*actual, entry.nativeBoardId != 10); }
             check(actual && wanted && actual->numAdcs == wanted->numAdcs
                   && actual->firstDdcIndex == wanted->firstDdcIndex
                   && actual->filterKind == wanted->filterKind

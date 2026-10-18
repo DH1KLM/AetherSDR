@@ -1251,7 +1251,8 @@ add_test(NAME anan_p1_protocol_test COMMAND anan_p1_protocol_test)
 
 #DH1KLM: All Thetis logical models, separate from wire board/protocol IDs.
 add_executable(anan_model_profile_test tests/anan_model_profile_test.cpp
-    src/core/backends/anan/P1Protocol.cpp)
+    src/core/backends/anan/P1Protocol.cpp
+    src/core/backends/anan/P2Protocol.cpp)
 target_include_directories(anan_model_profile_test PRIVATE src)
 add_test(NAME anan_model_profile_test COMMAND anan_model_profile_test)
 
