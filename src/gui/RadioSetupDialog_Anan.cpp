@@ -503,7 +503,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* note = new QLabel(QStringLiteral("Receive-only settings. Apply saves this device and model and updates the running receiver. "
         "Filter indicators show commands, not physical relay feedback. TX and PureSignal are unavailable. OC outputs are configured on their own tab."));
     note->setWordWrap(true);
-    outer->addWidget(note);
+    layout->addWidget(note);
     layout->addStretch();
     ThemeManager::instance().applyStyleSheet(page, QStringLiteral(
         "QGroupBox { color: {{color.canon.inkSoft}}; border: 1px solid {{color.canon.lineHi}}; "
@@ -590,7 +590,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             ? QStringList{QStringLiteral("160 m"), QStringLiteral("80/60 m"), QStringLiteral("40/30 m"), QStringLiteral("20/15 m"), QStringLiteral("12/10 m"), QStringLiteral("6 m")}
             : QStringList{QStringLiteral("1.5 MHz HPF"), QStringLiteral("6.5 MHz HPF"), QStringLiteral("9.5 MHz HPF"), QStringLiteral("13 MHz HPF"), QStringLiteral("20 MHz HPF"), QStringLiteral("6 m")};
         const QStringList lpNames{QStringLiteral("160 m"), QStringLiteral("80 m"), QStringLiteral("60/40 m"), QStringLiteral("30/20 m"), QStringLiteral("17/15 m"), QStringLiteral("12/10 m"), QStringLiteral("6 m")};
-        receiveGroup->setTitle(mkII ? QStringLiteral("ADC BPF bands") : QStringLiteral("ALEX HPF bands"));
+        receiveGroup->setTitle(mkII ? QStringLiteral("ALEX BPF bands") : QStringLiteral("ALEX HPF bands"));
         const auto selected = [](const QStringList& names, int row) {
             return row >= 0 && row < names.size() ? names[row] : QStringLiteral("Bypass");
         };
