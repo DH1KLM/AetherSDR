@@ -157,14 +157,21 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* alex2 = tab(antennaTabs, QStringLiteral("Alex-2 Filters"));
     antennaTabs->setTabVisible(antennaTabs->indexOf(alex2), false);
     auto* antennaControlLayout = new QVBoxLayout(antennaControl);
-    auto* antennaGroup = new QGroupBox(QStringLiteral("RX1 / RX2 Antenna"), antennaControl);
+    auto* antennaGroup = new QGroupBox(QStringLiteral("Receive Antenna"), antennaControl);
     auto* antennaForm = new QFormLayout(antennaGroup);
     auto* antennaCombo = new GuardedComboBox(antennaGroup);
     antennaCombo->setAccessibleName(QStringLiteral("ADC0 receive antenna"));
     for (int n = 1; n <= 3; ++n) { antennaCombo->addItem(QStringLiteral("ANT%1").arg(n), n); }
-    antennaForm->addRow(QStringLiteral("RX1:"), antennaCombo);
-    auto* antennaHint = new QLabel(QStringLiteral("ADC0 uses ANT1/2/3; ADC1 uses its dedicated RX2 input. Antenna changes apply immediately."));
+    antennaForm->addRow(QStringLiteral("ADC0:"), antennaCombo);
+    auto* antennaHint = new QLabel(QStringLiteral("Connect an ANAN to show its active receive input."));
     antennaHint->setWordWrap(true);
+    const auto setAntennaHint = [antennaHint](const QString& text) {
+        if (antennaHint->text() == text && antennaHint->accessibleName() == text) { return; }
+        antennaHint->setText(text);
+        antennaHint->setAccessibleName(text);
+        QAccessibleEvent event(antennaHint, QAccessible::NameChanged);
+        QAccessible::updateAccessibility(&event);
+    };
     antennaForm->addRow(antennaHint);
     antennaControlLayout->addWidget(antennaGroup);
     const auto unsupported = [](QVBoxLayout* parent, const QString& title, const QStringList& fields, const QString& reason) {
@@ -509,6 +516,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         state->current.clear();
         state->dirty = false;
         identity->clear();
+        setAntennaHint(QStringLiteral("Connect an ANAN to show its active receive input."));
         antennaTabs->setTabVisible(antennaTabs->indexOf(alex2), false);
         updateFilterLed(bypassLed, false, QStringLiteral("ADC0 receive bypass"));
         updateFilterLed(adc1BypassLed, false, QStringLiteral("ADC1 receive bypass"));
@@ -558,7 +566,17 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             .arg(data.value(QStringLiteral("dither")).toBool() ? QStringLiteral("ON") : QStringLiteral("OFF"))
             .arg(data.value(QStringLiteral("random")).toBool() ? QStringLiteral("ON") : QStringLiteral("OFF")));
         antennaCombo->setEnabled(true);
-        antennaCombo->setAccessibleDescription(QStringLiteral("Change receive ANT1/2/3 immediately"));
+        //DH1KLM: The ADC0 relay bank is distinct from the active receiver's ADC route.
+        const bool activeAdc1 = data.value(QStringLiteral("adcIndex")).toInt() == 1;
+        const QString route = activeAdc1
+            ? QStringLiteral("Active receiver: ADC1 / RX2. ANT1/2/3 controls ADC0 and does not change the active input.")
+            : QStringLiteral("Active receiver: ADC0 / ANT%1. %2")
+                .arg(data.value(QStringLiteral("antenna")).toInt())
+                .arg(data.value(QStringLiteral("numAdcs")).toInt() > 1
+                    ? QStringLiteral("ADC1 uses its dedicated RX2 input.")
+                    : QStringLiteral("This profile has one ADC."));
+        setAntennaHint(route);
+        antennaCombo->setAccessibleDescription(route + QStringLiteral(" ADC0 antenna changes apply immediately."));
         { const QSignalBlocker block(antennaCombo); antennaCombo->setCurrentIndex(data.value(QStringLiteral("antenna")).toInt()-1); }
         ocRx->setEnabled(true);
         ocRx->setAccessibleDescription(QStringLiteral("Receive OC pins, all off by default"));
@@ -695,9 +713,6 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             connect(qobject_cast<QCheckBox*>(ocRx->cellWidget(row,pin+1)), &QCheckBox::toggled, page, dirty);
         }
     }
-    connect(antennaCombo, &QComboBox::currentIndexChanged, page, [this, antennaCombo](int) {
-        m_model->invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("rx-antenna.set"), 0, antennaCombo->currentData());
-    });
     connect(adc0, &QCheckBox::toggled, page, dirty);
     connect(adc1, &QCheckBox::toggled, page, dirty);
     for (QTableWidget* table : {receive, receiveAdc1, lpf}) {
@@ -708,9 +723,16 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             }
         }
     }
-    const auto request = [=, this](const QString& verb, const QVariantMap& options) {
+    const auto request = [=, this](const QString& verb, const QVariant& options) {
         IRadioBackend* backend = m_model->backend();
         if (!backend || !m_model->backendDeclaresExtension(QStringLiteral("anan"))) { unavailable(); return; }
+        const QVariantMap target = state->current;
+        const auto sameAntennaTarget = [state, target] {
+            for (const QString& key : {QStringLiteral("identity"), QStringLiteral("modelId"), QStringLiteral("boardId")}) {
+                if (state->current.value(key) != target.value(key)) { return false; }
+            }
+            return true;
+        };
         //DH1KLM: A fresh receiver-bound guard prevents replies from a previous session repainting this page.
         auto* guard = new QObject(page);
         static quint64 nextId = 0x414e414e0000ULL;
@@ -719,6 +741,16 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             if (replyId != id) { return; }
             guard->deleteLater();
             if (m_model->backend() != backend) { return; }
+            if (verb == QLatin1String("rx-antenna.set")) {
+                if (!sameAntennaTarget()) { return; }
+                //DH1KLM: Antenna replies contain only the selected input; retain
+                // the full hardware snapshot and any un-applied filter edits.
+                QVariantMap current = state->current;
+                current.insert(QStringLiteral("antenna"), result.toMap().value(QStringLiteral("antenna")));
+                fill(current);
+                status->setText(QStringLiteral("RX antenna saved for this device and model; applied to ADC0."));
+                return;
+            }
             if (verb != QLatin1String("hw.get")) {
                 state->dirty = false;
                 status->setText(QStringLiteral("Saved for this device and model; applied to the receiver."));
@@ -728,11 +760,21 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         connect(backend, &IRadioBackend::extensionError, guard, [=, this](quint64 replyId, const QString& error) {
             if (replyId != id) { return; }
             guard->deleteLater();
-            if (m_model->backend() == backend) { status->setText(error); }
+            if (m_model->backend() == backend) {
+                if (verb == QLatin1String("rx-antenna.set")) {
+                    if (!sameAntennaTarget()) { return; }
+                    const QSignalBlocker block(antennaCombo);
+                    antennaCombo->setCurrentIndex(state->current.value(QStringLiteral("antenna")).toInt() - 1);
+                }
+                status->setText(error);
+            }
         });
         QTimer::singleShot(1500, guard, &QObject::deleteLater);
         m_model->invokeBackendExtension(QStringLiteral("anan"), verb, id, options);
     };
+    connect(antennaCombo, &QComboBox::currentIndexChanged, page, [=](int) {
+        request(QStringLiteral("rx-antenna.set"), antennaCombo->currentData());
+    });
     const auto collect = [=] {
         QVariantMap options = state->current;
         const auto rows = [](QTableWidget* table) {
