@@ -97,9 +97,9 @@ Configure the receive front end under **Settings → Radio Setup... → Radio �
 | **Bypass ADC1's bank (RX2)** | On | Bypass RX2/ADC1's separate filter bank. Uncheck to select its receive filter automatically at the single receiver's tuned frequency. |
 | **Send receive audio to the radio** | Off | Also plays receive audio through the G2's own speaker and headphone jack. Takes effect on the next connect. |
 
-## Anan Hardware
+## ANAN Hardware
 
-Open **Radio Setup → Radio → Anan Hardware**. The page is always listed,
+Open **Radio Setup → Radio → ANAN Hardware**. The page is always listed,
 including before connection; device controls are disabled until an ANAN has a
 validated session. It follows the Nereus hardware-page arrangement:
 
@@ -132,6 +132,9 @@ the existing legacy HPF receive profile. An automatic board profile identifies
 a board family, not a guaranteed commercial model or external DIY filter board.
 
 Edit **Low MHz** and **High MHz** with six decimal places (1 Hz resolution).
+The Bypass column is compact; filter names and six-decimal frequency fields
+retain readable widths. LEDs occupy the same fixed position in each row.
+On narrow windows, scroll horizontally to view both complete filter tables.
 Rows must be ordered, non-overlapping, and within 0–61.44 MHz. Frequencies in
 receive-table gaps select bypass. LPF gaps select the 6 m LPF fallback.
 **ADC0 RF filter bypass** and **ADC1 RF filter bypass** override the respective
@@ -336,7 +339,7 @@ If the signal path is wrong after changing RF filter options, first restore the 
 
 1. Disconnect from the G2.
 2. Open **Settings → Radio Setup... → Radio → ANAN Front End**.
-3. Uncheck **Bypass ADC0's bank** so the tuned-frequency BPF1 selection is active. ADC1/RX2 has a separate bypass option under **Radio Setup → Anan Hardware**.
+3. Uncheck **Bypass ADC0's bank** so the tuned-frequency BPF1 selection is active. ADC1/RX2 has a separate bypass option under **Radio Setup → ANAN Hardware**.
 
 ### No audio from the radio's own speaker
 
