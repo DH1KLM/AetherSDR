@@ -175,3 +175,13 @@ The operator confirmed ANAN-7000DLE P2 and Red Pitaya P1/384 ksps with commit
 qualification. Atlas/Metis, G2 P1 identity and planned Saturn MkII remain
 unqualified. Hermes-Lite 2 remains on its existing P1 backend; HL2 P2 is
 excluded at the operator's instruction.
+
+
+## Operator receive-filter check, 2026-10-18
+
+Anvelina P2 (reported Orion MkII) explicitly mapped as ANAN-200D: DH1KLM
+confirms band changes now produce physical relay switching with `c27a720e`.
+The initial HPF-bypass and Disable 6m LNA on RX checks also appear successful.
+This is evidence for that DIY configuration only; native Anvelina filtering,
+other models, P1, independently configured ADC1 ranges and OC wiring are not
+qualified by this report.

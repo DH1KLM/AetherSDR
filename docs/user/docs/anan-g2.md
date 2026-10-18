@@ -110,6 +110,7 @@ validated session. It follows the Nereus hardware-page arrangement:
   (ANAN-7000/8000, Orion MkII, Anvelina and G2). It is hidden for legacy models,
   including an Orion MkII explicitly mapped as ANAN-200D, and for single-ADC
   profiles. A second ADC by itself does not imply a second ALEX filter board.
+  Alex-2 provides independent ADC1 band limits, bypass and green filter LEDs.
 - **OC Outputs**: **HF**, **VHF**, **SWL**. HF has RX/TX pin matrices side by side
   and a commanded RX pin-state readout. The RX matrix is configurable; TX, VHF,
   SWL, USB BCD, external PA and user digital outputs are visible but disabled
@@ -134,12 +135,15 @@ receive-table gaps select bypass. LPF gaps select the 6 m LPF fallback.
 **ADC0 RF filter bypass** and **ADC1 RF filter bypass** override the respective
 receive bank. Single-ADC models disable ADC1 controls. LPF limits are disabled
 when the active profile does not drive LPF selection (the P2 Saturn profile).
-With one receiver, both automatic ADC filter banks follow its tuned frequency
-and share the editable receive-band limits. ADC0's individual **Bypass** boxes
+With one receiver, both automatic ADC filter banks follow its tuned frequency.
+ADC1 inherits ADC0 ranges until independent Alex-2 limits are saved. ADC0's individual **Bypass** boxes
 apply to that HPF/BPF band only. **Disable 6m LNA on RX** selects ADC0 bypass
 instead of the 6-m filter/LNA; **6m/ByPass on RX** forces the 6-m LPF. These RX
 options take effect after **Apply** and do not bypass ADC1's separate input
-filter. Independent ADC1 limits are not exposed. TX/PureSignal bypass and
+filter. On models with **Alex-2 Filters**, ADC1 has its own six frequency
+ranges and commanded-filter LEDs. Its master bypass still takes precedence.
+The single receiver frequency drives both banks; changing ADC1 limits does
+not create another receiver or alter ADC0 limits. TX/PureSignal bypass and
 **Disable 6m LNA on TX** remain disabled because ANAN transmit is unsupported.
 
 Select **Apply** to save for this MAC and model and update the running receiver;
@@ -169,7 +173,7 @@ clears OC assignments and disables outputs.
 
 On **Alex-1 Filters**, a green LED beside the HPF/BPF and LPF band identifies
 the currently commanded filter. Other rows stay unlit. Receive bypass has its
-own indicator; a profile that does not drive LPF selection leaves all LPF LEDs
+own indicator. Alex-2 has separate ADC1 band and bypass indicators. A profile that does not drive LPF selection leaves all LPF LEDs
 off. LEDs update with tuning, independently of pending table edits, and expose
 selected/not-selected names for screen readers. They do not confirm physical
 relay movement.

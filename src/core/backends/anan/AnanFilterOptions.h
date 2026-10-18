@@ -22,7 +22,7 @@ inline QVariantMap filterOptions(const FilterConfig& config)
         oc.append(QVariantMap{{QStringLiteral("lowHz"), band.lowHz},
             {QStringLiteral("highHz"), band.highHz}, {QStringLiteral("mask"), band.mask}});
     }
-    return {{QStringLiteral("receiveBypass"), receiveBypass},
+    QVariantMap options{{QStringLiteral("receiveBypass"), receiveBypass},
             {QStringLiteral("disable6mLnaOnRx"), config.disable6mLnaOnRx},
             {QStringLiteral("lpfBypassOnRx"), config.lpfBypassOnRx},
             {QStringLiteral("ocReceive"), oc}, {QStringLiteral("ocEnabled"), config.ocEnabled},
@@ -30,6 +30,8 @@ inline QVariantMap filterOptions(const FilterConfig& config)
             {QStringLiteral("lowPass"), rows(config.lowPass)},
             {QStringLiteral("bypassAdc0"), config.bypassAdc0},
             {QStringLiteral("bypassAdc1"), config.bypassAdc1}};
+    if (config.receiveAdc1) { options.insert(QStringLiteral("receiveAdc1"), rows(*config.receiveAdc1)); }
+    return options;
 }
 inline std::optional<FilterConfig> parseFilterOptions(const QVariantMap& map)
 {
@@ -54,6 +56,10 @@ inline std::optional<FilterConfig> parseFilterOptions(const QVariantMap& map)
         || map.value(QStringLiteral("bypassAdc0")).metaType().id() != QMetaType::Bool
         || map.value(QStringLiteral("bypassAdc1")).metaType().id() != QMetaType::Bool) {
         return std::nullopt;
+    }
+    if (map.contains(QStringLiteral("receiveAdc1"))) {
+        config.receiveAdc1.emplace();
+        if (!read(QStringLiteral("receiveAdc1"), *config.receiveAdc1)) { return std::nullopt; }
     }
     if (map.contains(QStringLiteral("ocEnabled")) || map.contains(QStringLiteral("ocReceive"))) {
         if (map.value(QStringLiteral("ocEnabled")).metaType().id() != QMetaType::Bool) { return std::nullopt; }

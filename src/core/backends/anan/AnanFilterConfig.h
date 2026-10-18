@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <cmath>
+#include <optional>
 
 namespace AetherSDR::anan {
 //DH1KLM: Thetis RX filter rows, in integer Hz. No TX relay or keying state.
@@ -19,6 +20,8 @@ struct FilterConfig {
     std::array<bool, 6> receiveBypass{};
     bool disable6mLnaOnRx = false;
     bool lpfBypassOnRx = false;
+    //DH1KLM: Old documents inherit ADC0 ranges until ADC1 is configured.
+    std::optional<std::array<FilterBand, 6>> receiveAdc1{};
 };
 inline constexpr FilterConfig defaultFilterConfig(bool mkII) noexcept
 {
@@ -62,7 +65,7 @@ inline std::uint8_t receiveOcMask(const FilterConfig& config, double hz) noexcep
 }
 inline int selectedReceiveFilterBand(const FilterConfig& config, double hz, bool adc1 = false) noexcept
 {
-    const int row = selectedFilterBand(config.receive, hz);
+    const int row = selectedFilterBand(adc1 && config.receiveAdc1 ? *config.receiveAdc1 : config.receive, hz);
     if (row < 0 || (!adc1 && (config.receiveBypass[row] || (row == 5 && config.disable6mLnaOnRx)))) { return -1; }
     return row;
 }

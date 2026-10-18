@@ -1596,7 +1596,7 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     state.insert(QStringLiteral("receiveActive"), config.bypassAdc0 ? -1
         : selectedReceiveFilterBand(config, m_sliceFreqHz));
     state.insert(QStringLiteral("adc1Active"), config.bypassAdc1 ? -1
-        : selectedFilterBand(config.receive, m_sliceFreqHz));
+        : selectedReceiveFilterBand(config, m_sliceFreqHz, true));
     state.insert(QStringLiteral("lpfActive"), config.lpfBypassOnRx || selectedFilterBand(config.lowPass, m_sliceFreqHz) < 0
         ? 6 : selectedFilterBand(config.lowPass, m_sliceFreqHz));
     state.insert(QStringLiteral("frequencyHz"), m_sliceFreqHz);
