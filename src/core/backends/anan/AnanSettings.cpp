@@ -136,6 +136,34 @@ int AnanSettings::rxAntenna()
     return (v >= 1 && v <= 3) ? v : 1;
 }
 
+int AnanSettings::radioRxAntenna(const QString& serial, int model, int board)
+{
+    if (serial.trimmed().isEmpty()) { return rxAntenna(); }
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    const auto doc = RadioSettingsScope(QStringLiteral("anan"), serial)
+        .featureExact(QStringLiteral("ReceiveAntenna"), &version, &status);
+    if (status != AppSettings::FeatureReadStatus::Present || version != 1) { return rxAntenna(); }
+    const auto value = doc.value(QStringLiteral("%1:%2").arg(model).arg(board));
+    const int antenna = value.toInt(-1);
+    return value.isDouble() && value.toDouble() == antenna && antenna >= 1 && antenna <= 3
+        ? antenna : rxAntenna();
+}
+
+bool AnanSettings::setRadioRxAntenna(const QString& serial, int model, int board, int antenna)
+{
+    if (serial.trimmed().isEmpty() || antenna < 1 || antenna > 3
+        || !ananModelInfo(static_cast<AnanModel>(model)) || !receiveProfile(board)) { return false; }
+    const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("ReceiveAntenna"), &version, &status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
+    doc.insert(QStringLiteral("%1:%2").arg(model).arg(board), antenna);
+    return scope.setFeature(QStringLiteral("ReceiveAntenna"), 1, doc);
+}
+
 void AnanSettings::setRxAntenna(int antenna)
 {
     if (antenna < 1 || antenna > 3)

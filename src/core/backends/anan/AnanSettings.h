@@ -56,6 +56,10 @@ public:
     // RX antenna selection for ADC0's switched ANT1/2/3 input bank.
     static int rxAntenna();
     static void setRxAntenna(int antenna);
+    //DH1KLM: Exact device/model/board ownership. Missing choices retain the
+    // legacy default; live writes never modify that family-wide default.
+    static int radioRxAntenna(const QString& serial, int model, int board);
+    static bool setRadioRxAntenna(const QString& serial, int model, int board, int antenna);
     static bool bypassAdc0Filters();
     static void setBypassAdc0Filters(bool on);
     static bool bypassAdc1Filters();

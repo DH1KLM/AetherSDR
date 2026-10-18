@@ -339,3 +339,21 @@ Targeted protocol/profile/audio/telemetry, settings and main's broadcast-target
 tests qualify the merged receive paths in software. A full Windows application
 build and physical discovery/RX/override/relay regression check remain operator
 checks; source and targeted checks do not substitute for those.
+
+
+## Receive antenna ownership and operator UI acceptance, 2026-10-18
+
+DH1KLM confirms the corrected filter-table layout and subsequent placement of
+the four receive/TX-option checkboxes below the table. Droop expansion remains
+deferred by operator instruction.
+
+ANT1/2/3 live selection uses the existing P1/P2 wire encoders. Its previous
+family-global persistence allowed one device's choice to affect another's
+next connection. ReceiveAntenna schema 1 now stores integer choices 1–3 in an
+exact MAC-scoped feature with model/physical-board children. Missing or invalid
+values use the existing legacy global default; live selection no longer
+updates that default. Corrupt/unavailable storage and future schemas refuse
+writes. The backend saves before updating live state or dispatching a command,
+and requires an active validated session and known identity. Profile load
+restores the per-device antenna for both transports, including address-only
+connection after the board identity arrives. No transmit path is introduced.
