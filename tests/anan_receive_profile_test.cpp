@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <complex>
 #include <cstdint>
+#include <limits>
 #include <cstdio>
 #include <span>
 #include <vector>
@@ -32,6 +33,7 @@ struct P2ClientTestAccess {
     {
         client.handleDatagram(bytes, port);
     }
+    static std::uint32_t frequencyWord(const P2Client& client) { return client.m_ddc0FreqWord; }
     static bool validated(const P2Client& client) { return client.m_discoveryValidated; }
     static int physicalDdc(const P2Client& client) { return client.m_firstDdcIndex; }
     static bool selectLpf(const P2Client& client) { return client.m_selectReceiveLpf; }
@@ -83,6 +85,26 @@ static std::array<std::uint8_t, kDdcHeaderLen + kDdcSampleBytes> iq()
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    //DH1KLM: Direct setter injection, no socket or running session required.
+    {
+        P2Client client;
+        client.setDdc0FrequencyHz(14'200'000);
+        const auto previous = P2ClientTestAccess::frequencyWord(client);
+        check(previous == phaseWord(14'200'000), "P2 accepts a valid receive tune");
+        for (const double hz : {-1.0, 61'440'001.0, 1e300,
+                std::numeric_limits<double>::quiet_NaN(),
+                std::numeric_limits<double>::infinity(),
+                -std::numeric_limits<double>::infinity()}) {
+            client.setDdc0FrequencyHz(hz);
+            check(P2ClientTestAccess::frequencyWord(client) == previous,
+                  "invalid P2 tune preserves the last valid phase word");
+        }
+        for (const double hz : {0.0, 61'440'000.0, 7'074'000.0}) {
+            client.setDdc0FrequencyHz(hz);
+            check(P2ClientTestAccess::frequencyWord(client) == phaseWord(hz),
+                  "P2 keeps the established inclusive P1 tuning boundaries");
+        }
+    }
     //DH1KLM: Discard the initial General as a lost UDP datagram. Continued IQ
     // must not prevent later General packets from restoring ALEX enable. The
     // scheduler used by the real keepalive is driven without sleeps or sockets.

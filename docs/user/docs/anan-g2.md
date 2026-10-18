@@ -296,7 +296,7 @@ application continues to provide one receiver and one panadapter.
 
 ## Receiving with the G2
 
-- **Receive** with live tuning and zoom. Changing the zoom changes the DDC rate live, without rebuilding the session.
+- **Receive** with live tuning and zoom. Changing the zoom changes the DDC rate live, without rebuilding the session. Both P1 and P2 accept finite receive frequencies within 0–61.44 MHz. Invalid live tuning requests leave the last valid frequency unchanged; an invalid connection frequency is refused before reception starts.
 - **Panadapter** computed by WDSP's display analyzer: a ≥16384-point windowed FFT at one point per screen pixel. **FFT AVG** and **Wt Avg** drive it, and noise-floor auto-adjust works.
 - **S-meter.**
 - **NB** cycles Off → **NB** → **NB2** → Off: WDSP's two impulse blankers, run on this computer before the demodulator. **NB** silences each impulse; **NB2** reconstructs the blanked window from the samples either side, and shows an **NB2** fill selector (**Zero**, **Sample hold**, **Mean hold**, **Hold sample** or **Interpolate**) while it runs. Neither is offered in FM.
