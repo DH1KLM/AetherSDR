@@ -134,7 +134,7 @@ selected compatible model or physical-board profile is used. FlexRadio, Icom
 and HL2 retain their own hardware settings.
 
 **ALEX HPF bands** is used by the legacy Hermes, Angelia and Orion profiles
-(including ANAN-100/100D/200D). **ADC BPF bands** is used by Orion MkII
+(including ANAN-100/100D/200D). **ALEX BPF bands** is used by Orion MkII
 (including ANAN-7000DLE/8000DLE), Saturn/G2 and G2E profiles. Red Pitaya uses
 the existing legacy HPF receive profile. An automatic board profile identifies
 a board family, not a guaranteed commercial model or external DIY filter board.
@@ -162,6 +162,8 @@ not create another receiver or alter ADC0 limits. TX/PureSignal bypass and
 **Disable 6m LNA on TX** remain disabled because ANAN transmit is unsupported.
 The 6m LNA and TX/PureSignal bypass switches are grouped below the HPF/BPF
 filter table, alongside the LPF options below their own table.
+
+The **Receive-only settings. Apply saves…** note is directly below the HPF/BPF and LPF tables on **Alex-1 Filters**.
 
 **Apply** and **Restore model defaults** are above the hardware tabs, with
 the pending/saved status directly below. Complete filter banks retain their
