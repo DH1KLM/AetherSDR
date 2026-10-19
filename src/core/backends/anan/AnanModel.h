@@ -1,6 +1,9 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
+#include <cmath>
+#include <optional>
 #include <cstddef>
 #include <string_view>
 
@@ -42,6 +45,29 @@ struct ReceiveAttenuation {
     if (!classicAlex) { return receiveAttenuation(step * 10, false); }
     if (step <= 3) { return {step * 10, 0, step * 10}; }
     return {step * 10, 20, (step - 2) * 10};
+}
+struct ReceiveTuning {
+    double centerHz;
+    double shiftHz;
+};
+// Thetis console.cs uses 92% of the sampled span, including filter margins.
+// Far tuning jumps and narrower spans recenter; in-window tuning leaves the NCO fixed.
+[[nodiscard]] inline std::optional<ReceiveTuning> receiveTuning(bool ctun,
+    double centerHz, double sliceHz, double rateHz, double lowHz, double highHz, double bfoHz) noexcept
+{
+    if (!std::isfinite(centerHz) || !std::isfinite(sliceHz) || !std::isfinite(rateHz)
+        || !std::isfinite(lowHz) || !std::isfinite(highHz) || !std::isfinite(bfoHz)
+        || sliceHz < 0 || sliceHz > 61'440'000 || centerHz < 0 || centerHz > 61'440'000
+        || rateHz <= 0 || lowHz >= highHz) { return std::nullopt; }
+    if (!ctun) { return ReceiveTuning{sliceHz, -bfoHz}; }
+    const double half = rateHz * 0.46;
+    const double offset = sliceHz - centerHz;
+    const double lowerMargin = std::min(0.0, lowHz + bfoHz);
+    const double upperMargin = std::max(0.0, highHz + bfoHz);
+    if (offset + lowerMargin < -half || offset + upperMargin > half) {
+        centerHz = sliceHz;
+    }
+    return ReceiveTuning{centerHz, centerHz - sliceHz - bfoHz};
 }
 struct AnanModelInfo {
     AnanModel model;

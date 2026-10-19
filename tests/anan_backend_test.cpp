@@ -23,6 +23,7 @@
 #include "models/SliceModel.h"
 
 #include <QCoreApplication>
+#include <QTimer>
 #include <QProcess>
 #include <QSignalSpy>
 #include <QVariantList>
@@ -57,6 +58,12 @@ public:
         backend.m_rxAntenna = AnanSettings::radioRxAntenna(serial, 7, 5);
         backend.m_pendingParams.rxAntenna = backend.m_rxAntenna;
         backend.emitSliceState();
+    }
+    static double center(const AnanBackend& backend) { return backend.m_ddcCenterHz; }
+    static double lastSentCenter(const AnanBackend& backend) { return backend.m_lastSentCenterHz; }
+    static void flushTune(AnanBackend& backend) {
+        backend.m_tuneThrottleTimer->stop(); backend.m_tunePendingApply = false;
+        backend.applyTuneToRadioAndPan();
     }
     static int antenna(const AnanBackend& backend) { return backend.m_rxAntenna; }
     static void prepareRate(AnanBackend& backend, int protocol, bool redPitaya, int rate)
@@ -123,6 +130,35 @@ int main(int argc, char** argv)
     }
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
+    if (!restoreChild) {
+        for (const int protocol : {1, 2}) {
+            AnanBackend backend;
+            AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("02:00:00:00:CC:01"));
+            AnanLinkStatsTestAccess::prepareRate(backend, protocol, false, 48);
+            backend.setSliceFrequency(0, 14'200'000);
+            AnanLinkStatsTestAccess::flushTune(backend);
+            backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("ctun.set"), 801, true);
+            backend.setSliceFrequency(0, 14'201'000);
+            AnanLinkStatsTestAccess::flushTune(backend);
+            check(AnanLinkStatsTestAccess::center(backend) == 14'200'000
+                  && AnanLinkStatsTestAccess::lastSentCenter(backend) == 14'200'000
+                  && backend.currentOperatingState().rfFrequencyHz == 14'201'000,
+                  "CTUN publishes new dial without issuing a new hardware centre intent on P1/P2");
+            backend.setPanCenter(QStringLiteral("anan-0"), 14'201'000, IRadioBackend::PanCenterIntent::Range);
+            check(AnanLinkStatsTestAccess::center(backend) == 14'200'000,
+                  "zoom's incidental centre does not undo CTUN");
+            backend.setSliceFrequency(0, 14'300'000);
+            AnanLinkStatsTestAccess::flushTune(backend);
+            check(AnanLinkStatsTestAccess::center(backend) == 14'300'000,
+                  "out-of-window tune recenters the physical capture");
+            backend.setSliceFrequency(0, 14'301'000);
+            AnanLinkStatsTestAccess::flushTune(backend);
+            backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("ctun.set"), 802, false);
+            check(AnanLinkStatsTestAccess::center(backend) == 14'301'000,
+                  "disabling CTUN recenters at the actual received dial frequency");
+            AnanLinkStatsTestAccess::setConnected(backend, false);
+        }
+    }
     if (!restoreChild) {
         AnanBackend backend;
         AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("02:00:00:00:AA:02"));

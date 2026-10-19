@@ -146,6 +146,15 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     operating->setWordWrap(true);
     operating->setAccessibleDescription(QStringLiteral("Live sample rate, ADC routing and linearisation"));
     operatingLayout->addRow(operating);
+    auto* ctun = new QCheckBox(QStringLiteral("CTUN — tune within a fixed spectrum"), operatingGroup);
+    ctun->setObjectName(QStringLiteral("ananCtun"));
+    ctun->setAccessibleName(QStringLiteral("ANAN CTUN"));
+    ctun->setAccessibleDescription(QStringLiteral("Hold the DDC centre while tuning digitally; applies immediately"));
+    operatingLayout->addRow(ctun);
+    auto* ctunInfo = new QLabel(operatingGroup);
+    ctunInfo->setWordWrap(true);
+    ctunInfo->setAccessibleDescription(QStringLiteral("Live CTUN state and hardware DDC centre"));
+    operatingLayout->addRow(ctunInfo);
     infoLayout->addWidget(operatingGroup);
     infoLayout->addStretch();
     auto* antennaLayout = new QVBoxLayout(antennaPage);
@@ -534,6 +543,10 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             }
         }
         operating->clear();
+        ctun->setEnabled(false);
+        ctun->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
+        { const QSignalBlocker block(ctun); ctun->setChecked(false); }
+        ctunInfo->setText(QStringLiteral("Connect an ANAN to use CTUN."));
         ocState->clear();
         for (auto* label : *factLabels) { label->setText(QStringLiteral("—")); }
         for (QWidget* control : std::array<QWidget*, 5>{antennaCombo, rxInput, ocRx, ocEnabled, droop}) {
@@ -572,6 +585,15 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             .arg(data.value(QStringLiteral("rateKsps")).toInt()).arg(data.value(QStringLiteral("adcIndex")).toInt())
             .arg(data.value(QStringLiteral("dither")).toBool() ? QStringLiteral("ON") : QStringLiteral("OFF"))
             .arg(data.value(QStringLiteral("random")).toBool() ? QStringLiteral("ON") : QStringLiteral("OFF")));
+        { const QSignalBlocker block(ctun); ctun->setChecked(data.value(QStringLiteral("ctun")).toBool()); }
+        ctun->setEnabled(data.value(QStringLiteral("ctunAvailable")).toBool());
+        ctun->setAccessibleDescription(ctun->isEnabled()
+            ? QStringLiteral("Hold the DDC centre while tuning digitally; applies immediately")
+            : QStringLiteral("Unavailable while a droop calibration sweep is running"));
+        ctunInfo->setText(QStringLiteral("CTUN %1 • DDC centre: %2 MHz • RX: %3 MHz")
+            .arg(ctun->isChecked() ? QStringLiteral("ON") : QStringLiteral("OFF"))
+            .arg(data.value(QStringLiteral("ddcCenterHz")).toDouble() / 1e6, 0, 'f', 6)
+            .arg(data.value(QStringLiteral("sliceFrequencyHz")).toDouble() / 1e6, 0, 'f', 6));
         antennaCombo->setEnabled(true);
         //DH1KLM: The ADC0 relay bank is distinct from the active receiver's ADC route.
         const bool activeAdc1 = data.value(QStringLiteral("adcIndex")).toInt() == 1;
@@ -766,6 +788,14 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             if (replyId != id) { return; }
             guard->deleteLater();
             if (m_model->backend() != backend) { return; }
+            if (verb == QLatin1String("ctun.set")) {
+                if (!sameAntennaTarget()) { return; }
+                fill(result.toMap());
+                status->setText(state->dirty
+                    ? QStringLiteral("CTUN applied. Filter edits are still pending Apply.")
+                    : QStringLiteral("CTUN applied to this receive session."));
+                return;
+            }
             if (verb == QLatin1String("rx-antenna.set")) {
                 if (!sameAntennaTarget()) { return; }
                 //DH1KLM: Antenna replies contain only the selected input; retain
@@ -791,12 +821,20 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                     const QSignalBlocker block(antennaCombo);
                     antennaCombo->setCurrentIndex(state->current.value(QStringLiteral("antenna")).toInt() - 1);
                 }
+                if (verb == QLatin1String("ctun.set")) {
+                    if (!sameAntennaTarget()) { return; }
+                    const QSignalBlocker block(ctun);
+                    ctun->setChecked(state->current.value(QStringLiteral("ctun")).toBool());
+                }
                 status->setText(error);
             }
         });
         QTimer::singleShot(1500, guard, &QObject::deleteLater);
         m_model->invokeBackendExtension(QStringLiteral("anan"), verb, id, options);
     };
+    connect(ctun, &QCheckBox::toggled, page, [=](bool enabled) {
+        request(QStringLiteral("ctun.set"), enabled);
+    });
     connect(antennaCombo, &QComboBox::currentIndexChanged, page, [=](int) {
         request(QStringLiteral("rx-antenna.set"), antennaCombo->currentData());
     });

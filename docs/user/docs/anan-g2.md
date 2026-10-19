@@ -380,6 +380,29 @@ and ANT1/2/3 use receive controls only. P1 does not load P2 droop tables or
 advertise the P2 calibration sweep or P2 supply-voltage telemetry. The
 application continues to provide one receiver and one panadapter.
 
+## CTUN: tune inside a fixed spectrum
+
+Open **Settings → Radio Setup... → ANAN Hardware → Radio Info** and enable
+**CTUN — tune within a fixed spectrum**. The adjacent readout shows CTUN,
+the hardware **DDC centre** and the received **RX** frequency independently.
+The switch applies immediately to the current session and starts off on a
+new connection. It is separate from the filter tables' **Apply** button.
+
+With CTUN on, tuning within the captured band moves the receive marker and
+the DSP tuning offset while the hardware centre and spectrum stay fixed.
+The usable window is 92% of the sampled bandwidth, with room for the receive
+filter and CW offset. Tuning beyond this window recentres the capture at the
+new receive frequency. Narrowing the sample rate also recentres if the
+receiver would otherwise fall outside the usable window. An explicit spectrum
+drag moves the capture centre while retaining the received frequency when it
+still fits. Turning CTUN off recentres at the received frequency and restores
+normal tuning, where the spectrum follows the dial.
+
+P1 and P2 use the same CTUN policy. ALEX/LPF/OC frequency selection continues
+to follow the physical DDC centre; the hardware page reports that centre's
+commanded filters. CW retains its pitch offset in addition to the CTUN shift.
+CTUN is unavailable during a droop sweep; turn it off before starting a sweep.
+
 ## Receiving with the G2
 
 In the main panadapter menu, **ANT → RF Gain** controls receive attenuation.

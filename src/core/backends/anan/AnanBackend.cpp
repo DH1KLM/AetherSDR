@@ -15,6 +15,7 @@
 #include <QMetaObject>
 #include <QStringList>
 #include <QTimer>
+#include <QMetaType>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -256,8 +257,8 @@ AnanBackend::AnanBackend(QObject* parent)
             // must not ride into its first published voltage.
             resetSupplyRailWindow();
         }
+        applyTuneToRadioAndPan();
         emitSliceState();
-        emitPanState();
         // A rate change suppresses connected(), but a page opened during
         // its brief link restart still needs the fresh calibration status.
         publishDroopStatus();
@@ -785,6 +786,9 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         return;
     }
     m_sliceFreqHz = frequencyHz;
+    m_ddcCenterHz = frequencyHz;
+    m_lastSentCenterHz = -1.0;
+    m_ctun = false;
     // Before m_pendingDspConfig is built below, which reads m_mode. No restored
     // mode means the default, never the previous radio's m_mode. The passband
     // resets only on a mode change, as in setSliceMode().
@@ -900,7 +904,8 @@ void AnanBackend::startP2ClientSession(quint64 generation)
     resetSpeakerResamplers();
     const AnanClient::Params params = m_pendingParams;
     const bool isRateChange = m_rateChanging;
-    QMetaObject::invokeMethod(m_client, [this, generation, params, isRateChange]() {
+    const double centerHz = m_ddcCenterHz;
+    QMetaObject::invokeMethod(m_client, [this, generation, params, isRateChange, centerHz]() {
         const bool started = isRateChange
             ? m_client->start(params, kRateChangeConnectTimeoutMs)
             : m_client->start(params);
@@ -929,8 +934,7 @@ void AnanBackend::startP2ClientSession(quint64 generation)
         // linkUp() (P2Client's own signal, connected in the constructor)
         // is what actually fires connected()/emitSliceState()/emitPanState()
         // once the first genuine DDC0 frame arrives -- not this call.
-        if (m_sliceFreqHz > 0.0)
-            m_client->setDdc0FrequencyHz(m_sliceFreqHz);
+        m_client->setDdc0FrequencyHz(centerHz);
     }, Qt::QueuedConnection);
 }
 
@@ -996,11 +1000,7 @@ void AnanBackend::pushModeFilterShift()
     QMetaObject::invokeMethod(m_dsp, "setFilter", Qt::QueuedConnection,
         Q_ARG(double, static_cast<double>(m_filterLowHz) + bfo),
         Q_ARG(double, static_cast<double>(m_filterHighHz) + bfo));
-    // No NCO-vs-slice offset in this backend (see the class comment) --
-    // the shift is exactly the CW BFO, negated (HERMES §5: the shift names
-    // the RF frequency the detector treats as zero, so pushing that zero
-    // DOWN a pitch is what lifts the marker UP onto it).
-    QMetaObject::invokeMethod(m_dsp, "setShift", Qt::QueuedConnection, Q_ARG(double, -bfo));
+    pushReceiveShift(m_ddcCenterHz - m_sliceFreqHz - bfo);
 }
 
 void AnanBackend::setSliceFrequency(int sliceId, double hz)
@@ -1015,14 +1015,7 @@ void AnanBackend::setSliceFrequency(int sliceId, double hz)
     // no pan re-layout), and it is what makes a drag gesture feel like it is
     // tracking the mouse at all.
     emitSliceState();
-    // Everything that touches the radio or the pan's display geometry goes
-    // through the coalescing throttle instead of firing here directly -- see
-    // applyTuneToRadioAndPan()'s comment for why: a click/drag-tune gesture
-    // calls this once per mouse-move event (tens of times a second), and
-    // Phase 1b has no NCO-vs-slice decoupling (the class comment is explicit:
-    // "the shift is ALWAYS exactly -cwBfoHz... because the NCO IS the slice
-    // frequency, always") -- so unthrottled, EVERY one of those events would
-    // retune the actual DDC0 hardware and re-broadcast the pan's geometry.
+    // Coalesce hardware/geometry updates and the digital tuning shift together.
     scheduleTuneApply();
     // The Tuning capture rides the same throttle: applyTuneToRadioAndPan().
 }
@@ -1039,7 +1032,9 @@ void AnanBackend::setSliceMode(int sliceId, const QString& mode)
         m_filterHighHz = hi;
     }
     m_mode = mode;
-    pushModeFilterShift();   // HERMES §16.7: mode changes re-push the passband, every time
+    if (m_ctun) { scheduleTuneApply(); }
+    else { m_ddcCenterHz = m_sliceFreqHz; }
+    pushModeFilterShift();
     emitSliceState();
     emit operatingStateChanged();   // Tuning capture; a mode change is discrete
 }
@@ -1049,6 +1044,7 @@ void AnanBackend::setSliceFilter(int sliceId, int lowHz, int highHz)
     Q_UNUSED(sliceId);
     m_filterLowHz = lowHz;
     m_filterHighHz = highHz;
+    if (m_ctun) { scheduleTuneApply(); }
     if (m_dsp) {
         const double bfo = cwBfoHz();
         QMetaObject::invokeMethod(m_dsp, "setFilter", Qt::QueuedConnection,
@@ -1196,8 +1192,11 @@ void AnanBackend::setLineoutMute(bool mute)
 void AnanBackend::setPanCenter(const QString& panId, double hz, PanCenterIntent intent)
 {
     Q_UNUSED(panId);   // one pan in this phase
-    Q_UNUSED(intent);  // ignored, matching Hl2Backend::setPanCenter
-    setSliceFrequency(kSliceId, hz);
+    if (!m_ctun) { setSliceFrequency(kSliceId, hz); return; }
+    if (intent == PanCenterIntent::Drag && std::isfinite(hz) && hz >= 0 && hz <= 61'440'000) {
+        m_ddcCenterHz = hz;
+        scheduleTuneApply();
+    } else { emitPanState(); }
 }
 
 int AnanBackend::nearestDdc0RateKsps(int requestedKsps) noexcept
@@ -1381,10 +1380,10 @@ void AnanBackend::finishRateChange(quint64 generation, bool ok, const QString& e
         // change/connect/disconnect during the settle window supersedes this.
         if (generation != m_connectGeneration)
             return;
+        m_rateChanging = false;
+        applyTuneToRadioAndPan();
         QMetaObject::invokeMethod(m_dsp, "setAudioMuted", Qt::QueuedConnection,
                                   Q_ARG(bool, false));
-        m_rateChanging = false;
-        emitPanState();
         // A zoom the operator kept turning while this ran: apply the latest
         // request now rather than stranding the display a step behind.
         retryPendingRateChange();
@@ -1512,6 +1511,7 @@ void AnanBackend::setCwPitch(int hz)
     // "entering or leaving CW has to re-push the shift, not just the
     // filter." Re-derive both from current state rather than adjusting in
     // place, so this is correct whether or not the mode is currently CW.
+    if (m_ctun) { scheduleTuneApply(); }
     pushModeFilterShift();
     emitSliceState();
 }
@@ -1647,6 +1647,10 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     const auto* descriptor = ananModelInfo(m_pendingParams.model);
     DiscoveryReply physical;
     physical.boardId = m_discoveredBoardId;
+    state.insert(QStringLiteral("ctun"), m_ctun);
+    state.insert(QStringLiteral("ctunAvailable"), !m_droopCalibrator.isRunning());
+    state.insert(QStringLiteral("ddcCenterHz"), m_ddcCenterHz);
+    state.insert(QStringLiteral("sliceFrequencyHz"), m_sliceFreqHz);
     state.insert(QStringLiteral("identity"), m_radioSerial);
     state.insert(QStringLiteral("modelId"), static_cast<int>(m_pendingParams.model));
     state.insert(QStringLiteral("boardId"), m_discoveredBoardId);
@@ -1661,13 +1665,13 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     state.insert(QStringLiteral("hasAlex2Filters"), hasAlex2Filters(*profile));
     state.insert(QStringLiteral("selectLpf"), m_pendingParams.protocol == 1 || profile->selectReceiveLpf);
     state.insert(QStringLiteral("receiveActive"), config.bypassAdc0 ? -1
-        : selectedReceiveFilterBand(config, m_sliceFreqHz));
+        : selectedReceiveFilterBand(config, m_ddcCenterHz));
     state.insert(QStringLiteral("adc1Active"), config.bypassAdc1 ? -1
-        : selectedReceiveFilterBand(config, m_sliceFreqHz, true));
-    state.insert(QStringLiteral("lpfActive"), config.lpfBypassOnRx || selectedFilterBand(config.lowPass, m_sliceFreqHz) < 0
-        ? 6 : selectedFilterBand(config.lowPass, m_sliceFreqHz));
-    state.insert(QStringLiteral("frequencyHz"), m_sliceFreqHz);
-    state.insert(QStringLiteral("ocMask"), receiveOcMask(config, m_sliceFreqHz));
+        : selectedReceiveFilterBand(config, m_ddcCenterHz, true));
+    state.insert(QStringLiteral("lpfActive"), config.lpfBypassOnRx || selectedFilterBand(config.lowPass, m_ddcCenterHz) < 0
+        ? 6 : selectedFilterBand(config.lowPass, m_ddcCenterHz));
+    state.insert(QStringLiteral("frequencyHz"), m_ddcCenterHz);
+    state.insert(QStringLiteral("ocMask"), receiveOcMask(config, m_ddcCenterHz));
     QStringList inputNames;
     for (const auto name : receiveInputNames(m_pendingParams.model, m_discoveredBoardId)) {
         inputNames.append(QString::fromLatin1(name.data(), static_cast<int>(name.size())));
@@ -1687,6 +1691,21 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && verb == QLatin1String("ctun.set")) {
+        if (!m_connected || !m_discoveryInfoReceived || m_radioSerial.isEmpty()
+            || arg.metaType().id() != QMetaType::Bool
+            || m_droopCalibrator.isRunning()) {
+            emit extensionError(requestId, QStringLiteral("CTUN requires a connected ANAN and no active droop sweep"));
+            return;
+        }
+        m_tuneThrottleTimer->stop();
+        m_tunePendingApply = false;
+        m_ctun = arg.toBool();
+        applyTuneToRadioAndPan();
+        emitSliceState();
+        emit extensionResult(requestId, hardwareFilterStatus());
+        return;
+    }
     if (ns == QLatin1String("anan") && (verb == QLatin1String("hw.get")
         || verb == QLatin1String("hw.set") || verb == QLatin1String("hw.defaults"))) {
         const QVariantMap state = hardwareFilterStatus();
@@ -1799,6 +1818,11 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             [&failure](const QString& reason) { failure = reason; });
         m_droopMessage.clear();
         if (action == QLatin1String("start")) {
+            if (m_ctun) {
+                QObject::disconnect(errorConnection);
+                emit extensionError(requestId, QStringLiteral("Disable CTUN before starting a droop sweep"));
+                return;
+            }
             m_droopCalibrator.start();
         } else if (action == QLatin1String("stop")) {
             m_droopCalibrator.stop();
@@ -2063,7 +2087,7 @@ void AnanBackend::emitPanState()
     // the next rate. The decimation roll-off stays visible (and is corrected by the
     // droop tables).
     m_droopCalibrator.setLandedRate(static_cast<int>(sampleRateHz / 1000.0));
-    emit panCenterBandwidthChanged(kPanId, m_sliceFreqHz / 1.0e6, sampleRateHz / 1.0e6);
+    emit panCenterBandwidthChanged(kPanId, m_ddcCenterHz / 1.0e6, sampleRateHz / 1.0e6);
 }
 
 void AnanBackend::resetSpeakerResamplers()
@@ -2155,6 +2179,19 @@ void AnanBackend::sendSpeakerAudioToRadio(const QByteArray& stereoFloat)
                                      static_cast<qsizetype>(outFrames * 2 * sizeof(qint16)))));
 }
 
+void AnanBackend::pushReceiveShift(double shiftHz)
+{
+    if (m_dsp) {
+        QMetaObject::invokeMethod(m_dsp, "setShift", Qt::QueuedConnection, Q_ARG(double, shiftHz));
+    }
+}
+
+double AnanBackend::receiveTuningRateHz() const
+{
+    if (m_rateChanging && m_preRateChangeKsps > 0) { return m_preRateChangeKsps * 1000.0; }
+    return m_pendingDspConfig.inputSampleRateHz > 0 ? m_pendingDspConfig.inputSampleRateHz : 48000.0;
+}
+
 void AnanBackend::scheduleTuneApply()
 {
     if (!m_tuneThrottleTimer->isActive()) {
@@ -2175,17 +2212,15 @@ void AnanBackend::scheduleTuneApply()
 
 void AnanBackend::applyTuneToRadioAndPan()
 {
-    // The two genuinely expensive things a retune does: an actual UDP
-    // High Priority packet to the radio (P2Client::setDdc0FrequencyHz --
-    // real hardware DDC0/NCO retuning, which is not glitch-free at the rate
-    // a raw mouse-move stream would otherwise drive it), and the pan's
-    // center re-broadcast (PanadapterModel::setCenterBandwidth(), which
-    // re-lays-out the spectrum/waterfall geometry on every call). Both are
-    // throttled together by scheduleTuneApply() -- see its comment.
-    if (m_client && m_connected) {
-        const double hz = m_sliceFreqHz;
-        QMetaObject::invokeMethod(m_client, [this, hz]() { m_client->setDdc0FrequencyHz(hz); },
-                                  Qt::QueuedConnection);
+    const auto tuning = receiveTuning(m_ctun, m_ddcCenterHz, m_sliceFreqHz,
+        receiveTuningRateHz(), m_filterLowHz, m_filterHighHz, cwBfoHz());
+    if (!tuning) { emitSliceState(); return; }
+    m_ddcCenterHz = tuning->centerHz;
+    pushReceiveShift(tuning->shiftHz);
+    if (m_client && m_connected && m_ddcCenterHz != m_lastSentCenterHz) {
+        m_lastSentCenterHz = m_ddcCenterHz;
+        QMetaObject::invokeMethod(m_client, "setDdc0FrequencyHz", Qt::QueuedConnection,
+            Q_ARG(double, m_ddcCenterHz));
     }
     emitPanState();
     // Tuning capture, once per settled gesture. Outside the connected guard:

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 using namespace AetherSDR::anan;
 static void check(bool value, const char* claim)
@@ -241,8 +242,53 @@ static void frontEndAttenuation()
     check(!p1::receiveControl(0, invalid), "P1 refuses classic ATT on repurposed MkII bits");
 }
 
+static void ctunTuning()
+{
+    constexpr double center = 14'200'000;
+    for (const int rate : {48'000, 96'000, 192'000, 384'000, 768'000, 1'536'000}) {
+        for (const double bfo : {-600.0, 0.0, 600.0}) {
+            for (const double offset : {-1000.0, 0.0, 1000.0}) {
+                const auto on = receiveTuning(true, center, center + offset, rate, -200, 2900, bfo);
+                check(on && on->centerHz == center && on->shiftHz == -offset - bfo,
+                      "CTUN holds NCO, uses Thetis RXOsc sign and preserves CW BFO");
+                const auto off = receiveTuning(false, center, center + offset, rate, -200, 2900, bfo);
+                check(off && off->centerHz == center + offset && off->shiftHz == -bfo,
+                      "CTUN off follows the dial with only CW shift");
+            }
+            const double edge = rate * 0.46 - 2900 - bfo;
+            const auto fits = receiveTuning(true, center, center + edge, rate, -200, 2900, bfo);
+            check(fits && fits->centerHz == center, "filter touching usable edge retains CTUN anchor");
+            const double lowerEdge = -rate * 0.46 - std::min(0.0, -200 + bfo);
+            const auto lowerFits = receiveTuning(true, center, center + lowerEdge, rate, -200, 2900, bfo);
+            const auto lowerOutside = receiveTuning(true, center, center + lowerEdge - 1, rate, -200, 2900, bfo);
+            check(lowerFits && lowerFits->centerHz == center && lowerOutside
+                  && lowerOutside->centerHz == center + lowerEdge - 1,
+                  "negative CTUN edge includes the lower filter and CW margin");
+            const auto outside = receiveTuning(true, center, center + edge + 1, rate, -200, 2900, bfo);
+            check(outside && outside->centerHz == center + edge + 1 && outside->shiftHz == -bfo,
+                  "crossing filter edge recenters instead of silently receiving aliased IQ");
+        }
+    }
+    const auto wide = receiveTuning(true, center, center + 100'000, 1'536'000, 100, 2900, 0);
+    const auto narrow = receiveTuning(true, wide->centerHz, center + 100'000, 48'000, 100, 2900, 0);
+    check(wide->centerHz == center && narrow->centerHz == center + 100'000,
+          "narrower landed rate recenters an offset which no longer fits");
+    const auto dragged = receiveTuning(true, center + 5000, center, 48000, 100, 2900, 0);
+    check(dragged && dragged->centerHz == center + 5000 && dragged->shiftHz == 5000,
+          "explicit spectrum drag preserves receiver frequency and adjusts its DSP offset");
+    for (const double invalid : {std::numeric_limits<double>::quiet_NaN(),
+            std::numeric_limits<double>::infinity(), -1.0, 61'440'001.0}) {
+        check(!receiveTuning(true, center, invalid, 48000, 100, 2900, 0),
+              "invalid tuning intent is refused before DSP or NCO mutation");
+    }
+    check(!receiveTuning(true, center, center, 0, 100, 2900, 0)
+          && !receiveTuning(true, center, center, 48000, 2900, 100, 0),
+          "invalid sample geometry and reversed filters are refused");
+}
+
 int main()
 {
+    ctunTuning();
     frontEndAttenuation();
     check(kAnanModels.size() == 18, "all 17 Thetis logical IDs plus automatic");
     for (int id = -1; id <= 16; ++id) {
