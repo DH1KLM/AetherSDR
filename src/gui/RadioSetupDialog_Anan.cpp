@@ -379,6 +379,9 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     adc0->setAccessibleName(QStringLiteral("ADC0 RF filter bypass"));
     auto* adc1 = new QCheckBox(QStringLiteral("ADC1 RF filter bypass"));
     adc1->setAccessibleName(QStringLiteral("ADC1 RF filter bypass"));
+    adc1->setObjectName(QStringLiteral("ananAdc1FilterBypass"));
+    //DH1KLM: Legacy dual-ADC models have no Alex-2 tab but still need RX2 bypass control.
+    antennaForm->insertRow(2, adc1);
     auto* bypassRow = new QHBoxLayout;
     auto* bypassLed = makeFilterLed(alex1, QStringLiteral("ADC0 receive bypass"));
     bypassRow->addWidget(bypassLed);
@@ -388,7 +391,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* adc1BypassRow = new QHBoxLayout;
     auto* adc1BypassLed = makeFilterLed(alex2, QStringLiteral("ADC1 receive bypass"));
     adc1BypassRow->addWidget(adc1BypassLed);
-    adc1BypassRow->addWidget(adc1);
+    adc1BypassRow->addWidget(new QLabel(QStringLiteral("ADC1 receive bypass"), alex2Group));
     adc1BypassRow->addStretch();
     alex2GroupLayout->insertLayout(0, adc1BypassRow);
     auto* active = new QLabel;
@@ -643,7 +646,9 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         lpfBypassRx->setAccessibleDescription(lpEnabled ? QStringLiteral("Force 6m LPF after Apply")
             : QStringLiteral("Unavailable: this profile does not drive receive LPF selection"));
         adc1->setEnabled(twoAdcs);
-        adc1->setAccessibleDescription(twoAdcs ? QStringLiteral("Bypass the separate RX2 receive filter bank") : QStringLiteral("This profile has only one ADC"));
+        adc1->setAccessibleDescription(twoAdcs
+            ? QStringLiteral("Bypass the separate ADC1/RX2 receive filter bank; select Apply to save and activate")
+            : QStringLiteral("This profile has only one ADC"));
         receive->setEnabled(true);
         receive->setAccessibleDescription(QStringLiteral("Ordered, non-overlapping frequency ranges in MHz"));
         lpf->setEnabled(lpEnabled);
