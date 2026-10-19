@@ -369,6 +369,13 @@ application continues to provide one receiver and one panadapter.
 
 ## Receiving with the G2
 
+The panadapter's RF Gain control operates the step attenuator of the ADC
+feeding the receiver. Its range is **−31 to 0 dB** (31 to 0 dB attenuation).
+The other ADC retains its own setting; changing the receiver source and
+reconnecting uses that ADC's remembered value. Single-ADC profiles do not
+accept ADC1 attenuation changes. P1 and P2 both bound live attenuation to
+0–31 dB before retaining it for later control packets.
+
 - **Receive** with live tuning and zoom. Changing the zoom changes the DDC rate live, without rebuilding the session. Nonfinite or nonpositive zoom requests are ignored; finite requests wider than the available span select the protocol/model maximum. Both P1 and P2 accept finite receive frequencies within 0–61.44 MHz. Invalid live tuning requests leave the last valid frequency unchanged; an invalid connection frequency is refused before reception starts.
 - **Panadapter** computed by WDSP's display analyzer: a ≥16384-point windowed FFT at one point per screen pixel. **FFT AVG** and **Wt Avg** drive it, and noise-floor auto-adjust works.
 - **S-meter.**

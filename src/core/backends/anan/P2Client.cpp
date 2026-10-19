@@ -419,9 +419,9 @@ void P2Client::setRxAntenna(int antenna)
 void P2Client::setStepAttenuationDb(int adcIndex, int db)
 {
     if (adcIndex == 0) {
-        m_adc0AttenuationDb = db;
-    } else if (adcIndex == 1) {
-        m_adc1AttenuationDb = db;
+        m_adc0AttenuationDb = std::clamp(db, 0, kMaxStepAttenuationDb);
+    } else if (adcIndex == 1 && m_numAdcs == 2) {
+        m_adc1AttenuationDb = std::clamp(db, 0, kMaxStepAttenuationDb);
     } else {
         return;
     }
