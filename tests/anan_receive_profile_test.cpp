@@ -83,6 +83,10 @@ struct P2ClientTestAccess {
     }
     static int rate(const P2Client& client, int ddc) { return client.m_activeDdcs[ddc].rateKsps; }
     static auto txBytes(const P2Client& client) { return client.m_txBytes; }
+    static int attenuation(const P2Client& client, int adc)
+    {
+        return adc == 0 ? client.m_adc0AttenuationDb : client.m_adc1AttenuationDb;
+    }
     static auto refresh(P2Client& client, qint64 nowMs)
     {
         return client.takeGeneralRefresh(nowMs);
@@ -125,6 +129,39 @@ static std::array<std::uint8_t, kDdcHeaderLen + kDdcSampleBytes> iq()
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    //DH1KLM: Resolve the actual profile before driving its independent ADC attenuators.
+    for (const int board : {1,2,3,4,5,10,20}) {
+        for (const auto& entry : kAnanModels) {
+            if (entry.model == AnanModel::Automatic || !receiveProfile(entry.nativeBoardId)) { continue; }
+            P2Client client;
+            P2ClientTestAccess::prepare(client, board, entry.model, true);
+            P2ClientTestAccess::feed(client, discovery(board), 1024);
+            check(P2ClientTestAccess::validated(client), "attenuator test requires a validated model override");
+            const int adcs = P2ClientTestAccess::adcs(client);
+            client.setStepAttenuationDb(0, 17);
+            client.setStepAttenuationDb(1, 23);
+            check(P2ClientTestAccess::attenuation(client, 0) == 17
+                  && P2ClientTestAccess::attenuation(client, 1) == (adcs == 2 ? 23 : 0),
+                  "only fitted ADC attenuators accept independent live settings");
+            for (const int value : {std::numeric_limits<int>::min(), -1, 0, 1, 17, 31, 32,
+                                     std::numeric_limits<int>::max()}) {
+                for (int adc = 0; adc < adcs; ++adc) {
+                    const int other = P2ClientTestAccess::attenuation(client, 1-adc);
+                    client.setStepAttenuationDb(adc, value);
+                    check(P2ClientTestAccess::attenuation(client, adc) == std::clamp(value, 0, 31)
+                          && P2ClientTestAccess::attenuation(client, 1-adc) == other,
+                          "P2 attenuator clamps at its boundary without changing the other ADC");
+                }
+            }
+            const int before0 = P2ClientTestAccess::attenuation(client, 0);
+            const int before1 = P2ClientTestAccess::attenuation(client, 1);
+            client.setStepAttenuationDb(-1, 0);
+            client.setStepAttenuationDb(2, 0);
+            check(P2ClientTestAccess::attenuation(client, 0) == before0
+                  && P2ClientTestAccess::attenuation(client, 1) == before1,
+                  "invalid ADC indices cannot alter either attenuator");
+        }
+    }
     //DH1KLM: Direct setter injection, no socket or running session required.
     {
         P2Client client;

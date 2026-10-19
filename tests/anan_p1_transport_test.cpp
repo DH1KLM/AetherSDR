@@ -3,8 +3,11 @@
 
 #include <QCoreApplication>
 #include <QTimer>
+#include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 using namespace AetherSDR::anan;
 namespace AetherSDR::anan {
@@ -389,6 +392,40 @@ void adc1RoutingAndFilters() {
                         check(config.receiveFilterBits == 0x20 && config.adcIndex == adc,
                               "P1 independent ADC1 filters preserve ADC0 bypass and source routing");
                     }
+                }
+            }
+            qint64 now = 0;
+            for (const int value : {std::numeric_limits<int>::min(), -1, 0, 17, 31, 32,
+                                     std::numeric_limits<int>::max()}) {
+                for (int target = 0; target < profile->numAdcs; ++target) {
+                    const auto previous = P1ClientTestAccess::config(client);
+                    client.setStepAttenuationDb(target, value);
+                    const auto updated = P1ClientTestAccess::config(client);
+                    const int expected0 = target == 0 ? std::clamp(value, 0, 31) : previous.adc0AttenuationDb;
+                    const int expected1 = target == 1 ? std::clamp(value, 0, 31) : previous.adc1AttenuationDb;
+                    check(updated.adc0AttenuationDb == expected0 && updated.adc1AttenuationDb == expected1
+                          && updated.adcIndex == adc && updated.frequencyHz == previous.frequencyHz,
+                          "P1 attenuation targets only the selected ADC and preserves source/tuning");
+                    packets.clear();
+                    P1ClientTestAccess::drain(client, now += 1000000000);
+                    P1ClientTestAccess::drain(client, now += 1000000000);
+                    bool found0 = false, found1 = false;
+                    for (const auto& packet : packets) {
+                        for (const int base : {8,520}) {
+                            const auto address = static_cast<unsigned char>(packet[base + 3]);
+                            if (address == 0x14) {
+                                found0 = true;
+                                check(static_cast<unsigned char>(packet[base + 7]) == (0x20 | expected0),
+                                      "P1 live ADC0 attenuation reaches its actual control-bank byte");
+                            } else if (address == 0x16) {
+                                found1 = true;
+                                check(static_cast<unsigned char>(packet[base + 4])
+                                          == (profile->numAdcs == 2 ? 0x20 | expected1 : 0),
+                                      "P1 live ADC1 attenuation reaches only fitted hardware");
+                            }
+                        }
+                    }
+                    check(found0 && found1, "P1 scheduler refreshes both attenuation banks");
                 }
             }
         }
