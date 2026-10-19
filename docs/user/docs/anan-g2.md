@@ -533,3 +533,15 @@ If the signal path is wrong after changing RF filter options, first restore the 
 - [Manual Connection](./manual-connection.md)
 - [Panadapter Controls](./panadapter-controls.md)
 - [`docs/architecture/anan-p2-backend-design.md`](https://github.com/aethersdr/AetherSDR/blob/main/docs/architecture/anan-p2-backend-design.md): background for developers
+
+### OC table and log layout
+
+In **ANAN Hardware → OC Outputs → HF**, both OC pin tables reserve enough
+height for all eleven band rows, including **6m**, and the horizontal
+scrollbar. The TX matrix remains unavailable because ANAN transmit is not
+implemented. Narrow windows may still require horizontal scrolling to reach
+all seven pins.
+
+Under **Help → Support & Diagnostics... → Application Logs**, the ANAN Protocol 1,
+Protocol 2, RX DSP, Panadapter, Droop Defaults and Droop Calibration filters
+occupy one column, directly below one another.
