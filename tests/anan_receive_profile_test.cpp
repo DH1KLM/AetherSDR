@@ -3,6 +3,8 @@
 #include "core/backends/anan/P2Client.h"
 #include "core/backends/anan/AnanFilterOptions.h"
 
+#include <QStringList>
+#include <QLoggingCategory>
 #include <QCoreApplication>
 
 #include <array>
@@ -16,6 +18,16 @@
 #include <vector>
 
 using namespace AetherSDR::anan;
+
+namespace {
+QStringList sessionLog;
+void captureSessionLog(QtMsgType, const QMessageLogContext& context, const QString& message)
+{
+    if (QString::fromLatin1(context.category ? context.category : "") == QLatin1String("aether.anan.p2")) {
+        sessionLog.append(message);
+    }
+}
+}
 
 namespace AetherSDR::anan {
 struct P2ClientTestAccess {
@@ -130,6 +142,8 @@ static std::array<std::uint8_t, kDdcHeaderLen + kDdcSampleBytes> iq()
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    QLoggingCategory::setFilterRules(QStringLiteral("aether.*.debug=false"));
+    const auto previousHandler = qInstallMessageHandler(captureSessionLog);
     //DH1KLM: Resolve the actual profile before driving its independent ADC attenuators.
     for (const int board : {1,2,3,4,5,10,20}) {
         for (const auto& entry : kAnanModels) {
@@ -511,6 +525,10 @@ int main(int argc, char** argv)
                   "accepted Patroclus P2 discovery routes physical DDC2 into logical RX0");
         }
     }
+    qInstallMessageHandler(previousHandler);
+    check(sessionLog.filter(QStringLiteral("validated board")).size() > 0
+          && sessionLog.filter(QStringLiteral("RX IQ started")).size() > 0,
+          "P2 application logs report successful discovery and first IQ without speaker audio");
     if (failures == 0) {
         std::puts("anan_receive_profile_test: all checks passed");
     }

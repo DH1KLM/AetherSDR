@@ -103,16 +103,12 @@ LogManager::LogManager()
         {"aether.ax25.link",  "AX.25 Link",  "Connected-mode data link: session open/close, measured round-trip vs configured T1, retransmits, idle-link polls"},
         {"aether.waveform",   "Waveform",    "Docker waveform image install upload and local waveform helper lifecycle"},
         {"aether.kiwisdr",    "KiwiSDR",     "KiwiSDR remote RX antennas: connect, handshake, audio/waterfall negotiation, reconnect, profile lifecycle"},
-        // ANAN Protocol 2. Curated because the speaker-audio bench has no other
-        // way in: applyFilterRules() emits "aether.*.debug=false" and hands the
-        // whole string to setFilterRules(), which REPLACES the rules
-        // QT_LOGGING_RULES set — so relaunching with the environment variable does
-        // not reach this category, and an uncurated id can only be enabled through
-        // the bridge's `log set`. The speaker FIFO level and underflow reports are
-        // the only instrumentation the radio gives us for audio sent to it, and a
-        // diagnostic nobody can switch on is the one needed at 2am (see
-        // setEnabled()'s own note on exactly this).
-        {"aether.anan.p2",    "ANAN Protocol 2", "ANAN/Saturn Protocol 2 wire session: DDC sequence gaps, speaker-audio FIFO level and underflow reports, unexpected sender ports"},
+        {"aether.anan.p1", "ANAN Protocol 1", "P1 validated board/profile, first RX IQ, session stop and connection failures"},
+        {"aether.anan.p2", "ANAN Protocol 2", "P2 validated board/profile and physical DDC, first RX IQ, timeout phase, sequence gaps and speaker FIFO reports"},
+        {"aether.anan.rxdsp", "ANAN RX DSP", "Receive DSP rebuild, blanker and channel warnings"},
+        {"aether.anan.pan", "ANAN Panadapter", "Panadapter FFT configuration (verbose Info when enabled)"},
+        {"aether.anan.droopdefaults", "ANAN Droop Defaults", "Shipped droop-table compatibility warnings"},
+        {"aether.anan.droopcal", "ANAN Droop Calibration", "Droop calibration refusal and aborted sweeps"},
         {"aether.kiwisdr.audio", "KiwiSDR Audio/DSP", "Verbose KiwiSDR receive audio: frame decode, resampler, jitter/FIFO under/overrun, mixing (high-rate; off by default)"},
         {"aether.automation", "Automation Bridge", "Agent-drivable test bridge (#3646): QLocalServer verbs, widget snapshots, captures (AETHER_AUTOMATION only)"},
         {"aether.network",    "External Services", "Failed requests to external services (update check, QRZ, maps, propagation, radar), once per service, host, error and HTTP status, with TLS errors and the TLS backend in use; URLs are logged as scheme://host only"},

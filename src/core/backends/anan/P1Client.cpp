@@ -2,6 +2,9 @@
 #include "core/backends/anan/AnanFilterOptions.h"
 
 #include <QNetworkDatagram>
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(lcAnanP1, "aether.anan.p1", QtInfoMsg)
 #include <QTimer>
 #include <QUdpSocket>
 #include <algorithm>
@@ -123,6 +126,7 @@ bool P1Client::start(const Params& params, int timeoutMs)
     });
     const auto request = p1::discoveryRequest();
     if (!send(request)) { stop(); return false; }
+    qCInfo(lcAnanP1) << "ANAN P1: discovery sent to" << m_host.toString() << "local UDP port" << m_socket->localPort();
     m_timeoutTimer->start(std::max(1, timeoutMs));
     m_countersTimer->start();
     return true;
@@ -156,11 +160,15 @@ void P1Client::stop()
     m_running = false; m_validated = false; m_linkUp = false;
     m_audio.clear(); m_expectedSequence.reset();
     if (m_socket) { m_socket->close(); m_socket->deleteLater(); m_socket = nullptr; }
-    if (hadSession) { publishCounters(); emit linkDown(); }
+    if (hadSession) {
+        qCInfo(lcAnanP1) << "ANAN P1: session stopped; RX packets" << m_counters.rxPackets;
+        publishCounters(); emit linkDown();
+    }
 }
 
 void P1Client::fail(const QString& reason)
 {
+    qCWarning(lcAnanP1) << "ANAN P1: connection failed:" << reason;
     stop(); emit connectionError(reason);
 }
 
@@ -199,6 +207,10 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
         for (int slot = 0; slot < m_profile->frameSlotCount; ++slot)
             m_addresses.push_back(static_cast<std::uint8_t>(4 + 2 * slot));
         m_validated = true;
+        qCInfo(lcAnanP1) << "ANAN P1: validated board" << *boardId << "wire ID" << reply->boardId
+            << "model" << QString::fromLatin1(descriptor ? descriptor->name.data() : "Unknown") << "override" << m_params.overrideDetection
+            << "ADC" << m_config.adcIndex << "rate ksps" << m_config.rateKsps
+            << "frame slots" << m_config.receivers;
         //DH1KLM: Prime every RX control bank before enabling the IQ stream.
         for (std::size_t n = 0; n < (m_addresses.size() + 1) / 2; ++n) {
             const auto first = nextAddress();
@@ -229,6 +241,7 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
     if (!p1::decodeIq(*frame, 0, m_iq))
         return;
     if (!m_linkUp) {
+        qCInfo(lcAnanP1) << "ANAN P1: RX IQ started; slot 0, ADC" << m_config.adcIndex;
         m_linkUp = true; m_timeoutTimer->stop(); emit linkUp();
     }
     emit ddc0IqReady(m_iq);
