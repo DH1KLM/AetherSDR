@@ -268,10 +268,7 @@ AnanBackend::AnanBackend(QObject* parent)
         emit panBandwidthLimitsChanged(kPanId,
                                       kDdc0RatesKsps.front() * 1000.0 / 1.0e6,
                                       nearestSessionRateKsps(kDdc0RatesKsps.back()) * 1000.0 / 1.0e6);
-        // The RF Gain slider IS the step attenuator: -31..0 dB in 1 dB steps.
-        // Same every linkUp, for the same reason as the limits above.
-        emit panRfGainInfoChanged(kPanId, -kMaxStepAttenuationDb, 0, 1);
-        emit panRfGainChanged(kPanId, -m_attenuationDb);
+        publishReceiveGain();
         if (wasRateChange) {
             // Audio was muted in beginRateChange() before this session started (see there).
             // Unmute after a settle window: the rebuilt WdspChannel's AGC/filters/DC
@@ -330,6 +327,17 @@ AnanBackend::AnanBackend(QObject* parent)
         m_discoveredReceiverCount = reportedReceivers;
         m_discoveryInfoReceived = true;
         loadHardwareFilters(boardId);
+        if (!hasClassicAlexAttenuator(m_pendingParams.model, boardId)
+            && m_pendingParams.alexAttenuationDb != 0) {
+            m_pendingParams.adc0AttenuationDb = std::min(31,
+                m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb);
+            m_pendingParams.alexAttenuationDb = 0;
+            QMetaObject::invokeMethod(m_client, "setFrontEndAttenuation", Qt::QueuedConnection,
+                Q_ARG(int, 0), Q_ARG(int, m_pendingParams.adc0AttenuationDb), Q_ARG(int, 0));
+        }
+        m_attenuationDb = m_pendingParams.ddc0AdcIndex == 1
+            ? m_pendingParams.adc1AttenuationDb
+            : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb;
         //DH1KLM: Also cover address-only connections after the board is known.
         const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
         seedDroopCorrectionTables(m_pendingParams.protocol == 2
@@ -570,12 +578,14 @@ void AnanBackend::applyRestoredState(const RestoredRadioState& state)
     // A missing document resets both ADCs on a same-family radio swap.
     // RadioStateMemory owns persistence; validate its opaque extension here.
     const QJsonObject gain = state.extension.value(QStringLiteral("rfGain")).toObject();
+    const int savedAlex = gain.value(QStringLiteral("alexAttenuationDb")).toInt(0);
+    m_pendingParams.alexAttenuationDb = savedAlex == 10 || savedAlex == 20 || savedAlex == 30 ? savedAlex : 0;
     m_pendingParams.adc0AttenuationDb = std::clamp(
         gain.value(QStringLiteral("adc0AttenuationDb")).toInt(0), 0, kMaxStepAttenuationDb);
     m_pendingParams.adc1AttenuationDb = std::clamp(
         gain.value(QStringLiteral("adc1AttenuationDb")).toInt(0), 0, kMaxStepAttenuationDb);
     m_attenuationDb = m_pendingParams.ddc0AdcIndex == 1
-        ? m_pendingParams.adc1AttenuationDb : m_pendingParams.adc0AttenuationDb;
+        ? m_pendingParams.adc1AttenuationDb : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb;
 
     // Unconditional, like the ADC values above, so a same-family backend reuse
     // cannot carry radio A's dial or level onto radio B. A rejected value leaves
@@ -597,6 +607,7 @@ RestoredRadioState AnanBackend::currentOperatingState() const
     state.receiveOutputLevelPct = m_lineoutGainPercent;
     state.extensionSchemaVersion = 1;
     state.extension = QJsonObject{{QStringLiteral("rfGain"), QJsonObject{
+        {QStringLiteral("alexAttenuationDb"), m_pendingParams.alexAttenuationDb},
         {QStringLiteral("adc0AttenuationDb"), m_pendingParams.adc0AttenuationDb},
         {QStringLiteral("adc1AttenuationDb"), m_pendingParams.adc1AttenuationDb}}}};
     return state;
@@ -751,10 +762,17 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     // populated this param must not start one.
     m_pendingParams.speakerAudioEnabled =
         request.params.value(QStringLiteral("anan.speakerAudioEnabled"), false).toBool();
+    // A logical profile selects the analogue ATT bank even under a board override.
+    if ((m_pendingParams.model != AnanModel::Automatic || m_pendingParams.expectedBoardId >= 0)
+        && !hasClassicAlexAttenuator(m_pendingParams.model, m_pendingParams.expectedBoardId)) {
+        const int total = m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb;
+        m_pendingParams.adc0AttenuationDb = std::min(total, 31);
+        m_pendingParams.alexAttenuationDb = 0;
+    }
     // applyRestoredState() seeds both ADC values before this connect.
     m_attenuationDb = m_pendingParams.ddc0AdcIndex == 1
         ? m_pendingParams.adc1AttenuationDb
-        : m_pendingParams.adc0AttenuationDb;
+        : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb;
 
     // An explicit connect frequency, then this radio's restored one, then the
     // first-connect default.
@@ -1387,29 +1405,64 @@ void AnanBackend::setPanFrameRate(const QString& panId, int fps)
                                   Q_ARG(int, fps));
 }
 
+int AnanBackend::maximumReceiveAttenuation() const
+{
+    return m_pendingParams.ddc0AdcIndex == 0
+        && hasClassicAlexAttenuator(m_pendingParams.model,
+            m_discoveryInfoReceived ? m_discoveredBoardId : m_pendingParams.expectedBoardId) ? 61 : 31;
+}
+
+void AnanBackend::publishReceiveGain()
+{
+    emit panRfGainInfoChanged(kPanId, -maximumReceiveAttenuation(), 0, 1);
+    emit panRfGainChanged(kPanId, -m_attenuationDb);
+    // Thetis' historical Preamp combo contains attenuation presets, not gain.
+    QStringList labels;
+    const int maximumPreset = maximumReceiveAttenuation() == 61 ? 50 : 30;
+    for (int db = 0; db <= maximumPreset; db += 10) {
+        labels.append(db == 0 ? QStringLiteral("0 dB") : QStringLiteral("-%1 dB").arg(db));
+    }
+    int step = m_attenuationDb / 10;
+    if (m_attenuationDb % 10 != 0 || m_attenuationDb > maximumPreset) {
+        step = labels.size();
+        labels.append(QStringLiteral("-%1 dB (custom)").arg(m_attenuationDb));
+    }
+    emit panPreampInfoChanged(kPanId, labels);
+    emit panPreampChanged(kPanId, step);
+}
+
+void AnanBackend::setPanPreamp(const QString& panId, int step)
+{
+    const int maximumStep = maximumReceiveAttenuation() == 61 ? 5 : 3;
+    if (step < 0 || step > maximumStep) { publishReceiveGain(); return; }
+    if (panId != kPanId) { return; }
+    const auto preset = receiveAttenuationPreset(step, maximumReceiveAttenuation() == 61);
+    applyReceiveGain(preset.adcDb, preset.alexDb);
+}
+
 void AnanBackend::setPanRfGain(const QString& panId, int gainDb)
 {
-    Q_UNUSED(panId);   // one pan in this phase
-    // The G2 has no gain stage the host drives, only the step attenuator in
-    // front of each ADC (Protocol v4.4 pp.34,36, HP bytes 1442/1443).
-    // deskHPSDR offers it as a 0-31 dB attenuation control; here it rides the RF Gain
-    // slider, negated, so "more gain" still means "slider right". Clamped
-    // rather than refused, per the seam's contract.
-    const int attenuation = -std::clamp(gainDb, -kMaxStepAttenuationDb, 0);
-    m_attenuationDb = attenuation;
-    // Kept in the params too: a rate change that restarts the session
-    // resends everything from m_pendingParams.
+    if (panId != kPanId) { return; }
+    const auto attenuation = receiveAttenuation(-std::clamp(gainDb, -maximumReceiveAttenuation(), 0),
+        maximumReceiveAttenuation() == 61);
+    applyReceiveGain(attenuation.adcDb, attenuation.alexDb);
+}
+
+void AnanBackend::applyReceiveGain(int adcDb, int alexDb)
+{
+    m_attenuationDb = adcDb + alexDb;
     if (m_pendingParams.ddc0AdcIndex == 1) {
-        m_pendingParams.adc1AttenuationDb = attenuation;
+        m_pendingParams.adc1AttenuationDb = adcDb;
     } else {
-        m_pendingParams.adc0AttenuationDb = attenuation;
+        m_pendingParams.adc0AttenuationDb = adcDb;
+        m_pendingParams.alexAttenuationDb = alexDb;
     }
     if (m_client) {
-        QMetaObject::invokeMethod(m_client, "setStepAttenuationDb", Qt::QueuedConnection,
-                                  Q_ARG(int, m_pendingParams.ddc0AdcIndex),
-                                  Q_ARG(int, attenuation));
+        QMetaObject::invokeMethod(m_client, "setFrontEndAttenuation", Qt::QueuedConnection,
+            Q_ARG(int, m_pendingParams.ddc0AdcIndex), Q_ARG(int, adcDb),
+            Q_ARG(int, alexDb));
     }
-    emit panRfGainChanged(kPanId, -attenuation);
+    publishReceiveGain();
     emit operatingStateChanged();
 }
 

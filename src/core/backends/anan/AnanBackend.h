@@ -91,6 +91,7 @@ public:
     void setPanFrameRate(const QString& panId, int fps) override;
     // The G2's receive step attenuator, presented as RF gain: -31..0 dB,
     // where -12 means 12 dB of attenuation. See the definition.
+    void setPanPreamp(const QString& panId, int step) override;
     void setPanRfGain(const QString& panId, int gainDb) override;
     void setPanAverage(const QString& panId, int average) override;
     void setPanWeightedAverage(const QString& panId, bool on) override;
@@ -213,6 +214,9 @@ private:
     int effectiveBoardId() const;
     QVariantMap hardwareFilterStatus() const;
     void loadHardwareFilters(int boardId);
+    int maximumReceiveAttenuation() const;
+    void publishReceiveGain();
+    void applyReceiveGain(int adcDb, int alexDb);
     anan::ReceiveAntennaSelection activeReceiveAntenna() const;
     QString applyReceiveAntenna(int antenna);
     //DH1KLM: Shipped defaults are valid only for the Saturn RX profile.

@@ -14,6 +14,7 @@ public:
     bool start(const Params& params, int timeoutMs = 2000);
     Q_INVOKABLE void stop();
     Q_INVOKABLE void setDdc0FrequencyHz(double hz);
+    Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     Q_INVOKABLE void setStepAttenuationDb(int adc, int db);
     Q_INVOKABLE void setRxAntenna(int antenna);
     Q_INVOKABLE void setHardwareFilters(const QVariantMap& options);

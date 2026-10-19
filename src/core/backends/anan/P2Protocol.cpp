@@ -275,7 +275,7 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   int firstDdcIndex,
                                                   bool selectReceiveLpf,
                                                   ReceiveFilterKind filterKind,
-                                                  int numAdcs, const FilterConfig* filters) noexcept
+                                                  int numAdcs, const FilterConfig* filters, int alexAttenuationDb) noexcept
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length
     pkt[4] = run ? 0x01 : 0x00;  // bit[0] = run. Bits[1..4] = PTT0..3 -- there is no
@@ -301,6 +301,13 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
     if (input >= 1 && input <= 3) {
         alex0 |= std::uint32_t{1} << (input == 1 ? 10 : input == 2 ? 9 : 8);
         alex0 |= std::uint32_t{1} << (filterKind == ReceiveFilterKind::MkIIBpf && input != 1 ? 14 : 11);
+    }
+    // Thetis network.h: classic 20 dB is bit 13, 10 dB is bit 14.
+    // MkII repurposes bit 14 as RX MASTER; never add attenuation there.
+    if (filterKind == ReceiveFilterKind::LegacyHpf) {
+        const int stages = std::clamp(alexAttenuationDb / 10, 0, 3);
+        if ((stages & 1) != 0) { alex0 |= std::uint32_t{1} << 14; }
+        if ((stages & 2) != 0) { alex0 |= std::uint32_t{1} << 13; }
     }
     // Apply Thetis' Saturn BPF1 selection from the tuned phase word unless the
     // caller explicitly requests bypass; outside the configured rows, bypass.

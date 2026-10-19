@@ -1,6 +1,7 @@
 //DH1KLM: Source-pinned logical models, independent of sockets and GUI labels.
 #include "core/backends/anan/P2Protocol.h"
 #include <array>
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 
@@ -182,8 +183,67 @@ static void mainAntennaChoices(const ReceiveProfile& profile, AnanModel model, i
           && receiveAntennaSelection(profile.numAdcs, 0, 0, 4, names).count == 0,
           "invalid antenna route cannot publish selectable ports");
 }
+static void frontEndAttenuation()
+{
+    for (const auto& entry : kAnanModels) {
+        if (entry.model == AnanModel::Automatic) { continue; }
+        const bool expected = entry.model == AnanModel::Hermes || entry.model == AnanModel::Anan100
+            || entry.model == AnanModel::Anan100B || entry.model == AnanModel::Anan100D
+            || entry.model == AnanModel::Anan200D;
+        for (int physical : {1, 2, 3, 4, 5, 10, 20}) {
+            check(hasClassicAlexAttenuator(entry.model, physical) == expected,
+                  "logical analogue profile governs ATT even on a different digital board");
+        }
+    }
+    for (const bool classic : {false, true}) {
+        for (int db = -1; db <= 65; ++db) {
+            const auto att = receiveAttenuation(db, classic);
+            const int total = std::clamp(db, 0, classic ? 61 : 31);
+            check(att.totalDb == total && att.adcDb + att.alexDb == total,
+                  "total attenuation and bounded stages agree");
+            check(att.adcDb >= 0 && att.adcDb <= 31 && att.alexDb == (classic && total > 31 ? 30 : 0),
+                  "continuous ATT uses ALEX 30 only above ADC's 31 dB limit");
+        }
+        for (int step = 0; step <= (classic ? 5 : 3); ++step) {
+            const auto att = receiveAttenuationPreset(step, classic);
+            check(att.totalDb == step * 10 && att.adcDb + att.alexDb == att.totalDb,
+                  "Thetis preset total");
+            check(att.adcDb == (!classic ? step * 10 : step <= 3 ? 0 : 20),
+                  "Thetis presets use the exact ADC stage");
+            const std::array<std::uint32_t, 1> words{phaseWord(14'200'000)};
+            const auto packet = buildHighPriority(true, words, false, true, att.adcDb, 19, 2, 0,
+                true, classic ? ReceiveFilterKind::LegacyHpf : ReceiveFilterKind::MkIIBpf, 2, nullptr, att.alexDb);
+            const int stages = att.alexDb / 10;
+            check((packet[1434] & 0x60) == ((stages & 1 ? 0x40 : 0) | (stages & 2 ? 0x20 : 0)),
+                  "P2 exact classic ALEX 10/20 dB relay bits");
+            check(packet[1443] == att.adcDb && packet[1442] == 19 && packet[4] == 1,
+                  "P2 preset preserves sibling ADC and never keys");
+            p1::ReceiveConfig config;
+            config.mkIIBpf = !classic; config.numAdcs = 2;
+            config.adc0AttenuationDb = att.adcDb; config.adc1AttenuationDb = 19;
+            config.alexAttenuationDb = att.alexDb;
+            check(((*p1::receiveControl(0, config))[3] & 3) == stages,
+                  "P1 bank zero exact ALEX attenuator bits");
+            check((*p1::receiveControl(0x14, config))[4] == (0x20 | att.adcDb),
+                  "P1 exact ADC attenuator bits");
+        }
+    }
+    const std::array<std::uint32_t, 1> words{phaseWord(14'200'000)};
+    for (int input = 0; input <= 3; ++input) {
+        auto filters = defaultFilterConfig(true); filters.rxOnlyInput = input;
+        const auto baseline = buildHighPriority(true, words, false, true, 7, 9, 3, 2, true,
+            ReceiveFilterKind::MkIIBpf, 2, &filters);
+        check(buildHighPriority(true, words, false, true, 7, 9, 3, 2, true,
+            ReceiveFilterKind::MkIIBpf, 2, &filters, 30) == baseline,
+            "MkII ignores classic ATT without changing the reused input relay");
+    }
+    p1::ReceiveConfig invalid; invalid.mkIIBpf = true; invalid.alexAttenuationDb = 30;
+    check(!p1::receiveControl(0, invalid), "P1 refuses classic ATT on repurposed MkII bits");
+}
+
 int main()
 {
+    frontEndAttenuation();
     check(kAnanModels.size() == 18, "all 17 Thetis logical IDs plus automatic");
     for (int id = -1; id <= 16; ++id) {
         const auto model = static_cast<AnanModel>(id);

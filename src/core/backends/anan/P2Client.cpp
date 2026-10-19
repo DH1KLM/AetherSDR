@@ -99,6 +99,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_filters = params.filters;
     m_bypassAdc0Filters = params.bypassAdc0Filters;
     m_bypassAdc1Filters = params.bypassAdc1Filters;
+    m_alexAttenuationDb = std::clamp(params.alexAttenuationDb / 10, 0, 3) * 10;
     m_adc0AttenuationDb = params.adc0AttenuationDb;
     m_adc1AttenuationDb = params.adc1AttenuationDb;
     m_rxAntenna = (params.rxAntenna >= 1 && params.rxAntenna <= 3) ? params.rxAntenna : 1;
@@ -199,7 +200,7 @@ void P2Client::stop()
             sendTo(*m_socket,
                   buildHighPriority(false, stopWords, m_bypassAdc0Filters, m_bypassAdc1Filters,
                                     m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
-                                    m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr),
+                                    m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb),
                   m_host, kHighPriorityPort, m_txBytes);
         }
         m_socket->close();
@@ -386,7 +387,7 @@ void P2Client::setDdc0FrequencyHz(double hz)
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
                                 m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
-                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr),
+                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb),
               m_host, kHighPriorityPort, m_txBytes);
 }
 
@@ -411,11 +412,20 @@ void P2Client::setRxAntenna(int antenna)
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
                                 m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
-                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr),
+                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb),
               m_host, kHighPriorityPort, m_txBytes);
     }
 }
 
+void P2Client::setFrontEndAttenuation(int adc, int db, int alexDb)
+{
+    if (adc < 0 || adc >= m_numAdcs) { return; }
+    if (adc == 0) {
+        m_alexAttenuationDb = m_receiveFilterKind == ReceiveFilterKind::LegacyHpf
+            ? std::clamp(alexDb / 10, 0, 3) * 10 : 0;
+    }
+    setStepAttenuationDb(adc, db);
+}
 void P2Client::setStepAttenuationDb(int adcIndex, int db)
 {
     if (adcIndex == 0) {
@@ -432,7 +442,7 @@ void P2Client::setStepAttenuationDb(int adcIndex, int db)
               buildHighPriority(true, sharedFreqWords(),
                                 m_bypassAdc0Filters, m_bypassAdc1Filters,
                                 m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
-                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr),
+                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb),
               m_host, kHighPriorityPort, m_txBytes);
     }
 }
@@ -500,7 +510,7 @@ void P2Client::onKeepaliveTick()
           buildHighPriority(true, sharedFreqWords(),
                             m_bypassAdc0Filters, m_bypassAdc1Filters,
                             m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
-                            m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr),
+                            m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb),
           m_host, kHighPriorityPort, m_txBytes);
 }
 
@@ -613,6 +623,10 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 m_firstDdcIndex = profile.firstDdcIndex;
                 m_selectReceiveLpf = profile.selectReceiveLpf;
                 m_receiveFilterKind = profile.filterKind;
+                if (m_receiveFilterKind == ReceiveFilterKind::MkIIBpf && m_alexAttenuationDb != 0) {
+                    m_adc0AttenuationDb = std::min(31, m_adc0AttenuationDb + m_alexAttenuationDb);
+                    m_alexAttenuationDb = 0;
+                }
                 m_swapSpeakerChannels = profile.swapSpeakerChannels;
                 m_discoveryValidated = true;
                 //DH1KLM: Cache only the resolved session profile; never rebuild
@@ -637,7 +651,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                           buildHighPriority(true, sharedFreqWords(),
                                             m_bypassAdc0Filters, m_bypassAdc1Filters,
                                             m_adc0AttenuationDb, m_adc1AttenuationDb,
-                                            m_rxAntenna, m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr),
+                                            m_rxAntenna, m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb),
                           m_host, kHighPriorityPort, m_txBytes);
                     m_keepaliveTimer->start();
                     if (m_speakerAudioEnabled) {

@@ -32,6 +32,9 @@ bool validConfig(const ReceiveConfig& c) noexcept
         && c.rxOcMask <= 127
         && c.antenna >= 1 && c.antenna <= 3
         && c.rxOnlyInput >= 0 && c.rxOnlyInput <= 3
+        && c.alexAttenuationDb >= 0 && c.alexAttenuationDb <= 30
+        && c.alexAttenuationDb % 10 == 0
+        && (!c.mkIIBpf || c.alexAttenuationDb == 0)
         && c.frequencyHz <= 61'440'000
         && c.adc0AttenuationDb >= 0 && c.adc0AttenuationDb <= 31
         && c.adc1AttenuationDb >= 0 && c.adc1AttenuationDb <= 31
@@ -60,7 +63,8 @@ std::optional<Control> receiveControl(std::uint8_t address,
         bytes[1] = c.rateKsps == 48 ? 0 : c.rateKsps == 96 ? 1
             : c.rateKsps == 192 ? 2 : 3;
         bytes[2] = static_cast<std::uint8_t>(c.rxOcMask << 1);
-        bytes[3] = (c.dither ? 0x08 : 0) | (c.random ? 0x10 : 0);
+        bytes[3] = static_cast<std::uint8_t>(c.alexAttenuationDb / 10);
+        bytes[3] |= (c.dither ? 0x08 : 0) | (c.random ? 0x10 : 0);
         //DH1KLM: Thetis bank-0 C3[6:5] input, C3[7] RX_OUT, or C3[0]
         // MkII RX master selection. These relays never set MOX.
         bytes[3] |= static_cast<std::uint8_t>(c.rxOnlyInput << 5);

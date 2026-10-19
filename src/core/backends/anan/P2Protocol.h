@@ -358,7 +358,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   bool selectReceiveLpf = false,
                                                   ReceiveFilterKind filterKind = ReceiveFilterKind::MkIIBpf,
                                                   int numAdcs = 2,
-                                                  const FilterConfig* filters = nullptr) noexcept;
+                                                  const FilterConfig* filters = nullptr,
+                                                  int alexAttenuationDb = 0) noexcept;
 
 // The step attenuators' range (spec pp.34,36), shared by the encoder's clamp and
 // by the backend that offers the control.
