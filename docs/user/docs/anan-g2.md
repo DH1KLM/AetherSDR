@@ -420,6 +420,14 @@ sample rate may change, so allow the DSP rebuild to finish; the spectrum
 updates when the new capture is ready. The status bar acknowledges the
 request rather than claiming that hardware has already completed it.
 
+The displayed spectrum and waterfall then zoom to the band edges, leaving
+about 1% of the band width on each side so both red lines remain visible.
+This display zoom is independent of the hardware sample rate. For example,
+20 m displays about 357 kHz around 14.175 MHz while P2 captures at 768 ksps.
+The receive audio and IQ rate are unaffected by the extra display crop.
+Manual span changes or turning CTUN off return to the full hardware view;
+tuning outside the displayed window also releases the band display zoom.
+
 Aether selects the smallest supported rate with room for the band and its
 edge markers, up to the connected profile's limit. If the entire band
 cannot fit, it uses the maximum supported span and keeps the received

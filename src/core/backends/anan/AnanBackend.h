@@ -142,8 +142,8 @@ public:
     // distance), not linear -- see the definition comment for why linear
     // distance is provably wrong for these octave-spaced rates
     // (HERMES.md §15.1; mirrors Hl2Backend::nearestIqSampleRateHz()).
-    // There is no continuous zoom here -- DDC0 runs at exactly one of six
-    // fixed rates.
+    // DDC0 runs at one of six fixed rates. Band view independently crops
+    // the display inside that hardware capture.
     [[nodiscard]] static int nearestDdc0RateKsps(int requestedKsps) noexcept;
 
     // The AGC-T knob (0..100) as WDSP gain in dB: the AGC's maximum gain, or
@@ -421,7 +421,8 @@ private:
     double m_ddcCenterHz = 0.0;
     double m_lastSentCenterHz = -1.0;
     bool m_ctun = false;
-    std::optional<double> m_pendingBandCenterHz; // applied only after the requested rate settles
+    double m_bandViewSpanHz = 0.0; // zero: full hardware capture
+    std::optional<ReceiveBandView> m_pendingBandView; // applied only after the requested rate settles
     // What applyRestoredState() accepted, held for connectRadio(); kept apart
     // from the live m_sliceFreqHz/m_mode. Zero/empty: nothing restored.
     double m_restoredFreqHz = 0.0;

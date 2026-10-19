@@ -256,6 +256,21 @@ static void bandViews()
         check(tuning && tuning->centerHz == view->centerHz,
               "band view retains the receive passband without CTUN recentering");
     }
+    const auto twenty = receiveBandView(14e6, 14.35e6, 14.225e6, 1536, 100, 2900, 0);
+    check(twenty && std::abs(twenty->spanHz * 0.92 - 357'000) < 0.001
+          && twenty->spanHz < twenty->rateKsps * 1000,
+          "20m display fits band edges with 1% margins instead of the full 768k capture");
+    std::vector<float> ramp(4096);
+    for (std::size_t i = 0; i < ramp.size(); ++i) { ramp[i] = static_cast<float>(i); }
+    const double fraction = twenty->spanHz / (twenty->rateKsps * 1000.0);
+    const auto cropped = bandViewSpectrum(ramp, fraction);
+    for (const int bin : {0, 512, 2048, 3584, 4095}) {
+        const double expected = 2048 + (bin - 2048) * fraction;
+        check(std::abs(cropped[bin] - expected) < 0.001,
+              "cropped spectrum coordinates match the published display span on both sides of DC");
+    }
+    check(bandViewSpectrum(ramp, 1) == ramp && bandViewSpectrum({}, 0.5).empty(),
+          "full-span and empty spectra retain their original data");
     const auto wideFilter = receiveBandView(10'100'000, 10'150'000, 10'125'000,
         1536, -100'000, 100'000, 0);
     check(wideFilter && wideFilter->rateKsps == 384 && wideFilter->wholeBand,
