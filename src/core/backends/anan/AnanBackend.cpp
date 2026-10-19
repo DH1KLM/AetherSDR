@@ -7,6 +7,7 @@
 #include "core/backends/WdspNoiseBlanker.h"
 #include "core/AppSettings.h"
 #include "core/RadioSettingsScope.h"
+#include "models/BandSettings.h"
 
 #include <QHostAddress>
 #include <QJsonArray>
@@ -256,6 +257,10 @@ AnanBackend::AnanBackend(QObject* parent)
             // Likewise the rail's window: counts from before this session
             // must not ride into its first published voltage.
             resetSupplyRailWindow();
+        }
+        if (!wasRateChange) {
+            if (m_restoreBandViewOnConnect) { restoreLastBandView(); }
+            m_bandViewRestoreReady = true;
         }
         applyTuneToRadioAndPan();
         emitSliceState();
@@ -583,6 +588,15 @@ void AnanBackend::applyRestoredState(const RestoredRadioState& state)
 {
     // A missing document resets both ADCs on a same-family radio swap.
     // RadioStateMemory owns persistence; validate its opaque extension here.
+    m_bandViewMemory = state.extension.value(QStringLiteral("tuning")).toObject();
+    m_bandViewMemorySupported = m_bandViewMemory.isEmpty()
+        || (m_bandViewMemory.value(QStringLiteral("version")).toInt() == 1
+            && m_bandViewMemory.value(QStringLiteral("radioSerial")).isString()
+            && m_bandViewMemory.value(QStringLiteral("profiles")).isObject()
+            && m_bandViewMemory.value(QStringLiteral("profiles")).toObject().size() <= 128);
+    m_beforeBandView = {};
+    m_currentViewBand.clear();
+    m_bandViewRestoreReady = false;
     const QJsonObject gain = state.extension.value(QStringLiteral("rfGain")).toObject();
     const int savedAlex = gain.value(QStringLiteral("alexAttenuationDb")).toInt(0);
     m_pendingParams.alexAttenuationDb = savedAlex == 10 || savedAlex == 20 || savedAlex == 30 ? savedAlex : 0;
@@ -616,7 +630,148 @@ RestoredRadioState AnanBackend::currentOperatingState() const
         {QStringLiteral("alexAttenuationDb"), m_pendingParams.alexAttenuationDb},
         {QStringLiteral("adc0AttenuationDb"), m_pendingParams.adc0AttenuationDb},
         {QStringLiteral("adc1AttenuationDb"), m_pendingParams.adc1AttenuationDb}}}};
+    const auto views = capturedBandViewMemory();
+    if (!views.isEmpty()) { state.extension.insert(QStringLiteral("tuning"), views); }
     return state;
+}
+
+QString AnanBackend::bandViewProfileKey() const
+{
+    return QStringLiteral("%1:%2:%3:%4:%5").arg(static_cast<int>(m_pendingParams.model))
+        .arg(m_discoveredBoardId).arg(m_pendingParams.ddc0AdcIndex)
+        .arg(m_pendingParams.overrideDetection ? 1 : 0).arg(m_pendingParams.protocol);
+}
+
+QJsonObject AnanBackend::bandViewSnapshot() const
+{
+    const auto tuning = receiveTuning(m_ctun, m_ddcCenterHz, m_sliceFreqHz,
+        receiveTuningRateHz(), m_filterLowHz, m_filterHighHz, cwBfoHz());
+    return {{QStringLiteral("vfoHz"), m_sliceFreqHz},
+        {QStringLiteral("centerHz"), tuning ? tuning->centerHz : m_ddcCenterHz},
+        {QStringLiteral("spanHz"), m_bandViewSpanHz},
+        {QStringLiteral("rateKsps"), static_cast<int>(receiveTuningRateHz() / 1000)},
+        {QStringLiteral("ctun"), m_ctun}, {QStringLiteral("mode"), m_mode},
+        {QStringLiteral("filterLow"), m_filterLowHz}, {QStringLiteral("filterHigh"), m_filterHighHz}};
+}
+
+bool AnanBackend::validBandViewSnapshot(const QJsonObject& view) const
+{
+    for (const auto* key : {"vfoHz", "centerHz", "spanHz", "rateKsps", "filterLow", "filterHigh"}) {
+        if (!view.value(QLatin1String(key)).isDouble()
+            || !std::isfinite(view.value(QLatin1String(key)).toDouble())) { return false; }
+    }
+    const double frequency = view.value(QStringLiteral("vfoHz")).toDouble();
+    const double center = view.value(QStringLiteral("centerHz")).toDouble();
+    const double span = view.value(QStringLiteral("spanHz")).toDouble();
+    const double rate = view.value(QStringLiteral("rateKsps")).toDouble();
+    const double low = view.value(QStringLiteral("filterLow")).toDouble();
+    const double high = view.value(QStringLiteral("filterHigh")).toDouble();
+    const QString mode = view.value(QStringLiteral("mode")).toString();
+    if (!view.value(QStringLiteral("ctun")).isBool() || !isKnownModeString(mode)
+        || !isRestorableFrequencyHz(frequency) || !isRestorableFrequencyHz(center)
+        || rate < 48 || rate > nearestSessionRateKsps(kDdc0RatesKsps.back())
+        || std::find(kDdc0RatesKsps.begin(), kDdc0RatesKsps.end(), rate) == kDdc0RatesKsps.end()
+        || span < 0 || span > rate * 1000 || low < -100'000 || high > 100'000
+        || low >= high || low != std::floor(low) || high != std::floor(high)) { return false; }
+    const auto tuning = receiveTuning(view.value(QStringLiteral("ctun")).toBool(),
+        center, frequency, rate * 1000, low, high, cwBfoOffsetHz(mode, m_cwPitchHz));
+    return tuning && std::abs(tuning->centerHz - center) < 0.5;
+}
+
+QJsonObject AnanBackend::capturedBandViewMemory() const
+{
+    if (!m_connected || !m_discoveryInfoReceived || m_radioSerial.isEmpty()
+        || m_rateChanging || m_pendingBandView || !m_bandViewMemorySupported || !m_bandViewRestoreReady
+        || m_currentViewBand.isEmpty() || m_currentViewBand == QLatin1String("GEN")) { return m_bandViewMemory; }
+    const auto view = bandViewSnapshot();
+    if (!validBandViewSnapshot(view)) { return m_bandViewMemory; }
+    const bool owned = m_bandViewMemory.value(QStringLiteral("radioSerial")).toString() == m_radioSerial;
+    auto profiles = owned ? m_bandViewMemory.value(QStringLiteral("profiles")).toObject() : QJsonObject{};
+    const QString key = bandViewProfileKey();
+    if (!profiles.contains(key) && profiles.size() >= 128) { return m_bandViewMemory; }
+    auto profile = profiles.value(key).toObject();
+    auto bands = profile.value(QStringLiteral("bands")).toObject();
+    if (bands.size() > kBandCount) { return m_bandViewMemory; }
+    auto record = bands.value(m_currentViewBand).toObject();
+    record.insert(QStringLiteral("view"), view);
+    record.insert(QStringLiteral("beforeB"), m_beforeBandView);
+    if (m_ctun) {
+        record.insert(QStringLiteral("ctunView"), view);
+        record.insert(QStringLiteral("ctunBeforeB"), m_beforeBandView);
+    }
+    bands.insert(m_currentViewBand, record);
+    profile.insert(QStringLiteral("bands"), bands);
+    profile.insert(QStringLiteral("lastBand"), m_currentViewBand);
+    profiles.insert(key, profile);
+    auto memory = owned ? m_bandViewMemory : QJsonObject{};
+    memory.insert(QStringLiteral("radioSerial"), m_radioSerial);
+    memory.insert(QStringLiteral("version"), 1);
+    memory.insert(QStringLiteral("profiles"), profiles);
+    return memory;
+}
+
+void AnanBackend::rememberBandView()
+{
+    m_bandViewMemory = capturedBandViewMemory();
+}
+
+void AnanBackend::restoreBandView(const QJsonObject& record, bool preserveVfo)
+{
+    const auto view = record.value(QStringLiteral("view")).toObject();
+    if (!validBandViewSnapshot(view)) { return; }
+    m_tuneThrottleTimer->stop();
+    m_tunePendingApply = false;
+    if (!preserveVfo) {
+        m_sliceFreqHz = view.value(QStringLiteral("vfoHz")).toDouble();
+        m_mode = view.value(QStringLiteral("mode")).toString();
+        m_filterLowHz = view.value(QStringLiteral("filterLow")).toInt();
+        m_filterHighHz = view.value(QStringLiteral("filterHigh")).toInt();
+    }
+    m_currentViewBand = BandSettings::bandForFrequency(m_sliceFreqHz / 1e6);
+    m_beforeBandView = record.value(QStringLiteral("beforeB")).toObject();
+    if (!validBandViewSnapshot(m_beforeBandView)) { m_beforeBandView = {}; }
+    m_ctun = view.value(QStringLiteral("ctun")).toBool();
+    const double center = m_ctun ? view.value(QStringLiteral("centerHz")).toDouble() : m_sliceFreqHz;
+    const double span = view.value(QStringLiteral("spanHz")).toDouble();
+    const int rate = view.value(QStringLiteral("rateKsps")).toInt();
+    setPanBandwidth(kPanId, rate * 1000.0);
+    pushModeFilterShift();
+    if (m_rateChanging) {
+        m_pendingBandView = ReceiveBandView{center, rate, false, span};
+    } else {
+        m_ddcCenterHz = center;
+        m_bandViewSpanHz = span;
+        applyTuneToRadioAndPan();
+    }
+    emitSliceState();
+}
+
+void AnanBackend::restoreLastBandView()
+{
+    if (!m_bandViewMemorySupported
+        || m_bandViewMemory.value(QStringLiteral("radioSerial")).toString() != m_radioSerial) { return; }
+    const auto profile = m_bandViewMemory.value(QStringLiteral("profiles")).toObject()
+        .value(bandViewProfileKey()).toObject();
+    const auto band = profile.value(QStringLiteral("lastBand")).toString();
+    const auto record = profile.value(QStringLiteral("bands")).toObject().value(band).toObject();
+    const auto view = record.value(QStringLiteral("view")).toObject();
+    if (validBandViewSnapshot(view)
+        && BandSettings::bandForFrequency(view.value(QStringLiteral("vfoHz")).toDouble() / 1e6) == band) {
+        restoreBandView(record);
+    } else if (!m_bandViewMemory.isEmpty()) {
+        // A newly selected hardware mapping starts independently of another
+        // profile's legacy radio-wide frequency and mode.
+        m_sliceFreqHz = kFirstConnectFrequencyHz;
+        m_ddcCenterHz = m_sliceFreqHz;
+        m_mode = QString::fromLatin1(kFirstConnectMode);
+        const auto [low, high] = defaultPassbandForMode(m_mode);
+        m_filterLowHz = low; m_filterHighHz = high;
+        m_ctun = false; m_bandViewSpanHz = 0; m_beforeBandView = {};
+        m_currentViewBand = BandSettings::bandForFrequency(m_sliceFreqHz / 1e6);
+        pushModeFilterShift();
+        applyTuneToRadioAndPan();
+        emitSliceState();
+    }
 }
 
 void AnanBackend::seedDroopCorrectionTables(bool useSaturnDefaults)
@@ -701,6 +856,17 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     // just below, and before anything else in this function needs it,
     // matching Hl2Backend's own m_radioSerial assignment ordering.
     m_radioSerial = request.serial;
+    if (!m_bandViewMemory.isEmpty() && m_bandViewMemorySupported
+        && m_bandViewMemory.value(QStringLiteral("radioSerial")).toString() != m_radioSerial) {
+        m_bandViewMemory = {};
+        m_bandViewMemorySupported = true;
+        m_restoredFreqHz = 0;
+        m_restoredMode.clear();
+    }
+    m_restoreBandViewOnConnect = !request.params.contains(QStringLiteral("anan.rxFrequencyHz"));
+    m_bandViewRestoreReady = false;
+    m_beforeBandView = {};
+    m_currentViewBand.clear();
     //DH1KLM: Select the wire protocol from discovery, never from the model name.
     m_pendingParams.protocol = request.params.value(QStringLiteral("anan.protocol"), 2).toInt();
     m_pendingParams.model = static_cast<AnanModel>(
@@ -791,6 +957,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         return;
     }
     m_sliceFreqHz = frequencyHz;
+    m_currentViewBand = BandSettings::bandForFrequency(frequencyHz / 1e6);
     m_ddcCenterHz = frequencyHz;
     m_lastSentCenterHz = -1.0;
     m_ctun = false;
@@ -947,6 +1114,7 @@ void AnanBackend::startP2ClientSession(quint64 generation)
 
 void AnanBackend::disconnectRadio()
 {
+    rememberBandView();
     m_bandViewSpanHz = 0.0;
     m_pendingBandView.reset();
     retirePcmStreams();
@@ -1018,6 +1186,14 @@ void AnanBackend::setSliceFrequency(int sliceId, double hz)
     if (!std::isfinite(hz) || hz < 0 || hz > 61'440'000) {
         emitSliceState();
         return;
+    }
+    const QString targetBand = BandSettings::bandForFrequency(hz / 1.0e6);
+    if (targetBand != m_currentViewBand) {
+        rememberBandView();
+        m_currentViewBand = targetBand;
+        m_beforeBandView = {};
+        m_ctun = false;
+        m_bandViewSpanHz = 0;
     }
     m_pendingBandView.reset(); // newer operator tuning supersedes a pending band view
     if (m_bandViewSpanHz > 0 && std::abs(hz - m_ddcCenterHz) > m_bandViewSpanHz * 0.46) {
@@ -1720,7 +1896,77 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && verb == QLatin1String("band.select")) {
+        const auto fields = arg.toMap();
+        const QString band = fields.value(QStringLiteral("band")).toString();
+        const double hz = fields.value(QStringLiteral("frequencyHz")).toDouble();
+        const QString mode = fields.value(QStringLiteral("mode")).toString();
+        if (!m_connected || !m_discoveryInfoReceived || m_radioSerial.isEmpty()
+            || m_droopCalibrator.isRunning() || !m_bandViewMemorySupported
+            || !isRestorableFrequencyHz(hz)
+            || (band != QLatin1String("GEN") && band != QLatin1String("WWV")
+                && BandSettings::bandForFrequency(hz / 1e6) != band)
+            || !isKnownModeString(mode)) {
+            emit extensionError(requestId, QStringLiteral("ANAN band recall refused: invalid band, disconnected hardware, unsupported memory or active calibration."));
+            return;
+        }
+        rememberBandView();
+        const auto profile = m_bandViewMemory.value(QStringLiteral("profiles")).toObject()
+            .value(bandViewProfileKey()).toObject();
+        auto record = profile.value(QStringLiteral("bands")).toObject().value(band).toObject();
+        const auto activeView = record.value(QStringLiteral("ctunView")).toObject();
+        if (validBandViewSnapshot(activeView) && activeView.value(QStringLiteral("ctun")).toBool()) {
+            record.insert(QStringLiteral("view"), activeView);
+            record.insert(QStringLiteral("beforeB"), record.value(QStringLiteral("ctunBeforeB")));
+        }
+        const auto view = record.value(QStringLiteral("view")).toObject();
+        const bool restored = band != QLatin1String("GEN") && band != QLatin1String("WWV")
+            && m_bandViewMemory.value(QStringLiteral("radioSerial")).toString() == m_radioSerial
+            && validBandViewSnapshot(view)
+            && BandSettings::bandForFrequency(view.value(QStringLiteral("vfoHz")).toDouble() / 1e6) == band;
+        if (restored) {
+            restoreBandView(record);
+        } else {
+            m_beforeBandView = {};
+            m_currentViewBand = BandSettings::bandForFrequency(hz / 1e6);
+            m_ctun = false;
+            m_bandViewSpanHz = 0;
+            m_pendingBandView.reset();
+            if (m_mode.compare(mode, Qt::CaseInsensitive) != 0) {
+                const auto [low, high] = defaultPassbandForMode(mode);
+                m_filterLowHz = low;
+                m_filterHighHz = high;
+            }
+            m_mode = mode;
+            m_sliceFreqHz = hz;
+            m_tuneThrottleTimer->stop();
+            m_tunePendingApply = false;
+            pushModeFilterShift();
+            applyTuneToRadioAndPan();
+            emitSliceState();
+        }
+        emit extensionResult(requestId, QVariantMap{{QStringLiteral("restored"), restored},
+            {QStringLiteral("ctun"), m_ctun}, {QStringLiteral("frequencyHz"), m_sliceFreqHz}});
+        return;
+    }
     if (ns == QLatin1String("anan") && verb == QLatin1String("band.center")) {
+        if (!m_connected || !m_discoveryInfoReceived || m_radioSerial.isEmpty()
+            || m_droopCalibrator.isRunning() || !m_bandViewMemorySupported) {
+            emit extensionError(requestId, QStringLiteral("Band view requires validated hardware, supported memory and no active droop sweep."));
+            return;
+        }
+        if (validBandViewSnapshot(m_beforeBandView)) {
+            auto previous = m_beforeBandView;
+            previous.insert(QStringLiteral("ctun"), false);
+            previous.insert(QStringLiteral("centerHz"), m_sliceFreqHz);
+            previous.insert(QStringLiteral("vfoHz"), m_sliceFreqHz);
+            restoreBandView(QJsonObject{{QStringLiteral("view"), previous}}, true);
+            emit extensionResult(requestId, QVariantMap{{QStringLiteral("ctun"), false},
+                {QStringLiteral("rateKsps"), previous.value(QStringLiteral("rateKsps")).toInt()},
+                {QStringLiteral("pending"), m_rateChanging}});
+            return;
+        }
+
         const auto fields = arg.toMap();
         bool lowOk = false, highOk = false;
         const double low = fields.value(QStringLiteral("lowHz")).toDouble(&lowOk);
@@ -1733,6 +1979,9 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             emit extensionError(requestId, QStringLiteral("Band view requires a validated ANAN, a regional band containing RX, and no active droop sweep."));
             return;
         }
+        rememberBandView();
+        m_beforeBandView = bandViewSnapshot();
+        m_currentViewBand = BandSettings::bandForFrequency(m_sliceFreqHz / 1e6);
         m_tuneThrottleTimer->stop();
         m_tunePendingApply = false;
         m_ctun = true;
@@ -1748,6 +1997,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         emit extensionResult(requestId, QVariantMap{
             {QStringLiteral("rateKsps"), view->rateKsps},
             {QStringLiteral("wholeBand"), view->wholeBand},
+            {QStringLiteral("ctun"), true},
             {QStringLiteral("pending"), m_rateChanging}});
         return;
     }
@@ -1762,7 +2012,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         m_tunePendingApply = false;
         m_pendingBandView.reset();
         m_ctun = arg.toBool();
-        if (!m_ctun) { m_bandViewSpanHz = 0.0; }
+        if (!m_ctun) { m_bandViewSpanHz = 0.0; m_beforeBandView = {}; }
         applyTuneToRadioAndPan();
         emitSliceState();
         emit extensionResult(requestId, hardwareFilterStatus());
@@ -2285,6 +2535,7 @@ void AnanBackend::applyTuneToRadioAndPan()
             Q_ARG(double, m_ddcCenterHz));
     }
     emitPanState();
+    rememberBandView();
     // Tuning capture, once per settled gesture. Outside the connected guard:
     // where the dial ended up is worth keeping even during a teardown.
     emit operatingStateChanged();

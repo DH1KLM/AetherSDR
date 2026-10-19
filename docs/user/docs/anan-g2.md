@@ -385,8 +385,9 @@ application continues to provide one receiver and one panadapter.
 Open **Settings → Radio Setup... → ANAN Hardware → Radio Info** and enable
 **CTUN — tune within a fixed spectrum**. The adjacent readout shows CTUN,
 the hardware **DDC centre** and the received **RX** frequency independently.
-The switch applies immediately to the current session and starts off on a
-new connection. It is separate from the filter tables' **Apply** button.
+The switch applies immediately. CTUN starts off for a new hardware configuration;
+a saved band view can restore it on reconnect or band selection. The switch
+is separate from the filter tables' **Apply** button.
 
 With CTUN on, tuning within the captured band moves the receive marker and
 the DSP tuning offset while the hardware centre and spectrum stay fixed.
@@ -420,6 +421,11 @@ sample rate may change, so allow the DSP rebuild to finish; the spectrum
 updates when the new capture is ready. The status bar acknowledges the
 request rather than claiming that hardware has already completed it.
 
+Click **B** again to turn CTUN off and restore the span/sample rate used before
+the first click. The current VFO frequency stays unchanged; with CTUN off the
+normal view recentres on that received frequency. A second click also replaces
+a band-fit request whose DSP rebuild is still in progress.
+
 The displayed spectrum and waterfall then zoom to the band edges, leaving
 about 1% of the band width on each side so both red lines remain visible.
 This display zoom is independent of the hardware sample rate. For example,
@@ -435,6 +441,21 @@ signal and passband within that span. The status message identifies partial
 coverage. Manual tuning, spectrum dragging or another span request cancels
 an outstanding centring action. If no regional amateur band contains RX,
 **B** explains why it cannot centre a band.
+
+Band selection recalls each band's last active **CTUN view, including VFO
+frequency, capture centre and display zoom**, and enables CTUN again. Turning
+B off temporarily keeps that active view in memory. Bands without a saved
+active CTUN view recall their last normal view. Mode and receive filter are retained with
+that view so the recalled receiver remains consistent. A first visit uses the
+normal band-button defaults. Direct frequency entry continues to honour the
+frequency you enter rather than substituting an old band's VFO frequency.
+
+Views are stored per physical radio and hardware configuration: logical model,
+physical board, override selection, ADC and P1/P2 protocol. Changing a mapping
+therefore does not borrow another configuration's view. Saved views survive
+restarts; the last band's view is recalled after a validated connection unless
+an explicit connection frequency was supplied. A recalled B view retains its
+pre-B span, so **B** can also switch that restored view off.
 
 **S** remains unavailable on ANAN. FlexRadio retains its existing radio-owned
 band and segment zoom controls; other radio families retain their controls.

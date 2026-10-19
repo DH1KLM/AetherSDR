@@ -337,6 +337,14 @@ private:
     // LATEST request instead of stalling on whichever one happened to be
     // running when they stopped clicking.
     void retryPendingRateChange();
+    QString bandViewProfileKey() const;
+    QJsonObject bandViewSnapshot() const;
+    bool validBandViewSnapshot(const QJsonObject& view) const;
+    QJsonObject capturedBandViewMemory() const;
+    void rememberBandView();
+    void restoreBandView(const QJsonObject& record, bool preserveVfo = false);
+    void restoreLastBandView();
+
     [[nodiscard]] double cwBfoHz() const noexcept { return cwBfoOffsetHz(m_mode, m_cwPitchHz); }
     // The operator's mode, passband, AGC and noise blanker, written into a DSP
     // config. connectRadio() and beginRateChange() both build theirs with it.
@@ -421,6 +429,12 @@ private:
     double m_ddcCenterHz = 0.0;
     double m_lastSentCenterHz = -1.0;
     bool m_ctun = false;
+    QJsonObject m_bandViewMemory;
+    QJsonObject m_beforeBandView;
+    QString m_currentViewBand;
+    bool m_restoreBandViewOnConnect = true;
+    bool m_bandViewMemorySupported = true;
+    bool m_bandViewRestoreReady = false;
     double m_bandViewSpanHz = 0.0; // zero: full hardware capture
     std::optional<ReceiveBandView> m_pendingBandView; // applied only after the requested rate settles
     // What applyRestoredState() accepted, held for connectRadio(); kept apart

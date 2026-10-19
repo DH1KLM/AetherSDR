@@ -1915,8 +1915,8 @@ void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
         }
         const auto band = target && m_bandPlanMgr
             ? m_bandPlanMgr->amateurBandAt(target->frequency()) : std::nullopt;
-        if (!band) {
-            notice(tr("No amateur band in the selected regional band plan at this RX frequency."));
+        if (!target) {
+            notice(tr("No active receiver for the band-view request."));
             return;
         }
         // The namespace owns the hardware sample-rate and CTUN policy. Listen
@@ -1934,6 +1934,10 @@ void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
                 lifetime->deleteLater();
                 if (m_radioModel.backend() != backend || !m_radioModel.isConnected()) { return; }
                 const auto state = value.toMap();
+                if (!state.value(QStringLiteral("ctun"), true).toBool()) {
+                    notice(tr("CTUN off; previous span requested. RX frequency unchanged."));
+                    return;
+                }
                 const QString scope = state.value(QStringLiteral("wholeBand")).toBool()
                     ? tr("whole band") : tr("partial band; maximum supported span");
                 notice(tr("Band view requested: %1 ksps, %2. CTUN on; RX frequency unchanged.")
@@ -1955,8 +1959,9 @@ void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
         });
         lifetime->start(10000);
         m_radioModel.invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("band.center"),
-            request, QVariantMap{{QStringLiteral("lowHz"), band->lowMhz * 1.0e6},
-                                {QStringLiteral("highHz"), band->highMhz * 1.0e6}});
+            request, band ? QVariantMap{{QStringLiteral("lowHz"), band->lowMhz * 1.0e6},
+                                        {QStringLiteral("highHz"), band->highMhz * 1.0e6}}
+                          : QVariantMap{});
         return;
     }
     const auto refusal = panZoomModeRefusal(

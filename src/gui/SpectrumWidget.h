@@ -471,15 +471,15 @@ public:
         m_resetFftSmoothingOnNextFrame = true;
     }
 
-    // Flex keeps its radio-owned B/S toggles. ANAN's B is a one-shot
-    // regional band view; S remains unavailable there.
+    // Flex keeps its radio-owned B/S toggles. ANAN B toggles the regional
+    // CTUN band view and previous span; S remains unavailable there.
     void setBandSegmentZoomAvailable(bool available, bool localBandView = false)
     {
         const QString unavailable = tr("Band/segment zoom is available on FlexRadio only.");
         if (m_zoomBandBtn) {
             const QString tip = available ? tr("Zoom to band") : localBandView
-                ? tr("Center band and fit span; preserves RX frequency and enables CTUN") : unavailable;
-            m_zoomBandBtn->setAccessibleName(localBandView ? tr("Center band") : tr("Zoom to band"));
+                ? tr("Toggle CTUN band view; a second press restores the previous span without changing RX") : unavailable;
+            m_zoomBandBtn->setAccessibleName(localBandView ? tr("Toggle CTUN band view") : tr("Zoom to band"));
             m_zoomBandBtn->setEnabled(available || localBandView);
             m_zoomBandBtn->setToolTip(tip);
             m_zoomBandBtn->setAccessibleDescription(tip);
