@@ -75,6 +75,7 @@ public:
     void setModelProvider(std::function<QString()> provider);
     void setFirmwareVersionProvider(std::function<QString()> provider);
     void refreshFirmwareCapabilities();
+    void setAutoAgcThresholdLicenseProvider(std::function<bool()> provider);
     void setDspResetLicenseProvider(std::function<std::optional<bool>()> provider);
     void setIndependentTxSequenceProvider(std::function<quint32()> sequence);
     IndependentTxControl independentTxControl() const override;
@@ -116,6 +117,7 @@ public:
     void requestSliceTune(int sliceId, const SliceTuneRequest& request) override;
     void requestSliceFilter(int sliceId, const SliceFilterRequest& request) override;
     void requestSliceAgc(int sliceId, const SliceAgcRequest& request) override;
+    ReceiveDispatch requestSliceAgcThresholdMode(int sliceId, AgcThresholdMode mode) override;
     ReceiveDispatch requestSliceDsp(int sliceId, const SliceDspRequest& request) override;
     ReceiveDispatch requestDspParameterReset(int sliceId, DspParameterResetTarget target) override;
     ReceiveDispatch requestSliceAudio(int sliceId, const SliceAudioRequest& request) override;
@@ -261,6 +263,7 @@ private:
     int nrsLevelMaximum() const;
     int m_announcedNrsLevelMaximum = 100;
     std::function<QString()> m_firmwareVersionProvider;
+    std::function<bool()> m_autoAgcThresholdLicenseProvider;
     std::function<std::optional<bool>()> m_dspResetLicenseProvider;
     std::function<quint32()> m_sequenceProvider;
 
