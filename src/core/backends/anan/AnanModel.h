@@ -69,6 +69,45 @@ struct ReceiveTuning {
     }
     return ReceiveTuning{centerHz, sliceHz - centerHz - bfoHz};
 }
+struct ReceiveBandView {
+    double centerHz;
+    int rateKsps;
+    bool wholeBand;
+};
+// Display-only envelope, not permission to transmit. Uses 90% for the band
+// inside the 92% usable capture, leaving room for the edge markers.
+[[nodiscard]] inline std::optional<ReceiveBandView> receiveBandView(double lowHz,
+    double highHz, double sliceHz, int maximumRateKsps,
+    double filterLowHz, double filterHighHz, double bfoHz) noexcept
+{
+    if (!std::isfinite(lowHz) || !std::isfinite(highHz) || lowHz < 0
+        || highHz > 61'440'000 || lowHz >= highHz || sliceHz < lowHz || sliceHz > highHz
+        || !receiveTuning(true, sliceHz, sliceHz, 48'000, filterLowHz, filterHighHz, bfoHz)) {
+        return std::nullopt;
+    }
+    const double lowerMargin = std::min(0.0, filterLowHz + bfoHz);
+    const double upperMargin = std::max(0.0, filterHighHz + bfoHz);
+    const double neededSpan = std::max(highHz, sliceHz + upperMargin)
+        - std::min(lowHz, sliceHz + lowerMargin);
+    constexpr std::array rates{48, 96, 192, 384, 768, 1536};
+    int selected = 0;
+    for (int rate : rates) {
+        if (rate > maximumRateKsps) { break; }
+        selected = rate;
+        if (neededSpan <= rate * 1000.0 * 0.90) { break; }
+    }
+    if (!selected) { return std::nullopt; }
+    const double half = selected * 1000.0 * 0.46;
+    // Clamp the desired band centre so both the tuned signal and passband
+    // remain in the usable capture. Never move the receive frequency.
+    const double minimumCenter = std::max(0.0, sliceHz + upperMargin - half);
+    const double maximumCenter = std::min(61'440'000.0, sliceHz + lowerMargin + half);
+    if (minimumCenter > maximumCenter) { return std::nullopt; }
+    const double center = std::clamp((lowHz + highHz) * 0.5, minimumCenter, maximumCenter);
+    return ReceiveBandView{center, selected,
+        lowHz >= center - half && highHz <= center + half};
+}
+
 struct AnanModelInfo {
     AnanModel model;
     std::string_view name;

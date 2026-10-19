@@ -250,3 +250,30 @@ RX1DDSFreq under CTUN). `UpdateRX1DDSFreq`, `UpdateAlexRXFilter` and
 Aether's initial surface is Radio Info; Thetis'
 optional zoom-to-band, linked RX2 CTUN and detailed edge-scroll options are
 not introduced by this single-receiver implementation.
+
+### Regional spectrum band view
+
+`BandPlanManager::amateurBandEnvelopes()` groups the active plan's segments
+using the broad band catalogue solely as an identifier. Returned edges come
+from that plan, without a US allocation fallback or licence-class truncation.
+The spectrum paints cosmetic one-pixel danger-token lines in both software
+and GPU frequency overlays; plan changes invalidate the cached overlay.
+Channelized bands expose outer envelopes for display only.
+
+The ANAN `band.center` extension accepts `lowHz` and `highHz`. It validates
+the live session and band containment, refuses an active droop sweep, and
+uses `receiveBandView()` to select a supported ceiling rate with 90% nominal
+span for the band. The existing display crops to 92%. At the session maximum,
+the whole-band receipt reflects actual 92% coverage. The centre is clamped
+to retain the RX passband and CW offset without changing the dial. P1 uses
+the effective profile's existing 192/384 ksps maximum; P2 tops out at 1536.
+
+Band view enables session CTUN. During a live rate rebuild the requested
+centre is held until the final requested rate settles, then applied through
+the normal tuning path. Later tuning, dragging, span requests, CTUN edits,
+failures and disconnect cancel the held centre. The extension result is an
+acceptance receipt; ordinary pan state publishes the applied centre/span.
+Flex's B/S flags are unchanged and no shared capability is misadvertised.
+
+Deferred operator requests remain deferred: ASIO audio support, installer
+packaging and expansion of droop correction to all models.

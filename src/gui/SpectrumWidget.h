@@ -471,24 +471,24 @@ public:
         m_resetFftSmoothingOnNextFrame = true;
     }
 
-    // Enable/disable the "S"/"B" (segment/band zoom) buttons and explain why
-    // when disabled. Both send FlexLib wire text (band_zoom=/segment_zoom=,
-    // see togglePanZoomModeForPan()) that only a Flex radio's command plane
-    // ever answers -- on every other backend the click was a silent no-op,
-    // with nothing on screen saying so. Called per-radio model, same as
-    // setBandwidthLimits() above.
-    void setBandSegmentZoomAvailable(bool available)
+    // Flex keeps its radio-owned B/S toggles. ANAN's B is a one-shot
+    // regional band view; S remains unavailable there.
+    void setBandSegmentZoomAvailable(bool available, bool localBandView = false)
     {
-        const QString tip = available
-            ? QString()
-            : tr("Band/segment zoom is available on FlexRadio only.");
+        const QString unavailable = tr("Band/segment zoom is available on FlexRadio only.");
         if (m_zoomBandBtn) {
-            m_zoomBandBtn->setEnabled(available);
+            const QString tip = available ? tr("Zoom to band") : localBandView
+                ? tr("Center band and fit span; preserves RX frequency and enables CTUN") : unavailable;
+            m_zoomBandBtn->setAccessibleName(localBandView ? tr("Center band") : tr("Zoom to band"));
+            m_zoomBandBtn->setEnabled(available || localBandView);
             m_zoomBandBtn->setToolTip(tip);
+            m_zoomBandBtn->setAccessibleDescription(tip);
         }
         if (m_zoomSegBtn) {
+            const QString tip = available ? tr("Zoom to segment") : unavailable;
             m_zoomSegBtn->setEnabled(available);
             m_zoomSegBtn->setToolTip(tip);
+            m_zoomSegBtn->setAccessibleDescription(tip);
         }
     }
 
@@ -1143,6 +1143,7 @@ private:
     void drawSmartMtrValueLabels(QPainter& p);
     void drawOffScreenSlices(QPainter& p, const QRect& specRect);
     void drawBandPlan(QPainter& p, const QRect& specRect);
+    void drawBandBoundaries(QPainter& p, const QRect& specRect);
     // wfRect is the waterfall band the notch is optionally extended into; pass
     // an empty rect (or leave it defaulted) where there is no waterfall to
     // paint, e.g. a pan rendered without one.

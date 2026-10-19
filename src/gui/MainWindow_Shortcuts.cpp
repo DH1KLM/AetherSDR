@@ -40,6 +40,8 @@
 #include "core/LogManager.h"
 #include "core/ThemeManager.h"
 #include "models/BandDefs.h"
+#include "models/BandPlanManager.h"
+#include "core/backends/IRadioBackend.h"
 #include "models/VoiceKeyerController.h"
 #include "models/SliceModel.h"
 #include "workspace/WorkspaceController.h"
@@ -57,10 +59,12 @@
 #include <QStatusBar>
 #include <QTextEdit>
 #include <QTimer>
+#include <QVariantMap>
 
 #include <algorithm>
 #include <cstring>
 #include <iterator>
+#include <optional>
 
 namespace AetherSDR {
 
@@ -1884,7 +1888,8 @@ int MainWindow::injectKeyEventForAutomation(const QString& spec, bool press, boo
 
 void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
 {
-    // Radio-authoritative toggle (#4057): band_zoom/segment_zoom are per-pan
+    // ANAN B dispatches a one-shot band view through its declared extension.
+    // Flex radio-authoritative toggle (#4057): band_zoom/segment_zoom are per-pan
     // radio flags in pan status (FlexLib Panadapter.cs), so read the model, not
     // a client bool; the radio clears them on manual pan/zoom and enforces
     // mutual exclusion. Every entry point honours the same capability gate as
@@ -1892,6 +1897,68 @@ void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
     // showUnsupportedControlNotice() (sendCmd never runs); NotConnected/NoPan
     // stay silent.
     auto* pan = panId.isEmpty() ? nullptr : m_radioModel.panadapter(panId);
+    if (!segmentZoom && pan && m_radioModel.isConnected()
+        && m_radioModel.backendDeclaresExtension(QStringLiteral("anan"))) {
+        const auto notice = [this](const QString& text) {
+            if (!m_shortcutNoticeLabel) {
+                m_shortcutNoticeLabel = new StatusBarNoticeLabel(statusBar());
+                m_shortcutNoticeLabel->setContentsMargins(6, 0, 20, 0);
+                ThemeManager::instance().applyStyleSheet(m_shortcutNoticeLabel,
+                    QStringLiteral("QLabel#statusBarNoticeLabel { color: {{color.text.primary}};"
+                                   " font-size: 14px; background: transparent; }"));
+            }
+            m_shortcutNoticeLabel->showNotice(text, 10000);
+        };
+        SliceModel* target = nullptr;
+        for (auto* slice : m_radioModel.slices()) {
+            if (slice->panId() == panId && (!target || slice->isActive())) { target = slice; }
+        }
+        const auto band = target && m_bandPlanMgr
+            ? m_bandPlanMgr->amateurBandAt(target->frequency()) : std::nullopt;
+        if (!band) {
+            notice(tr("No amateur band in the selected regional band plan at this RX frequency."));
+            return;
+        }
+        // The namespace owns the hardware sample-rate and CTUN policy. Listen
+        // before dispatch (local replies can be synchronous), fence replacement
+        // backends and bound the request lifetime. A receipt is not completion.
+        static quint64 nextRequest = quint64{1} << 60;
+        const quint64 request = ++nextRequest;
+        auto* backend = m_radioModel.backend();
+        auto* lifetime = new QTimer(this);
+        lifetime->setSingleShot(true);
+        connect(backend, &IRadioBackend::extensionResult, lifetime,
+            [this, backend, lifetime, request, notice](quint64 id, const QVariant& value) {
+                if (id != request) { return; }
+                lifetime->stop();
+                lifetime->deleteLater();
+                if (m_radioModel.backend() != backend || !m_radioModel.isConnected()) { return; }
+                const auto state = value.toMap();
+                const QString scope = state.value(QStringLiteral("wholeBand")).toBool()
+                    ? tr("whole band") : tr("partial band; maximum supported span");
+                notice(tr("Band view requested: %1 ksps, %2. CTUN on; RX frequency unchanged.")
+                    .arg(state.value(QStringLiteral("rateKsps")).toInt()).arg(scope));
+            });
+        connect(backend, &IRadioBackend::extensionError, lifetime,
+            [this, backend, lifetime, request, notice](quint64 id, const QString& error) {
+                if (id != request) { return; }
+                lifetime->stop();
+                lifetime->deleteLater();
+                if (m_radioModel.backend() == backend && m_radioModel.isConnected()) { notice(error); }
+            });
+        connect(backend, &IRadioBackend::disconnected, lifetime, &QObject::deleteLater);
+        connect(lifetime, &QTimer::timeout, lifetime, [this, backend, lifetime, notice] {
+            if (m_radioModel.backend() == backend && m_radioModel.isConnected()) {
+                notice(tr("No reply to the band-view request."));
+            }
+            lifetime->deleteLater();
+        });
+        lifetime->start(10000);
+        m_radioModel.invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("band.center"),
+            request, QVariantMap{{QStringLiteral("lowHz"), band->lowMhz * 1.0e6},
+                                {QStringLiteral("highHz"), band->highMhz * 1.0e6}});
+        return;
+    }
     const auto refusal = panZoomModeRefusal(
         m_radioModel.isConnected(),
         m_radioModel.backendCapabilities().panZoomModes.has_value(),

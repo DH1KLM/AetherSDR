@@ -5,6 +5,7 @@
 #include <QMap>
 #include <QString>
 #include <QVector>
+#include <optional>
 
 namespace AetherSDR {
 
@@ -96,6 +97,11 @@ public:
     QVector<Region> contiguousRegionsForBand(double searchLowMhz,
                                              double searchHighMhz,
                                              const QString& allowedClass) const;
+
+    // Display envelopes from the active regional plan, ignoring licence class.
+    // A channelized band has one outer envelope; gaps remain in the mode strip.
+    QVector<Region> amateurBandEnvelopes() const;
+    std::optional<Region> amateurBandAt(double frequencyMhz) const;
 
     // KiwiSDR Community DX database
     void loadKiwiDxSpots();

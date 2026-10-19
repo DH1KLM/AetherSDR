@@ -1,4 +1,6 @@
 #include "BandPlanManager.h"
+#include "BandDefs.h"
+#include <cmath>
 #include "core/AppSettings.h"
 
 #include <QDir>
@@ -14,6 +16,29 @@ namespace AetherSDR {
 BandPlanManager::BandPlanManager(QObject* parent)
     : QObject(parent)
 {
+}
+
+QVector<BandPlanManager::Region> BandPlanManager::amateurBandEnvelopes() const
+{
+    QVector<Region> bands;
+    // kBands identifies the band only; its US edges are never returned as
+    // regional edges. Missing allocations stay missing (no US fallback).
+    for (const auto& band : kBands) {
+        const auto regions = contiguousRegionsForBand(band.lowMhz, band.highMhz);
+        if (!regions.isEmpty()) {
+            bands.append({regions.first().lowMhz, regions.last().highMhz});
+        }
+    }
+    return bands;
+}
+
+std::optional<BandPlanManager::Region> BandPlanManager::amateurBandAt(double frequencyMhz) const
+{
+    if (!std::isfinite(frequencyMhz)) { return std::nullopt; }
+    for (const auto& band : amateurBandEnvelopes()) {
+        if (frequencyMhz >= band.lowMhz && frequencyMhz <= band.highMhz) { return band; }
+    }
+    return std::nullopt;
 }
 
 void BandPlanManager::loadPlans()

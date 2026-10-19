@@ -2789,7 +2789,10 @@ void SpectrumWidget::setBandPlanManager(BandPlanManager* mgr) {
         m_overlayMenu->setBandPlanManager(mgr);
     }
     if (mgr) {
-        connect(mgr, &BandPlanManager::planChanged, this, QOverload<>::of(&QWidget::update));
+        connect(mgr, &BandPlanManager::planChanged, this, [this] {
+            markOverlayDirty();
+            update();
+        });
         connect(mgr, &BandPlanManager::kiwiDxSpotsChanged, this, [this]() {
             markOverlayDirty();
             update();
@@ -14583,6 +14586,7 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb,
             if (m_bandPlanFontSize > 0) {
                 drawBandPlan(frequencyPainter, specRect);
             }
+            drawBandBoundaries(frequencyPainter, specRect);
             drawTnfMarkers(frequencyPainter, specRect, wfRect);
             if (m_showSpots || m_showSHistory) {
                 drawSpotMarkers(frequencyPainter, specRect);
@@ -15751,6 +15755,7 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
     }
 
     if (m_bandPlanFontSize > 0) drawBandPlan(p, specRect);
+    drawBandBoundaries(p, specRect);
 
     p.fillRect(divRect, AetherSDR::ThemeManager::instance().color("color.background.1"));
     p.setPen(QColor(m_draggingDivider ? 0x00b4d8 : 0x304050));
@@ -16220,6 +16225,27 @@ void SpectrumWidget::drawWaterfall(QPainter& p, const QRect& r)
 }
 
 // ─── Band plan overlay (bottom 8px of FFT area) ─────────────────────────────
+
+void SpectrumWidget::drawBandBoundaries(QPainter& p, const QRect& specRect)
+{
+    if (!m_bandPlanMgr || specRect.isEmpty()) { return; }
+    p.save();
+    p.setClipRect(specRect, Qt::IntersectClip);
+    p.setRenderHint(QPainter::Antialiasing, false);
+    QPen pen(ThemeManager::instance().color("color.accent.danger"));
+    pen.setWidth(1);
+    pen.setCosmetic(true);
+    p.setPen(pen);
+    for (const auto& band : m_bandPlanMgr->amateurBandEnvelopes()) {
+        for (const double edge : {band.lowMhz, band.highMhz}) {
+            const double x = mhzToX(edge);
+            if (x >= specRect.left() && x <= specRect.right()) {
+                p.drawLine(QPointF(x, specRect.top()), QPointF(x, specRect.bottom()));
+            }
+        }
+    }
+    p.restore();
+}
 
 void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
 {

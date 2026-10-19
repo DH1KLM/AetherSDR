@@ -23,6 +23,7 @@
 #include "models/SliceModel.h"
 
 #include <QCoreApplication>
+#include <QEventLoop>
 #include <QTimer>
 #include <QProcess>
 #include <QSignalSpy>
@@ -72,6 +73,18 @@ public:
         backend.m_pendingParams.redPitayaP1 = redPitaya;
         backend.m_pendingParams.ddc0RateKsps = rate;
         backend.m_pendingDspConfig.inputSampleRateHz = rate * 1000;
+    }
+    static bool bandViewPending(const AnanBackend& backend) { return backend.m_pendingBandCenterHz.has_value(); }
+    static void rateInFlight(AnanBackend& backend, int target)
+    {
+        backend.m_preRateChangeKsps = backend.m_pendingParams.ddc0RateKsps;
+        backend.m_pendingParams.ddc0RateKsps = target;
+        backend.m_pendingDspConfig.inputSampleRateHz = target * 1000;
+        backend.m_rateChanging = true;
+    }
+    static void finishRate(AnanBackend& backend, bool ok)
+    {
+        backend.finishRateChange(backend.m_connectGeneration, ok, QStringLiteral("injected rebuild failure"));
     }
     static bool rateChanging(const AnanBackend& backend) { return backend.m_rateChanging; }
     static int rate(const AnanBackend& backend) { return backend.m_pendingParams.ddc0RateKsps; }
@@ -156,6 +169,66 @@ int main(int argc, char** argv)
             backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("ctun.set"), 802, false);
             check(AnanLinkStatsTestAccess::center(backend) == 14'301'000,
                   "disabling CTUN recenters at the actual received dial frequency");
+            AnanLinkStatsTestAccess::setConnected(backend, false);
+        }
+    }
+    if (!restoreChild) {
+        const auto settle = [] {
+            QEventLoop loop;
+            QTimer::singleShot(400, &loop, &QEventLoop::quit);
+            loop.exec();
+        };
+        for (const int protocol : {1, 2}) {
+            AnanBackend backend;
+            AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("02:00:00:00:CC:02"));
+            AnanLinkStatsTestAccess::prepareRate(backend, protocol, false, 48);
+            backend.setSliceFrequency(0, 5'357'000);
+            AnanLinkStatsTestAccess::flushTune(backend);
+            const QVariantMap narrow{{QStringLiteral("lowHz"), 5'351'500.0},
+                                     {QStringLiteral("highHz"), 5'366'500.0}};
+            backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("band.center"), 810, narrow);
+            check(AnanLinkStatsTestAccess::center(backend) == 5'359'000
+                  && backend.currentOperatingState().rfFrequencyHz == 5'357'000
+                  && !AnanLinkStatsTestAccess::bandViewPending(backend),
+                  "same-rate band view centers immediately without moving RX on P1/P2");
+            for (const bool cancel : {false, true}) {
+                backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("ctun.set"), 811, false);
+                AnanLinkStatsTestAccess::prepareRate(backend, protocol, false, 48);
+                backend.setSliceFrequency(0, 14'200'000);
+                AnanLinkStatsTestAccess::flushTune(backend);
+                // Inject the background-build boundary, without creating a fake
+                // radio or requiring WDSP planning. The real settle callback runs.
+                AnanLinkStatsTestAccess::rateInFlight(backend, protocol == 1 ? 192 : 768);
+                const QVariantMap twenty{{QStringLiteral("lowHz"), 14'000'000.0},
+                                         {QStringLiteral("highHz"), 14'350'000.0}};
+                backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("band.center"), 812, twenty);
+                check(AnanLinkStatsTestAccess::bandViewPending(backend)
+                      && AnanLinkStatsTestAccess::center(backend) == 14'200'000,
+                      "band centre waits for the wider sample rate instead of clamping against old IQ");
+                if (cancel) {
+                    backend.setSliceFrequency(0, 14'201'000);
+                    AnanLinkStatsTestAccess::flushTune(backend);
+                }
+                AnanLinkStatsTestAccess::finishRate(backend, true);
+                settle();
+                check(!AnanLinkStatsTestAccess::bandViewPending(backend)
+                      && AnanLinkStatsTestAccess::center(backend) == (cancel ? 14'200'000 : 14'175'000)
+                      && backend.currentOperatingState().rfFrequencyHz == (cancel ? 14'201'000 : 14'200'000),
+                      "settled rate applies only the current band-centre intent and preserves RX");
+            }
+            backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("ctun.set"), 813, false);
+            AnanLinkStatsTestAccess::prepareRate(backend, protocol, false, 48);
+            backend.setSliceFrequency(0, 14'200'000);
+            AnanLinkStatsTestAccess::flushTune(backend);
+            AnanLinkStatsTestAccess::rateInFlight(backend, protocol == 1 ? 192 : 768);
+            backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("band.center"), 814,
+                QVariantMap{{QStringLiteral("lowHz"), 14'000'000.0},
+                            {QStringLiteral("highHz"), 14'350'000.0}});
+            AnanLinkStatsTestAccess::finishRate(backend, false);
+            check(!AnanLinkStatsTestAccess::bandViewPending(backend)
+                  && AnanLinkStatsTestAccess::rate(backend) == 48
+                  && AnanLinkStatsTestAccess::center(backend) == 14'200'000,
+                  "failed rebuild cancels the deferred centre and retains the original capture");
             AnanLinkStatsTestAccess::setConnected(backend, false);
         }
     }

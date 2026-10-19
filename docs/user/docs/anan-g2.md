@@ -404,6 +404,34 @@ to follow the physical DDC centre; the hardware page reports that centre's
 commanded filters. CW retains its pitch offset in addition to the CTUN shift.
 CTUN is unavailable during a droop sweep; turn it off before starting a sweep.
 
+## Regional band boundaries and band view
+
+Two thin red vertical lines mark each amateur band's lower and upper edge
+in the spectrum. The edges follow the selected **Band Plan** region and
+remain visible when the coloured band-plan strip is off. Only edges within
+the displayed span appear. A channelized band's outer envelope does not
+make its internal gaps available for transmission; consult the band-plan
+strip and your licence conditions.
+
+On an ANAN, click **B** beside the spectrum zoom buttons to centre the
+current RX band and select a suitable supported sample rate. This enables
+**CTUN** and preserves the RX frequency, mode and receive filter. The
+sample rate may change, so allow the DSP rebuild to finish; the spectrum
+updates when the new capture is ready. The status bar acknowledges the
+request rather than claiming that hardware has already completed it.
+
+Aether selects the smallest supported rate with room for the band and its
+edge markers, up to the connected profile's limit. If the entire band
+cannot fit, it uses the maximum supported span and keeps the received
+signal and passband within that span. The status message identifies partial
+coverage. Manual tuning, spectrum dragging or another span request cancels
+an outstanding centring action. If no regional amateur band contains RX,
+**B** explains why it cannot centre a band.
+
+**S** remains unavailable on ANAN. FlexRadio retains its existing radio-owned
+band and segment zoom controls; other radio families retain their controls.
+The red regional boundary lines apply to the shared spectrum display.
+
 ## Receiving with the G2
 
 In the main panadapter menu, **ANT → RF Gain** controls receive attenuation.
