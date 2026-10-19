@@ -37,6 +37,7 @@
 // DcBlocker code, so it is tested with full confidence, no hedging.
 
 #include "core/backends/anan/AnanDroopCorrection.h"
+#include "core/backends/anan/AnanModel.h"
 #include "core/backends/anan/AnanRxDsp.h"
 #include "core/backends/anan/AnanPanAnalyzer.h"
 #include "core/dsp/WdspSMeter.h"
@@ -193,7 +194,7 @@ constexpr int kBlock = 1024;
 // raw wire is the bench-confirmed correct split (see the file header),
 // that is the same sign a caller would reason about in textbook terms
 // too, since facts 1 and 2 cancel for the demodulator.
-double runTone(AnanRxDsp& dsp, double wireOffsetHz, double shiftHz)
+double runTone(AnanRxDsp& dsp, double wireOffsetHz, double shiftHz, double* rms = nullptr)
 {
     dsp.setShift(shiftHz);
 
@@ -235,6 +236,11 @@ double runTone(AnanRxDsp& dsp, double wireOffsetHz, double shiftHz)
     QObject::disconnect(typedConn);
     check(exact && typedCount > 0 && typedCount == legacyCount,
           "ANAN typed output matches every legacy sample and actual producer rate");
+    if (rms) {
+        double power = 0;
+        for (const float sample : audio) { power += static_cast<double>(sample) * sample; }
+        *rms = audio.empty() ? 0 : std::sqrt(power / audio.size());
+    }
     return dominantHz(audio, kAudioRate);
 }
 
@@ -569,6 +575,30 @@ int main(int argc, char** argv)
         check(firstFrame(live, more).size() == static_cast<std::size_t>(kWide),
               "a point count below 2 is ignored");
 
+    }
+
+    // CTUN must be checked through actual recovered audio, not just offset algebra.
+    for (const int direction : {-1, 1}) {
+        AnanRxDsp dsp;
+        AnanRxDsp::Config cfg;
+        cfg.inputSampleRateHz = kInputRate; cfg.audioSampleRateHz = kAudioRate;
+        cfg.dspBlockSize = kBlock; cfg.panPoints = 256;
+        cfg.mode = direction == 1 ? WdspChannel::Mode::Usb : WdspChannel::Mode::Lsb;
+        cfg.filterLowHz = direction == 1 ? 700 : -1300;
+        cfg.filterHighHz = direction == 1 ? 1300 : -700;
+        cfg.agcMode = 0; cfg.maximumAgcGainDb = 40; cfg.blockForOutput = true;
+        std::string error;
+        check(dsp.configure(cfg, &error), "CTUN narrow-sideband DSP configures");
+        const auto tuning = receiveTuning(true, 14'200'000, 14'200'000 + direction * 3000,
+            kInputRate, cfg.filterLowHz, cfg.filterHighHz, 0);
+        check(tuning && tuning->centerHz == 14'200'000, "CTUN audio test holds the hardware centre");
+        // RF tone is 4 kHz from centre, selected dial is 3 kHz from centre.
+        // HPSDR wire polarity is opposite to the physical RF offset.
+        double rms = 0;
+        const double hz = runTone(dsp, -direction * 4000, tuning->shiftHz, &rms);
+        std::fprintf(stderr, "CTUN direction %d: audio %.0f Hz, RMS %.6f (expect 1000 Hz)\n", direction, hz, rms);
+        check(std::fabs(hz - 1000) < 75 && rms > 0.001,
+              "CTUN selected dial and recovered narrow-band audio agree in USB and LSB");
     }
 
     // ---- Group 2: bench-confirmed handedness pin (see file header) ----

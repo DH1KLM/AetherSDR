@@ -249,8 +249,8 @@ static void ctunTuning()
         for (const double bfo : {-600.0, 0.0, 600.0}) {
             for (const double offset : {-1000.0, 0.0, 1000.0}) {
                 const auto on = receiveTuning(true, center, center + offset, rate, -200, 2900, bfo);
-                check(on && on->centerHz == center && on->shiftHz == -offset - bfo,
-                      "CTUN holds NCO, uses Thetis RXOsc sign and preserves CW BFO");
+                check(on && on->centerHz == center && on->shiftHz == offset - bfo,
+                      "CTUN holds NCO, uses the raw-wire DSP shift sign and preserves CW BFO");
                 const auto off = receiveTuning(false, center, center + offset, rate, -200, 2900, bfo);
                 check(off && off->centerHz == center + offset && off->shiftHz == -bfo,
                       "CTUN off follows the dial with only CW shift");
@@ -274,7 +274,7 @@ static void ctunTuning()
     check(wide->centerHz == center && narrow->centerHz == center + 100'000,
           "narrower landed rate recenters an offset which no longer fits");
     const auto dragged = receiveTuning(true, center + 5000, center, 48000, 100, 2900, 0);
-    check(dragged && dragged->centerHz == center + 5000 && dragged->shiftHz == 5000,
+    check(dragged && dragged->centerHz == center + 5000 && dragged->shiftHz == -5000,
           "explicit spectrum drag preserves receiver frequency and adjusts its DSP offset");
     for (const double invalid : {std::numeric_limits<double>::quiet_NaN(),
             std::numeric_limits<double>::infinity(), -1.0, 61'440'001.0}) {

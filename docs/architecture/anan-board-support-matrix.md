@@ -230,8 +230,10 @@ the existing DSP shift and hardware frequency setters without adding a new
 shared backend interface. Other radio families retain their tuning paths.
 
 The DDC centre is separate from the slice dial. In-window tuning sends no
-new hardware frequency intent. WDSP shift is `centre - slice - CW BFO`,
-preserving the previous `-CW BFO` behavior with CTUN off. The usable window
+new hardware frequency intent. WDSP shift is `slice - centre - CW BFO`,
+preserving the previous `-CW BFO` behavior with CTUN off. The IQ polarity in
+Aether's raw-wire receive path requires this sign (HERMES.md §16.2); a
+Thetis RXOsc expression cannot be transplanted independently of its IQ path. The usable window
 is 92% of the sample rate, including passband and BFO margins. Leaving it
 recentres on the dial. Range/zoom centre suggestions are observed without
 moving the CTUN anchor; operator Drag requests may move it if the receiver
