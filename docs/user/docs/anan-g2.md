@@ -259,6 +259,10 @@ supports 384 ksps under P1**, including live zoom. The operator has confirmed
 ANAN-7000DLE P2 and Red Pitaya P1/384 ksps reception on hardware; the additional
 logical-model choices require their own hardware checks.
 
+During P1 live zoom, a locally refused rate-control packet leaves the previous
+rate in the periodic controls so a later retry can apply the requested rate.
+This does not detect packets lost on the network or confirm the radio's rate.
+
 ### Choose the exact model and protocol
 
 In **Connect by IP**, choose **Radio type → ANAN / OpenHPSDR (P1/P2)**, then:

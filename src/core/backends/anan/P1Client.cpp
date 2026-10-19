@@ -342,9 +342,14 @@ bool P1Client::setDdcRateLive(int ddc, int rate)
         || (rate != 48 && rate != 96 && rate != 192 && rate != 384)
         || rate > (m_params.redPitayaP1 ? 384 : 192))
         return false;
-    m_config.rateKsps = rate;
-    const auto packet = p1::speakerAndControl(m_txSequence++, 0, 0, m_config);
-    return packet && send(*packet);
+    auto config = m_config;
+    config.rateKsps = rate;
+    const auto packet = p1::speakerAndControl(m_txSequence, 0, 0, config);
+    if (!packet || !send(*packet)) { return false; }
+    //DH1KLM: A refused local write must not change subsequent periodic controls.
+    ++m_txSequence;
+    m_config = config;
+    return true;
 }
 
 void P1Client::enqueueSpeakerAudio(const QByteArray& audio)

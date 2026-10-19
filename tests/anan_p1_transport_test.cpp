@@ -14,11 +14,14 @@ struct P1ClientTestAccess {
     }
     static bool prepare(P1Client& client, const P1Client::Params& params,
                         std::vector<QByteArray>& packets) {
+        acceptWrites(client, packets);
+        return client.prepare(params);
+    }
+    static void acceptWrites(P1Client& client, std::vector<QByteArray>& packets) {
         client.m_sendOverride = [&packets](std::span<const std::uint8_t> bytes) {
             packets.emplace_back(reinterpret_cast<const char*>(bytes.data()), static_cast<int>(bytes.size()));
             return true;
         };
-        return client.prepare(params);
     }
     static void feed(P1Client& client, std::span<const std::uint8_t> data,
                      const char* sender = "192.0.2.10", quint16 port = 1024) {
@@ -239,10 +242,98 @@ void logicalModels() {
         }
     }
 }
+void liveRateWriteFailure() {
+    for (const auto& entry : kAnanModels) {
+        if (entry.model == AnanModel::Automatic
+            || !P1Client::profile(entry.nativeBoardId, entry.model == AnanModel::RedPitaya)) { continue; }
+        std::vector<QByteArray> packets;
+        P1Client client;
+        auto p = params(entry.nativeBoardId);
+        p.model = entry.model;
+        p.rxAntenna = 3;
+        p.adc0AttenuationDb = 17;
+        p.adc1AttenuationDb = 9;
+        auto filters = defaultFilterConfig(false);
+        filters.rxOnlyInput = 2;
+        filters.ocEnabled = true;
+        filters.ocReceive[0] = {14000000, 14350000, 5};
+        p.filters = filters;
+        check(P1ClientTestAccess::prepare(client, p, packets), "P1 rate failure model prepared");
+        client.setDdc0FrequencyHz(14200000);
+        const int wire = entry.nativeBoardId == 3 ? 4 : entry.nativeBoardId == 4 ? 5
+            : entry.nativeBoardId == 5 ? 10 : entry.nativeBoardId;
+        P1ClientTestAccess::feed(client, discovery(wire));
+        check(client.isRunning(), "P1 rate failure model validated");
+        const int maximum = entry.model == AnanModel::RedPitaya ? 384 : 192;
+        qint64 now = 0;
+        for (const int rate : {96, 192, 48, 384}) {
+            if (rate > maximum) { continue; }
+            const auto previous = P1ClientTestAccess::config(client);
+            const auto before = P1ClientTestAccess::counters(client);
+            const auto count = packets.size();
+            P1ClientTestAccess::refuseWrites(client);
+            check(!client.setDdcRateLive(0, rate), "P1 refused rate packet reports failure");
+            check(client.isRunning() && packets.size() == count
+                && P1ClientTestAccess::counters(client).txBytes == before.txBytes,
+                "P1 refused rate packet neither ends session nor counts sent bytes");
+            check(P1ClientTestAccess::config(client).rateKsps == previous.rateKsps,
+                "P1 refused rate packet preserves the previous live rate");
+            P1ClientTestAccess::acceptWrites(client, packets);
+            //DH1KLM: The ordinary control scheduler must keep the old rate after a refused write.
+            P1ClientTestAccess::drain(client, now += 1000000000);
+            P1ClientTestAccess::drain(client, now += 1000000000);
+            bool foundGeneral = false;
+            for (std::size_t n = count; n < packets.size(); ++n) {
+                for (const int base : {8, 520}) {
+                    if (packets[n][base + 3] != 0) { continue; }
+                    foundGeneral = true;
+                    check((static_cast<unsigned char>(packets[n][base + 4]) & 3)
+                            == (previous.rateKsps == 48 ? 0 : previous.rateKsps == 96 ? 1
+                                : previous.rateKsps == 192 ? 2 : 3),
+                        "P1 periodic general bank retains old rate after failure");
+                }
+            }
+            check(foundGeneral, "P1 periodic scheduler revisits the general bank");
+            const auto sentBefore = P1ClientTestAccess::counters(client).txBytes;
+            check(client.setDdcRateLive(0, rate), "P1 rate retry succeeds");
+            check(P1ClientTestAccess::config(client).rateKsps == rate
+                && P1ClientTestAccess::counters(client).txBytes == sentBefore + 1032,
+                "P1 accepted rate packet commits rate and counts exactly one packet");
+            const auto& packet = packets.back();
+            const int code = rate == 48 ? 0 : rate == 96 ? 1 : rate == 192 ? 2 : 3;
+            check((static_cast<unsigned char>(packet[12]) & 3) == code
+                && (static_cast<unsigned char>(packet[524]) & 3) == code,
+                "P1 rate retry writes the requested code in both general frames");
+            const auto retryCount = packets.size();
+            check(client.setDdcRateLive(0, rate) && packets.size() == retryCount + 1,
+                "P1 repeated accepted rate still sends the UDP recovery packet");
+            auto expected = previous;
+            expected.rateKsps = rate;
+            for (const int address : {0, 4, 0x12, 0x14, 0x16, 0x1c, 0x1e, 0x24, 0x26}) {
+                check(p1::receiveControl(address, P1ClientTestAccess::config(client))
+                        == p1::receiveControl(address, expected),
+                    "P1 rate retry preserves antenna, RX input, filters, OC and tuning");
+            }
+            const auto acceptedCount = packets.size();
+            for (const int invalid : {-1, 0, 47, 49, 768}) {
+                check(!client.setDdcRateLive(0, invalid), "P1 invalid rate refused");
+            }
+            check(!client.setDdcRateLive(-1, rate) && !client.setDdcRateLive(1, rate)
+                && packets.size() == acceptedCount
+                && P1ClientTestAccess::config(client).rateKsps == rate,
+                "P1 invalid live requests cannot send or alter the accepted rate");
+            if (maximum == 192) {
+                check(!client.setDdcRateLive(0, 384) && packets.size() == acceptedCount,
+                    "P1 shared board identity never enables Red Pitaya's extra rate");
+            }
+        }
+    }
+}
 }
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     profilesAndWire(); refusals(); pacingAndErrors(); dispatch(); redPitaya384(); logicalModels();
+    liveRateWriteFailure();
     for (const bool discoveryAnswered : {false, true}) {
         std::vector<QByteArray> packets; P1Client client; QString reason;
         QObject::connect(&client, &P1Client::connectionError, [&](const QString& error) { reason = error; });
