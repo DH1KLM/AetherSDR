@@ -67,6 +67,7 @@ public:
                               int level, AetherSDR::NoiseBlankerFill fill) override;
     ReceiveDispatch requestSliceDsp(int sliceId, const SliceDspRequest& request) override;
     ReceiveDispatch requestSliceAudio(int sliceId, const SliceAudioRequest& request) override;
+    ReceiveDispatch requestSliceRxAntenna(int sliceId, const QString& antenna) override;
 
     // The receiver's own audio stage. Without these three the operator's mute,
     // AF fader and balance moved and nothing happened: IRadioBackend's defaults
@@ -212,6 +213,8 @@ private:
     int effectiveBoardId() const;
     QVariantMap hardwareFilterStatus() const;
     void loadHardwareFilters(int boardId);
+    anan::ReceiveAntennaSelection activeReceiveAntenna() const;
+    QString applyReceiveAntenna(int antenna);
     //DH1KLM: Shipped defaults are valid only for the Saturn RX profile.
     void seedDroopCorrectionTables(bool useSaturnDefaults);
     friend class AnanNoiseBlankerTestAccess;

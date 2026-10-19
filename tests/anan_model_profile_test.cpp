@@ -158,6 +158,30 @@ static void adc1FilterIsolation(const ReceiveProfile& profile)
               == (profile.numAdcs == 2 && profile.filterKind == ReceiveFilterKind::MkIIBpf),
           "Alex-2 availability follows the effective filter hardware, not the physical board alone");
 }
+static void mainAntennaChoices(const ReceiveProfile& profile, AnanModel model, int board)
+{
+    const auto names = receiveInputNames(model, board);
+    for (int antenna = 1; antenna <= 3; ++antenna) {
+        const auto bank = receiveAntennaSelection(profile.numAdcs, 0, 0, antenna, names);
+        check(bank.count == 3 && bank.ports == std::array<std::string_view,3>{"ANT1","ANT2","ANT3"}
+              && bank.current == bank.ports[antenna-1], "main RX antenna publishes all three working ANT ports");
+        for (int input = 1; input <= 3; ++input) {
+            const auto external = receiveAntennaSelection(profile.numAdcs, 0, input, antenna, names);
+            check(external.count == 1 && external.current == names[input] && external.ports[0] == names[input],
+                  "dedicated ADC0 input never pretends that ANT bank controls its active source");
+        }
+        for (int input = 0; input <= 3; ++input) {
+            const auto adc1 = receiveAntennaSelection(profile.numAdcs, 1, input, antenna, names);
+            check(profile.numAdcs == 1 ? adc1.count == 0
+                      : adc1.count == 1 && adc1.current == "RX2" && adc1.ports[0] == "RX2",
+                  "main RX antenna reflects fixed ADC1 and refuses absent ADC1");
+        }
+    }
+    check(receiveAntennaSelection(profile.numAdcs, -1, 0, 1, names).count == 0
+          && receiveAntennaSelection(profile.numAdcs, 0, 4, 1, names).count == 0
+          && receiveAntennaSelection(profile.numAdcs, 0, 0, 4, names).count == 0,
+          "invalid antenna route cannot publish selectable ports");
+}
 int main()
 {
     check(kAnanModels.size() == 18, "all 17 Thetis logical IDs plus automatic");
@@ -190,6 +214,7 @@ int main()
                 antennaIsolation(*actual, entry.nativeBoardId != 10);
                 receiveInputIsolation(*actual, entry.nativeBoardId != 10);
                 adc1FilterIsolation(*actual);
+                mainAntennaChoices(*actual, entry.model, board);
             }
             check(actual && wanted && actual->numAdcs == wanted->numAdcs
                   && actual->firstDdcIndex == wanted->firstDdcIndex
