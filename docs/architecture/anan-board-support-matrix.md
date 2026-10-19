@@ -277,3 +277,15 @@ Flex's B/S flags are unchanged and no shared capability is misadvertised.
 
 Deferred operator requests remain deferred: ASIO audio support, installer
 packaging and expansion of droop correction to all models.
+
+Band-view display correction: hardware capture rate and displayed span are
+separate. A full-band view reports `(band width × 1.02) / 0.92` nominal
+pan span, bounded to the actual capture, accounting for the shared widget's
+4% crop per edge. A clamped centre uses the farther band edge for the span.
+Backend spectra are centrally resampled to that same nominal span before
+the neutral pan feed, so trace and waterfall retain their frequency mapping.
+Bin count and absolute dB values are preserved; this interpolation adds no
+spectral resolution. Droop receives the full spectrum before display cropping.
+The displayed centre/span land together after a rate change. Partial-band
+views retain the maximum full capture; manual span changes, CTUN off and
+tuning outside the displayed window release the display crop.

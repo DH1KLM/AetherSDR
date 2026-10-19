@@ -31,6 +31,7 @@
 #include <QVariantMap>
 
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <limits>
 #include <memory>
@@ -60,6 +61,13 @@ public:
         backend.m_pendingParams.rxAntenna = backend.m_rxAntenna;
         backend.emitSliceState();
     }
+    static void feedSpectrum(AnanBackend& backend, const std::vector<float>& bins)
+    {
+        QMetaObject::invokeMethod(backend.m_dsp, [dsp = backend.m_dsp, bins] {
+            emit dsp->spectrumReady(bins);
+        }, Qt::QueuedConnection);
+    }
+    static double displaySpan(const AnanBackend& backend) { return backend.m_bandViewSpanHz; }
     static double center(const AnanBackend& backend) { return backend.m_ddcCenterHz; }
     static double lastSentCenter(const AnanBackend& backend) { return backend.m_lastSentCenterHz; }
     static void flushTune(AnanBackend& backend) {
@@ -74,7 +82,7 @@ public:
         backend.m_pendingParams.ddc0RateKsps = rate;
         backend.m_pendingDspConfig.inputSampleRateHz = rate * 1000;
     }
-    static bool bandViewPending(const AnanBackend& backend) { return backend.m_pendingBandCenterHz.has_value(); }
+    static bool bandViewPending(const AnanBackend& backend) { return backend.m_pendingBandView.has_value(); }
     static void rateInFlight(AnanBackend& backend, int target)
     {
         backend.m_preRateChangeKsps = backend.m_pendingParams.ddc0RateKsps;
@@ -184,13 +192,35 @@ int main(int argc, char** argv)
             AnanLinkStatsTestAccess::prepareRate(backend, protocol, false, 48);
             backend.setSliceFrequency(0, 5'357'000);
             AnanLinkStatsTestAccess::flushTune(backend);
+            double publishedSpanMhz = 0;
+            QObject::connect(&backend, &IRadioBackend::panCenterBandwidthChanged, &backend,
+                [&](const QString&, double, double span) { publishedSpanMhz = span; });
             const QVariantMap narrow{{QStringLiteral("lowHz"), 5'351'500.0},
                                      {QStringLiteral("highHz"), 5'366'500.0}};
             backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("band.center"), 810, narrow);
             check(AnanLinkStatsTestAccess::center(backend) == 5'359'000
                   && backend.currentOperatingState().rfFrequencyHz == 5'357'000
-                  && !AnanLinkStatsTestAccess::bandViewPending(backend),
+                  && !AnanLinkStatsTestAccess::bandViewPending(backend)
+                  && std::abs(AnanLinkStatsTestAccess::displaySpan(backend) * 0.92 - 15'300) < 0.001
+                  && std::abs(publishedSpanMhz * 1e6 * 0.92 - 15'300) < 0.001,
                   "same-rate band view centers immediately without moving RX on P1/P2");
+            QByteArray spectrum;
+            const auto spectrumConnection = QObject::connect(&backend, &IRadioBackend::spectrumFrameReady,
+                &backend, [&](int, const QByteArray& bytes) { spectrum = bytes; });
+            std::vector<float> ramp(64);
+            for (std::size_t bin = 0; bin < ramp.size(); ++bin) { ramp[bin] = -140 + static_cast<float>(bin); }
+            AnanLinkStatsTestAccess::feedSpectrum(backend, ramp);
+            settle();
+            QObject::disconnect(spectrumConnection);
+            float first = 0;
+            if (spectrum.size() >= static_cast<int>(sizeof(float))) { std::memcpy(&first, spectrum.constData(), sizeof(float)); }
+            const double expectedFirst = -140 + 32 * (1 - AnanLinkStatsTestAccess::displaySpan(backend) / 48'000.0);
+            check(spectrum.size() == static_cast<int>(ramp.size() * sizeof(float))
+                  && std::abs(first - expectedFirst) < 0.001,
+                  "production spectrum feed crops bins to the published band view instead of relabelling full-span data");
+            backend.setPanBandwidth(QStringLiteral("anan-0"), 48'000);
+            check(AnanLinkStatsTestAccess::displaySpan(backend) == 0 && publishedSpanMhz == 0.048,
+                  "manual span returns both metadata and spectrum to the normal capture view");
             for (const bool cancel : {false, true}) {
                 backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("ctun.set"), 811, false);
                 AnanLinkStatsTestAccess::prepareRate(backend, protocol, false, 48);
@@ -213,7 +243,10 @@ int main(int argc, char** argv)
                 settle();
                 check(!AnanLinkStatsTestAccess::bandViewPending(backend)
                       && AnanLinkStatsTestAccess::center(backend) == (cancel ? 14'200'000 : 14'175'000)
-                      && backend.currentOperatingState().rfFrequencyHz == (cancel ? 14'201'000 : 14'200'000),
+                      && backend.currentOperatingState().rfFrequencyHz == (cancel ? 14'201'000 : 14'200'000)
+                      && (cancel ? AnanLinkStatsTestAccess::displaySpan(backend) == 0
+                          : std::abs(AnanLinkStatsTestAccess::displaySpan(backend)
+                              - (protocol == 1 ? 192'000 : 357'000 / 0.92)) < 0.001),
                       "settled rate applies only the current band-centre intent and preserves RX");
             }
             backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("ctun.set"), 813, false);

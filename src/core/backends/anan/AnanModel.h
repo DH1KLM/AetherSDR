@@ -6,6 +6,8 @@
 #include <optional>
 #include <cstddef>
 #include <string_view>
+#include <span>
+#include <vector>
 
 namespace AetherSDR::anan {
 //DH1KLM: Logical model IDs are Thetis HPSDRModel values, not discovery IDs.
@@ -73,6 +75,7 @@ struct ReceiveBandView {
     double centerHz;
     int rateKsps;
     bool wholeBand;
+    double spanHz; // pre-edge-crop display span, independently of the capture rate
 };
 // Display-only envelope, not permission to transmit. Uses 90% for the band
 // inside the 92% usable capture, leaving room for the edge markers.
@@ -104,8 +107,33 @@ struct ReceiveBandView {
     const double maximumCenter = std::min(61'440'000.0, sliceHz + lowerMargin + half);
     if (minimumCenter > maximumCenter) { return std::nullopt; }
     const double center = std::clamp((lowHz + highHz) * 0.5, minimumCenter, maximumCenter);
-    return ReceiveBandView{center, selected,
-        lowHz >= center - half && highHz <= center + half};
+    const bool whole = lowHz >= center - half && highHz <= center + half;
+    const double captureHz = selected * 1000.0;
+    const double visibleHz = 2.0 * std::max(center - lowHz, highHz - center) * 1.02;
+    // The shared pan crops 4% on each side. Account for it exactly once,
+    // leaving 1% of the band width outside each red boundary where possible.
+    const double spanHz = whole ? std::min(captureHz, visibleHz / 0.92) : captureHz;
+    return ReceiveBandView{center, selected, whole, spanHz};
+}
+
+// Resample the central display window without changing the raw IQ or audio.
+// Bin n/2 remains DC; output preserves bin count and absolute dB levels.
+[[nodiscard]] inline std::vector<float> bandViewSpectrum(std::span<const float> bins, double fraction)
+{
+    if (bins.size() < 2 || !std::isfinite(fraction) || fraction <= 0 || fraction >= 1) {
+        return {bins.begin(), bins.end()};
+    }
+    std::vector<float> result(bins.size());
+    const double middle = static_cast<double>(bins.size()) * 0.5;
+    for (std::size_t i = 0; i < bins.size(); ++i) {
+        const double source = std::clamp(middle + (static_cast<double>(i) - middle) * fraction,
+                                        0.0, static_cast<double>(bins.size() - 1));
+        const auto left = static_cast<std::size_t>(source);
+        const auto right = std::min(left + 1, bins.size() - 1);
+        const double weight = source - static_cast<double>(left);
+        result[i] = static_cast<float>(bins[left] * (1.0 - weight) + bins[right] * weight);
+    }
+    return result;
 }
 
 struct AnanModelInfo {
