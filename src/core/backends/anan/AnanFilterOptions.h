@@ -22,7 +22,8 @@ inline QVariantMap filterOptions(const FilterConfig& config)
         oc.append(QVariantMap{{QStringLiteral("lowHz"), band.lowHz},
             {QStringLiteral("highHz"), band.highHz}, {QStringLiteral("mask"), band.mask}});
     }
-    QVariantMap options{{QStringLiteral("receiveBypass"), receiveBypass},
+    QVariantMap options{{QStringLiteral("rxOnlyInput"), config.rxOnlyInput},
+            {QStringLiteral("receiveBypass"), receiveBypass},
             {QStringLiteral("disable6mLnaOnRx"), config.disable6mLnaOnRx},
             {QStringLiteral("lpfBypassOnRx"), config.lpfBypassOnRx},
             {QStringLiteral("ocReceive"), oc}, {QStringLiteral("ocEnabled"), config.ocEnabled},
@@ -56,6 +57,18 @@ inline std::optional<FilterConfig> parseFilterOptions(const QVariantMap& map)
         || map.value(QStringLiteral("bypassAdc0")).metaType().id() != QMetaType::Bool
         || map.value(QStringLiteral("bypassAdc1")).metaType().id() != QMetaType::Bool) {
         return std::nullopt;
+    }
+    if (map.contains(QStringLiteral("rxOnlyInput"))) {
+        const QVariant value = map.value(QStringLiteral("rxOnlyInput"));
+        bool ok = false;
+        const double input = value.toDouble(&ok);
+        const int type = value.metaType().id();
+        const bool numeric = type == QMetaType::Int || type == QMetaType::UInt
+            || type == QMetaType::LongLong || type == QMetaType::ULongLong
+            || type == QMetaType::Float || type == QMetaType::Double;
+        if (!numeric || !ok || !std::isfinite(input) || input < 0 || input > 3
+            || std::floor(input) != input) { return std::nullopt; }
+        config.rxOnlyInput = static_cast<int>(input);
     }
     if (map.contains(QStringLiteral("receiveAdc1"))) {
         config.receiveAdc1.emplace();

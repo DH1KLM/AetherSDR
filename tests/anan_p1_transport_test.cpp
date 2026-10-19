@@ -290,6 +290,12 @@ int main(int argc, char** argv) {
         const auto independent = P1ClientTestAccess::config(client);
         check(independent.receiveFilterBits == 0x10 && independent.adc1ReceiveFilterBits == 0x08,
             "P1 dispatcher applies separate ADC1 limits without retuning ADC0");
+        config.rxOnlyInput = 2;
+        dispatcher.setHardwareFilters(filterOptions(config));
+        const auto routed = P1ClientTestAccess::config(client);
+        check(routed.rxOnlyInput == 2 && routed.mkIIBpf
+              && p1::receiveControl(0,routed)->at(3) == 0x59,
+              "P1 dispatcher maps EXT1 and MkII RX master into general bank");
         config.bypassAdc0 = true;
         dispatcher.setHardwareFilters(filterOptions(config));
         check(P1ClientTestAccess::config(client).receiveFilterBits == 0x20,

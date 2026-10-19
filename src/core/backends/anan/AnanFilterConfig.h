@@ -20,6 +20,8 @@ struct FilterConfig {
     std::array<bool, 6> receiveBypass{};
     bool disable6mLnaOnRx = false;
     bool lpfBypassOnRx = false;
+    //DH1KLM: Thetis RX-only selector: 0=ANT bank, 1/2=external, 3=XVTR.
+    int rxOnlyInput = 0;
     //DH1KLM: Old documents inherit ADC0 ranges until ADC1 is configured.
     std::optional<std::array<FilterBand, 6>> receiveAdc1{};
 };

@@ -294,6 +294,14 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
     // ANT1 rather than emitting no antenna selection.
     std::uint32_t alex0 = std::uint32_t{1} << (23 + ((rxAntenna >= 1 && rxAntenna <= 3)
                                                      ? rxAntenna : 1));
+    //DH1KLM: Thetis Alex.Update pairs the RX-only input with RX_OUT.
+    // SetAntBits uses RL22 (bit 14) on MkII except input 1/BYPASS;
+    // legacy ALEX and MkII input 1 use RX_OUT/RL17 (bit 11).
+    const int input = filters ? filters->rxOnlyInput : 0;
+    if (input >= 1 && input <= 3) {
+        alex0 |= std::uint32_t{1} << (input == 1 ? 10 : input == 2 ? 9 : 8);
+        alex0 |= std::uint32_t{1} << (filterKind == ReceiveFilterKind::MkIIBpf && input != 1 ? 14 : 11);
+    }
     // Apply Thetis' Saturn BPF1 selection from the tuned phase word unless the
     // caller explicitly requests bypass; outside the configured rows, bypass.
     //DH1KLM: Select the board's HPF/BPF table independently of DDC placement.

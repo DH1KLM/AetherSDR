@@ -1615,6 +1615,11 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
         ? 6 : selectedFilterBand(config.lowPass, m_sliceFreqHz));
     state.insert(QStringLiteral("frequencyHz"), m_sliceFreqHz);
     state.insert(QStringLiteral("ocMask"), receiveOcMask(config, m_sliceFreqHz));
+    QStringList inputNames;
+    for (const auto name : receiveInputNames(m_pendingParams.model, m_discoveredBoardId)) {
+        inputNames.append(QString::fromLatin1(name.data(), static_cast<int>(name.size())));
+    }
+    state.insert(QStringLiteral("rxInputNames"), inputNames);
     state.insert(QStringLiteral("antenna"), m_rxAntenna);
     state.insert(QStringLiteral("host"), m_pendingParams.host);
     state.insert(QStringLiteral("firmware"), m_discoveredFirmwareVer);

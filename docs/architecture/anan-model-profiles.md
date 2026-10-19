@@ -449,3 +449,55 @@ The modified GUI translation unit passes syntax checking with an external
 forward declaration for Qt MotionPreference (local Qt 6.4 vs pinned 6.12).
 Accessibility and engine-boundary checks pass. A full GUI build and interactive
 Windows verification remain operator checks.
+
+
+## Dedicated ADC0 receive inputs
+
+Antenna Control adds an Apply-based ADC0 input selector alongside the existing
+immediate ANT1/2/3 relay-bank selector. HardwareFilters schema 5 adds optional
+integer `rxOnlyInput` (0 ANT bank, 1/2 external, 3 XVTR). Older documents omit
+the field and retain source 0. Settings remain exact MAC/model/physical-board
+children, use the existing save-before-dispatch path, reject malformed values
+and protect future schemas. Restore model defaults selects source 0 without
+changing the separately owned ANT1/2/3 choice.
+
+Pinned Thetis `852bf0ef0b4f3886a13fc2846489aee16f361872` provides:
+
+- `Console/HPSDR/Alex.cs:350–378`: RX-only source selection and RX_OUT=1 for
+  a nonzero input, independently of ANT-bank selection. Aether exposes the
+  physical RX connector without transverter mode, band automatic selection,
+  TX override, external ATU or RX_OUT override.
+- `ChannelMaster/netInterface.c:459–481`: source 1 selects ALEX bit 10, source
+  2 bit 9, source 3 bit 8. RX_OUT uses bit 11 on classic ALEX; MkII source 1
+  also uses bit 11, while MkII sources 2/3 use RX master selection bit 14.
+- `ChannelMaster/network.h:279–285`: those register bit positions.
+- `ChannelMaster/networkproto1.c:452–462`: P1 general-bank C3 bits 5–6
+  encode the selector, bit 7 RX_OUT, bit 0 MkII RX master selection.
+- `Console/setup.cs:19886–20490` and `clsHardwareSpecific.cs:143–190`: model
+  connector labels and independent MkII/legacy RF-control policy. Red Pitaya
+  retains its explicit legacy policy even though its input label is BYPASS.
+
+The generic ORIONMKII logical model has no explicit Thetis setup-label case.
+It uses the EXT2/EXT1 wire names from SetAntBits, consistent with the named
+Nereus `SkuUiProfile.cpp` grouping at `66bc1e43b65c0ffbe5d2c62812355e97f2f8f06a`;
+this does not identify the connectors fitted to an unknown DIY enclosure.
+Automatic profiles use native board-family names; explicit mappings use the
+selected model. Labels are returned by the backend in the existing hardware
+status map, so no protocol/model branching is added above the seam.
+
+Socket-free tests pin all four RX selections across the implemented
+board/model override matrix, including P1/P2 byte differences and return to
+ANT-bank input. Other filters, ADC1, OC, attenuation, frequency and PTT/MOX
+remain unchanged. Injected P1/P2 setters and per-device persistence tests cover
+propagation, refusal and defaults. Physical RX-connector qualification is
+pending; no TX, per-band antenna matrix, frequency-offset transverter support,
+new ID-11 profile or expanded droop support is introduced.
+
+Validation: model-profile, P1/P2 protocol, injected P1/P2 transport and settings
+tests pass. External mutations suppressing P2 input selection or replacing
+MkII P1 master selection with classic RX_OUT each fail the exact-bit tests.
+The user guide builds, and boundary/accessibility/settings/registration
+checks pass. GUI/backend syntax checks use external Qt-6.4 compatibility
+declarations; a full Windows application build was not run locally. An
+isolated Qt form probe checks ten width/input combinations for wrapping and
+overlap; it is not a full-application UI test.

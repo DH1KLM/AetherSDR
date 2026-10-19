@@ -1,6 +1,7 @@
 //DH1KLM: Inject the real P2Client frame handler without creating sockets.
 // Thetis ANAN-7000DLE normal RX1 uses physical DDC2, delivered as logical RX0.
 #include "core/backends/anan/P2Client.h"
+#include "core/backends/anan/AnanFilterOptions.h"
 
 #include <QCoreApplication>
 
@@ -37,6 +38,7 @@ struct P2ClientTestAccess {
     static std::uint32_t frequencyWord(const P2Client& client) { return client.m_ddc0FreqWord; }
     static bool validated(const P2Client& client) { return client.m_discoveryValidated; }
     static int physicalDdc(const P2Client& client) { return client.m_firstDdcIndex; }
+    static int receiveInput(const P2Client& client) { return client.m_filters ? client.m_filters->rxOnlyInput : 0; }
     static bool selectLpf(const P2Client& client) { return client.m_selectReceiveLpf; }
     static void setAdcs(P2Client& client, int count) { client.m_numAdcs = count; }
     static void setDdcCount(P2Client& client, int count) { client.m_activeDdcCount = count; }
@@ -119,6 +121,22 @@ int main(int argc, char** argv)
             check(P2ClientTestAccess::frequencyWord(client) == phaseWord(hz),
                   "P2 keeps the established inclusive P1 tuning boundaries");
         }
+    }
+    {
+        P2Client client;
+        P2ClientTestAccess::prepare(client,5,AnanModel::Anan200D,true);
+        P2ClientTestAccess::feed(client,discovery(5),1024);
+        auto config = defaultFilterConfig(false);
+        config.rxOnlyInput = 3;
+        client.setHardwareFilters(filterOptions(config));
+        check(P2ClientTestAccess::receiveInput(client) == 3, "P2 live setter retains the selected RX input");
+        auto invalid = filterOptions(config);
+        invalid.insert(QStringLiteral("rxOnlyInput"),4);
+        client.setHardwareFilters(invalid);
+        check(P2ClientTestAccess::receiveInput(client) == 3, "P2 malformed input preserves the RX route");
+        client.setHardwareFilters(filterOptions(defaultFilterConfig(false)));
+        check(P2ClientTestAccess::receiveInput(client) == 0, "P2 model defaults restore ANT input bank");
+        client.stop();
     }
     //DH1KLM: Exercise the actual rate-packet preparation with no socket.
     for (const int board : {1, 2, 3, 4, 5, 10, 20}) {

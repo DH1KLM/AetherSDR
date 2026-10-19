@@ -254,6 +254,8 @@ void P1Client::updateFilters()
             if (word & (std::uint32_t{1} << bits[n])) result |= static_cast<std::uint8_t>(1u << n);
         return result;
     };
+    m_config.rxOnlyInput = filters.rxOnlyInput;
+    m_config.mkIIBpf = m_profile->filterKind == ReceiveFilterKind::MkIIBpf;
     m_config.rxOcMask = m_params.filters ? receiveOcMask(*m_params.filters, m_config.frequencyHz) : 0;
     m_config.receiveFilterBits = filter(alex);
     //DH1KLM: ADC0 band bypass/LNA controls must not alter ADC1's independent filter bits.

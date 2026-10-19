@@ -162,7 +162,11 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* antennaCombo = new GuardedComboBox(antennaGroup);
     antennaCombo->setAccessibleName(QStringLiteral("ADC0 receive antenna"));
     for (int n = 1; n <= 3; ++n) { antennaCombo->addItem(QStringLiteral("ANT%1").arg(n), n); }
-    antennaForm->addRow(QStringLiteral("ADC0:"), antennaCombo);
+    auto* rxInput = new GuardedComboBox(antennaGroup);
+    rxInput->setAccessibleName(QStringLiteral("ADC0 receive input"));
+    rxInput->setAccessibleDescription(QStringLiteral("Select the ADC0 receive input; changes apply after Apply"));
+    antennaForm->addRow(QStringLiteral("ADC0 input:"), rxInput);
+    antennaForm->addRow(QStringLiteral("ANT bank:"), antennaCombo);
     auto* antennaHint = new QLabel(QStringLiteral("Connect an ANAN to show its active receive input."));
     antennaHint->setWordWrap(true);
     const auto setAntennaHint = [antennaHint](const QString& text) {
@@ -529,7 +533,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         operating->clear();
         ocState->clear();
         for (auto* label : *factLabels) { label->setText(QStringLiteral("—")); }
-        for (QWidget* control : std::array<QWidget*, 4>{antennaCombo, ocRx, ocEnabled, droop}) {
+        for (QWidget* control : std::array<QWidget*, 5>{antennaCombo, rxInput, ocRx, ocEnabled, droop}) {
             control->setEnabled(false);
             control->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
         }
@@ -547,7 +551,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             || state->current.value(QStringLiteral("boardId")) != data.value(QStringLiteral("boardId"));
         if (changed) {
             state->dirty = false;
-            status->setText(QStringLiteral("Edit receive filters or RX OC pins, then select Apply. Antenna selection applies immediately."));
+            status->setText(QStringLiteral("Edit the receive input, filters or RX OC pins, then select Apply. ANT1/2/3 selection applies immediately."));
         }
         state->current = data;
         identity->setText(QStringLiteral("Model: %1 • P%2 • Override %3\nDetected: %4 • %5")
@@ -568,14 +572,21 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         antennaCombo->setEnabled(true);
         //DH1KLM: The ADC0 relay bank is distinct from the active receiver's ADC route.
         const bool activeAdc1 = data.value(QStringLiteral("adcIndex")).toInt() == 1;
+        const QStringList inputNames = data.value(QStringLiteral("rxInputNames")).toStringList();
+        const int input = data.value(QStringLiteral("rxOnlyInput")).toInt();
+        const QString inputName = input == 0
+            ? QStringLiteral("ANT%1").arg(data.value(QStringLiteral("antenna")).toInt())
+            : inputNames.value(input);
+        rxInput->setEnabled(true);
+        rxInput->setAccessibleDescription(QStringLiteral("Select the ADC0 input; applies after Apply. Active input: %1").arg(inputName));
         const QString route = activeAdc1
-            ? QStringLiteral("Active receiver: ADC1 / RX2. ANT1/2/3 controls ADC0 and does not change the active input.")
-            : QStringLiteral("Active receiver: ADC0 / ANT%1. %2")
-                .arg(data.value(QStringLiteral("antenna")).toInt())
+            ? QStringLiteral("Active receiver: ADC1 / RX2. ADC0 input and antenna settings do not change this active input.")
+            : QStringLiteral("Active receiver: ADC0 / %1. %2")
+                .arg(inputName)
                 .arg(data.value(QStringLiteral("numAdcs")).toInt() > 1
                     ? QStringLiteral("ADC1 uses its dedicated RX2 input.")
                     : QStringLiteral("This profile has one ADC."));
-        setAntennaHint(route);
+        setAntennaHint(route + QStringLiteral(" Input changes apply after Apply; ANT bank changes apply immediately."));
         antennaCombo->setAccessibleDescription(route + QStringLiteral(" ADC0 antenna changes apply immediately."));
         { const QSignalBlocker block(antennaCombo); antennaCombo->setCurrentIndex(data.value(QStringLiteral("antenna")).toInt()-1); }
         ocRx->setEnabled(true);
@@ -652,6 +663,14 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         }
         if (!state->dirty && (!editing || changed)) {
             state->filling = true;
+            {
+                const QSignalBlocker block(rxInput);
+                if (changed || rxInput->count() != inputNames.size()) {
+                    rxInput->clear();
+                    for (int n = 0; n < inputNames.size(); ++n) { rxInput->addItem(inputNames[n], n); }
+                }
+                rxInput->setCurrentIndex(input);
+            }
             ocEnabled->setChecked(data.value(QStringLiteral("ocEnabled")).toBool());
             const auto ocRows = data.value(QStringLiteral("ocReceive")).toList();
             for (int row = 0; row < 11; ++row) {
@@ -704,6 +723,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     const auto dirty = [=] { if (!state->filling) { state->dirty = true; status->setText(QStringLiteral("Changes pending — select Apply to update the receiver.")); } };
     connect(disable6mRx, &QCheckBox::toggled, page, dirty);
     connect(lpfBypassRx, &QCheckBox::toggled, page, dirty);
+    connect(rxInput, &QComboBox::currentIndexChanged, page, dirty);
     for (int row = 0; row < 6; ++row) {
         connect(qobject_cast<QCheckBox*>(receive->cellWidget(row,3)), &QCheckBox::toggled, page, dirty);
     }
@@ -798,6 +818,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             ocRows.append(QVariantMap{{QStringLiteral("lowHz"), ocRx->item(row,0)->data(Qt::UserRole)},
                 {QStringLiteral("highHz"), ocRx->item(row,0)->data(Qt::UserRole+1)}, {QStringLiteral("mask"), mask}});
         }
+        options.insert(QStringLiteral("rxOnlyInput"), rxInput->currentData());
         options.insert(QStringLiteral("ocEnabled"), ocEnabled->isChecked());
         options.insert(QStringLiteral("ocReceive"), ocRows);
         QVariantList bypasses;
