@@ -261,55 +261,6 @@ do not change to an incompatible model just to expose that tab.
    connection to return the active receiver to ADC0. Single-ADC profiles must
    refuse ADC1 rather than connect with an invented second input.
 
-### One bench journal for Anvelina and Red Pitaya DIY hardware
-
-For an **Anvelina** and a **Red Pitaya**, both fitted with **ANAN-200D LPF/PA**
-and explicitly mapped as **ANAN-200D**, run the four-case receive journal:
-
-| Order | Physical device | Protocol | Effective model |
-|---:|---|---|---|
-| 1 | Anvelina | P1 | ANAN-200D |
-| 2 | Red Pitaya | P1 | ANAN-200D |
-| 3 | Anvelina | P2 | ANAN-200D |
-| 4 | Red Pitaya | P2 | ANAN-200D |
-
-Both configurations retain legacy ALEX HPF/LPF and have no **Alex-2 Filters**
-editor. Under this complete ANAN-200D override, the P1 rate limit is **192
-ksps**, including the Red Pitaya. Its separate native Red Pitaya profile's
-384 ksps option is not part of this mapped configuration.
-
-Use a current branch build. Enable **Agent Automation (MCP)** under **Settings
-→ Radio Setup... → Network**. **Observe only** can stay enabled: the journal
-uses only `ping` and `get`. Python 3 is required. From the repository directory
-in PowerShell, supply the access token copied from Aether and run:
-
-```powershell
-$ananBenchToken = Read-Host "Aether MCP access token" -AsSecureString
-$env:AETHER_MCP_TOKEN = [System.Net.NetworkCredential]::new("", $ananBenchToken).Password
-try {
-    py -3 .\tools\anan_hardware_run.py
-} finally {
-    Remove-Item Env:AETHER_MCP_TOKEN -ErrorAction SilentlyContinue
-    $ananBenchToken.Dispose()
-}
-```
-
-The single invocation guides all four cases. Connect each real device and
-select its installed protocol yourself; verify **P1 Gateware** or **P2
-Gateware** in **Radio Info** before continuing. Firmware changes are manual.
-Then perform each listed check and answer `j` (successful), `n` (failed), or
-`s` (not tested). The source/input checks follow the procedure above. The tool
-does not change connection preferences, firmware, tuning or any radio setting,
-and does not invoke transmit or `radiocert` phases.
-
-The JSON journal in `anan-hardware-results` records the application build,
-radio identity, client snapshots and individual operator observations. It is
-saved after each observation, including partial results on interruption. An
-unperformed check cannot produce a complete report. Report status describes
-operator completion, not independent RF certification. These four cases do
-not qualify native Anvelina/Red Pitaya profiles or other physical ANAN models.
-Use `py -3 .\tools\anan_hardware_run.py --plan` to list the cases without Aether.
-
 ## Protocol 1 reception
 
 P2 discovery accepts the raw **ProtocolSupported** value used by Thetis,
