@@ -507,3 +507,28 @@ checks pass. GUI/backend syntax checks use external Qt-6.4 compatibility
 declarations; a full Windows application build was not run locally. An
 isolated Qt form probe checks ten width/input combinations for wrapping and
 overlap; it is not a full-application UI test.
+
+## ADC1 routing and independent filter qualification
+
+The model-profile test covers ADC1's separate six-row table across every
+implemented physical-board/logical-model override combination. Each row is
+checked at its integer-Hz lower edge, midpoint and upper edge, with ADC0
+bypassed, all ADC0 band bypasses enabled and each dedicated ADC0 input chosen.
+ADC1's lower ALEX word must select the independent row or its master bypass;
+single-ADC profiles must emit neither ADC1 filter bits nor ADC1 attenuation.
+ADC source selection retains the effective model's physical RX DDC. Alex-2
+availability requires both MkII filtering and two ADCs, including under a DIY
+override; two ADCs alone do not make an ANAN-200D an Alex-2 profile.
+
+The injected P1 transport test covers every implemented P1 logical model and
+each fitted ADC. It verifies the emitted startup routing bank 0x1c, keeps IQ
+decoding on wire slot zero when ADC1 is selected, and exercises the independent
+ADC1 table's edges and master bypass through the live filter setter and
+retuning path. Relay masks follow the pinned Thetis netInterface.c/network.h
+and P1 bank-local translation in networkproto1.c described above.
+
+These checks verify client encoding and routing only. The user guide's
+[ADC1 and Alex-2 check](../user/docs/anan-g2.md#check-adc1-and-alex-2) separates
+source selection, ADC0 relay isolation, independent boundaries and reconnect
+recall on the actual fitted hardware. No new receiver, hardware capability,
+profile, TX function or physical relay readback is introduced by this audit.

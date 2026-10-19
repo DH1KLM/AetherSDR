@@ -231,6 +231,36 @@ page controls receive filters, antennas and the RX OC matrix; it does not add
 transmit or PureSignal. Unsupported Nereus-style sections remain visible and
 disabled rather than presenting working controls.
 
+### Check ADC1 and Alex-2
+
+Keep the receive profile that matches your fitted hardware, including a
+required DIY override. **Alex-2 Filters** is available only for dual-ADC MkII
+filter profiles. An **ANAN-200D** override has two ADCs but no Alex-2 editor;
+do not change to an incompatible model just to expose that tab.
+
+1. On a dual-ADC profile, open **Settings → Radio Setup... → Radio →
+   ANAN Front End** and set **Feed the receiver from:** to **ADC1 — the RX2 jack**.
+   Disconnect and reconnect to apply the source change. Confirm that **ANAN Hardware →
+   Antenna / ALEX → Antenna Control** reports **Active receiver: ADC1 / RX2**.
+   Connect the receive signal to the fitted ADC1 input; the software cannot
+   detect which physical connector is wired to a DIY board.
+2. While receiving on ADC1, change **ADC0 input**, select **Apply**, and change
+   **ANT bank**. They may
+   switch ADC0 relays, but must not select a different source for the active
+   ADC1 receiver.
+3. If this hardware supports **Alex-2 Filters**, record its current values,
+   clear **ADC1 RF filter bypass** and select **Apply**. Tune across a saved
+   ADC1 band boundary. Its band LED should change; verify the corresponding
+   hardware relay or receive response separately.
+4. To distinguish the two tables, temporarily move one ADC1 boundary within
+   valid, ordered limits and select **Apply**. ADC1 should use that boundary
+   while ADC0 keeps its own table. ADC0 band bypass and **Disable 6m LNA on RX**
+   must not bypass ADC1. The ADC1 master bypass must take precedence over its
+   table. Restore the recorded values and select **Apply** after the check.
+5. Reconnect to confirm the saved filter settings. Select ADC0 on the next
+   connection to return the active receiver to ADC0. Single-ADC profiles must
+   refuse ADC1 rather than connect with an invented second input.
+
 ## Protocol 1 reception
 
 P2 discovery accepts the raw **ProtocolSupported** value used by Thetis,

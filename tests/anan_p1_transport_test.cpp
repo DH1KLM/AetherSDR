@@ -329,11 +329,77 @@ void liveRateWriteFailure() {
         }
     }
 }
+void adc1RoutingAndFilters() {
+    constexpr std::array<unsigned, 6> p1Bits{0x10,0x08,0x04,0x01,0x02,0x40};
+    for (const auto& entry : kAnanModels) {
+        const auto profile = P1Client::profile(entry.nativeBoardId, entry.model == AnanModel::RedPitaya);
+        if (!profile || entry.model == AnanModel::Automatic) { continue; }
+        for (int adc = 0; adc < profile->numAdcs; ++adc) {
+            std::vector<QByteArray> packets;
+            P1Client client;
+            auto p = params(entry.nativeBoardId);
+            p.model = entry.model;
+            p.ddc0AdcIndex = adc;
+            check(P1ClientTestAccess::prepare(client, p, packets), "P1 ADC route fixture prepared");
+            const int wire = entry.nativeBoardId == 3 ? 4 : entry.nativeBoardId == 4 ? 5
+                : entry.nativeBoardId == 5 ? 10 : entry.nativeBoardId;
+            P1ClientTestAccess::feed(client, discovery(wire));
+            const auto initial = P1ClientTestAccess::config(client);
+            check(p1::receiveControl(0x1c, initial)
+                      == p1::Control{0x1c, static_cast<std::uint8_t>(adc ? 0x55 : 0),
+                                     static_cast<std::uint8_t>(adc ? 0x01 : 0), 0, 0},
+                  "P1 ADC1 routes all five wire slots without changing RX slot zero");
+            bool routeSent = false;
+            for (const auto& packet : packets) {
+                if (packet.size() != 1032) { continue; }
+                for (const int base : {8,520}) {
+                    if (static_cast<unsigned char>(packet[base + 3]) != 0x1c) { continue; }
+                    routeSent = true;
+                    check(static_cast<unsigned char>(packet[base + 4]) == (adc ? 0x55 : 0)
+                          && static_cast<unsigned char>(packet[base + 5]) == (adc ? 1 : 0),
+                          "P1 startup emits the selected ADC route in the actual control packet");
+                }
+            }
+            check(routeSent, "P1 startup primes the ADC routing bank");
+            int delivered = 0;
+            QObject::connect(&client, &P1Client::ddc0IqReady, [&](const auto& block) {
+                ++delivered;
+                for (const auto sample : block) { check(sample.real() > 0.49f, "ADC1 still decodes P1 RX slot zero"); }
+            });
+            P1ClientTestAccess::feed(client, iq(profile->frameSlotCount));
+            check(delivered == 1, "selected ADC delivers one IQ block");
+            auto filters = defaultFilterConfig(profile->filterKind == ReceiveFilterKind::MkIIBpf);
+            filters.receiveAdc1 = std::array<FilterBand, 6>{{
+                {0,999999}, {1000000,2999999}, {3000000,7999999},
+                {8000000,15999999}, {16000000,31999999}, {32000000,61440000}}};
+            filters.bypassAdc0 = true;
+            filters.receiveBypass.fill(true);
+            filters.disable6mLnaOnRx = true;
+            for (const bool bypass : {false, true}) {
+                filters.bypassAdc1 = bypass;
+                client.setHardwareFilters(filterOptions(filters));
+                for (std::size_t row = 0; row < p1Bits.size(); ++row) {
+                    const auto band = (*filters.receiveAdc1)[row];
+                    for (const auto hz : {band.lowHz, (band.lowHz + band.highHz) / 2, band.highHz}) {
+                        client.setDdc0FrequencyHz(hz);
+                        const auto config = P1ClientTestAccess::config(client);
+                        check(config.adc1ReceiveFilterBits == (profile->numAdcs == 1 ? 0
+                                  : bypass ? 0x20 : p1Bits[row]),
+                              "P1 ADC1 exact independent range-edge and bypass bits");
+                        check(config.receiveFilterBits == 0x20 && config.adcIndex == adc,
+                              "P1 independent ADC1 filters preserve ADC0 bypass and source routing");
+                    }
+                }
+            }
+        }
+    }
+}
 }
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     profilesAndWire(); refusals(); pacingAndErrors(); dispatch(); redPitaya384(); logicalModels();
     liveRateWriteFailure();
+    adc1RoutingAndFilters();
     for (const bool discoveryAnswered : {false, true}) {
         std::vector<QByteArray> packets; P1Client client; QString reason;
         QObject::connect(&client, &P1Client::connectionError, [&](const QString& error) { reason = error; });

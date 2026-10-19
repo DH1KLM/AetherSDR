@@ -116,6 +116,48 @@ static void receiveInputIsolation(const ReceiveProfile& profile, bool supportsP1
     config.rxOnlyInput = 4;
     check(!p1::receiveControl(0, config), "invalid P1 receive input refused");
 }
+//DH1KLM: Independent ADC1 boundaries must survive ADC0 bypass and input routing.
+static void adc1FilterIsolation(const ReceiveProfile& profile)
+{
+    auto filters = defaultFilterConfig(profile.filterKind == ReceiveFilterKind::MkIIBpf);
+    filters.receiveAdc1 = std::array<FilterBand, 6>{{
+        {0,999999}, {1000000,2999999}, {3000000,7999999},
+        {8000000,15999999}, {16000000,31999999}, {32000000,61440000}}};
+    filters.receiveBypass.fill(true);
+    filters.disable6mLnaOnRx = true;
+    constexpr std::array<unsigned, 6> bits{6,5,4,1,2,3};
+    for (std::size_t row = 0; row < bits.size(); ++row) {
+        const auto band = (*filters.receiveAdc1)[row];
+        for (const auto hz : {band.lowHz, (band.lowHz + band.highHz) / 2, band.highHz}) {
+            const std::array<std::uint32_t, 1> words{phaseWord(hz)};
+            for (const bool bypass : {false, true}) {
+                for (int input = 0; input <= 3; ++input) {
+                    filters.rxOnlyInput = input;
+                    const auto packet = buildHighPriority(true, words, true, bypass, 17, 23, 2,
+                        profile.firstDdcIndex, profile.selectReceiveLpf, profile.filterKind,
+                        profile.numAdcs, &filters);
+                    const unsigned lower = (unsigned{packet[1430]} << 8) | packet[1431];
+                    const unsigned expected = profile.numAdcs == 1 ? 0
+                        : bypass ? 0x1000 : 1u << bits[row];
+                    check(lower == expected, "P2 ADC1 exact band/bypass bits at independent range edges");
+                    check((packet[1434] & 0x10) != 0 && packet[1443] == 17
+                          && packet[1442] == (profile.numAdcs == 2 ? 23 : 0),
+                          "ADC1 filtering preserves ADC0 bypass and independent attenuation");
+                }
+            }
+        }
+    }
+    for (int adc = 0; adc < profile.numAdcs; ++adc) {
+        const std::array<DdcConfig, 1> ddcs{{{96, adc}}};
+        const auto packet = buildDdcSpecific(ddcs, profile.numAdcs, true, true, profile.firstDdcIndex);
+        check(packet[7] == (1u << profile.firstDdcIndex)
+              && packet[17 + 6 * profile.firstDdcIndex] == adc,
+              "ADC source selection retains the model's physical RX DDC");
+    }
+    check(hasAlex2Filters(profile)
+              == (profile.numAdcs == 2 && profile.filterKind == ReceiveFilterKind::MkIIBpf),
+          "Alex-2 availability follows the effective filter hardware, not the physical board alone");
+}
 int main()
 {
     check(kAnanModels.size() == 18, "all 17 Thetis logical IDs plus automatic");
@@ -147,6 +189,7 @@ int main()
             if (actual) {
                 antennaIsolation(*actual, entry.nativeBoardId != 10);
                 receiveInputIsolation(*actual, entry.nativeBoardId != 10);
+                adc1FilterIsolation(*actual);
             }
             check(actual && wanted && actual->numAdcs == wanted->numAdcs
                   && actual->firstDdcIndex == wanted->firstDdcIndex
