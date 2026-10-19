@@ -21,12 +21,10 @@
 
 namespace AetherSDR::anan {
 
-//DH1KLM: IRadioBackend for Saturn and Orion MkII RX profiles (Protocol 2).
+//DH1KLM: RX-only backend for source-pinned ANAN P1/P2 board/model profiles.
 // Owns one AnanClient dispatcher and one AnanRxDsp on a dedicated I/O thread, like Hl2Backend with MetisClient +
 // Hl2RxDsp. Scope: one DDC, RX only.
-//   - No NCO/WDSP-shift split: DDC0 retunes on every setSliceFrequency()/
-//     setPanCenter(), so "the shift is ALWAYS exactly -cwBfoHz(mode), because
-//     the NCO IS the slice frequency".
+//   - CTUN holds the DDC centre while the slice tunes digitally within its sampled span.
 //   - capabilities() reports the physical board family; gateware, receiver count and board
 //     id come from this session's Discovery reply once it lands.
 //   - setKeying() is a no-op: canTransmit is false and P2Client has no PTT
@@ -214,6 +212,8 @@ private:
     int effectiveBoardId() const;
     QVariantMap hardwareFilterStatus() const;
     void loadHardwareFilters(int boardId);
+    double receiveTuningRateHz() const;
+    void pushReceiveShift(double shiftHz);
     int maximumReceiveAttenuation() const;
     void publishReceiveGain();
     void applyReceiveGain(int adcDb, int alexDb);
@@ -418,6 +418,9 @@ private:
     int m_filterHighHz = 2900;
     int m_cwPitchHz = 600;
     double m_sliceFreqHz = 0.0;
+    double m_ddcCenterHz = 0.0;
+    double m_lastSentCenterHz = -1.0;
+    bool m_ctun = false;
     // What applyRestoredState() accepted, held for connectRadio(); kept apart
     // from the live m_sliceFreqHz/m_mode. Zero/empty: nothing restored.
     double m_restoredFreqHz = 0.0;

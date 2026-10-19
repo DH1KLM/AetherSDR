@@ -220,3 +220,31 @@ Source authority, Thetis `852bf0ef0b4f3886a13fc2846489aee16f361872`:
 
 Socket-free tests verify encoding and client state. These checks do not
 qualify the physical attenuation or analogue gain calibration of every model.
+
+### CTUN receive tuning
+
+The ANAN extension `ctun.set` accepts a boolean for a validated connected
+receiver; `hw.get` reports `ctun`, `ctunAvailable`, `ddcCenterHz` and
+`sliceFrequencyHz`. CTUN is session-only and defaults off on connect. It uses
+the existing DSP shift and hardware frequency setters without adding a new
+shared backend interface. Other radio families retain their tuning paths.
+
+The DDC centre is separate from the slice dial. In-window tuning sends no
+new hardware frequency intent. WDSP shift is `centre - slice - CW BFO`,
+preserving the previous `-CW BFO` behavior with CTUN off. The usable window
+is 92% of the sample rate, including passband and BFO margins. Leaving it
+recentres on the dial. Range/zoom centre suggestions are observed without
+moving the CTUN anchor; operator Drag requests may move it if the receiver
+still fits. Limits use the old rate during rebuild and the new rate after
+settling. Physical ALEX/LPF/OC selection follows the DDC centre. Droop sweeps
+require CTUN off, and cannot be used to enable CTUN mid-measurement.
+
+Reference: Thetis `852bf0ef0b4f3886a13fc2846489aee16f361872`,
+[console.cs](https://github.com/ramdor/Thetis/blob/852bf0ef0b4f3886a13fc2846489aee16f361872/Project%20Files/Source/Console/console.cs),
+`chkFWCATU_CheckedChanged`, RX1 tuning around lines 31339–31440 (RXOsc,
+92% sample-area limits and filter margins), and lines 31824–31844 (fixed
+RX1DDSFreq under CTUN). `UpdateRX1DDSFreq`, `UpdateAlexRXFilter` and
+`UpdateAlexTXFilter` select RX filters from the DDS frequency during receive.
+Aether's initial surface is Radio Info; Thetis'
+optional zoom-to-band, linked RX2 CTUN and detailed edge-scroll options are
+not introduced by this single-receiver implementation.
