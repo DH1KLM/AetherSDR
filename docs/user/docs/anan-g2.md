@@ -120,7 +120,7 @@ validated session. It follows the Nereus hardware-page arrangement:
   (ANAN-7000/8000, Orion MkII, Anvelina and G2). It is hidden for legacy models,
   including an Orion MkII explicitly mapped as ANAN-200D, and for single-ADC
   profiles. A second ADC by itself does not imply a second ALEX filter board.
-  Alex-2 provides independent ADC1 band limits, bypass and green filter LEDs.
+  Alex-2 provides independent ADC1 band limits and green filter/bypass LEDs.
 - **OC Outputs**: **HF**, **VHF**, **SWL**. HF has RX/TX pin matrices side by side
   and a commanded RX pin-state readout. The RX matrix is configurable; TX, VHF,
   SWL, USB BCD, external PA and user digital outputs are visible but disabled
@@ -181,6 +181,11 @@ instead of the 6-m filter/LNA; **6m/ByPass on RX** forces the 6-m LPF. These RX
 options take effect after **Apply** and do not bypass ADC1's separate input
 filter. On models with **Alex-2 Filters**, ADC1 has its own six frequency
 ranges and commanded-filter LEDs. Its master bypass still takes precedence.
+**ADC1 RF filter bypass** is on **Antenna / ALEX → Antenna Control** for every
+dual-ADC profile, including ANAN-100D/200D and a DIY ANAN-200D mapping whose
+Alex-2 tab is hidden. Select **Apply** to save and activate it. Single-ADC
+profiles display the control disabled with a reason. Alex-2 retains its bypass
+indicator and independent band table on supported MkII profiles.
 The single receiver frequency drives both banks; changing ADC1 limits does
 not create another receiver or alter ADC0 limits. TX/PureSignal bypass and
 **Disable 6m LNA on TX** remain disabled because ANAN transmit is unsupported.
@@ -249,7 +254,8 @@ do not change to an incompatible model just to expose that tab.
    switch ADC0 relays, but must not select a different source for the active
    ADC1 receiver.
 3. If this hardware supports **Alex-2 Filters**, record its current values,
-   clear **ADC1 RF filter bypass** and select **Apply**. Tune across a saved
+   clear **ADC1 RF filter bypass** on **Antenna Control** and select **Apply**.
+   Return to **Alex-2 Filters** and tune across a saved
    ADC1 band boundary. Its band LED should change; verify the corresponding
    hardware relay or receive response separately.
 4. To distinguish the two tables, temporarily move one ADC1 boundary within
