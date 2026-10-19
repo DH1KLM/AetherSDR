@@ -298,6 +298,8 @@ public:
     {
         setSliceFilter(sliceId, request.lowHz, request.highHz);
     }
+    virtual ReceiveDispatch requestSliceAgcThresholdMode(int, AgcThresholdMode)
+    { return ReceiveDispatch::Unsupported; }
     virtual void requestSliceAgc(int sliceId, const SliceAgcRequest& request)
     {
         if (request.field != SliceAgcRequest::Field::OffLevel) {
