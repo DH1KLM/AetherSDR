@@ -15,6 +15,7 @@
 #include <QDoubleSpinBox>
 #include <QFontMetrics>
 #include <QResizeEvent>
+#include <QScrollBar>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QLabel>
@@ -254,7 +255,17 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
         table->horizontalHeader()->setStretchLastSection(true);
         table->setAccessibleName(title);
-        table->setMinimumHeight(350);
+        // Reserve every band row, the header, frame and a possible
+        // horizontal scrollbar. Header geometry changes cover font/style
+        // changes as well as later row-size updates.
+        const auto fitBandRows = [table] {
+            table->setMinimumHeight(table->horizontalHeader()->sizeHint().height()
+                + table->verticalHeader()->length() + 2 * table->frameWidth()
+                + table->horizontalScrollBar()->sizeHint().height());
+        };
+        connect(table->horizontalHeader(), &QHeaderView::geometriesChanged, table, fitBandRows);
+        connect(table->verticalHeader(), &QHeaderView::geometriesChanged, table, fitBandRows);
+        fitBandRows();
         for (int row = 0; row < 11; ++row) {
             table->setItem(row, 0, new QTableWidgetItem(ocBandNames[row]));
             table->item(row, 0)->setFlags(Qt::ItemIsEnabled);

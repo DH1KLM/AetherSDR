@@ -1818,8 +1818,9 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
     });
 
     const QList<LogManager::Category> categories = LogManager::instance().categories();
-    constexpr int kColumns = 4;
+    constexpr int kGeneralColumns = 3;
     int index = 1;
+    int ananRow = 0;
     for (const LogManager::Category& category : categories) {
         auto* checkbox = new QCheckBox(category.label, filterGroup);
         checkbox->setProperty("logCategory", category.id);
@@ -1827,7 +1828,14 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
         checkbox->setToolTip(QString("%1\nCategory: %2").arg(category.description, category.id));
         m_logCategoryCheckboxes.push_back(checkbox);
         m_visibleLogCategories.insert(category.id);
-        filterGrid->addWidget(checkbox, index / kColumns, index % kColumns);
+        // Keep the ANAN filters together vertically instead of scattering
+        // consecutive categories across the general row-major grid.
+        if (category.id.startsWith(QStringLiteral("aether.anan."))) {
+            filterGrid->addWidget(checkbox, ananRow++, kGeneralColumns);
+        } else {
+            filterGrid->addWidget(checkbox, index / kGeneralColumns, index % kGeneralColumns);
+            ++index;
+        }
         connect(checkbox, &QCheckBox::toggled, this, [this, id = category.id](bool on) {
             if (on) {
                 m_visibleLogCategories.insert(id);
@@ -1836,7 +1844,6 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
             }
             rebuildLogView();
         });
-        ++index;
     }
     layout->addWidget(filterGroup);
 
