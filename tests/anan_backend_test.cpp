@@ -125,6 +125,42 @@ int main(int argc, char** argv)
     AppSettings::instance().load();
     if (!restoreChild) {
         AnanBackend backend;
+        AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("02:00:00:00:AA:02"));
+        int low = 0;
+        QStringList presets;
+        QObject::connect(&backend, &IRadioBackend::panRfGainInfoChanged,
+            [&](const QString&, int value, int, int, const QString&) { low = value; });
+        QObject::connect(&backend, &IRadioBackend::panPreampInfoChanged,
+            [&](const QString&, const QStringList& value) { presets = value; });
+        backend.setPanRfGain(QStringLiteral("anan-0"), -61);
+        auto gain = backend.currentOperatingState().extension.value(QStringLiteral("rfGain")).toObject();
+        check(low == -61 && backend.attenuationDbForTest() == 61
+              && gain.value(QStringLiteral("adc0AttenuationDb")).toInt() == 31
+              && gain.value(QStringLiteral("alexAttenuationDb")).toInt() == 30,
+              "ANAN200D override offers and splits 61 dB total attenuation");
+        backend.setPanPreamp(QStringLiteral("anan-0"), 4);
+        gain = backend.currentOperatingState().extension.value(QStringLiteral("rfGain")).toObject();
+        check(backend.attenuationDbForTest() == 40
+              && gain.value(QStringLiteral("adc0AttenuationDb")).toInt() == 20
+              && gain.value(QStringLiteral("alexAttenuationDb")).toInt() == 20
+              && presets.size() == 6,
+              "historical preamp preset uses Thetis exact ALEX and ADC stages");
+        const auto saved = backend.currentOperatingState();
+        backend.applyRestoredState(saved);
+        check(backend.attenuationDbForTest() == 40, "restore retains total classic attenuation");
+        RestoredRadioState malformed = saved;
+        malformed.extension = QJsonObject{{QStringLiteral("rfGain"), QJsonObject{
+            {QStringLiteral("adc0AttenuationDb"), 7}, {QStringLiteral("alexAttenuationDb"), 12}}}};
+        backend.applyRestoredState(malformed);
+        check(backend.attenuationDbForTest() == 7, "malformed saved ALEX attenuation cannot engage a relay stage");
+        AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("02:00:00:00:AA:02"), 1);
+        backend.setPanRfGain(QStringLiteral("anan-0"), -61);
+        check(low == -31 && backend.attenuationDbForTest() == 31,
+              "ADC1 remains limited to 31 dB even under a legacy model override");
+        AnanLinkStatsTestAccess::setConnected(backend, false);
+    }
+    if (!restoreChild) {
+        AnanBackend backend;
         const QString serial = QStringLiteral("02:00:00:00:AA:01");
         SliceDelta latest;
         QStringList ports;

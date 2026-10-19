@@ -65,6 +65,7 @@ public:
         // Receive step attenuators, 0-31 dB (buildHighPriority()). Unlike the
         // options above these ARE live: setStepAttenuationDb() changes them
         // mid-session. The values here are what the session starts with.
+        int alexAttenuationDb = 0;
         int adc0AttenuationDb = 0;
         int adc1AttenuationDb = 0;
         //DH1KLM: RX antenna number 1..3 maps to Thetis Alex0 bits 24..26.
@@ -103,6 +104,7 @@ public:
     // keepalive from then on -- the High Priority packet is resent every
     // 100 ms, so a value held anywhere else would be overwritten by the next
     // tick. An out-of-range adcIndex is ignored.
+    Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     Q_INVOKABLE void setStepAttenuationDb(int adcIndex, int db);
     //DH1KLM: Change the selected Saturn RX antenna without restarting P2.
     Q_INVOKABLE void setRxAntenna(int antenna);
@@ -295,6 +297,7 @@ private:
     bool m_bypassAdc1Filters = true;
     // Step attenuation per ADC, seeded from Params at start() and changed
     // live by setStepAttenuationDb(); every buildHighPriority() carries it.
+    int m_alexAttenuationDb = 0;
     int m_adc0AttenuationDb = 0;
     int m_adc1AttenuationDb = 0;
     int m_rxAntenna = 1;

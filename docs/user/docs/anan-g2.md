@@ -382,12 +382,34 @@ application continues to provide one receiver and one panadapter.
 
 ## Receiving with the G2
 
-The panadapter's RF Gain control operates the step attenuator of the ADC
-feeding the receiver. Its range is **−31 to 0 dB** (31 to 0 dB attenuation).
-The other ADC retains its own setting; changing the receiver source and
-reconnecting uses that ADC's remembered value. Single-ADC profiles do not
-accept ADC1 attenuation changes. P1 and P2 both bound live attenuation to
-0–31 dB before retaining it for later control packets.
+In the main panadapter menu, **ANT → RF Gain** controls receive attenuation.
+Its negative value means attenuation: −10 dB applies 10 dB of attenuation;
+0 dB removes it. The range follows the selected hardware profile, including
+an explicit model override:
+
+| Receive path | RF Gain range |
+| --- | --- |
+| ADC0, classic ALEX profiles: Hermes, ANAN-100/100B/100D/200D | −61 to 0 dB |
+| ADC0, ANAN-10/10E, Orion MkII, ANAN-7000/8000, G2/G2E, Anvelina and native Red Pitaya profiles | −31 to 0 dB |
+| ADC1/RX2 | −31 to 0 dB |
+
+Automatic profiles for the implemented legacy boards use the classic ALEX
+path. An ANAN-200D override on Anvelina or Red Pitaya selects the classic
+ALEX policy. Above 31 dB, the continuous control adds 30 dB of ALEX attenuation
+and sets the ADC attenuator to the remainder. MkII input relay bits are never
+used as classic attenuator bits.
+
+**ANT → Preamp** provides Thetis-style attenuation presets: 0/−10/−20/−30 dB,
+plus −40/−50 dB on the classic ADC0 path. This historical name does not imply
+positive gain or a separate amplifier switch. Classic presets use the ALEX
+10/20 dB stages and, for −40/−50 dB, an additional 20 dB ADC attenuation.
+Other profiles use the ADC attenuator. A non-preset slider value appears as
+**custom** in the preset readout; cycling the button returns to a preset.
+
+The ADCs retain separate settings; the classic ALEX stage belongs to ADC0.
+The settings are restored per radio. Changing the receiver source and
+reconnecting uses that ADC's remembered value. Single-ADC profiles refuse
+ADC1 changes. Both protocols keep each ADC register within 0–31 dB.
 
 - **Receive** with live tuning and zoom. Changing the zoom changes the DDC rate live, without rebuilding the session. Nonfinite or nonpositive zoom requests are ignored; finite requests wider than the available span select the protocol/model maximum. Both P1 and P2 accept finite receive frequencies within 0–61.44 MHz. Invalid live tuning requests leave the last valid frequency unchanged; an invalid connection frequency is refused before reception starts.
 - **Panadapter** computed by WDSP's display analyzer: a ≥16384-point windowed FFT at one point per screen pixel. **FFT AVG** and **Wt Avg** drive it, and noise-floor auto-adjust works.

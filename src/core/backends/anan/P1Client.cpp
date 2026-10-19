@@ -91,6 +91,7 @@ bool P1Client::prepare(const Params& params)
     m_config.antenna = params.rxAntenna;
     m_config.dither = params.ditherEnabled;
     m_config.random = params.randomEnabled;
+    m_config.alexAttenuationDb = std::clamp(params.alexAttenuationDb / 10, 0, 3) * 10;
     m_config.adc0AttenuationDb = params.adc0AttenuationDb;
     m_config.adc1AttenuationDb = params.adc1AttenuationDb;
     m_profile.reset(); m_expectedSequence.reset();
@@ -256,6 +257,10 @@ void P1Client::updateFilters()
     };
     m_config.rxOnlyInput = filters.rxOnlyInput;
     m_config.mkIIBpf = m_profile->filterKind == ReceiveFilterKind::MkIIBpf;
+    if (m_config.mkIIBpf && m_config.alexAttenuationDb != 0) {
+        m_config.adc0AttenuationDb = std::min(31, m_config.adc0AttenuationDb + m_config.alexAttenuationDb);
+        m_config.alexAttenuationDb = 0;
+    }
     m_config.rxOcMask = m_params.filters ? receiveOcMask(*m_params.filters, m_config.frequencyHz) : 0;
     m_config.receiveFilterBits = filter(alex);
     //DH1KLM: ADC0 band bypass/LNA controls must not alter ADC1's independent filter bits.
@@ -315,6 +320,15 @@ void P1Client::setDdc0FrequencyHz(double hz)
     updateFilters();
 }
 
+void P1Client::setFrontEndAttenuation(int adc, int db, int alexDb)
+{
+    if (adc < 0 || adc >= m_config.numAdcs) { return; }
+    if (adc == 0) {
+        m_config.alexAttenuationDb = !m_config.mkIIBpf
+            ? std::clamp(alexDb / 10, 0, 3) * 10 : 0;
+    }
+    setStepAttenuationDb(adc, db);
+}
 void P1Client::setStepAttenuationDb(int adc, int db)
 {
     if (adc == 0) m_config.adc0AttenuationDb = std::clamp(db, 0, 31);

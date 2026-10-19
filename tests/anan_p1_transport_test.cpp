@@ -394,7 +394,30 @@ void adc1RoutingAndFilters() {
                     }
                 }
             }
-            qint64 now = 0;
+            client.setFrontEndAttenuation(0, 20, 30);
+            const int expectedAlex = profile->filterKind == ReceiveFilterKind::LegacyHpf ? 30 : 0;
+            check(P1ClientTestAccess::config(client).alexAttenuationDb == expectedAlex,
+                  "combined P1 setter preserves only classic ALEX attenuation");
+            client.setFrontEndAttenuation(1, 9, 0);
+            check(P1ClientTestAccess::config(client).alexAttenuationDb == expectedAlex,
+                  "P1 ADC1 edit leaves ADC0 ALEX relays unchanged");
+            packets.clear();
+            P1ClientTestAccess::drain(client, 0);
+            P1ClientTestAccess::drain(client, 1000000000);
+            P1ClientTestAccess::drain(client, 2000000000);
+            bool bankZero = false;
+            for (const auto& packet : packets) {
+                for (const int base : {8, 520}) {
+                    if (static_cast<unsigned char>(packet[base + 3]) != 0) { continue; }
+                    bankZero = true;
+                    const int expected = expectedAlex / 10;
+                    check((static_cast<unsigned char>(packet[base + 6]) & 3) == expected,
+                          "live P1 control packets carry the exact classic ATT relays");
+                }
+            }
+            check(bankZero, "P1 scheduler transmits the ATT relay bank");
+            client.setFrontEndAttenuation(0, 0, 0);
+            qint64 now = 2000000000;
             for (const int value : {std::numeric_limits<int>::min(), -1, 0, 17, 31, 32,
                                      std::numeric_limits<int>::max()}) {
                 for (int target = 0; target < profile->numAdcs; ++target) {

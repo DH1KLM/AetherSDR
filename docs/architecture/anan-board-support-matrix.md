@@ -185,3 +185,38 @@ The initial HPF-bypass and Disable 6m LNA on RX checks also appear successful.
 This is evidence for that DIY configuration only; native Anvelina filtering,
 other models, P1, independently configured ADC1 ranges and OC wiring are not
 qualified by this report.
+
+### Receive attenuation and historical preamp presets
+
+The analogue model override selects the ATT policy independently of the
+physical digital board. Classic ALEX ADC0 profiles (Hermes and
+ANAN-100/100B/100D/200D) combine a 0–31 dB ADC register with the ALEX
+10/20 dB relays. Continuous attenuation above 31 dB uses both relays (30 dB)
+and the remaining ADC attenuation. ADC1/RX2 has only its independent 0–31 dB
+ADC register. ANAN-10/10E and MkII-family profiles have no classic ALEX ATT
+extension. Automatic implemented legacy board profiles assume the existing
+classic ALEX receive path.
+
+The main UI's historical **Preamp** presets follow Thetis' attenuation modes:
+classic 0/10/20/30 dB uses ALEX alone; 40/50 dB uses 20 dB at the ADC plus
+20/30 dB ALEX. Other implemented profiles offer ADC-only 0/10/20/30 dB.
+These positions do not advertise positive gain. The existing OperatingState
+`rfGain` object retains the two ADC values plus `alexAttenuationDb`; omitted
+ALEX defaults to zero. Unsupported restored ALEX stages are removed and the
+combined value bounded to the supported ADC range before use.
+
+Source authority, Thetis `852bf0ef0b4f3886a13fc2846489aee16f361872`:
+
+- [console.cs](https://github.com/ramdor/Thetis/blob/852bf0ef0b4f3886a13fc2846489aee16f361872/Project%20Files/Source/Console/console.cs):
+  `RX1PreampMode`, `RX1AttenuatorData`, `maxAtt`, `SetATT`.
+- [netInterface.c](https://github.com/ramdor/Thetis/blob/852bf0ef0b4f3886a13fc2846489aee16f361872/Project%20Files/Source/ChannelMaster/netInterface.c):
+  `SetAlexAtten` refuses MkII; `SetADC1StepAttenData` owns the ADC register.
+- [network.h](https://github.com/ramdor/Thetis/blob/852bf0ef0b4f3886a13fc2846489aee16f361872/Project%20Files/Source/ChannelMaster/network.h):
+  ALEX 20 dB bit 13 and 10 dB bit 14; MkII repurposes bit 14 for RX MASTER.
+- [network.c](https://github.com/ramdor/Thetis/blob/852bf0ef0b4f3886a13fc2846489aee16f361872/Project%20Files/Source/ChannelMaster/network.c):
+  `CmdHighPriority`, ALEX bytes 1432–1435 and ADC bytes 1442/1443.
+- [networkproto1.c](https://github.com/ramdor/Thetis/blob/852bf0ef0b4f3886a13fc2846489aee16f361872/Project%20Files/Source/ChannelMaster/networkproto1.c):
+  bank-zero C3 bits 0/1 for classic ATT; bank 0x14 C4 low five bits for ADC0.
+
+Socket-free tests verify encoding and client state. These checks do not
+qualify the physical attenuation or analogue gain calibration of every model.

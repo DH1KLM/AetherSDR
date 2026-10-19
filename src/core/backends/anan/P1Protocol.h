@@ -30,6 +30,7 @@ struct ReceiveConfig {
     std::uint8_t rxOcMask = 0;
     bool dither = false;
     bool random = false;
+    int alexAttenuationDb = 0; // Classic ALEX only: 0, 10, 20 or 30 dB.
     int adc0AttenuationDb = 0;
     int adc1AttenuationDb = 0;
     // P1 filter-bank bits, not the P2 Alex-word bit positions.

@@ -14,6 +14,35 @@ enum class AnanModel : int {
     AnanG21K = 12, AnvelinaPro3 = 13, HermesLite2 = 14,
     RedPitaya = 15, AnanG2E = 16
 };
+// Classic ALEX's extra 30 dB bank is in the ADC0 path only. MkII reuses
+// its bits for input relays; model overrides therefore select this policy.
+[[nodiscard]] constexpr bool hasClassicAlexAttenuator(AnanModel model, int board) noexcept
+{
+    if (model == AnanModel::Automatic) { return board >= 1 && board <= 4; }
+    return model == AnanModel::Hermes || model == AnanModel::Anan100
+        || model == AnanModel::Anan100B || model == AnanModel::Anan100D
+        || model == AnanModel::Anan200D;
+}
+struct ReceiveAttenuation {
+    int totalDb;
+    int adcDb;
+    int alexDb;
+};
+[[nodiscard]] constexpr ReceiveAttenuation receiveAttenuation(int requestedDb, bool classicAlex) noexcept
+{
+    const int maximum = classicAlex ? 61 : 31;
+    const int total = requestedDb < 0 ? 0 : requestedDb > maximum ? maximum : requestedDb;
+    const int alex = classicAlex && total > 31 ? 30 : 0;
+    return {total, total - alex, alex};
+}
+[[nodiscard]] constexpr ReceiveAttenuation receiveAttenuationPreset(int step, bool classicAlex) noexcept
+{
+    const int maximum = classicAlex ? 5 : 3;
+    step = step < 0 ? 0 : step > maximum ? maximum : step;
+    if (!classicAlex) { return receiveAttenuation(step * 10, false); }
+    if (step <= 3) { return {step * 10, 0, step * 10}; }
+    return {step * 10, 20, (step - 2) * 10};
+}
 struct AnanModelInfo {
     AnanModel model;
     std::string_view name;

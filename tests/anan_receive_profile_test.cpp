@@ -83,6 +83,7 @@ struct P2ClientTestAccess {
     }
     static int rate(const P2Client& client, int ddc) { return client.m_activeDdcs[ddc].rateKsps; }
     static auto txBytes(const P2Client& client) { return client.m_txBytes; }
+    static int alex(const P2Client& client) { return client.m_alexAttenuationDb; }
     static int attenuation(const P2Client& client, int adc)
     {
         return adc == 0 ? client.m_adc0AttenuationDb : client.m_adc1AttenuationDb;
@@ -153,6 +154,14 @@ int main(int argc, char** argv)
                           "P2 attenuator clamps at its boundary without changing the other ADC");
                 }
             }
+            client.setFrontEndAttenuation(0, 20, 30);
+            const int expectedAlex = P2ClientTestAccess::filters(client) == ReceiveFilterKind::LegacyHpf ? 30 : 0;
+            check(P2ClientTestAccess::attenuation(client, 0) == 20
+                  && P2ClientTestAccess::alex(client) == expectedAlex,
+                  "combined P2 setter retains ADC and classic relay stages, excludes MkII");
+            client.setFrontEndAttenuation(1, 9, 0);
+            check(P2ClientTestAccess::alex(client) == expectedAlex,
+                  "ADC1 edit cannot clear ADC0 ALEX attenuation");
             const int before0 = P2ClientTestAccess::attenuation(client, 0);
             const int before1 = P2ClientTestAccess::attenuation(client, 1);
             client.setStepAttenuationDb(-1, 0);
