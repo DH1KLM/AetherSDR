@@ -58,9 +58,10 @@ struct RestoredRadioState {
     // must survive a restart. Not restored = the backend's default.
     int receiveOutputLevelPct = -1;
 
-    // Per-family extension document (per-band gain/drive maps), versioned by its
+    // Per-family extension document (tuning views and per-band gain/drive maps), versioned by its
     // owner. GATED PER DOMAIN: the engine hands over only the sub-objects named for
-    // declared domains ("rfGain" for RfGain, "txSetpoints" for TxSetpoints); their
+    // declared domains ("tuning" for Tuning, "rfGain" for RfGain,
+    // "txSetpoints" for TxSetpoints); their
     // contents are opaque above the seam and validated by the owning backend.
     int extensionSchemaVersion = 0;
     QJsonObject extension;

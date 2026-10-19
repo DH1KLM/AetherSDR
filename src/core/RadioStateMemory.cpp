@@ -42,6 +42,7 @@ constexpr const char* kExtNotchesKey = "notches";
 QJsonObject gateExtension(const RadioCapabilities& caps, const QJsonObject& ext)
 {
     const std::pair<Domain, const char*> domains[] = {
+        {Domain::Tuning, "tuning"},
         {Domain::RfGain, kExtRfGainKey},
         {Domain::TxSetpoints, kExtTxSetpointsKey},
         {Domain::Receivers, kExtReceiversKey},

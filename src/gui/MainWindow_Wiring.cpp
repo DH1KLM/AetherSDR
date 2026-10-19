@@ -3728,6 +3728,39 @@ void MainWindow::selectBand(const QString& panId, const QString& bandName, doubl
         }
         clearSwrSweepForBandChange(s->sliceId(), panId, bandName);
         m_bandSettings.setCurrentBand(bandName);
+        if (m_radioModel.backendDeclaresExtension(QStringLiteral("anan"))
+            && (bandName == QLatin1String("GEN") || bandName == QLatin1String("WWV")
+                || BandSettings::bandForFrequency(freqMhz) == bandName)) {
+            static quint64 nextRequest = quint64{2} << 60;
+            const quint64 request = ++nextRequest;
+            auto* backend = m_radioModel.backend();
+            auto* lifetime = new QTimer(this);
+            lifetime->setSingleShot(true);
+            connect(backend, &IRadioBackend::extensionResult, lifetime,
+                [lifetime, request](quint64 id, const QVariant&) {
+                    if (id == request) { lifetime->stop(); lifetime->deleteLater(); }
+                });
+            connect(backend, &IRadioBackend::extensionError, lifetime,
+                [this, backend, lifetime, request](quint64 id, const QString& reason) {
+                    if (id != request) { return; }
+                    lifetime->stop(); lifetime->deleteLater();
+                    if (m_radioModel.backend() == backend && m_radioModel.isConnected()) {
+                        statusBar()->showMessage(reason, 6000);
+                    }
+                });
+            connect(backend, &IRadioBackend::disconnected, lifetime, &QObject::deleteLater);
+            connect(lifetime, &QTimer::timeout, lifetime, [this, backend, lifetime] {
+                if (m_radioModel.backend() == backend && m_radioModel.isConnected()) {
+                    statusBar()->showMessage(tr("No reply to the ANAN band recall request."), 6000);
+                }
+                lifetime->deleteLater();
+            });
+            lifetime->start(10000);
+            m_radioModel.invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("band.select"), request,
+                QVariantMap{{QStringLiteral("band"), bandName}, {QStringLiteral("frequencyHz"), freqMhz * 1e6},
+                            {QStringLiteral("mode"), mode.isEmpty() ? s->mode() : mode}});
+            return;
+        }
         // MODE FIRST, then frequency. The backend adopts a mode-appropriate
         // passband on a mode CHANGE (Hl2Backend::setSliceMode), and the
         // frequency move is what re-selects the companion filter board — so

@@ -49,6 +49,7 @@ public:
     static void antennaSession(AnanBackend& backend, const QString& serial, int adc = 0, int input = 0)
     {
         backend.m_connected = true;
+        backend.m_bandViewRestoreReady = true;
         backend.m_discoveryInfoReceived = true;
         backend.m_discoveredBoardId = 5;
         backend.m_radioSerial = serial;
@@ -67,6 +68,11 @@ public:
             emit dsp->spectrumReady(bins);
         }, Qt::QueuedConnection);
     }
+    static void viewRestoreReady(AnanBackend& backend, bool ready) { backend.m_bandViewRestoreReady = ready; }
+    static bool ctun(const AnanBackend& backend) { return backend.m_ctun; }
+    static void recallLast(AnanBackend& backend) { backend.restoreLastBandView(); }
+    static void model(AnanBackend& backend, AnanModel model) { backend.m_pendingParams.model = model; }
+    static int pendingRate(const AnanBackend& backend) { return backend.m_pendingBandwidthKsps; }
     static double displaySpan(const AnanBackend& backend) { return backend.m_bandViewSpanHz; }
     static double center(const AnanBackend& backend) { return backend.m_ddcCenterHz; }
     static double lastSentCenter(const AnanBackend& backend) { return backend.m_lastSentCenterHz; }
@@ -138,6 +144,107 @@ public:
 };
 }  // namespace
 
+static void bandViewMemoryChecks()
+{
+    const QString ns = QStringLiteral("anan");
+    const QVariantMap sixty{{QStringLiteral("lowHz"), 5'351'500.0}, {QStringLiteral("highHz"), 5'366'500.0}};
+    const auto select = [&](AnanBackend& backend, const QString& band, double hz, const QString& mode) {
+        backend.invokeExtension(ns, QStringLiteral("band.select"), 850,
+            QVariantMap{{QStringLiteral("band"), band}, {QStringLiteral("frequencyHz"), hz},
+                        {QStringLiteral("mode"), mode}});
+    };
+    AnanBackend backend;
+    AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("02:00:00:00:BD:01"));
+    AnanLinkStatsTestAccess::prepareRate(backend, 2, false, 48);
+    backend.setSliceFrequency(0, 5'357'000);
+    AnanLinkStatsTestAccess::flushTune(backend);
+    backend.invokeExtension(ns, QStringLiteral("band.center"), 851, sixty);
+    backend.setSliceFrequency(0, 5'358'000);
+    AnanLinkStatsTestAccess::flushTune(backend);
+    backend.invokeExtension(ns, QStringLiteral("band.center"), 852, QVariantMap{});
+    check(!AnanLinkStatsTestAccess::ctun(backend) && AnanLinkStatsTestAccess::displaySpan(backend) == 0
+          && AnanLinkStatsTestAccess::center(backend) == 5'358'000
+          && backend.currentOperatingState().rfFrequencyHz == 5'358'000,
+          "second B restores the previous span with CTUN off and preserves the current VFO");
+    backend.invokeExtension(ns, QStringLiteral("band.center"), 853, sixty);
+    backend.setSliceFrequency(0, 5'359'500);
+    AnanLinkStatsTestAccess::flushTune(backend);
+    backend.setPanCenter(QStringLiteral("anan-0"), 5'359'200, IRadioBackend::PanCenterIntent::Drag);
+    AnanLinkStatsTestAccess::flushTune(backend);
+    select(backend, QStringLiteral("20m"), 14'200'000, QStringLiteral("USB"));
+    check(!AnanLinkStatsTestAccess::ctun(backend) && backend.currentOperatingState().rfFrequencyHz == 14'200'000,
+          "first visit uses the band's normal default without inheriting the previous CTUN window");
+    backend.setSliceFrequency(0, 14'250'000);
+    AnanLinkStatsTestAccess::flushTune(backend);
+    select(backend, QStringLiteral("60m"), 5'357'000, QStringLiteral("USB"));
+    check(AnanLinkStatsTestAccess::ctun(backend) && backend.currentOperatingState().rfFrequencyHz == 5'359'500
+          && AnanLinkStatsTestAccess::center(backend) == 5'359'200
+          && std::abs(AnanLinkStatsTestAccess::displaySpan(backend) * .92 - 15'300) < .001,
+          "returning to a band restores saved VFO, CTUN, dragged centre and display zoom");
+    const auto saved = backend.currentOperatingState();
+    select(backend, QStringLiteral("20m"), 14'200'000, QStringLiteral("USB"));
+    check(backend.currentOperatingState().rfFrequencyHz == 14'250'000 && !AnanLinkStatsTestAccess::ctun(backend),
+          "each band restores its own last VFO and CTUN state");
+    select(backend, QStringLiteral("60m"), 5'357'000, QStringLiteral("USB"));
+    backend.invokeExtension(ns, QStringLiteral("band.center"), 854, sixty);
+    check(!AnanLinkStatsTestAccess::ctun(backend) && AnanLinkStatsTestAccess::displaySpan(backend) == 0
+          && backend.currentOperatingState().rfFrequencyHz == 5'359'500,
+          "B can disable a recalled band view and restore its saved pre-B span");
+
+    select(backend, QStringLiteral("20m"), 14'200'000, QStringLiteral("USB"));
+    select(backend, QStringLiteral("60m"), 5'357'000, QStringLiteral("USB"));
+    check(AnanLinkStatsTestAccess::ctun(backend) && backend.currentOperatingState().rfFrequencyHz == 5'359'500
+          && AnanLinkStatsTestAccess::center(backend) == 5'359'200,
+          "temporarily switching B off does not erase the last active CTUN view recalled on band return");
+
+    AnanBackend restored;
+    restored.applyRestoredState(saved);
+    AnanLinkStatsTestAccess::antennaSession(restored, QStringLiteral("02:00:00:00:BD:01"));
+    AnanLinkStatsTestAccess::prepareRate(restored, 2, false, 48);
+    AnanLinkStatsTestAccess::viewRestoreReady(restored, false);
+    restored.setSliceFrequency(0, 14'175'000);
+    AnanLinkStatsTestAccess::flushTune(restored);
+    check(restored.currentOperatingState().extension.value(QStringLiteral("tuning"))
+              == saved.extension.value(QStringLiteral("tuning")),
+          "connect-time capture cannot overwrite the stored band's view before initial recall finishes");
+    AnanLinkStatsTestAccess::recallLast(restored);
+    AnanLinkStatsTestAccess::viewRestoreReady(restored, true);
+    check(AnanLinkStatsTestAccess::ctun(restored) && restored.currentOperatingState().rfFrequencyHz == 5'359'500
+          && AnanLinkStatsTestAccess::center(restored) == 5'359'200,
+          "OperatingState round-trip restores the last exact-profile band view on reconnect");
+    AnanBackend otherOverride;
+    otherOverride.applyRestoredState(saved);
+    AnanLinkStatsTestAccess::antennaSession(otherOverride, QStringLiteral("02:00:00:00:BD:01"));
+    AnanLinkStatsTestAccess::prepareRate(otherOverride, 2, false, 48);
+    AnanLinkStatsTestAccess::model(otherOverride, AnanModel::Anan7000);
+    AnanLinkStatsTestAccess::recallLast(otherOverride);
+    check(!AnanLinkStatsTestAccess::ctun(otherOverride) && otherOverride.currentOperatingState().rfFrequencyHz == AnanBackend::kFirstConnectFrequencyHz,
+          "a different override on the same physical radio cannot inherit another model's view");
+    restored.applyRestoredState({});
+    AnanLinkStatsTestAccess::setConnected(restored, false);
+    AnanBackend otherDevice;
+    otherDevice.applyRestoredState(saved);
+    AnanLinkStatsTestAccess::antennaSession(otherDevice, QStringLiteral("02:00:00:00:BD:02"));
+    AnanLinkStatsTestAccess::prepareRate(otherDevice, 2, false, 48);
+    AnanLinkStatsTestAccess::recallLast(otherDevice);
+    check(!AnanLinkStatsTestAccess::ctun(otherDevice) && otherDevice.currentOperatingState().rfFrequencyHz == 0,
+          "a mismatched physical identity cannot inherit another device's band views");
+
+    AnanBackend pending;
+    AnanLinkStatsTestAccess::antennaSession(pending, QStringLiteral("02:00:00:00:BD:03"));
+    AnanLinkStatsTestAccess::prepareRate(pending, 2, false, 48);
+    pending.setSliceFrequency(0, 14'200'000); AnanLinkStatsTestAccess::flushTune(pending);
+    AnanLinkStatsTestAccess::rateInFlight(pending, 768);
+    const QVariantMap twenty{{QStringLiteral("lowHz"), 14'000'000.0}, {QStringLiteral("highHz"), 14'350'000.0}};
+    pending.invokeExtension(ns, QStringLiteral("band.center"), 855, twenty);
+    pending.invokeExtension(ns, QStringLiteral("band.center"), 856, twenty);
+    check(!AnanLinkStatsTestAccess::ctun(pending) && AnanLinkStatsTestAccess::pendingRate(pending) == 48,
+          "a second B during rebuild replaces the pending band fit with the original rate");
+    for (auto* item : {&backend, &restored, &otherOverride, &otherDevice, &pending}) {
+        AnanLinkStatsTestAccess::setConnected(*item, false);
+    }
+}
+
 int main(int argc, char** argv)
 {
     // The child inherits the parent's isolated store to prove disk persistence.
@@ -152,6 +259,7 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
     if (!restoreChild) {
+        bandViewMemoryChecks();
         for (const int protocol : {1, 2}) {
             AnanBackend backend;
             AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("02:00:00:00:CC:01"));

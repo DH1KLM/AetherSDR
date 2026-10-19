@@ -225,7 +225,8 @@ qualify the physical attenuation or analogue gain calibration of every model.
 
 The ANAN extension `ctun.set` accepts a boolean for a validated connected
 receiver; `hw.get` reports `ctun`, `ctunAvailable`, `ddcCenterHz` and
-`sliceFrequencyHz`. CTUN is session-only and defaults off on connect. It uses
+`sliceFrequencyHz`. CTUN defaults off for a new configuration; saved band views
+can restore it after validation. It uses
 the existing DSP shift and hardware frequency setters without adding a new
 shared backend interface. Other radio families retain their tuning paths.
 
@@ -289,3 +290,34 @@ spectral resolution. Droop receives the full spectrum before display cropping.
 The displayed centre/span land together after a rate change. Partial-band
 views retain the maximum full capture; manual span changes, CTUN off and
 tuning outside the displayed window release the display crop.
+
+### CTUN band memory and B toggle
+
+ANAN B now toggles the fitted view and its saved pre-B span. Disabling through
+B forces CTUN off, preserves the current VFO and recentres the normal view at
+that receiver. The saved capture rate is requested through the existing queued
+rate-change path, so a second press supersedes a pending fit.
+
+`band.select` is an explicit band-button recall intent. It snapshots the source
+band and restores the target's VFO, CTUN, DDC centre, rate, display span, mode
+and passband. First visits retain the ordinary band defaults. GEN/WWV use
+their normal frequency/mode defaults after snapshotting the source band, and
+other backends keep their existing UI path. Typed frequency changes honour the entered
+frequency and do not substitute a remembered dial.
+
+OperatingState's domain-gated `ext.tuning` owns the entire version-1 view-memory
+object. RadioStateMemory remains the sole disk reader/writer and uses its normal
+debounce and shutdown flush. The object carries a physical radio serial and
+profile keys `(logical model, physical board, ADC, override flag, protocol)`.
+Unknown schemas are preserved without editing; malformed snapshots and unsafe
+rates/frequencies are refused. Each band's record contains its live view and
+pre-B snapshot. Capture reads the current settled view, including a final VFO
+edit at disconnect. Empty/same-family restores reset the memory owner. A validated
+connection restores the last exact-profile view unless given an explicit RX
+frequency; an unseen mapping starts independently of another profile's RF state.
+
+Band-button recall prefers the last active CTUN snapshot, retained separately
+from the latest live view. Temporarily disabling B therefore does not erase
+the active window or its pre-B snapshot. Reconnect restores the latest live
+state (so disconnecting with CTUN off keeps it off), while a band return
+re-enables that band's last active CTUN view and restores its saved VFO.

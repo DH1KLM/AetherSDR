@@ -172,6 +172,24 @@ int main(int argc, char** argv)
               "radio B keeps its own frequency");
     }
 
+    // Opaque band-view memory belongs to Tuning and must not bypass the
+    // declared-domain gate. Other backend tuning data uses the same seam.
+    {
+        const RadioSettingsScope scoped(QStringLiteral("anan"), QStringLiteral("02:00:00:00:DD:01"));
+        auto state = sampleState();
+        const QJsonObject memory{{QStringLiteral("version"), 1},
+            {QStringLiteral("profiles"), QJsonObject{{QStringLiteral("7:5:0:1:2"),
+                QJsonObject{{QStringLiteral("lastBand"), QStringLiteral("20m")}}}}}};
+        state.extension.insert(QStringLiteral("tuning"), memory);
+        auto caps = hl2Caps(); caps.family = QStringLiteral("anan");
+        check(RadioStateMemory::store(scoped, caps, state)
+              && RadioStateMemory::load(scoped, caps).extension.value(QStringLiteral("tuning")).toObject() == memory,
+              "opaque Tuning band memory round-trips through OperatingState");
+        caps.clientSettingsDomains = Domain::RfGain;
+        check(!RadioStateMemory::load(scoped, caps).extension.contains(QStringLiteral("tuning")),
+              "an undeclared Tuning domain cannot restore opaque band memory");
+    }
+
     // ---- per-domain gating on load ----------------------------------------
     {
         RadioCapabilities tuningOnly;
