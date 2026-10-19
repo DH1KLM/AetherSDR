@@ -18,6 +18,7 @@
 #include "core/AppSettings.h"
 #include "core/RadioStateMemory.h"
 #include "core/backends/anan/AnanBackend.h"
+#include "core/backends/anan/AnanSettings.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
 
@@ -42,6 +43,22 @@ public:
     {
         backend.m_connected = connected;
     }
+    static void antennaSession(AnanBackend& backend, const QString& serial, int adc = 0, int input = 0)
+    {
+        backend.m_connected = true;
+        backend.m_discoveryInfoReceived = true;
+        backend.m_discoveredBoardId = 5;
+        backend.m_radioSerial = serial;
+        backend.m_pendingParams.model = AnanModel::Anan200D;
+        backend.m_pendingParams.overrideDetection = true;
+        backend.m_pendingParams.ddc0AdcIndex = adc;
+        backend.m_pendingParams.filters = defaultFilterConfig(false);
+        backend.m_pendingParams.filters->rxOnlyInput = input;
+        backend.m_rxAntenna = AnanSettings::radioRxAntenna(serial, 7, 5);
+        backend.m_pendingParams.rxAntenna = backend.m_rxAntenna;
+        backend.emitSliceState();
+    }
+    static int antenna(const AnanBackend& backend) { return backend.m_rxAntenna; }
     static void prepareRate(AnanBackend& backend, int protocol, bool redPitaya, int rate)
     {
         backend.m_pendingParams.protocol = protocol;
@@ -106,6 +123,43 @@ int main(int argc, char** argv)
     }
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
+    if (!restoreChild) {
+        AnanBackend backend;
+        const QString serial = QStringLiteral("02:00:00:00:AA:01");
+        SliceDelta latest;
+        QStringList ports;
+        QString current;
+        QObject::connect(&backend, &IRadioBackend::sliceChanged, [&](int, const SliceDelta& delta) { latest = delta; });
+        QObject::connect(&backend, &IRadioBackend::panAntennaListChanged,
+            [&](const QString&, const QStringList& value) { ports = value; });
+        QObject::connect(&backend, &IRadioBackend::panRxAntennaChanged,
+            [&](const QString&, const QString& value) { current = value; });
+        AnanLinkStatsTestAccess::antennaSession(backend, serial);
+        check(ports == QStringList{"ANT1","ANT2","ANT3"} && latest.rxAntennaList == ports,
+              "validated ANAN publishes the three ports to both main UI models");
+        check(backend.requestSliceRxAntenna(0, QStringLiteral("ANT3")) == ReceiveDispatch::Dispatched
+              && AnanSettings::radioRxAntenna(serial, 7, 5) == 3
+              && current == QLatin1String("ANT3") && latest.rxAntenna == current,
+              "main ANT3 selection saves and updates slice and pan state");
+        backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("rx-antenna.set"), 9001, 2);
+        check(current == QLatin1String("ANT2") && latest.rxAntenna == current,
+              "hardware-page antenna change updates the main UI");
+        AnanLinkStatsTestAccess::antennaSession(backend, serial, 1);
+        check(ports == QStringList{"RX2"} && current == QLatin1String("RX2")
+              && backend.requestSliceRxAntenna(0, QStringLiteral("ANT1")) == ReceiveDispatch::Unsupported
+              && AnanLinkStatsTestAccess::antenna(backend) == 2,
+              "ADC1 advertises only its active input and cannot switch ADC0 through the main RX control");
+        AnanLinkStatsTestAccess::antennaSession(backend, serial, 0, 2);
+        check(ports == QStringList{"EXT1"} && current == QLatin1String("EXT1"),
+              "dedicated input follows ANAN-200D override labels");
+        AnanLinkStatsTestAccess::antennaSession(backend, serial);
+        const RadioSettingsScope scope{QStringLiteral("anan"), serial};
+        check(scope.setFeature(QStringLiteral("ReceiveAntenna"), 99, QJsonObject{}), "future antenna schema fixture");
+        check(backend.requestSliceRxAntenna(0, QStringLiteral("ANT1")) == ReceiveDispatch::Unsupported
+              && current == QLatin1String("ANT2") && AnanLinkStatsTestAccess::antenna(backend) == 2,
+              "failed antenna save republishes the prior selection without changing the live bank");
+        AnanLinkStatsTestAccess::setConnected(backend, false);
+    }
     if (restoreChild) {
         AnanBackend backend;
         const RadioSettingsScope radioA(QStringLiteral("anan"), QStringLiteral("G2-A"));

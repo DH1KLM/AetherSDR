@@ -154,6 +154,19 @@ to **ANT1/2/3**, or restoring model filter defaults, clears the dedicated-input
 selection while retaining the saved ANT-bank choice. Older settings default
 to the existing ANT1/2/3 path.
 
+The main panadapter **ANT → RX ANT** selector also offers **ANT1**, **ANT2**
+and **ANT3** when ADC0 uses the antenna bank. It uses the same per-device,
+effective-model and board setting as **ANAN Hardware → Antenna / ALEX →
+Antenna Control → ANT bank**. Changes from either surface update the main
+display. If the choice cannot be saved, the previous selection is restored.
+
+When a dedicated ADC0 input is selected, **RX ANT** shows that input's
+model-specific name; when ADC1 feeds the receiver, it shows **RX2**. These
+fixed active routes do not offer an ANT-bank switch that would leave the
+active receiver unchanged. Choose the dedicated ADC0 input on **Antenna
+Control** with **Apply**, or change the ADC source on **ANAN Front End** and
+reconnect. The hardware page's ANT-bank control remains available for ADC0.
+
 **ALEX HPF bands** is used by the legacy Hermes, Angelia and Orion profiles
 (including ANAN-100/100D/200D). **ALEX BPF bands** is used by Orion MkII
 (including ANAN-7000DLE/8000DLE), Saturn/G2 and G2E profiles. Red Pitaya uses

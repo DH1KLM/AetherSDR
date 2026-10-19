@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <string_view>
 
 namespace AetherSDR::anan {
@@ -78,5 +79,21 @@ inline constexpr std::array<AnanModelInfo, 18> kAnanModels{{
 [[nodiscard]] constexpr int maximumP1RateKsps(AnanModel model) noexcept
 {
     return model == AnanModel::RedPitaya || model == AnanModel::HermesLite2 ? 384 : 192;
+}
+struct ReceiveAntennaSelection {
+    std::array<std::string_view, 3> ports{};
+    std::size_t count = 0;
+    std::string_view current{};
+};
+//DH1KLM: Generic RX antenna controls represent the active source, not an inactive ADC0 bank.
+[[nodiscard]] constexpr ReceiveAntennaSelection receiveAntennaSelection(
+    int numAdcs, int adc, int input, int antenna, const std::array<std::string_view, 4>& names) noexcept
+{
+    if (numAdcs < 1 || numAdcs > 2 || adc < 0 || adc >= numAdcs
+        || input < 0 || input > 3 || antenna < 1 || antenna > 3) { return {}; }
+    if (adc == 1) { return {{{"RX2", {}, {}}}, 1, "RX2"}; }
+    if (input != 0) { return {{{names[input], {}, {}}}, 1, names[input]}; }
+    constexpr std::array<std::string_view, 3> bank{"ANT1", "ANT2", "ANT3"};
+    return {bank, bank.size(), bank[antenna - 1]};
 }
 } // namespace AetherSDR::anan

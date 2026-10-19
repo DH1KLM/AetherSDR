@@ -1662,6 +1662,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             m_pendingParams.bypassAdc1Filters = config->bypassAdc1;
             QMetaObject::invokeMethod(m_client, "setHardwareFilters", Qt::QueuedConnection,
                                       Q_ARG(QVariantMap, options));
+            emitSliceState();
         }
         emit extensionResult(requestId, hardwareFilterStatus());
         return;
@@ -1677,27 +1678,14 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         return;
     }
     if (ns == QLatin1String("anan") && verb == QLatin1String("rx-antenna.set")) {
-        if (!m_connected || !m_client || m_radioSerial.isEmpty() || !m_discoveryInfoReceived) {
-            emit extensionError(requestId, QStringLiteral("Connect a validated ANAN before changing its RX antenna"));
-            return;
-        }
         bool ok = false;
         const int antenna = arg.toInt(&ok);
         if (!ok || antenna < 1 || antenna > 3) {
             emit extensionError(requestId, QStringLiteral("RX antenna must be 1 (ANT1), 2 (ANT2), or 3 (ANT3)"));
             return;
         }
-        if (!AnanSettings::setRadioRxAntenna(m_radioSerial,
-                static_cast<int>(m_pendingParams.model), m_discoveredBoardId, antenna)) {
-            emit extensionError(requestId, QStringLiteral("RX antenna was not changed: device settings could not be saved"));
-            return;
-        }
-        m_rxAntenna = antenna;
-        m_pendingParams.rxAntenna = antenna;
-        if (m_client && m_connected) {
-            QMetaObject::invokeMethod(m_client, "setRxAntenna", Qt::QueuedConnection,
-                                      Q_ARG(int, antenna));
-        }
+        const QString error = applyReceiveAntenna(antenna);
+        if (!error.isEmpty()) { emit extensionError(requestId, error); return; }
         if (requestId != 0) {
             emit extensionResult(requestId, QVariantMap{
                 {QStringLiteral("antenna"), m_rxAntenna},
@@ -1949,7 +1937,68 @@ void AnanBackend::emitSliceState()
     // panId equality. Hl2Backend::emitSliceState() sets this every time for
     // the same reason.
     d.panId = kPanId;
+    const auto antenna = activeReceiveAntenna();
+    QStringList ports;
+    for (std::size_t n = 0; n < antenna.count; ++n) {
+        ports.append(QString::fromLatin1(antenna.ports[n].data(), static_cast<int>(antenna.ports[n].size())));
+    }
+    const QString current = QString::fromLatin1(antenna.current.data(), static_cast<int>(antenna.current.size()));
+    if (!ports.isEmpty()) {
+        d.rxAntennaList = ports;
+        d.rxAntenna = current;
+    }
+    const quint64 generation = m_connectGeneration;
     emit sliceChanged(kSliceId, d);
+    if (!ports.isEmpty() && m_connected && generation == m_connectGeneration) {
+        emit panAntennaListChanged(kPanId, ports);
+        if (m_connected && generation == m_connectGeneration) { emit panRxAntennaChanged(kPanId, current); }
+    }
+}
+
+ReceiveAntennaSelection AnanBackend::activeReceiveAntenna() const
+{
+    if (!m_connected || !m_discoveryInfoReceived) { return {}; }
+    const auto profile = receiveProfile(m_discoveredBoardId, m_pendingParams.model, m_pendingParams.overrideDetection);
+    if (!profile) { return {}; }
+    return receiveAntennaSelection(profile->numAdcs, m_pendingParams.ddc0AdcIndex,
+        m_pendingParams.filters ? m_pendingParams.filters->rxOnlyInput : 0, m_rxAntenna,
+        receiveInputNames(m_pendingParams.model, m_discoveredBoardId));
+}
+
+QString AnanBackend::applyReceiveAntenna(int antenna)
+{
+    if (!m_connected || !m_client || m_radioSerial.isEmpty() || !m_discoveryInfoReceived) {
+        return QStringLiteral("Connect a validated ANAN before changing its RX antenna");
+    }
+    if (antenna < 1 || antenna > 3) { return QStringLiteral("RX antenna must be ANT1, ANT2 or ANT3"); }
+    if (!AnanSettings::setRadioRxAntenna(m_radioSerial,
+            static_cast<int>(m_pendingParams.model), m_discoveredBoardId, antenna)) {
+        return QStringLiteral("RX antenna was not changed: device settings could not be saved");
+    }
+    m_rxAntenna = antenna;
+    m_pendingParams.rxAntenna = antenna;
+    QMetaObject::invokeMethod(m_client, "setRxAntenna", Qt::QueuedConnection, Q_ARG(int, antenna));
+    emitSliceState();
+    return {};
+}
+
+ReceiveDispatch AnanBackend::requestSliceRxAntenna(int sliceId, const QString& antenna)
+{
+    const auto route = activeReceiveAntenna();
+    if (sliceId == kSliceId && route.count == 3) {
+        for (int n = 0; n < 3; ++n) {
+            if (antenna == QString::fromLatin1(route.ports[n].data(), static_cast<int>(route.ports[n].size()))) {
+                if (applyReceiveAntenna(n + 1).isEmpty()) { return ReceiveDispatch::Dispatched; }
+                break;
+            }
+        }
+    } else if (sliceId == kSliceId && route.count == 1
+               && antenna == QString::fromLatin1(route.current.data(), static_cast<int>(route.current.size()))) {
+        return ReceiveDispatch::LocalOnly;
+    }
+    // Restore an optimistic widget selection after a refused or unsaved request.
+    if (m_connected) { emitSliceState(); }
+    return ReceiveDispatch::Unsupported;
 }
 
 void AnanBackend::emitPanState()
