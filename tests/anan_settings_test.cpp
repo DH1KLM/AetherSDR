@@ -263,7 +263,7 @@ int main(int argc, char** argv)
         check(AnanSettings::setHardwareFilters(serial,7,5,legacy), "upgrade old filter document atomically");
         int version = 0;
         scope.featureExact(QStringLiteral("HardwareFilters"), &version);
-        check(version == 4, "independent ADC1 limits use schema 4");
+        check(version == 5, "hardware filters use schema 5 with RX input selection");
         auto rows = options.value(QStringLiteral("receiveAdc1")).toList();
         rows[2] = QVariantMap{{QStringLiteral("lowHz"), 1000000}, {QStringLiteral("highHz"), 6500000}};
         options.insert(QStringLiteral("receiveAdc1"),rows);
@@ -366,6 +366,28 @@ int main(int argc, char** argv)
         check(!AnanSettings::setRadioRxAntenna(a,7,5,2)
               && scope.featureExact(QStringLiteral("ReceiveAntenna")).value(QStringLiteral("future")).toBool(),
               "future antenna settings are not overwritten");
+    }
+    {
+        const QString serial = QStringLiteral("RX-INPUT-MAC");
+        auto config = defaultFilterConfig(true);
+        config.rxOnlyInput = 2;
+        check(AnanSettings::setHardwareFilters(serial,7,5,filterOptions(config)), "save RX-only input per device/model");
+        const auto saved = parseFilterOptions(AnanSettings::hardwareFilters(serial,7,5));
+        check(saved && saved->rxOnlyInput == 2 && AnanSettings::hardwareFilters(serial,9,5).isEmpty()
+              && AnanSettings::hardwareFilters(QStringLiteral("OTHER-RX-INPUT-MAC"),7,5).isEmpty(),
+              "RX input persists without crossing device/model scopes");
+        auto legacy = filterOptions(config);
+        legacy.remove(QStringLiteral("rxOnlyInput"));
+        check(parseFilterOptions(legacy)->rxOnlyInput == 0, "old filter documents retain ANT bank input");
+        for (const QVariant& invalid : {QVariant(-1), QVariant(4), QVariant(1.5), QVariant(true),
+                QVariant(QStringLiteral("2")), QVariant(QStringLiteral("bad"))}) {
+            auto data = filterOptions(config);
+            data.insert(QStringLiteral("rxOnlyInput"),invalid);
+            check(!parseFilterOptions(data) && !AnanSettings::setHardwareFilters(serial,7,5,data),
+                  "malformed RX input cannot overwrite saved route");
+        }
+        check(parseFilterOptions(AnanSettings::hardwareFilters(serial,7,5))->rxOnlyInput == 2,
+              "refused RX input leaves saved selection unchanged");
     }
     // The rate list a setup page offers. It exists on this header because a
     // page above the radio seam may not include the protocol header that owns

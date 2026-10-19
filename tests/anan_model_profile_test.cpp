@@ -64,6 +64,58 @@ static void antennaIsolation(const ReceiveProfile& profile, bool supportsP1)
         }
     }
 }
+//DH1KLM: Thetis network.h bits 8..11/14 and networkproto1.c bank-0 C3.
+static void receiveInputIsolation(const ReceiveProfile& profile, bool supportsP1)
+{
+    const bool mkII = profile.filterKind == ReceiveFilterKind::MkIIBpf;
+    const std::array<unsigned, 4> alexBits = mkII
+        ? std::array<unsigned, 4>{0, 0x0c00, 0x4200, 0x4100}
+        : std::array<unsigned, 4>{0, 0x0c00, 0x0a00, 0x0900};
+    const std::array<unsigned, 4> c3Bits = mkII
+        ? std::array<unsigned, 4>{0, 0xa0, 0x41, 0x61}
+        : std::array<unsigned, 4>{0, 0xa0, 0xc0, 0xe0};
+    auto filters = defaultFilterConfig(mkII);
+    filters.ocEnabled = true;
+    filters.ocReceive[0] = {0,61'440'000,0x55};
+    const std::array<std::uint32_t, 1> words{phaseWord(14'200'000)};
+    const auto packet = [&] {
+        return buildHighPriority(true, words, false, false, 17, 23, 2,
+            profile.firstDdcIndex, profile.selectReceiveLpf, profile.filterKind,
+            profile.numAdcs, &filters);
+    };
+    const auto original = packet();
+    p1::ReceiveConfig config;
+    config.numAdcs = profile.numAdcs;
+    config.adcIndex = profile.numAdcs - 1;
+    config.antenna = 2;
+    config.dither = config.random = true;
+    config.rxOcMask = 0x55;
+    config.mkIIBpf = mkII;
+    const auto general = p1::receiveControl(0, config);
+    for (int input = 0; input <= 3; ++input) {
+        filters.rxOnlyInput = input;
+        auto actual = packet();
+        check((actual[1434] & 0x4fu) == (alexBits[input] >> 8), "P2 RX input and RX_OUT/master exact bits");
+        actual[1434] &= ~0x4fu;
+        check(actual == original, "P2 input preserves ANT relays, ADC1, filters, OC, tuning and PTT");
+        if (!supportsP1) { continue; }
+        config.rxOnlyInput = input;
+        auto control = p1::receiveControl(0, config);
+        check(control && ((*control)[3] & 0xe1u) == c3Bits[input], "P1 RX input and RX_OUT/master exact C3 bits");
+        (*control)[3] &= ~0xe1u;
+        check(control == general, "P1 input preserves dither, random, OC and antenna bank");
+        for (int address = 1; address <= 0x26; ++address) {
+            const auto changed = p1::receiveControl(address, config);
+            config.rxOnlyInput = 0;
+            check(changed == p1::receiveControl(address, config), "P1 input changes only the general control bank");
+            config.rxOnlyInput = input;
+        }
+    }
+    filters.rxOnlyInput = 0;
+    check(packet() == original, "return to ANT bank clears dedicated-input relays");
+    config.rxOnlyInput = 4;
+    check(!p1::receiveControl(0, config), "invalid P1 receive input refused");
+}
 int main()
 {
     check(kAnanModels.size() == 18, "all 17 Thetis logical IDs plus automatic");
@@ -92,7 +144,10 @@ int main()
             if (entry.model == AnanModel::Automatic || !receiveProfile(entry.nativeBoardId)) { continue; }
             const auto actual = receiveProfile(board, entry.model, true);
             const auto wanted = receiveProfile(entry.nativeBoardId, entry.model);
-            if (actual) { antennaIsolation(*actual, entry.nativeBoardId != 10); }
+            if (actual) {
+                antennaIsolation(*actual, entry.nativeBoardId != 10);
+                receiveInputIsolation(*actual, entry.nativeBoardId != 10);
+            }
             check(actual && wanted && actual->numAdcs == wanted->numAdcs
                   && actual->firstDdcIndex == wanted->firstDdcIndex
                   && actual->filterKind == wanted->filterKind
@@ -119,6 +174,16 @@ int main()
         check(rp && rp->numAdcs == 2 && rp->firstDdcIndex == 2
             && rp->filterKind == ReceiveFilterKind::LegacyHpf, "Red Pitaya P2 overrides shared discovery identity");
     }
+    check(receiveInputNames(AnanModel::Hermes,1)[1] == "RX1"
+          && receiveInputNames(AnanModel::Anan100,1)[1] == "EXT2"
+          && receiveInputNames(AnanModel::Anan200D,5)[1] == "EXT2"
+          && receiveInputNames(AnanModel::RedPitaya,1)[1] == "BYPASS"
+          && receiveInputNames(AnanModel::Anan7000,5)[1] == "BYPASS",
+          "connector labels follow the mapped model rather than physical board");
+    check(receiveInputNames(AnanModel::Automatic,1)[1] == "RX1"
+          && receiveInputNames(AnanModel::Automatic,4)[1] == "EXT2"
+          && receiveInputNames(AnanModel::Automatic,5)[1] == "BYPASS",
+          "automatic connector labels follow the board family");
     p1::ReceiveConfig config;
     check(!p1::receiveControl(0x26, config), "Anvelina OC bank excluded by default");
     config.anvelinaExtraOc = true;

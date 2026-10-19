@@ -133,6 +133,27 @@ An explicit model override determines the filter configuration; otherwise the
 selected compatible model or physical-board profile is used. FlexRadio, Icom
 and HL2 retain their own hardware settings.
 
+**Antenna Control → ADC0 input** selects the ANT1/2/3 path or a dedicated
+receive input. Select **Apply** to save and activate it for this MAC, effective
+model and physical board. Names follow the selected model, including DIY
+overrides:
+
+| Effective model | Additional receive inputs |
+|---|---|
+| Hermes, ANAN-10/10E | RX1, RX2, XVTR RX |
+| ANAN-100/100B/100D/200D, generic Orion MkII | EXT2, EXT1, XVTR RX |
+| ANAN-7000/8000, G2/G2 1K/G2E, Anvelina Pro 3, Red Pitaya | BYPASS, EXT1, XVTR RX |
+
+**ANT bank** still selects ANT1/2/3 immediately. The active input readout
+changes after the input selection is applied. These settings affect ADC0;
+ADC1 reception continues through its dedicated RX2 input. **BYPASS** here is
+an input route, separate from HPF/BPF filter bypass. **XVTR RX** selects the
+physical receive input only; it does not configure frequency translation or
+transmit. Connector availability depends on the fitted RF hardware. Returning
+to **ANT1/2/3**, or restoring model filter defaults, clears the dedicated-input
+selection while retaining the saved ANT-bank choice. Older settings default
+to the existing ANT1/2/3 path.
+
 **ALEX HPF bands** is used by the legacy Hermes, Angelia and Orion profiles
 (including ANAN-100/100D/200D). **ALEX BPF bands** is used by Orion MkII
 (including ANAN-7000DLE/8000DLE), Saturn/G2 and G2E profiles. Red Pitaya uses

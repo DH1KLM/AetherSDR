@@ -25,6 +25,8 @@ struct ReceiveConfig {
     int adcIndex = 0;
     std::uint32_t frequencyHz = 10'000'000;
     int antenna = 1;
+    int rxOnlyInput = 0;
+    bool mkIIBpf = false;
     std::uint8_t rxOcMask = 0;
     bool dither = false;
     bool random = false;

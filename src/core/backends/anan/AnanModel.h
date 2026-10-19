@@ -57,6 +57,24 @@ inline constexpr std::array<AnanModelInfo, 18> kAnanModels{{
     }
     return info->nativeBoardId == board;
 }
+//DH1KLM: Thetis setup.cs RXAntChk1Name/RXAntChk2Name. Generic Orion MkII
+// uses SetAntBits' EXT wire names; an explicit DIY mapping uses its model.
+[[nodiscard]] constexpr std::array<std::string_view, 4> receiveInputNames(AnanModel model, int board) noexcept
+{
+    if (model == AnanModel::Automatic) {
+        model = board == 1 || board == 2 ? AnanModel::Hermes
+            : board == 3 || board == 4 ? AnanModel::Anan200D : AnanModel::Anan7000;
+    }
+    if (model == AnanModel::Hermes || model == AnanModel::Anan10 || model == AnanModel::Anan10E) {
+        return {"ANT1/2/3", "RX1", "RX2", "XVTR RX"};
+    }
+    if (model == AnanModel::Anan100 || model == AnanModel::Anan100B
+        || model == AnanModel::Anan100D || model == AnanModel::Anan200D
+        || model == AnanModel::OrionMkII) {
+        return {"ANT1/2/3", "EXT2", "EXT1", "XVTR RX"};
+    }
+    return {"ANT1/2/3", "BYPASS", "EXT1", "XVTR RX"};
+}
 [[nodiscard]] constexpr int maximumP1RateKsps(AnanModel model) noexcept
 {
     return model == AnanModel::RedPitaya || model == AnanModel::HermesLite2 ? 384 : 192;
