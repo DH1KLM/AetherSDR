@@ -207,6 +207,27 @@ int main()
                "scenario 5 sanity: 'G' matches a comma-separated 'G,E' field");
     }
 
+    // Regional display envelopes must not leak US fallback edges, nor
+    // expose every mode/licence subdivision as a separate amateur band.
+    {
+        BandPlanManager mgr;
+        mgr.setSegmentsForTest({makeSeg(3.5, 3.6, "E"), makeSeg(3.6, 3.8, "G"),
+                               makeSeg(5.3515, 5.354, ""), makeSeg(5.363, 5.3665, "")});
+        const auto eighty = mgr.amateurBandAt(3.7);
+        expect(eighty && nearlyEqual(eighty->lowMhz, 3.5) && nearlyEqual(eighty->highMhz, 3.8),
+               "regional 80m uses plan edges and ignores licence subdivisions");
+        expect(!mgr.amateurBandAt(3.9) && !mgr.amateurBandAt(14.2),
+               "no US edge or missing-band fallback");
+        const auto sixty = mgr.amateurBandAt(5.357);
+        expect(sixty && nearlyEqual(sixty->lowMhz, 5.3515) && nearlyEqual(sixty->highMhz, 5.3665)
+                   && mgr.amateurBandEnvelopes().size() == 2,
+               "channelized 60m has two outer markers; internal gaps stay in the band-plan strip");
+        mgr.setSegmentsForTest({makeSeg(3.5, 4.0, "")});
+        const auto changed = mgr.amateurBandAt(3.9);
+        expect(changed && nearlyEqual(changed->highMhz, 4.0),
+               "changing plan changes display envelopes without stale cached bounds");
+    }
+
     std::cout << '\n' << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

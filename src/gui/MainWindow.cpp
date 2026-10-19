@@ -5590,7 +5590,8 @@ void MainWindow::buildUI()
         applet->spectrumWidget()->setBandSegmentZoomAvailable(
             bandSegmentZoomAvailable(
                 m_radioModel.isConnected(),
-                m_radioModel.backendCapabilities().panZoomModes.has_value()));
+                m_radioModel.backendCapabilities().panZoomModes.has_value()),
+            m_radioModel.isConnected() && m_radioModel.backendDeclaresExtension(QStringLiteral("anan")));
         // The two capability switches onConnectionStateChanged() applies for
         // the same reason: a pan created after connect would otherwise keep
         // the widget defaults (no edge crop, client EMA on) until the next
@@ -6724,7 +6725,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
             m_radioModel.backendCapabilities().backendPanAveraging.has_value();
         for (auto* applet : m_panStack->allApplets()) {
             if (applet && applet->spectrumWidget()) {
-                applet->spectrumWidget()->setBandSegmentZoomAvailable(zoomAvailable);
+                applet->spectrumWidget()->setBandSegmentZoomAvailable(zoomAvailable,
+                    connected && m_radioModel.backendDeclaresExtension(QStringLiteral("anan")));
                 applet->spectrumWidget()->setPanEdgeTaperEnabled(edgeTaperEnabled);
                 applet->spectrumWidget()->setClientFftSmoothingEnabled(
                     AetherSDR::clientFftSmoothingEnabled(connected, backendAverages));

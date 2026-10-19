@@ -421,6 +421,7 @@ private:
     double m_ddcCenterHz = 0.0;
     double m_lastSentCenterHz = -1.0;
     bool m_ctun = false;
+    std::optional<double> m_pendingBandCenterHz; // applied only after the requested rate settles
     // What applyRestoredState() accepted, held for connectRadio(); kept apart
     // from the live m_sliceFreqHz/m_mode. Zero/empty: nothing restored.
     double m_restoredFreqHz = 0.0;

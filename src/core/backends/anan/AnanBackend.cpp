@@ -290,6 +290,7 @@ AnanBackend::AnanBackend(QObject* parent)
     connect(m_client, &AnanClient::linkDown, this, [this] {
         m_connected = false;
         if (!m_rateChanging) {
+            m_pendingBandCenterHz.reset();
             m_droopCalibrator.stop(false);
             m_droopCalibrator.setLandedRate(0);
             emit disconnected();
@@ -789,6 +790,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     m_ddcCenterHz = frequencyHz;
     m_lastSentCenterHz = -1.0;
     m_ctun = false;
+    m_pendingBandCenterHz.reset();
     // Before m_pendingDspConfig is built below, which reads m_mode. No restored
     // mode means the default, never the previous radio's m_mode. The passband
     // resets only on a mode change, as in setSliceMode().
@@ -940,6 +942,7 @@ void AnanBackend::startP2ClientSession(quint64 generation)
 
 void AnanBackend::disconnectRadio()
 {
+    m_pendingBandCenterHz.reset();
     retirePcmStreams();
     m_droopCalibrator.stop(false);
     m_droopCalibrator.setLandedRate(0);
@@ -1010,6 +1013,7 @@ void AnanBackend::setSliceFrequency(int sliceId, double hz)
         emitSliceState();
         return;
     }
+    m_pendingBandCenterHz.reset(); // newer operator tuning supersedes a pending band view
     m_sliceFreqHz = hz;
     // Digit readout / slice model: unthrottled. Cheap (no radio round trip,
     // no pan re-layout), and it is what makes a drag gesture feel like it is
@@ -1194,6 +1198,7 @@ void AnanBackend::setPanCenter(const QString& panId, double hz, PanCenterIntent 
     Q_UNUSED(panId);   // one pan in this phase
     if (!m_ctun) { setSliceFrequency(kSliceId, hz); return; }
     if (intent == PanCenterIntent::Drag && std::isfinite(hz) && hz >= 0 && hz <= 61'440'000) {
+        m_pendingBandCenterHz.reset();
         m_ddcCenterHz = hz;
         scheduleTuneApply();
     } else { emitPanState(); }
@@ -1233,6 +1238,7 @@ void AnanBackend::setPanBandwidth(const QString& panId, double hz)
     if (!std::isfinite(hz) || hz <= 0.0 || !m_connected) {
         return;
     }
+    m_pendingBandCenterHz.reset(); // a manual span request supersedes band centering
     //DH1KLM: Clamp in floating point before narrowing; oversized finite
     // spans still select the widest supported rate without integer overflow.
     const int requestedKsps = static_cast<int>(std::min(hz / 1000.0 + 0.5,
@@ -1324,6 +1330,7 @@ void AnanBackend::finishRateChange(quint64 generation, bool ok, const QString& e
         return;   // superseded by a newer rate change/connect/disconnect
 
     if (!ok) {
+        m_pendingBandCenterHz.reset();
         // Roll the reported rate back to the one still running BEFORE
         // emitting pan state. AnanDroopCalibrator infers "the rate landed"
         // from pan bandwidth reaching its target; told the failed rate had
@@ -1381,6 +1388,10 @@ void AnanBackend::finishRateChange(quint64 generation, bool ok, const QString& e
         if (generation != m_connectGeneration)
             return;
         m_rateChanging = false;
+        if (m_pendingBandCenterHz && m_pendingBandwidthKsps == 0) {
+            m_ddcCenterHz = *m_pendingBandCenterHz;
+            m_pendingBandCenterHz.reset();
+        }
         applyTuneToRadioAndPan();
         QMetaObject::invokeMethod(m_dsp, "setAudioMuted", Qt::QueuedConnection,
                                   Q_ARG(bool, false));
@@ -1691,6 +1702,36 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && verb == QLatin1String("band.center")) {
+        const auto fields = arg.toMap();
+        bool lowOk = false, highOk = false;
+        const double low = fields.value(QStringLiteral("lowHz")).toDouble(&lowOk);
+        const double high = fields.value(QStringLiteral("highHz")).toDouble(&highOk);
+        const auto view = lowOk && highOk ? receiveBandView(low, high, m_sliceFreqHz,
+            nearestSessionRateKsps(kDdc0RatesKsps.back()), m_filterLowHz, m_filterHighHz, cwBfoHz())
+            : std::nullopt;
+        if (!m_connected || !m_discoveryInfoReceived || m_radioSerial.isEmpty()
+            || m_droopCalibrator.isRunning() || !view) {
+            emit extensionError(requestId, QStringLiteral("Band view requires a validated ANAN, a regional band containing RX, and no active droop sweep."));
+            return;
+        }
+        m_tuneThrottleTimer->stop();
+        m_tunePendingApply = false;
+        m_ctun = true;
+        setPanBandwidth(kPanId, view->rateKsps * 1000.0);
+        if (m_rateChanging) {
+            // Do not clamp the new centre against the old narrow sample rate.
+            m_pendingBandCenterHz = view->centerHz;
+        } else {
+            m_ddcCenterHz = view->centerHz;
+            applyTuneToRadioAndPan();
+        }
+        emit extensionResult(requestId, QVariantMap{
+            {QStringLiteral("rateKsps"), view->rateKsps},
+            {QStringLiteral("wholeBand"), view->wholeBand},
+            {QStringLiteral("pending"), m_rateChanging}});
+        return;
+    }
     if (ns == QLatin1String("anan") && verb == QLatin1String("ctun.set")) {
         if (!m_connected || !m_discoveryInfoReceived || m_radioSerial.isEmpty()
             || arg.metaType().id() != QMetaType::Bool
@@ -1700,6 +1741,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         }
         m_tuneThrottleTimer->stop();
         m_tunePendingApply = false;
+        m_pendingBandCenterHz.reset();
         m_ctun = arg.toBool();
         applyTuneToRadioAndPan();
         emitSliceState();

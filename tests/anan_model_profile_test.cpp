@@ -242,6 +242,51 @@ static void frontEndAttenuation()
     check(!p1::receiveControl(0, invalid), "P1 refuses classic ATT on repurposed MkII bits");
 }
 
+static void bandViews()
+{
+    for (const int maximum : {192, 384, 1536}) {
+        const auto view = receiveBandView(14'000'000, 14'350'000, 14'200'000, maximum, 100, 2900, 0);
+        check(view && view->rateKsps == (maximum < 768 ? maximum : 768),
+              "20m chooses a ceiling rate including display margin, within the session limit");
+        // 384 * .90 = 345.6 kHz, so 350 kHz needs the next P2 rate.
+        check(view && view->wholeBand == (maximum >= 384),
+              "whole-band flag reflects the usable capture, including native RP 384");
+        const auto tuning = receiveTuning(true, view->centerHz, 14'200'000,
+            view->rateKsps * 1000.0, 100, 2900, 0);
+        check(tuning && tuning->centerHz == view->centerHz,
+              "band view retains the receive passband without CTUN recentering");
+    }
+    const auto wideFilter = receiveBandView(10'100'000, 10'150'000, 10'125'000,
+        1536, -100'000, 100'000, 0);
+    check(wideFilter && wideFilter->rateKsps == 384 && wideFilter->wholeBand,
+          "rate selection includes a passband wider than the regional band");
+    check(!receiveBandView(10'100'000, 10'150'000, 10'125'000, 192, -100'000, 100'000, 0),
+          "refuse a filter wider than every supported usable capture");
+    const auto narrow = receiveBandView(5'351'500, 5'366'500, 5'357'000, 1536, 100, 2900, 0);
+    check(narrow && narrow->rateKsps == 48 && narrow->wholeBand,
+          "regional 60m envelope fits 48 ksps");
+    const auto eighty = receiveBandView(3'500'000, 3'800'000, 3'700'000, 384, -2900, -100, 0);
+    check(eighty && eighty->rateKsps == 384 && eighty->wholeBand,
+          "regional 80m fits native Red Pitaya P1 384 ksps");
+    for (const double rx : {50'000'000.0, 53'999'000.0}) {
+        for (const double bfo : {-600.0, 0.0, 600.0}) {
+            const auto wide = receiveBandView(50'000'000, 54'000'000, rx, 1536, -2900, 2900, bfo);
+            check(wide && wide->rateKsps == 1536 && !wide->wholeBand,
+                  "6m uses maximum span and declares partial coverage");
+            const auto tuning = receiveTuning(true, wide->centerHz, rx, wide->rateKsps * 1000.0,
+                -2900, 2900, bfo);
+            check(tuning && std::abs(tuning->centerHz - wide->centerHz) < 0.001,
+                  "wide-band edge clamping preserves RX, full filter and CW shift");
+        }
+    }
+    check(!receiveBandView(14e6, 14.35e6, 7.1e6, 1536, 100, 2900, 0)
+          && !receiveBandView(14e6, 14e6, 14e6, 1536, 100, 2900, 0)
+          && !receiveBandView(14e6, 14.35e6, 14.2e6, 47, 100, 2900, 0)
+          && !receiveBandView(14e6, INFINITY, 14.2e6, 1536, 100, 2900, 0)
+          && !receiveBandView(14e6, 14.35e6, NAN, 1536, 100, 2900, 0),
+          "band view refuses missing allocation, invalid bounds, rate and nonfinite input");
+}
+
 static void ctunTuning()
 {
     constexpr double center = 14'200'000;
@@ -289,6 +334,7 @@ static void ctunTuning()
 int main()
 {
     ctunTuning();
+    bandViews();
     frontEndAttenuation();
     check(kAnanModels.size() == 18, "all 17 Thetis logical IDs plus automatic");
     for (int id = -1; id <= 16; ++id) {
