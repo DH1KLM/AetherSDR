@@ -390,6 +390,7 @@ new connection. It is separate from the filter tables' **Apply** button.
 
 With CTUN on, tuning within the captured band moves the receive marker and
 the DSP tuning offset while the hardware centre and spectrum stay fixed.
+The audio follows the RX marker independently of the hardware centre.
 The usable window is 92% of the sampled bandwidth, with room for the receive
 filter and CW offset. Tuning beyond this window recentres the capture at the
 new receive frequency. Narrowing the sample rate also recentres if the

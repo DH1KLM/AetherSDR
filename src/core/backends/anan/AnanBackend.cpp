@@ -1000,7 +1000,7 @@ void AnanBackend::pushModeFilterShift()
     QMetaObject::invokeMethod(m_dsp, "setFilter", Qt::QueuedConnection,
         Q_ARG(double, static_cast<double>(m_filterLowHz) + bfo),
         Q_ARG(double, static_cast<double>(m_filterHighHz) + bfo));
-    pushReceiveShift(m_ddcCenterHz - m_sliceFreqHz - bfo);
+    pushReceiveShift(m_sliceFreqHz - m_ddcCenterHz - bfo);
 }
 
 void AnanBackend::setSliceFrequency(int sliceId, double hz)

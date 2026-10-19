@@ -67,7 +67,7 @@ struct ReceiveTuning {
     if (offset + lowerMargin < -half || offset + upperMargin > half) {
         centerHz = sliceHz;
     }
-    return ReceiveTuning{centerHz, centerHz - sliceHz - bfoHz};
+    return ReceiveTuning{centerHz, sliceHz - centerHz - bfoHz};
 }
 struct AnanModelInfo {
     AnanModel model;
