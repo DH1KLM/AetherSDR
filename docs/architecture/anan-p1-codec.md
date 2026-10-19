@@ -97,7 +97,13 @@ timer accumulates fractional 126-frame packet credit, bounded to four packets
 per tick after a stall. Speaker playout primes 4096 samples and consumes only
 whole packets so DSP block tails are retained rather than padded every block.
 The audio queue retains at most 8192 samples. A refused
-send terminates the session and does not inflate transmitted-byte counters.
+periodic send terminates the session and does not inflate transmitted-byte counters.
+Live rate changes build a candidate general-bank packet and commit the new
+control rate only after the local transport accepts it. A refused rate write
+returns failure, retains the previous rate in periodic controls and remains
+retryable. Repeated requests for the same rate still send a packet. Transport
+acceptance is not firmware acknowledgement; the existing backend rate retries
+remain in use.
 
 The dispatcher forwards only the selected transport's signals. P2 remains the
 default when discovery protocol is unspecified. Discovery emits one row per MAC
@@ -131,7 +137,8 @@ swap, signed IQ, malformed packets, and truncation at every EP6 length.
 `anan_p1_transport_test` injects datagrams and captures sends without a socket
 or simulated radio. It covers each normalized board/layout, sender validation,
 busy/profile rejection before any control, slot-0 RX1, bounded pacing/queues,
-failed writes, live rate refusal, duplicate discovery, sequence wrap/gaps and
+failed writes, live rate refusal and retry across every implemented P1 logical
+model (including Red Pitaya's 384 ksps), duplicate discovery, sequence wrap/gaps and
 inactive-transport suppression. Existing P2 packet/profile/audio/telemetry tests
 remain regression checks.
 
