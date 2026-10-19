@@ -85,7 +85,7 @@ For a crash, also attach the crash report your operating system kept: `coredumpc
 
 | Label | Category | Covers |
 |---|---|---|
-| **Discovery** | `aether.discovery` | UDP radio discovery broadcasts, including Hermes-Lite 2 interfaces that cannot be used and sweeps no HL2 answered |
+| **Discovery** | `aether.discovery` | UDP radio discovery broadcasts, including ANAN P1/P2 scan starts, found/updated/lost radios and send failures; Hermes-Lite 2 interfaces that cannot be used and sweeps no HL2 answered |
 | **Connection / Commands** | `aether.connection` | Raw TCP command channel: commands sent, responses, socket state |
 | **Protocol / Status** | `aether.protocol` | Parsed SmartSDR protocol handling and status updates |
 | **Audio** | `aether.audio` | RX/TX audio, device negotiation, volume |
@@ -119,12 +119,24 @@ For a crash, also attach the crash report your operating system kept: `coredumpc
 | **QRZ Lookup** | `aether.qrz` | QRZ.com lookups and cache |
 | **AetherClock** | `aether.clock` | WWV/WWVB time-signal decoder |
 | **Hermes-Lite 2** / **Hermes-Lite 2 TX** | `aether.hl2`, `aether.hl2.tx` | HL2 backend; the TX category is high-rate transmit telemetry |
-| **ANAN Protocol 2** | `aether.anan.p2` | ANAN-G2 Protocol 2 session |
+| **ANAN Protocol 1** / **ANAN Protocol 2** | `aether.anan.p1`, `aether.anan.p2` | Validated board/profile, ADC and rate; first RX IQ; P1 failures and P2 timeout phase. P2 also includes sequence gaps and speaker FIFO debug reports. |
+| **ANAN RX DSP** / **ANAN Panadapter** | `aether.anan.rxdsp`, `aether.anan.pan` | DSP warnings and optional FFT configuration details |
+| **ANAN Droop Defaults** / **ANAN Droop Calibration** | `aether.anan.droopdefaults`, `aether.anan.droopcal` | Droop-table compatibility and calibration warnings |
 | **Icom Session / Streams / CI-V / Scope / Link / Credentials** | `aether.icom.*` | Networked Icom backend; **Icom CI-V** logs every frame and is high-rate |
 | **BNR (NVIDIA AFX)** | `aether.nvafx` | BNR runtime download and install failures, and filter load errors |
 | **System Info** | `aether.sysinfo` | Startup hardware inventory: OS, CPU and SIMD features, RAM, GPU |
 
 **On by default:** Discovery, Connection / Commands, Protocol / Status, Audio Summary, KiwiSDR and System Info. Everything else is off until you turn it on. A category that is off still records its warnings and errors, so failures such as External Services and BNR download errors always reach the log. The [Log Categories](./generated/log-categories.md) reference lists every category with the description the app shows.
+
+In **Tools → Network Diagnostics... → Application Logs**, category checkboxes
+filter lines already recorded in the log. They do not enable Debug output.
+Enable detailed categories in **Help → Support & Diagnostics...** before
+reproducing the issue. P1/P2 validation and first-IQ summaries are low-rate
+Info events; enabling their Debug categories is not required for those lines.
+ANAN Discovery uses **Discovery**, separately from its connected P1/P2 session.
+The Flex UDP 4992 listener and a “no Hermes-Lite 2 answered” line do not report
+whether an ANAN scan succeeded. Reconnect or run a discovery scan to record
+new lifecycle events; opening the viewer does not reconstruct old events.
 
 ### Log files
 

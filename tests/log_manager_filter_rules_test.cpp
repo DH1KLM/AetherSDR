@@ -64,6 +64,22 @@ int main(int argc, char** argv)
 
     LogManager& lm = LogManager::instance();
     lm.setAllEnabled(false);
+    for (const QString id : {QStringLiteral("aether.anan.p1"), QStringLiteral("aether.anan.p2"),
+             QStringLiteral("aether.anan.rxdsp"), QStringLiteral("aether.anan.pan"),
+             QStringLiteral("aether.anan.droopdefaults"), QStringLiteral("aether.anan.droopcal")}) {
+        bool registered = false;
+        for (const auto& category : lm.categories()) { registered |= category.id == id; }
+        report(qPrintable(id + QStringLiteral(" is selectable")), registered);
+        const QByteArray name = id.toLatin1();
+        QLoggingCategory probe(name.constData(), QtWarningMsg);
+        lm.setEnabled(id, true);
+        report(qPrintable(id + QStringLiteral(" debug/info can be enabled")),
+               probe.isDebugEnabled() && probe.isInfoEnabled());
+        lm.setEnabled(id, false);
+        report(qPrintable(id + QStringLiteral(" debug disabled; warning retained")),
+               !probe.isDebugEnabled() && probe.isWarningEnabled());
+    }
+
 
     // Baseline: category disabled — Debug and Info both gated, Warning passes.
     report("disabled: debug off", !lcCat().isDebugEnabled());

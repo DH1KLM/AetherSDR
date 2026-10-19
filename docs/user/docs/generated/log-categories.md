@@ -48,7 +48,12 @@ These are the logging categories listed in **Help → Support & Diagnostics...**
 | AX.25 Link | `aether.ax25.link` | Connected-mode data link: session open/close, measured round-trip vs configured T1, retransmits, idle-link polls |
 | Waveform | `aether.waveform` | Docker waveform image install upload and local waveform helper lifecycle |
 | KiwiSDR | `aether.kiwisdr` | KiwiSDR remote RX antennas: connect, handshake, audio/waterfall negotiation, reconnect, profile lifecycle |
-| ANAN Protocol 2 | `aether.anan.p2` | ANAN/Saturn Protocol 2 wire session: DDC sequence gaps, speaker-audio FIFO level and underflow reports, unexpected sender ports |
+| ANAN Protocol 1 | `aether.anan.p1` | P1 validated board/profile, first RX IQ, session stop and connection failures |
+| ANAN Protocol 2 | `aether.anan.p2` | P2 validated board/profile and physical DDC, first RX IQ, timeout phase, sequence gaps and speaker FIFO reports |
+| ANAN RX DSP | `aether.anan.rxdsp` | Receive DSP rebuild, blanker and channel warnings |
+| ANAN Panadapter | `aether.anan.pan` | Panadapter FFT configuration (verbose Info when enabled) |
+| ANAN Droop Defaults | `aether.anan.droopdefaults` | Shipped droop-table compatibility warnings |
+| ANAN Droop Calibration | `aether.anan.droopcal` | Droop calibration refusal and aborted sweeps |
 | KiwiSDR Audio/DSP | `aether.kiwisdr.audio` | Verbose KiwiSDR receive audio: frame decode, resampler, jitter/FIFO under/overrun, mixing (high-rate; off by default) |
 | Automation Bridge | `aether.automation` | Agent-drivable test bridge (#3646): QLocalServer verbs, widget snapshots, captures (AETHER\_AUTOMATION only) |
 | External Services | `aether.network` | Failed requests to external services (update check, QRZ, maps, propagation, radar), once per service, host, error and HTTP status, with TLS errors and the TLS backend in use; URLs are logged as scheme://host only |

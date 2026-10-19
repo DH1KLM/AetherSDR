@@ -1,6 +1,8 @@
 #include "core/backends/anan/AnanClient.h"
 #include "core/backends/anan/AnanFilterOptions.h"
 
+#include <QStringList>
+#include <QLoggingCategory>
 #include <QCoreApplication>
 #include <QTimer>
 #include <algorithm>
@@ -10,6 +12,16 @@
 #include <limits>
 
 using namespace AetherSDR::anan;
+namespace {
+QStringList sessionLog;
+void captureSessionLog(QtMsgType, const QMessageLogContext& context, const QString& message)
+{
+    if (QString::fromLatin1(context.category ? context.category : "") == QLatin1String("aether.anan.p1")) {
+        sessionLog.append(message);
+    }
+}
+}
+
 namespace AetherSDR::anan {
 struct P1ClientTestAccess {
     static bool timeout(P1Client& client) {
@@ -457,6 +469,8 @@ void adc1RoutingAndFilters() {
 }
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
+    QLoggingCategory::setFilterRules(QStringLiteral("aether.*.debug=false"));
+    const auto previousHandler = qInstallMessageHandler(captureSessionLog);
     profilesAndWire(); refusals(); pacingAndErrors(); dispatch(); redPitaya384(); logicalModels();
     liveRateWriteFailure();
     adc1RoutingAndFilters();
@@ -565,5 +579,10 @@ int main(int argc, char** argv) {
               && applied.lowPassBits == 0x10,
               "P1 applies RX 6m LNA bypass and forced 6m LPF in bank-local bits");
     }
+    qInstallMessageHandler(previousHandler);
+    check(sessionLog.filter(QStringLiteral("validated board")).size() > 0
+          && sessionLog.filter(QStringLiteral("RX IQ started")).size() > 0
+          && sessionLog.filter(QStringLiteral("connection failed")).size() > 0,
+          "P1 application logs distinguish validated discovery, first IQ and failures");
     std::cout << "ANAN P1 transport checks passed\n";
 }

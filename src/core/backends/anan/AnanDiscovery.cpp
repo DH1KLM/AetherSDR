@@ -1,6 +1,7 @@
 #include "core/backends/anan/AnanDiscovery.h"
 
 #include "core/AppSettings.h"
+#include "core/LogManager.h"
 #include "core/backends/anan/P2Protocol.h"
 #include "core/backends/anan/AnanSettings.h"
 #include "core/backends/anan/AnanDiscoveryPolicy.h"
@@ -151,6 +152,7 @@ void AnanDiscovery::start(int intervalMs)
     if (!m_socket) {
         m_socket = new QUdpSocket(this);
         if (!m_socket->bind(QHostAddress::AnyIPv4, 0)) {
+            qCWarning(lcDiscovery) << "ANAN discovery: UDP bind failed:" << m_socket->errorString();
             m_socket->deleteLater();
             m_socket = nullptr;
             return;   // no socket: stay silent rather than half-running
@@ -158,6 +160,7 @@ void AnanDiscovery::start(int intervalMs)
         enableBroadcast(*m_socket);
         connect(m_socket, &QUdpSocket::readyRead, this, &AnanDiscovery::onReadyRead);
     }
+    qCInfo(lcDiscovery) << "ANAN discovery: scanning P1 and P2 on UDP 1024; local port" << m_socket->localPort();
     m_timer->start(intervalMs);
     sweepNow();   // don't make the operator wait a full interval for the first sweep
 }
@@ -183,12 +186,18 @@ void AnanDiscovery::sweepNow()
     // This reaches a second NIC on a distinct subnet; two NICs on the same
     // subnet still follow the preferred route rather than each being swept.
     // Replies return to this socket and are de-duplicated by MAC in onReadyRead().
-    for (const QHostAddress& target : broadcastTargets(liveAddressEntries())) {
-        m_socket->writeDatagram(reinterpret_cast<const char*>(pkt.data()),
-                                static_cast<qint64>(pkt.size()),
-                                target, kRadioPort);
-        m_socket->writeDatagram(reinterpret_cast<const char*>(legacy.data()),
-                                static_cast<qint64>(legacy.size()), target, kRadioPort);
+    const auto targets = broadcastTargets(liveAddressEntries());
+    qCDebug(lcDiscovery) << "ANAN discovery: starting P1/P2 sweep; broadcast targets" << targets.size()
+                         << "known radios" << m_seen.size();
+    for (const QHostAddress& target : targets) {
+        if (m_socket->writeDatagram(reinterpret_cast<const char*>(pkt.data()),
+                static_cast<qint64>(pkt.size()), target, kRadioPort) != static_cast<qint64>(pkt.size())) {
+            qCWarning(lcDiscovery) << "ANAN discovery: P2 probe send failed to" << target.toString() << m_socket->errorString();
+        }
+        if (m_socket->writeDatagram(reinterpret_cast<const char*>(legacy.data()),
+                static_cast<qint64>(legacy.size()), target, kRadioPort) != static_cast<qint64>(legacy.size())) {
+            qCWarning(lcDiscovery) << "ANAN discovery: P1 probe send failed to" << target.toString() << m_socket->errorString();
+        }
     }
 }
 
@@ -201,6 +210,7 @@ void AnanDiscovery::onSweepTimer()
         if (++it.value().missedSweeps > kMissedSweepsBeforeLost) {
             const QString serial = it.key();
             it = m_seen.erase(it);
+            qCInfo(lcDiscovery) << "ANAN discovery: radio aged out" << serial;
             emit radioLost(serial);
         } else {
             ++it;
@@ -254,6 +264,8 @@ void AnanDiscovery::onReadyRead()
 
         auto it = m_seen.find(info.serial);
         if (it == m_seen.end()) {
+            qCInfo(lcDiscovery) << "ANAN discovery: found" << info.serial << info.address.toString()
+                << "P" << info.hpsdrProtocol << "board" << info.boardId << info.model << info.status;
             m_seen.insert(info.serial, Seen{info, 0});
             emit radioDiscovered(info);
         } else {
@@ -279,8 +291,11 @@ void AnanDiscovery::onReadyRead()
                               || prev.effectiveModel != info.effectiveModel
                               || prev.nickname != info.nickname;
             it.value().info = info;
-            if (changed)
+            if (changed) {
+                qCInfo(lcDiscovery) << "ANAN discovery: updated" << info.serial << info.address.toString()
+                    << "P" << info.hpsdrProtocol << "board" << info.boardId << info.model << info.status;
                 emit radioUpdated(info);
+            }
         }
     }
 }

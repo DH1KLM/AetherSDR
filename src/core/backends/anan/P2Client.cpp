@@ -47,6 +47,9 @@ qint64 sendTo(QUdpSocket& s, const std::array<std::uint8_t, N>& buf,
 
 P2Client::P2Client(QObject* parent) : QObject(parent)
 {
+    connect(this, &P2Client::connectionError, this, [](const QString& reason) {
+        qCWarning(lcAnanP2) << "ANAN P2: connection failed:" << reason;
+    });
     m_keepaliveTimer = new QTimer(this);
     m_keepaliveTimer->setInterval(kKeepaliveMs);
     connect(m_keepaliveTimer, &QTimer::timeout, this, &P2Client::onKeepaliveTick);
@@ -167,6 +170,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     //DH1KLM: The resolved DDC list and flags are retained in m_activeDdcs
     // above until Discovery validates the board. No profile-specific packet
     // is emitted in start().
+    qCInfo(lcAnanP2) << "ANAN P2: discovery sent to" << m_host.toString() << "local endpoint" << localEndpoint();
     m_activeConnectTimeoutMs = connectTimeoutMs;
     m_linkCountersTimer->start();
     m_connectTimeoutTimer->start(connectTimeoutMs);
@@ -212,6 +216,7 @@ void P2Client::stop()
     m_generalClock.invalidate();
     if (m_linkUp) {
         m_linkUp = false;
+        qCInfo(lcAnanP2) << "ANAN P2: session stopped";
         emit linkDown();
     }
 }
@@ -518,6 +523,9 @@ void P2Client::onConnectTimeout()
 {
     if (m_linkUp)
         return;
+    qCWarning(lcAnanP2) << "ANAN P2: connection timeout; phase"
+        << (m_discoveryValidated ? "waiting for logical RX0 IQ" : "waiting for valid P2 discovery")
+        << "timeout ms" << m_activeConnectTimeoutMs;
     if (!m_discoveryValidated) {
         emit connectionError(QStringLiteral(
             "ANAN: no valid P2 Discovery reply from the radio within %1 ms; "
@@ -629,6 +637,11 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 }
                 m_swapSpeakerChannels = profile.swapSpeakerChannels;
                 m_discoveryValidated = true;
+                qCInfo(lcAnanP2) << "ANAN P2: validated board" << reply->boardId
+                    << "model" << QString::fromLatin1(ananModelInfo(m_model)->name.data()) << "override" << m_overrideDetection
+                    << "first physical DDC" << m_firstDdcIndex << "ADCs" << m_numAdcs
+                    << "logical RX0 ADC" << (m_activeDdcs.empty() ? -1 : m_activeDdcs.front().adcIndex)
+                    << "rate ksps" << (m_activeDdcs.empty() ? 0 : m_activeDdcs.front().rateKsps);
                 //DH1KLM: Cache only the resolved session profile; never rebuild
                 // retries from an automatic/default model or unvalidated reply.
                 m_generalPacket = buildGeneral(profile.alexEnableMask, profile.disablePa);
@@ -726,6 +739,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
     // whose DDC1 streamed but whose DDC0 never did is a real failure,
     // not a connected session.
     if (!m_linkUp && *ddcIndex == 0) {
+        qCInfo(lcAnanP2) << "ANAN P2: RX IQ started; logical RX0, physical DDC" << m_firstDdcIndex;
         m_linkUp = true;
         m_connectTimeoutTimer->stop();
         emit linkUp();
