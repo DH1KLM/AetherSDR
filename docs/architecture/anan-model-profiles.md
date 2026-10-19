@@ -406,15 +406,21 @@ P2 applies the same six-rate allow-list during live DDC changes that it
 already uses during discovery validation. Unsupported rates or inactive
 logical DDC indices produce no packet and leave the cached session and
 sequence expectations unchanged. Packet preparation is socket-free and shared
-with the actual live send path. Valid repeated requests still generate full
-DDC-Specific packets for the existing UDP-loss retries; only a real rate
-change resets that DDC's sequence expectation. Sibling DDCs, physical offsets,
+with the actual live send path and does not mutate the cached rate or sequence
+expectation. Only a fully accepted local write commits the new rate and resets
+that DDC's sequence expectation when its rate changes. A failed or incomplete
+write returns false and preserves the previous state. This is local transport
+acceptance, not an acknowledgement from the radio. Valid repeated requests
+still send full DDC-Specific packets for the existing UDP-loss retries and
+retain gap detection. Sibling DDCs, physical offsets,
 ADC routes and dither/randomization flags are retained. No restart or new
 thread is introduced.
 
 The injected test covers all implemented physical P2 board profiles, every
-supported rate, rejected rates/indices, sibling preservation, retry equality
-and sequence reset behavior. The backend also rejects nonfinite/nonpositive
+supported rate, rejected rates/indices, refused/incomplete writes for both
+logical DDCs, accepted-byte counters, sibling preservation, retry equality and
+sequence reset behavior. Its private sender injection drives the public live
+setter without opening sockets. The backend also rejects nonfinite/nonpositive
 zoom requests before conversion and clamps oversized finite spans before
 narrowing to integer ksps. Backend regression cases retain P1's 192 ksps
 ceiling, Red Pitaya's 384 ksps ceiling and P2's 1536 ksps ceiling. These tests

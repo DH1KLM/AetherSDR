@@ -56,10 +56,33 @@ struct P2ClientTestAccess {
         client.m_expectedSeq[ddc] = sequence;
     }
     static auto expected(const P2Client& client, int ddc) { return client.m_expectedSeq[ddc]; }
+    struct RateAttempt {
+        bool accepted = false;
+        std::optional<std::array<std::uint8_t, 1444>> packet;
+    };
+    static RateAttempt sendRate(P2Client& client, int ddc, int rate, qint64 result = 1444)
+    {
+        RateAttempt attempt;
+        client.m_ddcRateSendOverride = [&attempt, result](std::span<const std::uint8_t> bytes) {
+            attempt.packet.emplace();
+            std::copy(bytes.begin(), bytes.end(), attempt.packet->begin());
+            return result;
+        };
+        attempt.accepted = client.setDdcRateLive(ddc, rate);
+        client.m_ddcRateSendOverride = {};
+        return attempt;
+    }
     static auto ratePacket(P2Client& client, int ddc, int rate)
+    {
+        const auto attempt = sendRate(client, ddc, rate);
+        return attempt.accepted ? attempt.packet : std::nullopt;
+    }
+    static auto candidate(P2Client& client, int ddc, int rate)
     {
         return client.prepareDdcRateChange(ddc, rate);
     }
+    static int rate(const P2Client& client, int ddc) { return client.m_activeDdcs[ddc].rateKsps; }
+    static auto txBytes(const P2Client& client) { return client.m_txBytes; }
     static auto refresh(P2Client& client, qint64 nowMs)
     {
         return client.takeGeneralRefresh(nowMs);
@@ -138,7 +161,7 @@ int main(int argc, char** argv)
         check(P2ClientTestAccess::receiveInput(client) == 0, "P2 model defaults restore ANT input bank");
         client.stop();
     }
-    //DH1KLM: Exercise the actual rate-packet preparation with no socket.
+    //DH1KLM: Exercise production live-rate dispatch with an injected send, never a socket.
     for (const int board : {1, 2, 3, 4, 5, 10, 20}) {
         P2Client client;
         P2ClientTestAccess::prepare(client, board);
@@ -146,11 +169,32 @@ int main(int argc, char** argv)
         P2ClientTestAccess::feed(client, discovery(board), 1024);
         const auto profile = *receiveProfile(board);
         P2ClientTestAccess::setDdcs(client, {{48, 0}, {192, profile.numAdcs - 1}});
+        P2ClientTestAccess::setExpected(client, 0, 100);
+        check(P2ClientTestAccess::candidate(client, 0, 96).has_value()
+              && P2ClientTestAccess::rate(client, 0) == 48
+              && P2ClientTestAccess::expected(client, 0) == 100,
+              "building a P2 candidate alone cannot commit its rate or reset gap detection");
+        P2ClientTestAccess::setDdcs(client, {{48, 0}, {192, profile.numAdcs - 1}});
         const auto original = P2ClientTestAccess::ratePacket(client, 0, 48);
         check(original && (*original)[7] == (3u << profile.firstDdcIndex),
               "rate packet enables exactly the two selected physical DDC rows");
         P2ClientTestAccess::setExpected(client, 0, 100);
         P2ClientTestAccess::setExpected(client, 1, 200);
+        for (const int ddc : {0, 1}) {
+            for (const qint64 result : {-1, 0, 1443}) {
+                const auto before = P2ClientTestAccess::txBytes(client);
+                const auto attempt = P2ClientTestAccess::sendRate(client, ddc, 96, result);
+                check(!attempt.accepted && attempt.packet.has_value(),
+                      "P2 failed or incomplete local write reports failure after attempting the packet");
+                check(P2ClientTestAccess::rate(client, 0) == 48
+                      && P2ClientTestAccess::rate(client, 1) == 192
+                      && P2ClientTestAccess::expected(client, 0) == 100
+                      && P2ClientTestAccess::expected(client, 1) == 200,
+                      "P2 failed rate write preserves both DDC rates and sequence expectations");
+                check(P2ClientTestAccess::txBytes(client) == before + (result > 0 ? result : 0),
+                      "P2 counters count only locally accepted bytes");
+            }
+        }
         for (const int rate : {-1, 0, 47, 49, 65536, std::numeric_limits<int>::max()}) {
             check(!P2ClientTestAccess::ratePacket(client, 0, rate), "invalid live rate produces no packet");
             check(P2ClientTestAccess::ratePacket(client, 0, 48) == original

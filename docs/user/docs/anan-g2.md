@@ -261,6 +261,8 @@ logical-model choices require their own hardware checks.
 
 During P1 live zoom, a locally refused rate-control packet leaves the previous
 rate in the periodic controls so a later retry can apply the requested rate.
+P2 likewise retains its cached DDC rate and packet-gap tracking when the local
+transport refuses a rate-control packet; a later accepted retry applies it.
 This does not detect packets lost on the network or confirm the radio's rate.
 
 ### Choose the exact model and protocol

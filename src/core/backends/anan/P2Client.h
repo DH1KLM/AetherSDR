@@ -14,6 +14,7 @@
 #include <array>
 #include <complex>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <vector>
@@ -127,6 +128,8 @@ public:
 
     // Change one DDC's rate on a LIVE session, no restart. Returns false (sending
     // nothing) if not running, ddcIndex is not enabled, or the rate is unsupported.
+    // A refused local write also returns false and preserves the cached rate
+    // and sequence expectation. Acceptance does not acknowledge firmware state.
     // An unchanged rate still
     // sends: the caller retries across the settle window. p2app supports this:
     // IncomingDDCSpecific.c loops on DDC-Specific packets and calls
@@ -297,8 +300,10 @@ private:
     int m_rxAntenna = 1;
     int m_numAdcs = 2; //DH1KLM: board profile; defaults to the currently supported Saturn family.
 
-    //DH1KLM: Socket-free preparation shared by live dispatch and injected tests.
-    std::optional<std::array<std::uint8_t, 1444>> prepareDdcRateChange(int ddcIndex, int rateKsps);
+    //DH1KLM: Candidate preparation never changes live state before a send succeeds.
+    std::optional<std::array<std::uint8_t, 1444>> prepareDdcRateChange(int ddcIndex, int rateKsps) const;
+    // Private transport injection for live-rate failure tests; production uses UDP.
+    std::function<qint64(std::span<const std::uint8_t>)> m_ddcRateSendOverride;
 
     // The session's resolved DDC list and the dither/random flags that went
     // with it, RETAINED (rather than consumed and dropped in start()) so
