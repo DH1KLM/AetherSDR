@@ -87,6 +87,7 @@ bool P1Client::prepare(const Params& params)
             return false;
     }
     m_params = params;
+    m_receiveFilterPlan = {};
     m_params.redPitayaP1 = redPitaya;
     m_config = {};
     m_config.anvelinaExtraOc = params.model == AnanModel::AnvelinaPro3;
@@ -265,7 +266,7 @@ void P1Client::updateFilters()
     const auto hp = buildHighPriority(true, words,
         m_params.bypassAdc0Filters, m_params.bypassAdc1Filters, 0, 0, 1, 0, true,
         m_profile->filterKind, m_profile->numAdcs,
-        &filters);
+        &filters, 0, &m_receiveFilterPlan);
     const std::uint32_t alex = (std::uint32_t{hp[1432]} << 24) | (std::uint32_t{hp[1433]} << 16)
         | (std::uint32_t{hp[1434]} << 8) | hp[1435];
     auto filter = [](std::uint32_t word) {

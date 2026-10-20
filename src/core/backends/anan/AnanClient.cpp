@@ -97,3 +97,11 @@ bool AnanClient::setReceiveStreams(const std::vector<DdcConfig>& streams,
                            : m_p2->setReceiveStreams(streams, centers);
 }
 } // namespace AetherSDR::anan
+
+namespace AetherSDR::anan {
+void AnanClient::setReceiveFilterPlan(const ReceiveFilterPlan& plan)
+{
+    if (m_protocol == 1) { m_p1->setReceiveFilterPlan(plan); }
+    else { m_p2->setReceiveFilterPlan(plan); }
+}
+}

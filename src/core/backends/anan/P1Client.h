@@ -33,6 +33,7 @@ public:
     Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     void setStepAttenuationDb(int adc, int db);
     void setRxAntenna(int antenna);
+    void setReceiveFilterPlan(const ReceiveFilterPlan& plan) { m_receiveFilterPlan = plan; }
     void setHardwareFilters(const QVariantMap& options);
     bool setDdcRateLive(int ddc, int rateKsps);
     void enqueueSpeakerAudio(const QByteArray& audio);
@@ -49,6 +50,7 @@ signals:
     void discoveryInfoReceived(quint8 boardId, quint8 firmwareVer, quint8 reportedReceivers);
 
 private:
+    ReceiveFilterPlan m_receiveFilterPlan;
     friend struct P1ClientTestAccess;
     bool prepare(const Params& params);
     void handleDatagram(const QHostAddress& sender, quint16 port,

@@ -98,6 +98,29 @@ void AnanBackend::publishReceiveWindows()
         emit panCenterBandwidthChanged(rxPan(st), w.centerHz / 1e6, w.rateKsps / 1000.0);
     }
 }
+std::vector<ReceiveFilterDemand> AnanBackend::receiveFilterDemands() const
+{
+    std::vector<ReceiveFilterDemand> demands;
+    for (const auto& [id, slice] : m_receiveLayout.slices()) {
+        if (id != 0) {
+            const auto it = m_additionalRx.find(id);
+            if (it == m_additionalRx.end() || !it->second->ready) { continue; }
+        }
+        demands.push_back({m_pendingParams.ddc0AdcIndex, slice.frequencyHz,
+                           m_receiveLayout.streams()[slice.stream].centerHz});
+    }
+    return demands;
+}
+ReceiveFilterPlan AnanBackend::receiveFilterPlan() const
+{
+    const auto profile = receiveProfile(m_discoveredBoardId, m_pendingParams.model,
+                                        m_pendingParams.overrideDetection);
+    if (!profile) { return {}; }
+    const auto config = m_pendingParams.filters.value_or(
+        defaultFilterConfig(profile->filterKind == ReceiveFilterKind::MkIIBpf));
+    const auto demands = receiveFilterDemands();
+    return planReceiveFilters(config, demands, m_pendingParams.model == AnanModel::AnvelinaPro3);
+}
 void AnanBackend::updateReceiveStreams()
 {
     if (!m_connected)
@@ -122,11 +145,13 @@ void AnanBackend::updateReceiveStreams()
     const auto primary = m_primaryRoute;
     const auto epoch = m_receiveEpoch;
     const auto writer = m_streamApplyOverride;
+    const auto filterPlan = receiveFilterPlan();
     QMetaObject::invokeMethod(
         m_client,
-        [this, configs, centers, routes, first, primary, epoch, writer] {
+        [this, configs, centers, routes, first, primary, epoch, writer, filterPlan] {
             if (m_receiveIoEpoch->load() != epoch)
                 return;
+            m_client->setReceiveFilterPlan(filterPlan);
             if (writer ? writer(configs, centers) : m_client->setReceiveStreams(configs, centers)) {
                 primary->store(first);
                 for (const auto& [r, st] : routes)

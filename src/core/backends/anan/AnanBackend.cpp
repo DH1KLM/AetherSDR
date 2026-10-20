@@ -2103,12 +2103,48 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     state.insert(QStringLiteral("numAdcs"), profile->numAdcs);
     state.insert(QStringLiteral("hasAlex2Filters"), hasAlex2Filters(*profile));
     state.insert(QStringLiteral("selectLpf"), m_pendingParams.protocol == 1 || profile->selectReceiveLpf);
-    state.insert(QStringLiteral("receiveActive"), config.bypassAdc0 ? -1
-        : selectedReceiveFilterBand(config, frontEndReferenceHz()));
-    state.insert(QStringLiteral("adc1Active"), config.bypassAdc1 ? -1
-        : selectedReceiveFilterBand(config, frontEndReferenceHz(), true));
-    state.insert(QStringLiteral("lpfActive"), config.lpfBypassOnRx || selectedFilterBand(config.lowPass, frontEndReferenceHz()) < 0
-        ? 6 : selectedFilterBand(config.lowPass, frontEndReferenceHz()));
+    const auto plan = receiveFilterPlan();
+    const auto demands = receiveFilterDemands();
+    QStringList reasons;
+    constexpr std::array<int, 6> relayBits{6, 5, 4, 1, 2, 3};
+    for (int adc = 0; adc < 2; ++adc) {
+        const bool manualBypass = adc == 0 ? config.bypassAdc0 : config.bypassAdc1;
+        const auto bits = manualBypass ? 0u : plan.receiveBits[adc].value_or(
+            receiveFilterBits(config, frontEndReferenceHz(), adc == 1));
+        QVariantList rows;
+        for (int row = 0; row < 6; ++row) {
+            if (bits & (1u << relayBits[row])) { rows.append(row); }
+        }
+        state.insert(adc == 0 ? QStringLiteral("receiveActive") : QStringLiteral("adc1Active"),
+                     rows.isEmpty() ? -1 : rows.front().toInt());
+        state.insert(adc == 0 ? QStringLiteral("receiveActiveRows") : QStringLiteral("adc1ActiveRows"), rows);
+        if (!manualBypass && plan.selections[adc] > 1) {
+            QStringList bands;
+            for (const auto& demand : demands) {
+                if (demand.adc == adc) {
+                    const QString band = BandSettings::bandForFrequency(demand.frequencyHz / 1e6);
+                    if (!bands.contains(band)) { bands.append(band); }
+                }
+            }
+            const QString detail = bands.size() > 1 ? bands.join(QStringLiteral(" + "))
+                : bands.join(QStringLiteral(" + ")) + QStringLiteral("; different filter ranges");
+            reasons.append(QStringLiteral("ADC%1: %2 (multi-band: %3)").arg(adc)
+                .arg(plan.combined[adc] ? QStringLiteral("Combined filters") : QStringLiteral("BYPASS"))
+                .arg(detail));
+            if (plan.combined[adc] && (bits & (1u << 3))) {
+                reasons.append(QStringLiteral("6m BPF/LNA retained; 12/10m row excluded while sharing this input."));
+            }
+        }
+    }
+    const double lpfHz = plan.lowPassHz.value_or(frontEndReferenceHz());
+    state.insert(QStringLiteral("lpfActive"), config.lpfBypassOnRx || selectedFilterBand(config.lowPass, lpfHz) < 0
+        ? 6 : selectedFilterBand(config.lowPass, lpfHz));
+    if ((m_pendingParams.protocol == 1 || profile->selectReceiveLpf) &&
+        !config.lpfBypassOnRx && plan.lowPassSelections > 1) {
+        reasons.append(QStringLiteral("LPF follows highest DDC centre: %1 MHz (%2)")
+            .arg(lpfHz / 1e6, 0, 'f', 6).arg(BandSettings::bandForFrequency(lpfHz / 1e6)));
+    }
+    state.insert(QStringLiteral("filterPolicyText"), reasons.join(QStringLiteral("\n")));
     state.insert(QStringLiteral("frequencyHz"), frontEndReferenceHz());
     state.insert(QStringLiteral("ocMask"), receiveOcMask(config, frontEndReferenceHz()));
     QStringList inputNames;
@@ -2312,6 +2348,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             m_pendingParams.bypassAdc1Filters = config->bypassAdc1;
             QMetaObject::invokeMethod(m_client, "setHardwareFilters", Qt::QueuedConnection,
                                       Q_ARG(QVariantMap, options));
+            updateReceiveStreams();
             emitSliceState();
         }
         emit extensionResult(requestId, hardwareFilterStatus());

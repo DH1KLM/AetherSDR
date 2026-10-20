@@ -42,6 +42,12 @@ struct AnanMultiRxTestAccess {
         barrier(b);
     }
     static void checkProducer(bool ok) { if (!ok) { std::abort(); } }
+    static auto filterPlan(const AnanBackend& b) { return b.receiveFilterPlan(); }
+    static QVariantMap filterStatus(AnanBackend& b)
+    {
+        b.m_radioSerial = QStringLiteral("multi-rx-filter-test");
+        return b.hardwareFilterStatus();
+    }
     static void p1(AnanBackend& b) { b.m_pendingParams.protocol = 1; }
     static void profile(AnanBackend& b, int board, int protocol)
     {
@@ -246,6 +252,13 @@ int main(int argc, char** argv)
                                   {QStringLiteral("mode"), QStringLiteral("LSB")}});
     check(refusedTarget == 1 && state[0].frequency == 14.175 && state[1].frequency == 7.1,
           "missing explicit band target cannot fall back to the active receiver");
+    const auto filters = AnanMultiRxTestAccess::filterPlan(b);
+    const auto filterState = AnanMultiRxTestAccess::filterStatus(b);
+    check(filters.receiveBits[0] == 0 && filters.lowPassHz == 14'175'000 &&
+              filterState.value(QStringLiteral("filterPolicyText")).toString().contains(QStringLiteral("multi-band")) &&
+              !filterState.value(QStringLiteral("lpfBypassOnRx")).toBool() &&
+              filterState.value(QStringLiteral("lpfActive")).toInt() == 3,
+          "backend derives multi-band bypass and 20m LPF without toggling operator switches");
     b.setActiveSlice(1);
     check(b.createPanadapter(), "create independent pan");
     wait([&] { return !AnanMultiRxTestAccess::busy(b); });
@@ -296,6 +309,10 @@ int main(int argc, char** argv)
     check(audio[2] > 0 && audio[1] == oldAudio, "retired DSP cannot publish queued audio");
     check(b.removeSlice(0) && !b.removeSlice(2),
           "original slice may close; final slice remains protected");
+    const auto restoredFilters = AnanMultiRxTestAccess::filterPlan(b);
+    check(restoredFilters.selections[0] == 1 && restoredFilters.receiveBits[0] != 0 &&
+              restoredFilters.lowPassHz == 7'100'000,
+          "closing the last conflicting receiver restores normal 40m filtering");
     check(b.createSlice(QStringLiteral("anan-2"), 7'101'000), "accept another asynchronous build");
     b.disconnectRadio();
     QCoreApplication::processEvents();

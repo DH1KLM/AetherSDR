@@ -258,6 +258,8 @@ private:
     int receiveStreamCeiling() const;
     int receiveSliceCeiling() const;
     double frontEndReferenceHz() const;
+    std::vector<ReceiveFilterDemand> receiveFilterDemands() const;
+    ReceiveFilterPlan receiveFilterPlan() const;
     QString primaryPanId() const;
     int primaryPanIndex() const;
     int streamForPan(const QString&) const;

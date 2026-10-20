@@ -275,7 +275,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   int firstDdcIndex,
                                                   bool selectReceiveLpf,
                                                   ReceiveFilterKind filterKind,
-                                                  int numAdcs, const FilterConfig* filters, int alexAttenuationDb) noexcept
+                                                  int numAdcs, const FilterConfig* filters, int alexAttenuationDb,
+                                                  const ReceiveFilterPlan* filterPlan) noexcept
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length
     pkt[4] = run ? 0x01 : 0x00;  // bit[0] = run. Bits[1..4] = PTT0..3 -- there is no
@@ -314,7 +315,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
     //DH1KLM: Select the board's HPF/BPF table independently of DDC placement.
     const std::uint32_t rxWord = count > 0 ? ddcFreqWords[0] : 0;
     const double hz = static_cast<double>(rxWord) * kDspClockHz / 4294967296.0;
-    const std::uint32_t bpfBits = filters ? receiveFilterBits(*filters, hz)
+    const std::uint32_t bpfBits = filterPlan && filterPlan->receiveBits[0]
+        ? *filterPlan->receiveBits[0] : filters ? receiveFilterBits(*filters, hz)
         : (filterKind == ReceiveFilterKind::LegacyHpf
             ? legacyHpfRegisterBits(rxWord) : saturnBpf1RegisterBits(rxWord));
     if (bypassAdc0Filters || bpfBits == 0)
@@ -323,7 +325,9 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
         alex0 |= bpfBits;
     if (selectReceiveLpf) {
         //DH1KLM: Select the antenna-chain LPF as well as the ADC0 BPF1.
-        alex0 |= filters ? lowPassFilterBits(*filters, hz) : receiveLpfRegisterBits(rxWord);
+        const double lowHz = filterPlan && filterPlan->lowPassHz ? *filterPlan->lowPassHz : hz;
+        alex0 |= filters ? lowPassFilterBits(*filters, lowHz)
+                        : receiveLpfRegisterBits(phaseWord(lowHz));
     }
     //DH1KLM: Thetis CmdHighPriority byte 1401: OC1..7 occupy bits 1..7.
     pkt[1401] = run && filters ? static_cast<std::uint8_t>(receiveOcMask(*filters, hz) << 1) : 0;
@@ -338,9 +342,10 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
     // bit 12 "HF Bypass 2" (p.90-91's own Alex1 bit table).
     if (numAdcs > 1 && bypassAdc1Filters) {
         writeU16be(&pkt[1430], std::uint16_t{1} << 12);
-    } else if (numAdcs > 1 && filters) {
+    } else if (numAdcs > 1 && (filters || (filterPlan && filterPlan->receiveBits[1]))) {
         //DH1KLM: One receiver: RX2 follows the same tuned frequency (Thetis SetAlex2HPFBits).
-        const std::uint32_t adc1Bits = receiveFilterBits(*filters, hz, true);
+        const std::uint32_t adc1Bits = filterPlan && filterPlan->receiveBits[1]
+            ? *filterPlan->receiveBits[1] : receiveFilterBits(*filters, hz, true);
         writeU16be(&pkt[1430], static_cast<std::uint16_t>(adc1Bits == 0
             ? std::uint32_t{1} << 12 : adc1Bits));
     }

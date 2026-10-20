@@ -82,10 +82,22 @@ continues; changing rates briefly mutes the affected DSPs while they settle.
 
 Independent digital windows do not create independent analogue inputs.
 All windows currently use the connection's selected ADC. Antenna, attenuation
-and ALEX filtering are shared; filter/OC selection follows the first active
-hardware stream. Receiving distant bands may therefore require an appropriate
-operator-selected filter/bypass configuration. Changes to shared gain or antenna
-controls apply to the common RF path.
+and ALEX filtering are shared. Automatic HPF/BPF selection considers every live
+slice on that ADC: one required filter stays selected; different required rows
+use receive bypass. The hardware page reports **BYPASS (multi-band: …)** while
+the manual bypass checkbox retains your setting. Closing or retuning a slice
+recomputes the filter and restores normal filtering when the conflict disappears.
+The shared receive LPF follows the highest DDC centre on ADC0 (including with
+CTUN); **6m/ByPass on RX** remains a separate manual override. RX OC outputs
+continue to follow the first active hardware stream.
+
+An explicitly selected native **Anvelina Pro 3** profile combines required BPF
+rows instead of using its non-passing bypass path. A shared 6m BPF/LNA excludes
+the incompatible 12/10m row; the hardware page reports this restriction. A DIY
+Anvelina or Red Pitaya mapped to **ANAN-200D** uses the mapped filter hardware's
+normal bypass policy. Combining filters can alter signal levels and requires
+hardware qualification. Changes to shared gain or antenna controls apply to the
+common RF path.
 
 Additional slices/windows are session-only and are not restored on reconnect.
 Band buttons address a slice in their own panadapter, preferring the active slice

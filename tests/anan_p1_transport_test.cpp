@@ -507,6 +507,28 @@ int main(int argc, char** argv) {
         check(reason.contains(discoveryAnswered ? QStringLiteral("P1 IQ") : QStringLiteral("P1 Discovery")),
               "P1 timeout distinguishes missing discovery from absent IQ after discovery");
     }
+    {
+        std::vector<QByteArray> packets;
+        P1Client client;
+        auto p = params(5);
+        p.model = AnanModel::Anan200D;
+        p.overrideDetection = true;
+        p.ddc0RateKsps = 48;
+        p.filters = defaultFilterConfig(false);
+        check(P1ClientTestAccess::prepare(client, p, packets), "P1 multi-band fixture");
+        P1ClientTestAccess::feed(client, discovery(10));
+        const std::array<ReceiveFilterDemand, 2> demands{{{0,7100000},{0,14200000}}};
+        client.setReceiveFilterPlan(planReceiveFilters(*p.filters, demands));
+        check(client.setReceiveStreams({{48,0},{48,0}}, {7100000,14200000}), "P1 two live filter demands");
+        auto cfg = P1ClientTestAccess::config(client);
+        check(cfg.receiveFilterBits == 0x20 && cfg.lowPassBits == 1,
+              "P1 override emits receive bypass and highest-band 20m LPF");
+        client.setReceiveFilterPlan(planReceiveFilters(*p.filters, std::span(demands).first(1)));
+        check(client.setReceiveStreams({{48,0}}, {7100000}), "P1 retire high-band stream");
+        cfg = P1ClientTestAccess::config(client);
+        check(cfg.receiveFilterBits == 0x08 && cfg.lowPassBits == 2,
+              "P1 restores 40m HPF/LPF after the high-band receiver closes");
+    }
     //DH1KLM: Exercise the production P1 profile/priming path for the same
     // Orion MkII + ANAN-200D DIY override as P2, with no socket or fake radio.
     {

@@ -110,6 +110,7 @@ public:
     Q_INVOKABLE void setStepAttenuationDb(int adcIndex, int db);
     //DH1KLM: Change the selected Saturn RX antenna without restarting P2.
     Q_INVOKABLE void setRxAntenna(int antenna);
+    void setReceiveFilterPlan(const ReceiveFilterPlan& plan) { m_receiveFilterPlan = plan; }
     Q_INVOKABLE void setHardwareFilters(const QVariantMap& options);
 
     // Hand over demodulated receiver audio for the radio's speaker: L,R,... int16 in
@@ -218,6 +219,7 @@ private slots:
     void onSpeakerDrainTick();
 
 private:
+    ReceiveFilterPlan m_receiveFilterPlan;
     friend struct P2ClientTestAccess;
     // onReadyRead()'s socket-free half: drops anything not from m_host, so
     // foreign LAN traffic can neither hold LinkStats::alive true after the

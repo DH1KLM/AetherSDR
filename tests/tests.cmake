@@ -1284,6 +1284,12 @@ target_include_directories(anan_multi_receive_test PRIVATE src tests)
 target_link_libraries(anan_multi_receive_test PRIVATE aethercore Qt6::Core)
 add_test(NAME anan_multi_receive_test COMMAND anan_multi_receive_test)
 set_tests_properties(anan_multi_receive_test PROPERTIES TIMEOUT 900)
+# Pure filter-policy plus RX packet encoding: no network or DSP needed.
+add_executable(anan_receive_filter_plan_test tests/anan_receive_filter_plan_test.cpp
+    src/core/backends/anan/P2Protocol.cpp src/core/backends/anan/P1Protocol.cpp)
+target_include_directories(anan_receive_filter_plan_test PRIVATE src)
+add_test(NAME anan_receive_filter_plan_test COMMAND anan_receive_filter_plan_test)
+
 # Sample conservation and lifecycle under skewed multi-slice PCM delivery.
 add_executable(anan_audio_mixer_test tests/anan_audio_mixer_test.cpp)
 target_include_directories(anan_audio_mixer_test PRIVATE src)

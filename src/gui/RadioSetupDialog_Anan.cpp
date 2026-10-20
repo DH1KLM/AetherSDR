@@ -22,6 +22,8 @@
 #include <QRadioButton>
 #include <QButtonGroup>
 #include <QTimer>
+#include <QVariant>
+#include <QVariantList>
 #include <QVBoxLayout>
 #include <memory>
 #include <array>
@@ -908,16 +910,21 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             .arg(selected(rxNames, data.value(QStringLiteral("receiveActive")).toInt()))
             .arg(twoAdcs ? selected(rxNames, data.value(QStringLiteral("adc1Active")).toInt()) : QStringLiteral("Not fitted"))
             .arg(lpEnabled ? selected(lpNames, data.value(QStringLiteral("lpfActive")).toInt()) : QStringLiteral("Not driven by this profile")));
+        const QString policy = data.value(QStringLiteral("filterPolicyText")).toString();
+        if (!policy.isEmpty()) { active->setText(active->text() + QStringLiteral("\n") + policy); }
         //DH1KLM: LEDs follow commanded state on every poll, even while a table edit is pending.
-        const auto lightRows = [](FilterGrid* table, const QStringList& names, int activeRow) {
+        const auto lightRows = [](FilterGrid* table, const QStringList& names, int activeRow,
+                                  const QVariantList& activeRows = QVariantList{}) {
             for (int row = 0; row < table->rowCount(); ++row) {
                 QWidget* cell = table->cellWidget(row,0);
                 cell->findChild<QLabel*>(QStringLiteral("filterBandName"))->setText(names[row]);
-                updateFilterLed(cell->findChild<QLabel*>(QStringLiteral("ananFilterLed")), row == activeRow, names[row]);
+                updateFilterLed(cell->findChild<QLabel*>(QStringLiteral("ananFilterLed")), row == activeRow || activeRows.contains(QVariant(row)), names[row]);
             }
         };
-        lightRows(receive,rxNames,data.value(QStringLiteral("receiveActive")).toInt());
-        lightRows(receiveAdc1,rxNames,showAlex2 ? data.value(QStringLiteral("adc1Active")).toInt() : -1);
+        lightRows(receive,rxNames,data.value(QStringLiteral("receiveActive")).toInt(),
+                  data.value(QStringLiteral("receiveActiveRows")).toList());
+        lightRows(receiveAdc1,rxNames,showAlex2 ? data.value(QStringLiteral("adc1Active")).toInt() : -1,
+                  showAlex2 ? data.value(QStringLiteral("adc1ActiveRows")).toList() : QVariantList{});
         lightRows(alex2Lpf,lpNames,-1);
         updateFilterLed(adc1BypassLed, showAlex2 && data.value(QStringLiteral("adc1Active")).toInt() < 0,
                         QStringLiteral("ADC1 receive bypass"));

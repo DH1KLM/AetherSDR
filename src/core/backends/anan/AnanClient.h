@@ -19,6 +19,7 @@ public:
     Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     Q_INVOKABLE void setStepAttenuationDb(int adc, int db);
     Q_INVOKABLE void setRxAntenna(int antenna);
+    void setReceiveFilterPlan(const ReceiveFilterPlan& plan);
     Q_INVOKABLE void setHardwareFilters(const QVariantMap& options);
     Q_INVOKABLE bool setDdcRateLive(int ddc, int rateKsps);
     Q_INVOKABLE void enqueueSpeakerAudio(const QByteArray& audio);
