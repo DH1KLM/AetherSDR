@@ -547,3 +547,25 @@ matrix uses a widget grid rather than a table viewport, so P1–P7 cannot be
 clipped by table-header minimum section sizes. Matrix and lower groups
 reflow vertically in narrow windows. Unsupported rows and actions are
 visible but disabled; they do not extend the backend's RX-only contract.
+
+
+### Antenna and filter page layout
+
+Antenna Control and the Alex pages follow the public NereusSDR
+[`AntennaAlexAntennaControlTab`](https://github.com/boydsoftprez/NereusSDR/blob/main/src/gui/setup/hardware/AntennaAlexAntennaControlTab.cpp),
+[`AntennaAlexAlex1Tab`](https://github.com/boydsoftprez/NereusSDR/blob/main/src/gui/setup/hardware/AntennaAlexAlex1Tab.cpp)
+and
+[`AntennaAlexAlex2Tab`](https://github.com/boydsoftprez/NereusSDR/blob/main/src/gui/setup/hardware/AntennaAlexAlex2Tab.cpp)
+arrangement. Per-band RX/TX antenna matrices and TX options are unavailable
+previews; current RX routing retains its existing controls and persistence.
+Filter rows are widget grids with aligned LEDs and MHz-suffixed edge fields.
+Whole banks reflow rather than clipping the final row or frequency field.
+
+`hw.get` includes a read-only `defaultFilterEdges` object with `receive` and
+`lowPass` arrays derived from the effective profile's existing model defaults.
+The page reset stages these edges in its editor and uses the existing
+`hw.set` / Apply path. It neither invokes `hw.defaults` nor changes bypass,
+OC or antenna state. Alex-2 edits and reset remain gated by `hasAlex2Filters`;
+its master bypass is a second view of the existing ADC1 bypass field.
+Independent ADC1 per-band bypass and Alex-2 LPF are disabled with reasons.
+No new wire controls or capability flags are added.

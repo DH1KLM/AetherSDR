@@ -144,6 +144,31 @@ public:
 };
 }  // namespace
 
+static void filterDefaultEdgesChecks()
+{
+    AnanBackend backend;
+    AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("02:00:00:00:EE:01"));
+    QVariantMap status;
+    QObject::connect(&backend, &IRadioBackend::extensionResult, &backend,
+        [&](quint64, const QVariant& result) { status = result.toMap(); });
+    for (const auto model : {AnanModel::Anan200D, AnanModel::Anan7000}) {
+        AnanLinkStatsTestAccess::model(backend, model);
+        backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("hw.get"), 910, {});
+        const auto defaults = status.value(QStringLiteral("defaultFilterEdges")).toMap();
+        const auto receive = defaults.value(QStringLiteral("receive")).toList();
+        const auto lowPass = defaults.value(QStringLiteral("lowPass")).toList();
+        check(defaults.size() == 2 && receive.size() == 6 && lowPass.size() == 7,
+              "filter reset exposes only the six receive and seven LPF frequency edges");
+        check(receive.value(0).toMap().value(QStringLiteral("lowHz")).toInt()
+                  == (model == AnanModel::Anan200D ? 1'800'000 : 1'500'000),
+              "filter reset defaults follow the effective legacy or MkII model");
+        check(status.value(QStringLiteral("receive")).toList().value(0).toMap()
+                  .value(QStringLiteral("lowHz")).toInt() == 1'800'000,
+              "reading filter defaults does not replace the live receive configuration");
+    }
+    AnanLinkStatsTestAccess::setConnected(backend, false);
+}
+
 static void bandViewMemoryChecks()
 {
     const QString ns = QStringLiteral("anan");
@@ -259,6 +284,7 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
     if (!restoreChild) {
+        filterDefaultEdgesChecks();
         bandViewMemoryChecks();
         for (const int protocol : {1, 2}) {
             AnanBackend backend;

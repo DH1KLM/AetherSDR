@@ -1849,6 +1849,11 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     config.bypassAdc0 = m_pendingParams.bypassAdc0Filters;
     config.bypassAdc1 = m_pendingParams.bypassAdc1Filters;
     QVariantMap state = filterOptions(config);
+    const auto defaultEdges = filterOptions(defaultFilterConfig(profile->filterKind == ReceiveFilterKind::MkIIBpf));
+    state.insert(QStringLiteral("defaultFilterEdges"), QVariantMap{
+        {QStringLiteral("receive"), defaultEdges.value(QStringLiteral("receive"))},
+        {QStringLiteral("lowPass"), defaultEdges.value(QStringLiteral("lowPass"))},
+    });
     const auto* descriptor = ananModelInfo(m_pendingParams.model);
     DiscoveryReply physical;
     physical.boardId = m_discoveredBoardId;
