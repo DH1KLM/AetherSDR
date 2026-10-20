@@ -26,6 +26,7 @@ bool validConfig(const ReceiveConfig& c) noexcept
 {
     const bool rate = c.rateKsps == 48 || c.rateKsps == 96
         || c.rateKsps == 192 || c.rateKsps == 384;
+    if(c.independentFrequencies&&std::any_of(c.receiveFrequencies.begin(),c.receiveFrequencies.end(),[](auto hz){return hz>61'440'000;}))return false;
     return rate && validReceiverCount(c.receivers)
         && (c.numAdcs == 1 || c.numAdcs == 2)
         && c.adcIndex >= 0 && c.adcIndex < c.numAdcs
@@ -52,7 +53,7 @@ std::optional<Control> receiveControl(std::uint8_t address,
         const int slot = (address - 0x04) / 2;
         if (slot >= c.receivers)
             return std::nullopt;
-        put32(bytes.data() + 1, c.frequencyHz);
+        put32(bytes.data() + 1,c.independentFrequencies?c.receiveFrequencies[slot]:c.frequencyHz);
         return bytes;
     }
     switch (address) {

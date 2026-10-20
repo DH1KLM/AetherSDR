@@ -98,6 +98,7 @@ public:
     // above this seam. Takes effect immediately (not on the next keepalive
     // tick) and is what the keepalive resends from then on.
     Q_INVOKABLE void setDdc0FrequencyHz(double hz);
+    bool setReceiveStreams(const std::vector<DdcConfig>& streams,const std::vector<double>& centers);
 
     // Set one ADC's receive step attenuator (0 = ADC0, 1 = ADC1), clamped to
     // 0-31 dB by the encoder. Sent at once when running, and carried by every
@@ -351,11 +352,12 @@ private:
     // a single-DDC overload on that path would pin DDC1..N-1 at word 0
     // regardless. Per-DDC tuning has no setter yet, so one word for all of
     // them is the honest encoding -- see start()'s own comment.
+    std::array<std::uint32_t,kMaxDdcs> m_receiveWords{};
+    bool m_independentTuning=false;
+    int m_streamLimit=1;
     [[nodiscard]] std::vector<std::uint32_t> sharedFreqWords() const
-    {
-        return std::vector<std::uint32_t>(
-            static_cast<std::size_t>(m_activeDdcCount), m_ddc0FreqWord);
-    }
+    {if(!m_independentTuning)return std::vector<std::uint32_t>(m_activeDdcCount,m_ddc0FreqWord);
+     return {m_receiveWords.begin(),m_receiveWords.begin()+m_activeDdcCount};}
     // Sender ports already warned about, so a port mismatch -- which by
     // nature affects every packet -- logs once per distinct port rather than
     // per datagram. Session-scoped; cleared with the rest of the state.

@@ -233,7 +233,7 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
         if (gap >= 0x80000000u)
             return;
         m_counters.drops += gap;
-        emit ddcSequenceGap(0);
+        for(int i=0;i<m_config.receivers;++i)emit ddcSequenceGap(i);
     }
     m_expectedSequence = frame->sequence + 1;
     ++m_counters.rxPackets;
@@ -244,7 +244,8 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
         qCInfo(lcAnanP1) << "ANAN P1: RX IQ started; slot 0, ADC" << m_config.adcIndex;
         m_linkUp = true; m_timeoutTimer->stop(); emit linkUp();
     }
-    emit ddc0IqReady(m_iq);
+    emit ddcIqReady(0,m_iq);emit ddc0IqReady(m_iq);
+    for(int i=1;i<m_config.receivers;++i){m_iq.clear();if(p1::decodeIq(*frame,i,m_iq))emit ddcIqReady(i,m_iq);}
 }
 
 void P1Client::updateFilters()
@@ -330,6 +331,7 @@ void P1Client::setDdc0FrequencyHz(double hz)
     if (!std::isfinite(hz) || hz < 0 || hz > 61'440'000)
         return;
     m_config.frequencyHz = static_cast<std::uint32_t>(hz + 0.5);
+    if(m_config.independentFrequencies)m_config.receiveFrequencies[0]=m_config.frequencyHz;
     updateFilters();
 }
 
@@ -400,3 +402,15 @@ void P1Client::publishCounters()
     emit linkCountersUpdated(m_counters);
 }
 } // namespace AetherSDR::anan
+
+namespace AetherSDR::anan {
+bool P1Client::setReceiveStreams(const std::vector<DdcConfig>& streams,const std::vector<double>& centers)
+{
+    if(!m_running||!m_validated||streams.empty()||streams.size()!=centers.size()||streams.size()>std::size_t(std::min(4,m_config.receivers)))return false;
+    for(std::size_t i=0;i<streams.size();++i)if(streams[i].adcIndex!=m_config.adcIndex||streams[i].rateKsps!=m_config.rateKsps||!std::isfinite(centers[i])||centers[i]<0||centers[i]>61'440'000)return false;
+    m_config.independentFrequencies=true;m_config.frequencyHz=std::uint32_t(centers[0]+0.5);
+    m_config.receiveFrequencies.fill(m_config.frequencyHz);
+    for(std::size_t i=0;i<centers.size();++i)m_config.receiveFrequencies[i]=std::uint32_t(centers[i]+0.5);
+    updateFilters();return true;
+}
+}

@@ -164,6 +164,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     // Retained for setDdcRateLive() -- see its own comment for why the whole
     // list (not just the count) has to survive start().
     m_activeDdcs = ddcs;
+    m_independentTuning=false;
     m_ditherEnabled = params.ditherEnabled;
     m_randomEnabled = params.randomEnabled;
 
@@ -387,6 +388,7 @@ void P2Client::setDdc0FrequencyHz(double hz)
         return;
     }
     m_ddc0FreqWord = phaseWord(hz);
+    m_receiveWords[0]=m_ddc0FreqWord;
     if (m_running && m_socket && m_discoveryValidated)
         sendTo(*m_socket,
               buildHighPriority(true, sharedFreqWords(),
@@ -508,6 +510,7 @@ void P2Client::onKeepaliveTick()
     // keeps RUN alive but cannot recover a lost ALEX-enable General packet.
     if (m_generalClock.isValid()) {
         if (const auto general = takeGeneralRefresh(m_generalClock.elapsed())) {
+            if(m_independentTuning)sendTo(*m_socket,buildDdcSpecific(m_activeDdcs,m_numAdcs,m_ditherEnabled,m_randomEnabled,m_firstDdcIndex),m_host,kDdcSpecificPort,m_txBytes);
             sendTo(*m_socket, *general, m_host, kRadioPort, m_txBytes);
         }
     }
@@ -611,6 +614,8 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 //DH1KLM: Select the physical RX layout from the actual reply,
                 // not from the reported receiver count or the display name.
                 const ReceiveProfile profile = *resolvedProfile;
+                m_streamLimit=std::min(5,profile.physicalDdcLimit-profile.firstDdcIndex);
+                if(reply->reportedReceivers>0)m_streamLimit=std::min(m_streamLimit,int(reply->reportedReceivers));
                 const bool invalidDdc = std::any_of(m_activeDdcs.begin(), m_activeDdcs.end(),
                     [&profile](const DdcConfig& ddc) {
                         return ddc.adcIndex < 0 || ddc.adcIndex >= profile.numAdcs
@@ -753,3 +758,19 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
 }
 
 }  // namespace AetherSDR::anan
+
+namespace AetherSDR::anan {
+bool P2Client::setReceiveStreams(const std::vector<DdcConfig>& streams,const std::vector<double>& centers)
+{
+    if(!m_running||!m_discoveryValidated||(!m_socket&&!m_ddcRateSendOverride)||streams.empty()||streams.size()!=centers.size()||streams.size()>std::size_t(m_streamLimit))return false;
+    for(std::size_t i=0;i<streams.size();++i)if(streams[i].adcIndex<0||streams[i].adcIndex>=m_numAdcs||std::find(kDdc0RatesKsps.begin(),kDdc0RatesKsps.end(),streams[i].rateKsps)==kDdc0RatesKsps.end()||!std::isfinite(centers[i])||centers[i]<0||centers[i]>61'440'000)return false;
+    const bool changed=streams.size()!=m_activeDdcs.size()||!std::equal(streams.begin(),streams.end(),m_activeDdcs.begin(),[](auto a,auto b){return a.rateKsps==b.rateKsps&&a.adcIndex==b.adcIndex;});
+    if(changed){const auto packet=buildDdcSpecific(streams,m_numAdcs,m_ditherEnabled,m_randomEnabled,m_firstDdcIndex);
+        const auto sent=m_ddcRateSendOverride?m_ddcRateSendOverride(packet):sendTo(*m_socket,packet,m_host,kDdcSpecificPort,m_txBytes);
+        if(sent!=qint64(packet.size()))return false;}
+    m_activeDdcs=streams;m_activeDdcCount=int(streams.size());m_independentTuning=true;
+    for(std::size_t i=0;i<centers.size();++i)m_receiveWords[i]=phaseWord(centers[i]);
+    m_ddc0FreqWord=m_receiveWords[0];if(changed)m_expectedSeq.fill(std::nullopt);
+    onKeepaliveTick();return true;
+}
+}

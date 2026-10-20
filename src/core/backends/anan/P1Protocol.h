@@ -24,6 +24,8 @@ struct ReceiveConfig {
     int numAdcs = 1;
     int adcIndex = 0;
     std::uint32_t frequencyHz = 10'000'000;
+    bool independentFrequencies=false;
+    std::array<std::uint32_t,7> receiveFrequencies{};
     int antenna = 1;
     int rxOnlyInput = 0;
     bool mkIIBpf = false;

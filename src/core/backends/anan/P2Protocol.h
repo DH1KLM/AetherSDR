@@ -211,11 +211,11 @@ struct ReceiveProfile {
         return ReceiveProfile{1, 0, 3, true, false, ReceiveFilterKind::LegacyHpf, 2, true, true};
     case 3: //DH1KLM: Angelia/ANAN-100D uses legacy ALEX with RX1 on DDC2.
     case 4: //DH1KLM: Orion/ANAN-200D has P2 ID 4, distinct from P1 ID 5.
-        return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::LegacyHpf, 4, false, true};
+        return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::LegacyHpf, 7, false, true};
     case 5:
-        return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::MkIIBpf, 4, false, true};
+        return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::MkIIBpf, 7, false, true};
     case 10:
-        return ReceiveProfile{2, 0, 0, false, true};
+        return ReceiveProfile{2, 0, 0, false, true, ReceiveFilterKind::MkIIBpf, 7};
     case 20: //DH1KLM: ANAN-G2E/HermesC10 is single-ADC with MkII filtering.
         return ReceiveProfile{1, 0, 3, true, false, ReceiveFilterKind::MkIIBpf, 4, false, true};
     default:
@@ -243,7 +243,7 @@ struct ReceiveProfile {
         return std::nullopt;
     }
     if (model == AnanModel::RedPitaya) {
-        return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::LegacyHpf, 4, false, true};
+        return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::LegacyHpf, 7, false, true};
     }
     return receiveProfile(model == AnanModel::Automatic ? boardId : descriptor->nativeBoardId);
 }
