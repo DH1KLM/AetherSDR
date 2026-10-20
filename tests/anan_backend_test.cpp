@@ -45,10 +45,12 @@ public:
     static void setConnected(AnanBackend& backend, bool connected)
     {
         backend.m_connected = connected;
+        backend.m_streamApplyOverride = [](const auto&, const auto&) { return true; };
     }
     static void antennaSession(AnanBackend& backend, const QString& serial, int adc = 0, int input = 0)
     {
         backend.m_connected = true;
+        backend.m_streamApplyOverride = [](const auto&, const auto&) { return true; };
         backend.m_bandViewRestoreReady = true;
         backend.m_discoveryInfoReceived = true;
         backend.m_discoveredBoardId = 5;
@@ -608,7 +610,9 @@ int main(int argc, char** argv)
         check(!c.canCreateSlices, "ANAN fixed receiver does not expose independent slice creation");
         check(c.family == QStringLiteral("anan"), "family is anan");
         check(c.model == QStringLiteral("ANAN-G2"), "model is ANAN-G2");
-        check(c.maxSlices == 1 && c.maxPanadapters == 1, "single slice, single pan in this phase");
+        check(c.maxSlices == 5 && c.maxPanadapters == 1,
+              "five software slices; unknown hardware conservatively offers "
+              "one capture");
         check(!c.canTransmit, "canTransmit is false -- P2Client has no PTT capability");
         check(c.hostModulates, "hostModulates true -- client-side WDSP, like the HL2");
         check(!c.radioOwnsDbmScale, "client computes the dBm scale");

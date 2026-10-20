@@ -48,6 +48,15 @@ struct P2ClientTestAccess {
         client.handleDatagram(bytes, port);
     }
     static std::uint32_t frequencyWord(const P2Client& client) { return client.m_ddc0FreqWord; }
+    static bool replaceStreams(P2Client& client, const std::vector<DdcConfig>& streams,
+                               const std::vector<double>& centers, qint64 sent = 1444)
+    {
+        client.m_ddcRateSendOverride = [sent](auto) { return sent; };
+        const bool ok = client.setReceiveStreams(streams, centers);
+        client.m_ddcRateSendOverride = {};
+        return ok;
+    }
+    static auto words(const P2Client& client) { return client.sharedFreqWords(); }
     static bool validated(const P2Client& client) { return client.m_discoveryValidated; }
     static int physicalDdc(const P2Client& client) { return client.m_firstDdcIndex; }
     static int receiveInput(const P2Client& client) { return client.m_filters ? client.m_filters->rxOnlyInput : 0; }
@@ -404,7 +413,7 @@ int main(int argc, char** argv)
         if (invalidAdcs) {
             P2ClientTestAccess::setAdcs(client, 1);
         } else {
-            P2ClientTestAccess::setDdcCount(client, 3);
+            P2ClientTestAccess::setDdcCount(client, 6);
         }
         P2ClientTestAccess::feed(client, discovery(5), 1024);
         check(!P2ClientTestAccess::validated(client) && !client.isRunning(),
@@ -524,6 +533,53 @@ int main(int argc, char** argv)
             check(samples == 1 && P2ClientTestAccess::physicalDdc(client) == 2,
                   "accepted Patroclus P2 discovery routes physical DDC2 into logical RX0");
         }
+    }
+    {
+        P2Client client;
+        P2ClientTestAccess::prepare(client, 4);
+        P2ClientTestAccess::feed(client, discovery(4), 1024);
+        const std::vector<DdcConfig> streams{{48, 0}, {96, 0}, {192, 0}, {48, 0}, {48, 0}};
+        const std::vector<double> centers{14'175'000, 7'100'000, 21'250'000, 28'500'000,
+                                          50'150'000};
+        check(P2ClientTestAccess::replaceStreams(client, streams, centers),
+              "Orion accepts five independent logical DDCs within DDC2..6");
+        const auto encoded = P2ClientTestAccess::ratePacket(client, 4, 48);
+        check(encoded && (*encoded)[7] == 0x7c && (*encoded)[17 + 6 * 6 + 5] == 24,
+              "Orion five-stream packet enables physical DDC2..6 with a complete "
+              "final row");
+        int lastStream = 0;
+        QObject::connect(&client, &P2Client::ddcIqReady, [&](int index, const auto&) {
+            if (index == 4)
+                ++lastStream;
+        });
+        P2ClientTestAccess::feed(client, iq(), 1041);
+        check(lastStream == 1, "physical DDC6 IQ arrives at logical user stream four");
+        const auto words = P2ClientTestAccess::words(client);
+        check(words.size() == 5 && words[0] == phaseWord(centers[0]) &&
+                  words[1] == phaseWord(centers[1]) && words[4] == phaseWord(centers[4]),
+              "each enabled P2 DDC retains its independent tuning word for "
+              "keepalives");
+        auto bad = centers;
+        bad[2] = std::numeric_limits<double>::quiet_NaN();
+        check(!P2ClientTestAccess::replaceStreams(client, streams, bad) &&
+                  P2ClientTestAccess::words(client) == words,
+              "malformed additional tuning leaves every existing DDC word "
+              "unchanged");
+        P2ClientTestAccess::setExpected(client,0,17);P2ClientTestAccess::setExpected(client,1,29);
+        auto changed = streams;
+        changed[1].rateKsps = 384;
+        check(!P2ClientTestAccess::replaceStreams(client, changed, centers, -1) &&
+                  P2ClientTestAccess::words(client) == words,
+              "refused DDC configuration write preserves the current receiver "
+              "assignment");
+        check(P2ClientTestAccess::expected(client,0)==17&&P2ClientTestAccess::expected(client,1)==29,"failed multi-DDC write preserves all sequence trackers");
+        check(P2ClientTestAccess::replaceStreams(client,changed,centers)&&P2ClientTestAccess::expected(client,0)==17&&!P2ClientTestAccess::expected(client,1),"adopted rate resets only the changed DDC tracker");
+        auto tooMany = streams;
+        tooMany.push_back({48, 0});
+        auto more = centers;
+        more.push_back(3'700'000);
+        check(!P2ClientTestAccess::replaceStreams(client, tooMany, more),
+              "a sixth user DDC exceeds the bounded stream pool");
     }
     qInstallMessageHandler(previousHandler);
     check(sessionLog.filter(QStringLiteral("validated board")).size() > 0

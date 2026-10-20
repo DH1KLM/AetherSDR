@@ -598,3 +598,38 @@ session; first connection uses the existing defaults. The active rate/ADC
 remain visible in Radio Info. Filter bypass is edited only through the live,
 device/profile-scoped Antenna / ALEX controls; the old duplicate family-default
 bypass widgets are removed without deleting saved configuration.
+
+## Multi-receive integration, 2026-10-20
+
+The Nereus reference behavior is shared IQ windows for additional slices,
+and a dedicated hardware DDC for an explicitly independent panadapter.
+`AnanReceiveLayout` implements placement, refusal, tuning and release without
+Qt, DSP or sockets. It has separate stream and demodulator limits. Native
+Orion/Angelia/MkII P2 profiles expose DDC2..6; the packet codec is bounded to
+physical DDC0..6, and smaller profiles retain their smaller limits. P1 keeps
+its already validated packet geometry and now tunes/decodes individual slots.
+
+`AnanBackend_MultiRx.cpp` owns additional slice DSPs and observations. IQ
+fan-out runs directly on the existing I/O thread, with atomic route indices.
+The existing build thread prepares channels while all installed DSP controls
+defer around WDSP's global planning lock. Session epochs fence build, install,
+stream-write and data callbacks. Retired DSP objects detach IQ on the I/O
+thread, then move to the existing planning thread for destruction so a
+WDSP planner lock cannot block UDP keepalives during retirement. No new worker thread is introduced. Shared
+windows publish only one spectrum; every slice publishes pre-stage PCM and
+has an independent audio stage. A bounded stereo 24 kHz mixer supplies the
+existing speaker path. Native model limits: Hermes 4 slices, Hermes II 2,
+others 5; P1 allows at most four independent streams, P2 additionally obeys
+the physical/effective profile and discovery count.
+
+P1 rate changes rebuild every active slice; P2 changes only the affected
+window's slice DSPs. A rate that would exclude a co-hosted slice is refused.
+Antenna/ADC selection and analog gain/filter hardware remain shared. ALEX and
+OC use the first active stream as their frequency reference. Additional
+slices are session-only; band selection targets the active slice without
+restoring CTUN view memory. B recall and droop sweeping remain limited
+to the original receiver as the sole slice, and ADC selection is not independent per window.
+
+Qualification: placement/codec tests, injected P1/P2 transport tests and an
+actual additional-WDSP lifecycle/rate/audio test. These are software evidence,
+not a claim of multi-receive operation on every physical radio.

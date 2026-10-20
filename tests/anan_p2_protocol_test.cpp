@@ -306,8 +306,8 @@ int main()
             check((alex & (1u << 27)) == 0 && packet[4] == 1 && packet[345] == 0,
                   "Orion MkII filter switching leaves T/R relay, PTT and drive inactive");
         }
-        check(buildDdcSpecific(ddcs, 2, true, true, -1)[7] == 0
-              && buildDdcSpecific(ddcs, 2, true, true, 4)[7] == 0,
+        check(buildDdcSpecific(ddcs, 2, true, true, -1)[7] == 0 &&
+                  buildDdcSpecific(ddcs, 2, true, true, kMaxDdcs)[7] == 0,
               "invalid physical DDC offsets cannot enable a receiver");
     }
 
@@ -652,22 +652,20 @@ int main()
 
         // Over the cap: extras are ignored rather than encoded or truncating
         // the packet. kMaxDdcs is the codec's own bound (Principle VII).
-        const std::array<DdcConfig, 5> tooMany{
-            DdcConfig{48, 0}, DdcConfig{48, 0}, DdcConfig{48, 0},
-            DdcConfig{48, 0}, DdcConfig{1536, 1}};
+        std::array<DdcConfig, kMaxDdcs + 1> tooMany;
+        tooMany.fill({48, 0});
         const auto capped = buildDdcSpecific(tooMany);
-        check(capped[7] == 0x0F, "more DDCs than kMaxDdcs: only the first 4 are enabled");
-        const std::size_t fifthRow = 17 + 6 * 4;
-        check(capped[fifthRow] == 0 && capped[fifthRow + 1] == 0
-              && capped[fifthRow + 2] == 0 && capped[fifthRow + 5] == 0,
-              "the 5th DDC's row is left untouched, not encoded");
-
-        const std::array<std::uint32_t, 5> tooManyWords{1, 2, 3, 4, 0xFFFFFFFFu};
-        const auto hpCapped = buildHighPriority(true, tooManyWords);
-        const std::size_t fifthWord = 9 + 4 * 4;
-        check(hpCapped[fifthWord] == 0 && hpCapped[fifthWord + 1] == 0
-              && hpCapped[fifthWord + 2] == 0 && hpCapped[fifthWord + 3] == 0,
-              "more phase words than kMaxDdcs: the 5th is ignored, not written");
+        check(capped[7] == 0x7f, "generic codec bounds seven physical DDC rows");
+        const auto eighth = 17 + 6 * kMaxDdcs;
+        check(capped[eighth] == 0 && capped[eighth + 1] == 0 && capped[eighth + 5] == 0,
+              "eighth physical DDC stays disabled");
+        std::array<std::uint32_t, kMaxDdcs + 1> words;
+        words.fill(0x12345678u);
+        const auto hp = buildHighPriority(true, words);
+        auto wordAt=[&](std::size_t offset){std::uint32_t value=0;for(int n=0;n<4;++n)value=(value<<8)|hp[offset+n];return value;};
+        check(wordAt(9 + 4 * (kMaxDdcs - 1)) == 0x12345678u &&
+                  wordAt(9 + 4 * kMaxDdcs) == 0,
+              "seventh tuning word is encoded and eighth is refused");
     }
 
     // ---- DDC frame: strict shape validation ----

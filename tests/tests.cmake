@@ -1278,6 +1278,16 @@ add_executable(anan_p2_protocol_test
 target_include_directories(anan_p2_protocol_test PRIVATE src)
 add_test(NAME anan_p2_protocol_test COMMAND anan_p2_protocol_test)
 
+# Actual multi-receive DSP with injected writes; no socket peer.
+add_executable(anan_multi_receive_test tests/anan_multi_receive_test.cpp)
+target_include_directories(anan_multi_receive_test PRIVATE src tests)
+target_link_libraries(anan_multi_receive_test PRIVATE aethercore Qt6::Core)
+add_test(NAME anan_multi_receive_test COMMAND anan_multi_receive_test)
+set_tests_properties(anan_multi_receive_test PROPERTIES TIMEOUT 900)
+add_executable(anan_receive_layout_test tests/anan_receive_layout_test.cpp src/core/backends/anan/P1Protocol.cpp)
+target_include_directories(anan_receive_layout_test PRIVATE src)
+add_test(NAME anan_receive_layout_test COMMAND anan_receive_layout_test)
+
 #DH1KLM: Socket-free injected-transport coverage for physical RX DDC profiles.
 add_executable(anan_receive_profile_test tests/anan_receive_profile_test.cpp)
 target_include_directories(anan_receive_profile_test PRIVATE src)
@@ -9491,6 +9501,7 @@ set(AETHER_SETTINGS_CONSUMERS
     hl2_pan_create_async_test
     hl2_session_memory_test
     anan_backend_test
+    anan_multi_receive_test
     anan_noise_blanker_readback_test
     noise_blanker_kind_model_test
     automation_nb2_capability_test

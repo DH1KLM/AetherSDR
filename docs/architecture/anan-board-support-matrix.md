@@ -16,7 +16,7 @@ for that board.
 | 4 | Orion — ANAN-200D | 2-ADC family; P2 ID differs from its Protocol 1 board ID | Experimental P2 RX profile; hardware validation pending |
 | 5 | Orion MkII family — ANAN-7000DLE / 8000DLE, Anvelina Pro 3, Red Pitaya | Thetis uses one physical ID for several logical SKUs; MkII BPF1/preselector behavior differs from legacy ALEX HPF assumptions | P2 RX confirmed on ANAN-7000DLE; other shared-ID hardware pending |
 | 6 | Hermes Lite 2 | Distinct board and protocol implementation; do not assume it shares ANAN ALEX or attenuator behavior | Recognized; not connectable through this P2 profile |
-| 10 | Saturn — ANAN-G2 / G2 1K | Saturn-specific P2 profile; phase-word tuning and BPF1 behavior | **Bench-qualified RX profile**; one DDC is driven |
+| 10 | Saturn — ANAN-G2 / G2 1K | Saturn-specific P2 profile; phase-word tuning and BPF1 behavior | **Bench-qualified RX profile**; the original single-DDC path is bench-qualified; multi-receive awaits hardware checks |
 | 11 | SaturnMKII enum label; hardware identity unverified | Thetis declares the name with a question-mark comment; public Saturn p2app emits 10 or compatibility ID 5 | Recognized; not connectable; [source audit](anan-saturn-id11-verification.md) |
 | 20 | HermesC10 — ANAN-G2E | Single-ADC, Hermes-class four-DDC receive layout; shares the G2-family BPF/preselector routing but not the G2's dual-ADC capabilities | Experimental P2 RX profile; hardware validation pending |
 
@@ -84,8 +84,9 @@ The P2 client's stream indices remain logical: physical DDC2 is delivered as
 logical RX0 to the existing DSP and link-up path. The physical offset applies
 to initial RX configuration, all tuning/keepalive/stop packets, live rate
 changes and IQ source-port demultiplexing. DDC0/1 remain disabled for normal
-Orion MkII reception. This is still one receiver and one panadapter in the
-backend; no diversity, PureSignal or TX is enabled.
+Orion MkII reception. The backend additionally supports shared-window software slices and independent
+receive streams (up to five logical streams, with physical/profile/discovery
+limits). No diversity, PureSignal or TX is enabled.
 
 The Orion MkII LPF ranges come from Thetis `setup.designer.cs` defaults:
 0–2.5, 2.500001–5, 5.000001–8, 8.000001–16.5, 16.500001–24,

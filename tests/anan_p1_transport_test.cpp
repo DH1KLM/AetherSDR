@@ -127,6 +127,28 @@ void profilesAndWire() {
         const auto count = packets.size();
         P1ClientTestAccess::feed(client, discovery(c.wire));
         check(packets.size() == count, "duplicate discovery does not restart");
+        const int used = std::min(4, c.count);
+        std::vector<DdcConfig> streams(used, {48, 0});
+        std::vector<double> centers{14'175'000, 7'100'000, 21'250'000, 28'500'000};
+        centers.resize(used);
+        check(client.setReceiveStreams(streams, centers),
+              "P1 independent receive slots fit the fixed frame geometry");
+        const auto multi = P1ClientTestAccess::config(client);
+        check(multi.frequencyHz == 14'175'000 && multi.receiveFrequencies[1] == 7'100'000,
+              "P1 transport preserves distinct per-slot frequencies");
+        auto invalid = centers;
+        invalid[1] = std::numeric_limits<double>::quiet_NaN();
+        check(!client.setReceiveStreams(streams, invalid) &&
+                  P1ClientTestAccess::config(client).receiveFrequencies == multi.receiveFrequencies,
+              "invalid P1 frequency leaves every current slot unchanged");
+        int slotDeliveries = 0;
+        QObject::connect(&client, &P1Client::ddcIqReady, [&](int index, const auto& block) {
+            check(index >= 0 && index < c.count && !block.empty(),
+                  "P1 IQ deliveries have distinct slot indices");
+            ++slotDeliveries;
+            if (index == 1)
+                check(block.front().real() < -0.99f, "second slot has its own IQ samples");
+        });
         P1ClientTestAccess::feed(client, iq(c.count, 0xffffffff));
         P1ClientTestAccess::feed(client, iq(c.count, 0));
         check(linked == 1 && blocks == 2, "sequence wrap and single link up");
@@ -134,6 +156,8 @@ void profilesAndWire() {
         check(blocks == 2 && P1ClientTestAccess::counters(client).drops == 0, "duplicate discarded without huge loss");
         P1ClientTestAccess::feed(client, iq(c.count, 3));
         check(blocks == 3 && P1ClientTestAccess::counters(client).drops == 2, "forward gaps count missing packets");
+        check(slotDeliveries == 3 * c.count,
+              "each accepted P1 frame delivers all slots exactly once");
         check(!client.setDdcRateLive(1, 96) && !client.setDdcRateLive(0, 384), "unsupported live settings send nothing");
         check(client.setDdcRateLive(0, 192), "live P1 general rate bank");
         client.stop();

@@ -12,14 +12,14 @@ applies_to: ["ANAN-G2/G2 1K", "ANAN-7000DLE/8000DLE", "ANAN-10/100", "ANAN-10E/1
 
 :::
 
-AetherSDR can receive with an Apache Labs **ANAN-G2** over openHPSDR Protocol 2. Support is **experimental and receive-only**: one receiver, one panadapter, no transmit yet. FlexRadio remains the supported target (see [Supported Radios](./supported-radios.md)). An **EXPERIMENTAL** badge shows in the title bar while a G2 is connected.
+AetherSDR can receive with an Apache Labs **ANAN-G2** over openHPSDR Protocol 2. Support is **experimental and receive-only**: multiple software slices and independent receive windows, no transmit yet. FlexRadio remains the supported target (see [Supported Radios](./supported-radios.md)). An **EXPERIMENTAL** badge shows in the title bar while a G2 is connected.
 
 The **ANAN-7000DLE** has an experimental Orion MkII receive profile. It uses
 physical DDC2, two ADCs, and Thetis-compatible ADC0 BPF1 and antenna-chain
 LPF selection. Discovery displays the Orion MkII family because board ID 5
 is shared by several models. This profile has protocol and transport test
 coverage; reception on an ANAN-7000DLE has been confirmed by the operator.
-It provides one receiver and one panadapter, with transmit unavailable.
+It supports multiple receive slices and independent windows within the limits below; transmit remains unavailable.
 
 Additional experimental P2 RX profiles cover **ANAN-10/100 (Hermes)**,
 **ANAN-10E/100B (Hermes II)**, **ANAN-100D (Angelia)**,
@@ -30,9 +30,60 @@ The radio must run Protocol 2 firmware.
 On Hermes, Hermes II and HermesC10 select **ADC0 (ANT1/2/3)**: these boards
 have one ADC, and ADC1 is refused. Legacy boards use their ALEX HPF table;
 HermesC10 uses MkII BPF selection. All use frequency-selected antenna-chain
-LPFs. The application still provides one receiver and one panadapter.
+LPFs. The slice and independent-window limits depend on the selected profile and protocol.
 Hermes/Hermes-II radio-speaker channels follow Thetis' stereo swap.
 Supply voltage for these additional profiles is not reported until qualified.
+
+## Multiple slices and receive windows
+
+Use the main UI's add-slice control on an existing panadapter for another
+independently demodulated frequency inside its sampled span. The slices share
+one hardware IQ stream, with separate mode, filter, AGC, noise blanker, volume,
+mute and stereo balance. Each slice also has its own pre-volume audio tap.
+Adding an independent panadapter claims a separate hardware receive stream;
+it is refused when none is free, rather than creating a coupled duplicate.
+
+When a slice leaves a shared capture's span, AetherSDR can move it to a free
+stream or an existing compatible stream. The other slices' capture stays in
+place. A lone receiver can retune its own hardware centre. If no compatible
+stream is available, the frequency change is refused and the observed VFO
+remains at the previous value. Closing the final slice of a stream releases
+its window; the final slice of the whole connection cannot be removed.
+
+| Effective profile | Maximum slices | Maximum independent P1 windows | Maximum independent P2 windows |
+|---|---:|---:|---:|
+| Hermes / ANAN-10, ANAN-100 | 4 | 4 | 4 |
+| Hermes II / ANAN-10E, ANAN-100B | 2 | 2 | 2 |
+| Angelia / ANAN-100D; Orion / ANAN-200D | 5 | 4 | 5 |
+| Orion MkII / ANAN-7000DLE, ANAN-8000DLE | 5 | 4 | 5 |
+| HermesC10 / ANAN-G2E | 5 | 4 | 4 |
+| Saturn / ANAN-G2 | 5 | Not implemented | 5 |
+
+These are ceilings, not guaranteed gateware resources. The physical board,
+effective override and P2 discovery receiver count can lower the available
+window count. Red Pitaya and Anvelina mappings use those same checks; an
+override does not manufacture additional physical DDCs. Multi-receive has
+software DSP/packet tests and still requires a Windows and hardware test.
+
+**P2 sample rates are per receive window. P1 has one shared sample rate:**
+changing the span on a P1 window rebuilds all active receiver DSPs at that rate.
+A narrower span is refused if it would exclude another slice sharing the
+window. Planning runs on the existing background build thread while reception
+continues; changing rates briefly mutes the affected DSPs while they settle.
+
+Independent digital windows do not create independent analogue inputs.
+All windows currently use the connection's selected ADC. Antenna, attenuation
+and ALEX filtering are shared; filter/OC selection follows the first active
+hardware stream. Receiving distant bands may therefore require an appropriate
+operator-selected filter/bypass configuration. Changes to shared gain or antenna
+controls apply to the common RF path.
+
+Additional slices/windows are session-only and are not restored on reconnect.
+Band buttons select the active slice's frequency and mode without restoring a saved CTUN view while multi-receive is active.
+The existing **B** band-view toggle/recall and droop sweep require the original
+receiver to be the only slice. The original receiver retains its CTUN control. TX, diversity,
+PureSignal and simultaneous independent ADC selection are not added by this
+receive extension.
 
 ## Where to go next
 
@@ -109,7 +160,7 @@ The page follows the Nereus hardware-page arrangement:
 - **Connection Defaults**: sample rate, ADC source, Dither, Randomization and radio speaker audio for the next connection. Existing saved values are retained. Filter bypass remains under **Antenna / ALEX**.
 - **Radio Info**: **Board Identity** (physical board, P1/P2, ADC count, reported
   receiver count, firmware, MAC, IP) and **Operating Parameters**. The effective
-  model and override remain distinct from the physical board. One receiver is active.
+  model and override remain distinct from the physical board. Active receive windows share the selected ADC and its analogue front end.
 - **Antenna / ALEX**: **Antenna Control**, **Alex-1 Filters**, **Alex-2 Filters**.
   **Antenna Control** places the TX safety options above TX and RX per-band
   antenna matrices, followed by the TX bypass options. These per-band and TX
@@ -209,7 +260,7 @@ receive-table gaps select bypass. LPF gaps select the 6 m LPF fallback.
 **ADC1 RF filter bypass** in Antenna Control overrides ADC1; the Alex-2
 **ByPass / 55 MHz BPF (master)** checkbox mirrors it on supported profiles. Single-ADC models disable ADC1 controls. LPF limits are disabled
 when the active profile does not drive LPF selection (the P2 Saturn profile).
-With one receiver, both automatic ADC filter banks follow its tuned frequency.
+Both automatic ADC filter banks follow the first active hardware stream.
 ADC1 inherits ADC0 ranges until independent Alex-2 limits are saved. ADC0's individual **Bypass** boxes
 apply to that HPF/BPF band only. **Disable 6m LNA on RX** selects ADC0 bypass
 instead of the 6-m filter/LNA; **6m/ByPass on RX** forces the 6-m LPF. These RX
@@ -221,7 +272,7 @@ dual-ADC profile, including ANAN-100D/200D and a DIY ANAN-200D mapping whose
 Alex-2 controls are disabled. Changes are saved and activated immediately. Single-ADC
 profiles display the control disabled with a reason. Alex-2 retains its bypass
 indicator and independent band table on supported MkII profiles.
-The single receiver frequency drives both banks; changing ADC1 limits does
+The shared RF reference frequency drives both banks; changing ADC1 limits does
 not create another receiver or alter ADC0 limits. TX/PureSignal bypass and
 **Disable 6m LNA on TX** remain disabled because ANAN transmit is unsupported.
 The 6m LNA and TX/PureSignal bypass switches are grouped above the HPF/BPF
@@ -329,7 +380,7 @@ P1 or P2; the model name does not select the protocol. The gateware label shows
 
 Experimental P1 receive profiles are implemented for Hermes, Hermes II,
 Angelia, Orion, Orion MkII and HermesC10. They use the existing receiver DSP,
-with one receiver and panadapter. These P1 paths have packet and transport tests
+with independent per-slot tuning and shared-window slices. These P1 paths have packet and transport tests
 but still require hardware qualification. The existing Hermes-Lite 2 connection
 continues to use its own backend.
 
@@ -408,7 +459,7 @@ a distinct G2 P1 discovery identity still needs verification.
 Wider saved P2 rates are limited to the selected P1 profile's maximum. RF gain
 and ANT1/2/3 use receive controls only. P1 does not load P2 droop tables or
 advertise the P2 calibration sweep or P2 supply-voltage telemetry. The
-application continues to provide one receiver and one panadapter.
+application supports multiple slices and independent receive windows within the connected hardware limits.
 
 ## CTUN: tune inside a fixed spectrum
 
@@ -559,7 +610,6 @@ The G2 stores none of its settings, so AetherSDR keeps these per radio: frequenc
 
 - **Transmit.** Keying is refused; transmit is a future phase.
 - DAX, SmartLink or Multi-Flex.
-- More than one receiver or panadapter.
 - A headphone level control: the **Headphone:** row under **Settings → Radio Setup... → Audio → Radio Audio Outputs** is dimmed; **Line Out:** stays available.
 
 Controls the G2 cannot honor are dimmed with a reason, or refuse with a notice; see [Supported Radios](./supported-radios.md).

@@ -20,6 +20,13 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
             [this, protocol](const std::vector<std::complex<float>>& block) {
                 if (m_protocol == protocol) emit ddc0IqReady(block);
             }, Qt::DirectConnection);
+        connect(
+            client, &Client::ddcIqReady, this,
+            [this, protocol](int index, const std::vector<std::complex<float>>& block) {
+                if (m_protocol == protocol)
+                    emit ddcIqReady(index, block);
+            },
+            Qt::DirectConnection);
         connect(client, &Client::ddcSequenceGap, this, [this, protocol](int index) {
             if (m_protocol == protocol) emit ddcSequenceGap(index);
         }, Qt::DirectConnection);
@@ -79,5 +86,14 @@ bool AnanClient::setDdcRateLive(int ddc, int rate)
 void AnanClient::enqueueSpeakerAudio(const QByteArray& audio)
 {
     if (m_protocol == 1) m_p1->enqueueSpeakerAudio(audio); else m_p2->enqueueSpeakerAudio(audio);
+}
+} // namespace AetherSDR::anan
+
+namespace AetherSDR::anan {
+bool AnanClient::setReceiveStreams(const std::vector<DdcConfig>& streams,
+                                   const std::vector<double>& centers)
+{
+    return m_protocol == 1 ? m_p1->setReceiveStreams(streams, centers)
+                           : m_p2->setReceiveStreams(streams, centers);
 }
 } // namespace AetherSDR::anan

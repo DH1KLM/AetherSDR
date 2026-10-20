@@ -1,12 +1,18 @@
 #pragma once
 
+#include "core/Resampler.h"
 #include "core/backends/IRadioBackend.h"
+#include "core/backends/anan/AnanClient.h"
+#include "core/backends/anan/AnanDroopCalibrator.h"
+#include "core/backends/anan/AnanReceiveLayout.h"
 #include "core/backends/anan/AnanRxDsp.h"
 #include "core/backends/anan/AnanSliceAudio.h"
-#include "core/Resampler.h"
-#include "core/backends/anan/AnanDroopCalibrator.h"
-#include "core/backends/anan/AnanClient.h"
 #include "core/dsp/WdspSMeter.h"
+#include <QPointer>
+#include <atomic>
+#include <deque>
+#include <functional>
+#include <map>
 
 #include <QElapsedTimer>
 #include <QMap>
@@ -21,15 +27,15 @@
 
 namespace AetherSDR::anan {
 
-//DH1KLM: RX-only backend for source-pinned ANAN P1/P2 board/model profiles.
-// Owns one AnanClient dispatcher and one AnanRxDsp on a dedicated I/O thread, like Hl2Backend with MetisClient +
-// Hl2RxDsp. Scope: one DDC, RX only.
-//   - CTUN holds the DDC centre while the slice tunes digitally within its sampled span.
-//   - capabilities() reports the physical board family; gateware, receiver count and board
-//     id come from this session's Discovery reply once it lands.
-//   - setKeying() is a no-op: canTransmit is false and P2Client has no PTT
-//     (TX is RFC §2.11 Phase 3).
-// Receive handedness lives entirely in AnanRxDsp (see docs/HERMES.md §16).
+// DH1KLM: RX-only backend for source-pinned ANAN P1/P2 board/model profiles.
+//  Owns one AnanClient and up to five slice DSP chains on the existing I/O
+//  thread. Hardware captures may be shared or independently tuned. RX only.
+//    - CTUN holds the DDC centre while the slice tunes digitally within its sampled span.
+//    - capabilities() reports the physical board family; gateware, receiver count and board
+//      id come from this session's Discovery reply once it lands.
+//    - setKeying() is a no-op: canTransmit is false and P2Client has no PTT
+//      (TX is RFC §2.11 Phase 3).
+//  Receive handedness lives entirely in AnanRxDsp (see docs/HERMES.md §16).
 class AnanBackend : public IRadioBackend {
     Q_OBJECT
 
@@ -54,6 +60,12 @@ public:
     void disconnectRadio() override;
     bool isConnected() const override { return m_connected; }
 
+    bool createSlice(const QString& panId, double hz) override;
+    bool removeSlice(int id) override;
+    bool createPanadapter() override;
+    bool removePanadapter(const QString& panId) override;
+    void setActiveSlice(int id) override;
+    ReceiveDispatch requestSliceControl(int, const SliceControlRequest&) override;
     void setSliceFrequency(int sliceId, double hz) override;
     void setSliceMode(int sliceId, const QString& mode) override;
     void setSliceFilter(int sliceId, int lowHz, int highHz) override;
@@ -209,6 +221,58 @@ public:
     [[nodiscard]] double sMeterDbmForTest() const noexcept { return m_sMeter.value(); }
 
 private:
+    friend struct AnanMultiRxTestAccess;
+    struct AdditionalRx {
+        int id = 0;
+        QPointer<AnanRxDsp> dsp;
+        std::shared_ptr<std::atomic<int>> route = std::make_shared<std::atomic<int>>(-1);
+        std::atomic<bool> seenIq{false};
+        SMeterSmoother sMeter;
+        AnanRxDsp::Config config;
+        QString mode = QStringLiteral("USB");
+        int low = 100, high = 2900, agc = 3, threshold = kDefaultAgcThreshold,
+            off = kDefaultAgcOffLevel;
+        bool mute = false, ready = false;
+        int gain = 100, pan = 50;
+        AetherSDR::NoiseBlankerKind nb = AetherSDR::NoiseBlankerKind::Off;
+        int nbLevel = 50;
+        AetherSDR::NoiseBlankerFill nbFill = AetherSDR::kDefaultNoiseBlankerFill;
+        std::deque<float> audio;
+    };
+    std::map<int, std::shared_ptr<AdditionalRx>> m_additionalRx;
+    AnanReceiveLayout m_receiveLayout;
+    std::shared_ptr<std::atomic<int>> m_primaryRoute = std::make_shared<std::atomic<int>>(0);
+    std::shared_ptr<std::atomic<quint64>> m_receiveIoEpoch =
+        std::make_shared<std::atomic<quint64>>(0);
+    quint64 m_receiveEpoch = 0;
+    bool m_receiveBuilding = false;
+    int m_activeReceiveSlice = 0;
+    QTimer* m_receiveMixer = nullptr;
+    std::deque<float> m_primaryAudio;
+    // Socket-free tests inject writes; production dispatches on the I/O thread.
+    std::function<bool(const std::vector<DdcConfig>&, const std::vector<double>&)>
+        m_streamApplyOverride;
+    std::function<bool(int, int)> m_rateApplyOverride;
+    int receiveStreamCeiling() const;
+    int receiveSliceCeiling() const;
+    double frontEndReferenceHz() const;
+    QString primaryPanId() const;
+    int primaryPanIndex() const;
+    int streamForPan(const QString&) const;
+    bool primaryVisible() const;
+    bool addReceiveSlice(double, int, bool);
+    void clearAdditionalRx();
+    void retireReceiveDsp(QPointer<AnanRxDsp>);
+    void applyAdditionalRx(int);
+    void publishAdditionalRx(int);
+    void pushAdditionalShifts();
+    void checkReceiveIqTimeout(int, quint64);
+    void publishReceiveWindows();
+    void updateReceiveStreams();
+    void collectReceiveAudio(int, const QByteArray&);
+    void mixReceiveAudio();
+    void retireEmptyReceiveWindows(const std::array<AnanReceiveLayout::Stream, 5>&);
+    void changeReceiveStreamRate(int, int);
     int effectiveBoardId() const;
     QVariantMap hardwareFilterStatus() const;
     void loadHardwareFilters(int boardId);
@@ -219,7 +283,7 @@ private:
     void applyReceiveGain(int adcDb, int alexDb);
     anan::ReceiveAntennaSelection activeReceiveAntenna() const;
     QString applyReceiveAntenna(int antenna);
-    //DH1KLM: Shipped defaults are valid only for the Saturn RX profile.
+    // DH1KLM: Shipped defaults are valid only for the Saturn RX profile.
     void seedDroopCorrectionTables(bool useSaturnDefaults);
     friend class AnanNoiseBlankerTestAccess;
     friend class AnanLinkStatsTestAccess;
@@ -238,7 +302,7 @@ private:
     // actually exists.
     [[nodiscard]] int nearestSessionRateKsps(int requestedKsps) const noexcept;
     AnanClient::Params m_pendingParams;
-    //DH1KLM: Retain ANT1/2/3 across P2 session restarts.
+    // DH1KLM: Retain ANT1/2/3 across P2 session restarts.
     int m_rxAntenna = 1;
     AnanRxDsp::Config m_pendingDspConfig;
     // Panadapter points from the panel width (setPanPixelWidth()). Kept here

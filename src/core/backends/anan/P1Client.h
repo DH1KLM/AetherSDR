@@ -28,6 +28,8 @@ public:
     bool start(const Params& params, int timeoutMs = 2000);
     void stop();
     void setDdc0FrequencyHz(double hz);
+    bool setReceiveStreams(const std::vector<DdcConfig>& streams,
+                           const std::vector<double>& centers);
     Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     void setStepAttenuationDb(int adc, int db);
     void setRxAntenna(int antenna);
@@ -40,6 +42,7 @@ signals:
     void linkUp();
     void linkDown();
     void connectionError(const QString& reason);
+    void ddcIqReady(int index, const std::vector<std::complex<float>>& block);
     void ddc0IqReady(const std::vector<std::complex<float>>& block);
     void ddcSequenceGap(int ddcIndex);
     void linkCountersUpdated(const P2Client::LinkCounters& counters);
