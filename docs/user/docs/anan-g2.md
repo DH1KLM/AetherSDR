@@ -86,16 +86,16 @@ override OFF. To change the override, disconnect and reconnect through this
 page. The firmware's actual P1/P2 protocol and the discovered device identity
 are retained; busy, unknown and unsupported devices are still refused.
 
-Configure the receive front end under **Settings → Radio Setup... → Radio → ANAN Front End**. The page is available while disconnected, and while connected to a G2. Its options apply on the next connection, whether you use **Available radios** or **Connect by IP**:
+Configure the receive front end under **Settings → Radio Setup... → Radio → ANAN Hardware → Connection Defaults**. The page is available while connected to an ANAN. These family-wide defaults are not a display of the active session. Its options apply on the next connection, whether you use **Available radios** or **Connect by IP**:
 
 | Option | Default | What it does |
 |--------|---------|--------------|
 | **Sample rate:** | 48 ksps | Receiver sample rate (G2 DDC0, 7000DLE DDC2): 48, 96, 192, 384, 768 or 1536 ksps. It is also the starting width of the panadapter. Higher rates use more of the radio's Ethernet link. |
 | **Feed the receiver from:** | ADC0 (ANT1/2/3) | Which receive chain feeds the receiver: **ADC0 (ANT1/2/3)**, behind the switched antenna relays, or **ADC1 (RX2)**, wired straight to the RX2 jack. |
 | **Dither** / **Randomization** | On | The ADC's linearisation bits. Leave them on unless you are testing. |
-| **Bypass ADC0's bank** | Off | MkII/Saturn BPF1 is selected automatically from the tuned frequency using the Thetis-compatible band map. Check this only to force ADC0 around that filter. |
-| **Bypass ADC1's bank (RX2)** | On | Bypass RX2/ADC1's separate filter bank. Uncheck to select its receive filter automatically at the single receiver's tuned frequency. |
 | **Send receive audio to the radio** | Off | Also plays receive audio through the G2's own speaker and headphone jack. Takes effect on the next connect. |
+
+Filter bypass is controlled only under **ANAN Hardware → Antenna / ALEX** and applies immediately for the connected device and effective model. Use the panadapter **− / +** buttons to change the sample rate during a session.
 
 ## ANAN Hardware
 
@@ -106,6 +106,7 @@ an unsupported backend. Within the ANAN page, unsupported controls such as
 Alex-2 on a legacy profile remain visible but disabled with a reason.
 The page follows the Nereus hardware-page arrangement:
 
+- **Connection Defaults**: sample rate, ADC source, Dither, Randomization and radio speaker audio for the next connection. Existing saved values are retained. Filter bypass remains under **Antenna / ALEX**.
 - **Radio Info**: **Board Identity** (physical board, P1/P2, ADC count, reported
   receiver count, firmware, MAC, IP) and **Operating Parameters**. The effective
   model and override remain distinct from the physical board. One receiver is active.
@@ -184,7 +185,7 @@ When a dedicated ADC0 input is selected, **RX ANT** shows that input's
 model-specific name; when ADC1 feeds the receiver, it shows **RX2**. These
 fixed active routes do not offer an ANT-bank switch that would leave the
 active receiver unchanged. Choose the dedicated ADC0 input on **Antenna
-Control**, or change the ADC source on **ANAN Front End** and
+Control**, or change the ADC source on **ANAN Hardware → Connection Defaults** and
 reconnect. The hardware page's ANT-bank control remains available for ADC0.
 
 **ALEX HPF bands** is used by the legacy Hermes, Angelia and Orion profiles
@@ -286,7 +287,7 @@ tab remains visible with disabled controls and an explanation. Do not change
 to an incompatible model to enable those controls.
 
 1. On a dual-ADC profile, open **Settings → Radio Setup... → Radio →
-   ANAN Front End** and set **Feed the receiver from:** to **ADC1 — the RX2 jack**.
+   ANAN Hardware → Connection Defaults** and set **Feed the receiver from:** to **ADC1 — the RX2 jack**.
    Disconnect and reconnect to apply the source change. Confirm that **ANAN Hardware →
    Antenna / ALEX → Antenna Control** reports **Active receiver: ADC1 / RX2**.
    Connect the receive signal to the fitted ADC1 input; the software cannot
@@ -573,15 +574,15 @@ Controls the G2 cannot honor are dimmed with a reason, or refuse with a notice; 
 
 If the signal path is wrong after changing RF filter options, first restore the Saturn BPF1 selection.
 
-1. Disconnect from the G2.
-2. Open **Settings → Radio Setup... → Radio → ANAN Front End**.
-3. Uncheck **Bypass ADC0's bank** so the tuned-frequency BPF1 selection is active. ADC1/RX2 has a separate bypass option under **Radio Setup → ANAN Hardware**.
+1. Connect to the G2.
+2. Open **Settings → Radio Setup... → Radio → ANAN Hardware → Antenna / ALEX**.
+3. Turn off the ADC0 master bypass under **Alex-1 Filters** to enable automatic filtering. The change applies immediately. ADC1/RX2 bypass is configured separately under **Antenna Control**.
 
 ### No audio from the radio's own speaker
 
 **Send receive audio to the radio** is off, or was turned on during the session. It takes effect on the next connect.
 
-1. Open **Settings → Radio Setup... → Radio → ANAN Front End** and tick **Send receive audio to the radio**.
+1. Open **Settings → Radio Setup... → Radio → ANAN Hardware → Connection Defaults** and tick **Send receive audio to the radio**.
 2. Disconnect and connect again.
 3. Check that the receiver and the title-bar speaker button are not muted; they mute the radio's speaker too.
 

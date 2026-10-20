@@ -337,7 +337,7 @@ private:
     QCheckBox*   m_manualAnanOverrideCheck{nullptr};
     QWidget*     m_manualAnanProtocolRow{nullptr};
     QComboBox*   m_manualAnanProtocolCombo{nullptr};
-    // Points at Radio Setup's "ANAN Front End" page, where this family's
+    // Points at Radio Setup's "ANAN Hardware" page, where this family's
     // front-end options are set. Shown only for family "anan", like the Icom
     // rows above, and held as a row container for the same reason -- it hides
     // as a unit.
