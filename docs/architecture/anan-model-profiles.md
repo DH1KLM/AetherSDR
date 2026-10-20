@@ -306,7 +306,10 @@ LEDs. The technical reference is Thetis setup.cs
 maintain a separate Alex-2 range table. Existing model defaults and bit mapping
 are retained. P2 encodes ADC1 in the existing ALEX1 lower word; P1 translates
 that selection to its bank-local bits. ADC0, LPF, OC, RX frequency and TX gates
-are unaffected. Alex-2 stays hidden for legacy mappings and single-ADC models.
+are unaffected. Alex-2 stays visible for legacy mappings and single-ADC models, with its
+filter controls disabled and a visible / accessible explanation. The effective
+profile's `hasAlex2Filters` still gates editing and inclusion of `receiveAdc1`
+in the apply request; a second ADC alone does not enable Alex-2.
 
 HardwareFilters schema 4 adds optional `receiveAdc1` (six integer-Hz ranges,
 ordered, non-overlapping, within 0–61.44 MHz). Missing tables continue to
@@ -532,3 +535,15 @@ These checks verify client encoding and routing only. The user guide's
 source selection, ADC0 relay isolation, independent boundaries and reconnect
 recall on the actual fitted hardware. No new receiver, hardware capability,
 profile, TX function or physical relay readback is introduced by this audit.
+
+
+### OC page layout
+
+The OC page follows the arrangement in
+[NereusSDR's OC Outputs page](https://github.com/boydsoftprez/NereusSDR/blob/main/src/gui/setup/hardware/OcOutputsHfTab.cpp):
+User Dig Out above the category tabs, RX/TX band matrices below the enable
+and reset row, then TX pin actions beside live commanded pin state. The
+matrix uses a widget grid rather than a table viewport, so P1–P7 cannot be
+clipped by table-header minimum section sizes. Matrix and lower groups
+reflow vertically in narrow windows. Unsupported rows and actions are
+visible but disabled; they do not extend the backend's RX-only contract.

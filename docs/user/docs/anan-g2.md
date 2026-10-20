@@ -116,14 +116,16 @@ validated session. It follows the Nereus hardware-page arrangement:
   and restores the last confirmed selection; pending filter edits remain. A live antenna change does
   not change another device’s starting selection. Existing global antenna
   defaults remain a fallback until this device/model has its own choice. ADC0 filter limits and bypass are on
-  Alex-1. **Alex-2 Filters** appears only for the dual-ADC MkII filter profiles
-  (ANAN-7000/8000, Orion MkII, Anvelina and G2). It is hidden for legacy models,
-  including an Orion MkII explicitly mapped as ANAN-200D, and for single-ADC
-  profiles. A second ADC by itself does not imply a second ALEX filter board.
+  Alex-1. **Alex-2 Filters** remains visible for every ANAN profile. Its controls
+  are enabled for the dual-ADC MkII filter profiles (ANAN-7000/8000, Orion MkII,
+  Anvelina and G2). For legacy models, including an Orion MkII explicitly
+  mapped as ANAN-200D, and for single-ADC profiles, the controls are dimmed
+  with a visible and screen-reader-accessible explanation. A second ADC by
+  itself does not imply a second ALEX filter board.
   Alex-2 provides independent ADC1 band limits and green filter/bypass LEDs.
 - **OC Outputs**: **HF**, **VHF**, **SWL**. HF has RX/TX pin matrices side by side
   and a commanded RX pin-state readout. The RX matrix is configurable; TX, VHF,
-  SWL, USB BCD, external PA and user digital outputs are visible but disabled
+  SWL and user digital outputs are visible but disabled
   with their unsupported reason.
 - **Calibration**: visible frequency, level, TX-display and current-calibration
   sections explain unavailable functions. **Open Droop Correction** opens the
@@ -196,7 +198,7 @@ filter. On models with **Alex-2 Filters**, ADC1 has its own six frequency
 ranges and commanded-filter LEDs. Its master bypass still takes precedence.
 **ADC1 RF filter bypass** is on **Antenna / ALEX → Antenna Control** for every
 dual-ADC profile, including ANAN-100D/200D and a DIY ANAN-200D mapping whose
-Alex-2 tab is hidden. Select **Apply** to save and activate it. Single-ADC
+Alex-2 controls are disabled. Select **Apply** to save and activate it. Single-ADC
 profiles display the control disabled with a reason. Alex-2 retains its bypass
 indicator and independent band table on supported MkII profiles.
 The single receiver frequency drives both banks; changing ADC1 limits does
@@ -253,8 +255,9 @@ disabled rather than presenting working controls.
 
 Keep the receive profile that matches your fitted hardware, including a
 required DIY override. **Alex-2 Filters** is available only for dual-ADC MkII
-filter profiles. An **ANAN-200D** override has two ADCs but no Alex-2 editor;
-do not change to an incompatible model just to expose that tab.
+filter profiles. An **ANAN-200D** override has two ADCs; its **Alex-2 Filters**
+tab remains visible with disabled controls and an explanation. Do not change
+to an incompatible model to enable those controls.
 
 1. On a dual-ADC profile, open **Settings → Radio Setup... → Radio →
    ANAN Front End** and set **Feed the receiver from:** to **ADC1 — the RX2 jack**.
@@ -565,11 +568,23 @@ If the signal path is wrong after changing RF filter options, first restore the 
 
 ### OC table and log layout
 
-In **ANAN Hardware → OC Outputs → HF**, both OC pin tables reserve enough
-height for all eleven band rows, including **6m**, and the horizontal
-scrollbar. The TX matrix remains unavailable because ANAN transmit is not
-implemented. Narrow windows may still require horizontal scrolling to reach
-all seven pins.
+**ANAN Hardware → OC Outputs** places **User Dig Out** above the **HF**,
+**VHF** and **SWL** tabs. In **HF**, **Enable RX OC outputs** and
+**Reset OC defaults** sit above the RX/TX pin matrices. All seven pin columns
+(**P1–P7**) and all supported band rows (**160m–6m**) are visible without
+scrolling inside a matrix. The matrices sit side by side when space permits
+and stack in a narrow setup window.
+
+**TX Pin Action mapping** and **Live OC pin state** sit below the matrices.
+The seven LEDs and hexadecimal mask show the commanded RX output byte,
+not physical pin feedback. **Reset OC defaults** clears the RX assignments
+and disables RX OC outputs; select **Apply** to save. It leaves the receive
+filters and antenna settings alone.
+
+TX controls, User Dig Out and the additional **2m**, **GEN**, **WWV** and
+**XVTR** routing rows remain dimmed with an explanation because these
+functions are not implemented. The existing RX matrix covers 160m through
+6m; its ranges continue to come from the active regional band plan.
 
 Under **Help → Support & Diagnostics... → Application Logs**, the ANAN Protocol 1,
 Protocol 2, RX DSP, Panadapter, Droop Defaults and Droop Calibration filters

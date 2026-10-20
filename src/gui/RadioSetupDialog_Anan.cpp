@@ -60,13 +60,13 @@ void updateFilterLed(QLabel* led, bool selected, const QString& name)
 // the setup viewport. The surrounding scroll area handles vertical overflow.
 class FilterTables : public QWidget {
 public:
-    FilterTables(QWidget* first, QWidget* second)
+    FilterTables(QWidget* first, QWidget* second, int firstStretch = 0, int secondStretch = 0)
         : m_first(first), m_second(second), m_box(new QBoxLayout(QBoxLayout::TopToBottom, this))
     {
         m_box->setContentsMargins(0,0,0,0);
         m_box->setSizeConstraint(QLayout::SetNoConstraint);
-        m_box->addWidget(first);
-        m_box->addWidget(second);
+        m_box->addWidget(first, firstStretch);
+        m_box->addWidget(second, secondStretch);
         QSizePolicy policy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         policy.setHeightForWidth(true);
         setSizePolicy(policy);
@@ -165,7 +165,6 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* antennaControl = tab(antennaTabs, QStringLiteral("Antenna Control"));
     auto* alex1 = tab(antennaTabs, QStringLiteral("Alex-1 Filters"));
     auto* alex2 = tab(antennaTabs, QStringLiteral("Alex-2 Filters"));
-    antennaTabs->setTabVisible(antennaTabs->indexOf(alex2), false);
     auto* antennaControlLayout = new QVBoxLayout(antennaControl);
     auto* antennaGroup = new QGroupBox(QStringLiteral("Receive Antenna"), antennaControl);
     auto* antennaForm = new QFormLayout(antennaGroup);
@@ -218,92 +217,144 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     alex2GroupLayout->addWidget(alex2Hint);
     alex2Layout->addStretch();
     auto* ocLayout = new QVBoxLayout(ocPage);
-    auto* ocTabs = new QTabWidget(ocPage);
-    ocTabs->setAccessibleName(QStringLiteral("OC output bands"));
-    ocLayout->addWidget(ocTabs);
+    ocLayout->setContentsMargins(0, 0, 0, 0);
     auto* digitalGroup = new QGroupBox(QStringLiteral("User Dig Out"), ocPage);
     auto* digitalLayout = new QHBoxLayout(digitalGroup);
+    digitalLayout->setContentsMargins(8, 4, 8, 4);
     for (int pin = 1; pin <= 4; ++pin) {
         auto* check = new QCheckBox(QStringLiteral("Pin %1").arg(pin), digitalGroup);
         check->setAccessibleName(QStringLiteral("User digital output %1").arg(pin));
         check->setAccessibleDescription(QStringLiteral("Unavailable: user digital outputs are not implemented for this ANAN backend"));
+        check->setToolTip(check->accessibleDescription());
         check->setEnabled(false);
         digitalLayout->addWidget(check);
     }
+    digitalLayout->addStretch();
     ocLayout->addWidget(digitalGroup);
+    auto* ocTabs = new QTabWidget(ocPage);
+    ocTabs->setAccessibleName(QStringLiteral("OC output bands"));
+    ocLayout->addWidget(ocTabs, 1);
     auto* hf = tab(ocTabs, QStringLiteral("HF"));
     auto* vhf = tab(ocTabs, QStringLiteral("VHF"));
     auto* swl = tab(ocTabs, QStringLiteral("SWL"));
     auto* hfLayout = new QVBoxLayout(hf);
+    hfLayout->setContentsMargins(8, 8, 8, 8);
+    hfLayout->setSpacing(6);
+    auto* ocControls = new QHBoxLayout;
     auto* ocEnabled = new QCheckBox(QStringLiteral("Enable RX OC outputs"), hf);
     ocEnabled->setAccessibleName(QStringLiteral("Enable receive open collector outputs"));
     ocEnabled->setAccessibleDescription(QStringLiteral("Explicitly enable the configured RX pin matrix. Default off; no TX or extra Anvelina pins are driven."));
-    hfLayout->addWidget(ocEnabled);
-    auto* ocMatrices = new QHBoxLayout;
-    hfLayout->addLayout(ocMatrices);
+    ocControls->addWidget(ocEnabled);
+    ocControls->addStretch();
+    auto* ocReset = new QPushButton(QStringLiteral("Reset OC defaults"), hf);
+    ocReset->setAccessibleDescription(QStringLiteral("Clear RX OC pin assignments and disable RX OC outputs. Select Apply to save."));
+    ocReset->setToolTip(ocReset->accessibleDescription());
+    ocControls->addWidget(ocReset);
+    hfLayout->addLayout(ocControls);
     const QStringList ocBandNames{QStringLiteral("160m"), QStringLiteral("80m"), QStringLiteral("60m"), QStringLiteral("40m"),
         QStringLiteral("30m"), QStringLiteral("20m"), QStringLiteral("17m"), QStringLiteral("15m"), QStringLiteral("12m"),
-        QStringLiteral("10m"), QStringLiteral("6m")};
+        QStringLiteral("10m"), QStringLiteral("6m"), QStringLiteral("2m"), QStringLiteral("GEN"),
+        QStringLiteral("WWV"), QStringLiteral("XVTR")};
+    struct OcMatrix {
+        QGroupBox* group;
+        std::array<QLabel*, 11> bands{};
+        std::array<std::array<QCheckBox*, 7>, 11> pins{};
+    };
     const auto matrix = [&](const QString& title, bool tx) {
-        auto* group = new QGroupBox(title, hf);
-        auto* box = new QVBoxLayout(group);
-        auto* table = new QTableWidget(11, 8, group);
-        QStringList headers{QStringLiteral("Band")};
-        for (int pin = 1; pin <= 7; ++pin) { headers << QString::number(pin); }
-        table->setHorizontalHeaderLabels(headers);
-        table->verticalHeader()->hide();
-        table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-        table->horizontalHeader()->setStretchLastSection(true);
-        table->setAccessibleName(title);
-        // Reserve every band row, the header, frame and a possible
-        // horizontal scrollbar. Header geometry changes cover font/style
-        // changes as well as later row-size updates.
-        const auto fitBandRows = [table] {
-            table->setMinimumHeight(table->horizontalHeader()->sizeHint().height()
-                + table->verticalHeader()->length() + 2 * table->frameWidth()
-                + table->horizontalScrollBar()->sizeHint().height());
-        };
-        connect(table->horizontalHeader(), &QHeaderView::geometriesChanged, table, fitBandRows);
-        connect(table->verticalHeader(), &QHeaderView::geometriesChanged, table, fitBandRows);
-        fitBandRows();
-        for (int row = 0; row < 11; ++row) {
-            table->setItem(row, 0, new QTableWidgetItem(ocBandNames[row]));
-            table->item(row, 0)->setFlags(Qt::ItemIsEnabled);
+        auto result = std::make_shared<OcMatrix>();
+        result->group = new QGroupBox(title, hf);
+        auto* grid = new QGridLayout(result->group);
+        grid->setContentsMargins(8, 6, 8, 6);
+        grid->setHorizontalSpacing(4);
+        grid->setVerticalSpacing(1);
+        grid->addWidget(new QLabel(QStringLiteral("Band"), result->group), 0, 0);
+        for (int pin = 0; pin < 7; ++pin) {
+            grid->addWidget(new QLabel(QStringLiteral("P%1").arg(pin+1), result->group), 0, pin+1, Qt::AlignHCenter);
+        }
+        grid->setColumnStretch(8, 1);
+        for (int row = 0; row < ocBandNames.size(); ++row) {
+            auto* band = new QLabel(ocBandNames[row], result->group);
+            grid->addWidget(band, row+1, 0);
+            const bool supported = !tx && row < 11;
+            const QString reason = tx ? QStringLiteral("Unavailable: ANAN transmit is not implemented")
+                : QStringLiteral("Unavailable: 2m, independent GEN/WWV and transverter OC routing are not implemented; the RX matrix covers 160m through 6m");
+            if (!supported) {
+                band->setEnabled(false);
+                band->setAccessibleDescription(reason);
+                band->setToolTip(reason);
+            }
+            if (row < 11) { result->bands[row] = band; }
             for (int pin = 0; pin < 7; ++pin) {
-                auto* check = new QCheckBox(table);
+                auto* check = new QCheckBox(result->group);
                 check->setAccessibleName(QStringLiteral("%1 %2 pin %3").arg(tx ? QStringLiteral("TX") : QStringLiteral("RX"), ocBandNames[row]).arg(pin+1));
-                check->setAccessibleDescription(tx ? QStringLiteral("Unavailable: ANAN transmit is not implemented")
-                    : QStringLiteral("Assert this OC pin only within the configured receive band when RX OC outputs are enabled"));
-                check->setEnabled(!tx);
-                table->setCellWidget(row, pin+1, check);
+                check->setAccessibleDescription(supported
+                    ? QStringLiteral("Assert this OC pin only within the configured receive band when RX OC outputs are enabled") : reason);
+                check->setToolTip(check->accessibleDescription());
+                check->setEnabled(supported);
+                grid->addWidget(check, row+1, pin+1, Qt::AlignHCenter);
+                if (row < 11) { result->pins[row][pin] = check; }
             }
         }
-        if (tx) { table->setAccessibleDescription(QStringLiteral("Unavailable: ANAN transmit is not implemented")); table->setEnabled(false); }
-        box->addWidget(table);
-        ocMatrices->addWidget(group);
-        return table;
+        if (tx) {
+            result->group->setAccessibleDescription(QStringLiteral("Unavailable: ANAN transmit is not implemented"));
+            result->group->setToolTip(result->group->accessibleDescription());
+            result->group->setEnabled(false);
+        }
+        return result;
     };
-    auto* ocRx = matrix(QStringLiteral("RX OC Pins per Band"), false);
-    matrix(QStringLiteral("TX OC Pins per Band"), true);
-    auto* ocAdvanced = new QHBoxLayout;
-    hfLayout->addLayout(ocAdvanced);
-    const auto disabledGroup = [&](const QString& title, const QStringList& fields, const QString& reason) {
-        auto* holder = new QWidget(hf);
-        auto* box = new QVBoxLayout(holder);
-        box->setContentsMargins(0,0,0,0);
-        unsupported(box, title, fields, reason);
-        ocAdvanced->addWidget(holder);
-    };
-    disabledGroup(QStringLiteral("TX Pin Action mapping"),
-        {QStringLiteral("MOX / Tune / 2Tone"), QStringLiteral("Allow hot switching")},
-        QStringLiteral("Unavailable: ANAN TX pin actions are not implemented."));
-    disabledGroup(QStringLiteral("USB BCD output"), {QStringLiteral("Enable BCD"), QStringLiteral("Invert")},
-        QStringLiteral("Unavailable: USB BCD output is not implemented on this page."));
-    disabledGroup(QStringLiteral("External PA control"), {QStringLiteral("Enable external PA control"), QStringLiteral("Bias delay")},
-        QStringLiteral("Unavailable: ANAN transmit and PA sequencing are not implemented."));
-    auto* ocState = new QLabel;
+    const auto ocRx = matrix(QStringLiteral("RX OC Pins per Band"), false);
+    const auto ocTx = matrix(QStringLiteral("TX OC Pins per Band"), true);
+    hfLayout->addWidget(new FilterTables(ocRx->group, ocTx->group, 1, 1));
+    auto* ocActions = new QGroupBox(QStringLiteral("TX Pin Action mapping"), hf);
+    auto* actionGrid = new QGridLayout(ocActions);
+    actionGrid->setHorizontalSpacing(6);
+    actionGrid->setVerticalSpacing(1);
+    const QStringList actionNames{QStringLiteral("MOX"), QStringLiteral("Tune"), QStringLiteral("TwoTone"),
+        QStringLiteral("MOX+Tune"), QStringLiteral("MOX+\nTwoTone"), QStringLiteral("Tune+\nTwoTone"),
+        QStringLiteral("MOX+Tune+\nTwoTone")};
+    actionGrid->addWidget(new QLabel(QStringLiteral("Pin"), ocActions), 0, 0);
+    for (int action = 0; action < actionNames.size(); ++action) {
+        auto* label = new QLabel(actionNames[action], ocActions);
+        label->setAlignment(Qt::AlignCenter);
+        actionGrid->addWidget(label, 0, action+1);
+        for (int pin = 0; pin < 7; ++pin) {
+            auto* check = new QCheckBox(ocActions);
+            check->setAccessibleName(QStringLiteral("TX pin %1 %2").arg(pin+1).arg(QString(actionNames[action]).replace(QLatin1Char('\n'), QString())));
+            check->setAccessibleDescription(QStringLiteral("Unavailable: ANAN TX pin actions are not implemented"));
+            check->setToolTip(check->accessibleDescription());
+            check->setEnabled(false);
+            actionGrid->addWidget(check, pin+1, action+1, Qt::AlignHCenter);
+        }
+    }
+    for (int pin = 0; pin < 7; ++pin) {
+        actionGrid->addWidget(new QLabel(QStringLiteral("Pin %1").arg(pin+1), ocActions), pin+1, 0);
+    }
+    ocActions->setAccessibleDescription(QStringLiteral("Unavailable: ANAN TX pin actions are not implemented"));
+    ocActions->setToolTip(ocActions->accessibleDescription());
+    ocActions->setEnabled(false);
+    auto* ocLive = new QGroupBox(QStringLiteral("Live OC pin state"), hf);
+    auto* liveLayout = new QVBoxLayout(ocLive);
+    auto* ledRow = new QHBoxLayout;
+    const auto ocLeds = std::make_shared<std::array<QLabel*, 7>>();
+    for (int pin = 0; pin < 7; ++pin) {
+        auto* column = new QVBoxLayout;
+        auto* led = makeFilterLed(ocLive, QStringLiteral("OC pin %1").arg(pin+1));
+        led->setAccessibleDescription(QStringLiteral("Commanded RX OC output; no physical pin feedback"));
+        (*ocLeds)[pin] = led;
+        column->addWidget(led, 0, Qt::AlignHCenter);
+        column->addWidget(new QLabel(QString::number(pin+1), ocLive), 0, Qt::AlignHCenter);
+        ledRow->addLayout(column);
+    }
+    liveLayout->addLayout(ledRow);
+    auto* ocState = new QLabel(ocLive);
+    ocState->setWordWrap(true);
     ocState->setAccessibleDescription(QStringLiteral("Commanded RX OC pin state"));
-    hfLayout->addWidget(ocState);
+    liveLayout->addWidget(ocState);
+    auto* ocLiveNote = new QLabel(QStringLiteral("Reflects the commanded RX OC byte. No physical pin feedback."), ocLive);
+    ocLiveNote->setWordWrap(true);
+    liveLayout->addWidget(ocLiveNote);
+    liveLayout->addStretch();
+    hfLayout->addWidget(new FilterTables(ocActions, ocLive, 3, 1));
     auto* ocNote = new QLabel(QStringLiteral("Hover a band name to inspect its frequency range, taken from the active band plan on first configuration. Outside configured bands all pins are off. Select Apply to save."));
     ocNote->setWordWrap(true);
     hfLayout->addWidget(ocNote);
@@ -400,7 +451,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* adc1 = new QCheckBox(QStringLiteral("ADC1 RF filter bypass"));
     adc1->setAccessibleName(QStringLiteral("ADC1 RF filter bypass"));
     adc1->setObjectName(QStringLiteral("ananAdc1FilterBypass"));
-    //DH1KLM: Legacy dual-ADC models have no Alex-2 tab but still need RX2 bypass control.
+    // RX2 bypass is independent of the presence of an Alex-2 filter bank.
     antennaForm->insertRow(2, adc1);
     auto* bypassRow = new QHBoxLayout;
     auto* bypassLed = makeFilterLed(alex1, QStringLiteral("ADC0 receive bypass"));
@@ -411,7 +462,8 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* adc1BypassRow = new QHBoxLayout;
     auto* adc1BypassLed = makeFilterLed(alex2, QStringLiteral("ADC1 receive bypass"));
     adc1BypassRow->addWidget(adc1BypassLed);
-    adc1BypassRow->addWidget(new QLabel(QStringLiteral("ADC1 receive bypass"), alex2Group));
+    auto* adc1BypassLabel = new QLabel(QStringLiteral("ADC1 receive bypass"), alex2Group);
+    adc1BypassRow->addWidget(adc1BypassLabel);
     adc1BypassRow->addStretch();
     alex2GroupLayout->insertLayout(0, adc1BypassRow);
     auto* active = new QLabel;
@@ -539,12 +591,35 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
 
     struct State { QVariantMap current; bool dirty = false; bool filling = false; };
     const auto state = std::make_shared<State>();
+    const auto setAlex2Available = [=](bool available, const QString& reason) {
+        alex2Hint->setText(available
+            ? QStringLiteral("ADC1 follows the receiver frequency with independent filter limits. Changes apply after Apply.") : reason);
+        alex2Hint->setAccessibleDescription(alex2Hint->text());
+        alex2->setAccessibleDescription(alex2Hint->text());
+        antennaTabs->setTabToolTip(antennaTabs->indexOf(alex2), alex2Hint->text());
+        adc1RangesGroup->setEnabled(available);
+        receiveAdc1->setEnabled(available);
+        receiveAdc1->setAccessibleDescription(available
+            ? QStringLiteral("Independent ADC1 ranges in MHz; ordered and non-overlapping") : reason);
+        adc1BypassLed->setEnabled(available);
+        adc1BypassLabel->setEnabled(available);
+        adc1BypassLed->setAccessibleDescription(available
+            ? QStringLiteral("Commanded ADC1 receive bypass; no physical relay feedback") : reason);
+        for (int row = 0; row < receiveAdc1->rowCount(); ++row) {
+            for (int col = 1; col < 3; ++col) {
+                auto* field = receiveAdc1->cellWidget(row, col);
+                field->setAccessibleDescription(available
+                    ? QStringLiteral("Independent ADC1 filter frequency in MHz; select Apply to save") : reason);
+                field->setToolTip(field->accessibleDescription());
+            }
+        }
+    };
     const auto unavailable = [=] {
         state->current.clear();
         state->dirty = false;
         identity->clear();
         setAntennaHint(QStringLiteral("Connect an ANAN to show its active receive input."));
-        antennaTabs->setTabVisible(antennaTabs->indexOf(alex2), false);
+        setAlex2Available(false, QStringLiteral("Unavailable: connect an ANAN with a validated Alex-2 receive profile first."));
         updateFilterLed(bypassLed, false, QStringLiteral("ADC0 receive bypass"));
         updateFilterLed(adc1BypassLed, false, QStringLiteral("ADC1 receive bypass"));
         for (QTableWidget* table : {receive, receiveAdc1, lpf}) {
@@ -559,8 +634,11 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         { const QSignalBlocker block(ctun); ctun->setChecked(false); }
         ctunInfo->setText(QStringLiteral("Connect an ANAN to use CTUN."));
         ocState->clear();
+        for (int pin = 0; pin < 7; ++pin) {
+            updateFilterLed((*ocLeds)[pin], false, QStringLiteral("OC pin %1").arg(pin+1));
+        }
         for (auto* label : *factLabels) { label->setText(QStringLiteral("—")); }
-        for (QWidget* control : std::array<QWidget*, 5>{antennaCombo, rxInput, ocRx, ocEnabled, droop}) {
+        for (QWidget* control : std::array<QWidget*, 6>{antennaCombo, rxInput, ocRx->group, ocEnabled, droop, ocReset}) {
             control->setEnabled(false);
             control->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
         }
@@ -625,13 +703,18 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         setAntennaHint(route + QStringLiteral(" Input changes apply after Apply; ANT bank changes apply immediately."));
         antennaCombo->setAccessibleDescription(route + QStringLiteral(" ADC0 antenna changes apply immediately."));
         { const QSignalBlocker block(antennaCombo); antennaCombo->setCurrentIndex(data.value(QStringLiteral("antenna")).toInt()-1); }
-        ocRx->setEnabled(true);
-        ocRx->setAccessibleDescription(QStringLiteral("Receive OC pins, all off by default"));
+        ocRx->group->setEnabled(true);
+        ocRx->group->setAccessibleDescription(QStringLiteral("Receive OC pins, all off by default"));
         ocEnabled->setEnabled(true);
+        ocReset->setEnabled(true);
+        ocReset->setAccessibleDescription(QStringLiteral("Clear RX OC pin assignments and disable RX OC outputs. Select Apply to save."));
         droop->setEnabled(data.value(QStringLiteral("protocol")).toInt() == 2);
         droop->setAccessibleDescription(droop->isEnabled() ? QStringLiteral("Open the existing P2 DDC droop sweep page")
             : QStringLiteral("Unavailable: the droop sweep requires Protocol 2"));
         ocState->setText(QStringLiteral("Commanded RX OC mask: 0x%1").arg(data.value(QStringLiteral("ocMask")).toInt(), 2, 16, QLatin1Char('0')));
+        for (int pin = 0; pin < 7; ++pin) {
+            updateFilterLed((*ocLeds)[pin], data.value(QStringLiteral("ocMask")).toInt() & (1 << pin), QStringLiteral("OC pin %1").arg(pin+1));
+        }
         const bool mkII = data.value(QStringLiteral("mkII")).toBool();
         const QStringList rxNames = mkII
             ? QStringList{QStringLiteral("160 m"), QStringLiteral("80/60 m"), QStringLiteral("40/30 m"), QStringLiteral("20/15 m"), QStringLiteral("12/10 m"), QStringLiteral("6 m")}
@@ -642,8 +725,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             return row >= 0 && row < names.size() ? names[row] : QStringLiteral("Bypass");
         };
         const bool showAlex2 = data.value(QStringLiteral("hasAlex2Filters")).toBool();
-        if (!showAlex2 && antennaTabs->currentWidget() == alex2) { antennaTabs->setCurrentWidget(alex1); }
-        antennaTabs->setTabVisible(antennaTabs->indexOf(alex2), showAlex2);
+        setAlex2Available(showAlex2, QStringLiteral("Unavailable: the selected model / override profile does not have an Alex-2 filter bank."));
         const bool twoAdcs = data.value(QStringLiteral("numAdcs")).toInt() > 1;
         const bool lpEnabled = data.value(QStringLiteral("selectLpf")).toBool();
         active->setText(QStringLiteral("%1 MHz • Commanded ADC0: %2 • ADC1: %3 • LPF: %4")
@@ -651,13 +733,6 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             .arg(selected(rxNames, data.value(QStringLiteral("receiveActive")).toInt()))
             .arg(twoAdcs ? selected(rxNames, data.value(QStringLiteral("adc1Active")).toInt()) : QStringLiteral("Not fitted"))
             .arg(lpEnabled ? selected(lpNames, data.value(QStringLiteral("lpfActive")).toInt()) : QStringLiteral("Not driven by this profile")));
-        alex2Hint->setText(showAlex2
-            ? QStringLiteral("ADC1 follows the receiver frequency with independent filter limits. Changes apply after Apply.")
-            : QStringLiteral("Unavailable: this model does not have an Alex-2 filter bank."));
-        receiveAdc1->setEnabled(showAlex2);
-        receiveAdc1->setAccessibleDescription(showAlex2
-            ? QStringLiteral("Independent ADC1 ranges in MHz; ordered and non-overlapping")
-            : QStringLiteral("Unavailable: this model does not have an Alex-2 filter bank"));
         //DH1KLM: LEDs follow commanded state on every poll, even while a table edit is pending.
         const auto lightRows = [](QTableWidget* table, const QStringList& names, int activeRow) {
             for (int row = 0; row < table->rowCount(); ++row) {
@@ -718,17 +793,17 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                     value.insert(QStringLiteral("lowHz"), defaults.value(QStringLiteral("lowHz")));
                     value.insert(QStringLiteral("highHz"), defaults.value(QStringLiteral("highHz")));
                 }
-                ocRx->item(row,0)->setData(Qt::UserRole, value.value(QStringLiteral("lowHz")));
-                ocRx->item(row,0)->setData(Qt::UserRole+1, value.value(QStringLiteral("highHz")));
-                ocRx->item(row,0)->setToolTip(QStringLiteral("%1 – %2 MHz").arg(value.value(QStringLiteral("lowHz")).toDouble()/1e6, 0, 'f', 6)
+                ocRx->bands[row]->setProperty("lowHz", value.value(QStringLiteral("lowHz")));
+                ocRx->bands[row]->setProperty("highHz", value.value(QStringLiteral("highHz")));
+                ocRx->bands[row]->setToolTip(QStringLiteral("%1 – %2 MHz").arg(value.value(QStringLiteral("lowHz")).toDouble()/1e6, 0, 'f', 6)
                     .arg(value.value(QStringLiteral("highHz")).toDouble()/1e6, 0, 'f', 6));
-                ocRx->item(row,0)->setData(Qt::AccessibleDescriptionRole, ocRx->item(row,0)->toolTip());
+                ocRx->bands[row]->setAccessibleDescription(ocRx->bands[row]->toolTip());
                 const int mask = value.value(QStringLiteral("mask")).toInt();
                 for (int pin = 0; pin < 7; ++pin) {
-                    auto* check = qobject_cast<QCheckBox*>(ocRx->cellWidget(row,pin+1));
+                    auto* check = ocRx->pins[row][pin];
                     const bool available = value.value(QStringLiteral("lowHz")).toLongLong() < value.value(QStringLiteral("highHz")).toLongLong();
                     check->setEnabled(available);
-                    check->setAccessibleDescription(available ? QStringLiteral("Receive frequency range: %1").arg(ocRx->item(row,0)->toolTip())
+                    check->setAccessibleDescription(available ? QStringLiteral("Receive frequency range: %1").arg(ocRx->bands[row]->toolTip())
                         : QStringLiteral("Unavailable: this band has no frequency range in the active band plan"));
                     check->setChecked(mask & (1<<pin));
                 }
@@ -766,9 +841,16 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         connect(qobject_cast<QCheckBox*>(receive->cellWidget(row,3)), &QCheckBox::toggled, page, dirty);
     }
     connect(ocEnabled, &QCheckBox::toggled, page, dirty);
+    connect(ocReset, &QPushButton::clicked, page, [=] {
+        ocEnabled->setChecked(false);
+        for (const auto& band : ocRx->pins) {
+            for (auto* check : band) { check->setChecked(false); }
+        }
+        dirty();
+    });
     for (int row = 0; row < 11; ++row) {
         for (int pin = 0; pin < 7; ++pin) {
-            connect(qobject_cast<QCheckBox*>(ocRx->cellWidget(row,pin+1)), &QCheckBox::toggled, page, dirty);
+            connect(ocRx->pins[row][pin], &QCheckBox::toggled, page, dirty);
         }
     }
     connect(adc0, &QCheckBox::toggled, page, dirty);
@@ -867,10 +949,10 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         for (int row = 0; row < 11; ++row) {
             int mask = 0;
             for (int pin = 0; pin < 7; ++pin) {
-                if (qobject_cast<QCheckBox*>(ocRx->cellWidget(row,pin+1))->isChecked()) { mask |= 1<<pin; }
+                if (ocRx->pins[row][pin]->isChecked()) { mask |= 1<<pin; }
             }
-            ocRows.append(QVariantMap{{QStringLiteral("lowHz"), ocRx->item(row,0)->data(Qt::UserRole)},
-                {QStringLiteral("highHz"), ocRx->item(row,0)->data(Qt::UserRole+1)}, {QStringLiteral("mask"), mask}});
+            ocRows.append(QVariantMap{{QStringLiteral("lowHz"), ocRx->bands[row]->property("lowHz")},
+                {QStringLiteral("highHz"), ocRx->bands[row]->property("highHz")}, {QStringLiteral("mask"), mask}});
         }
         options.insert(QStringLiteral("rxOnlyInput"), rxInput->currentData());
         options.insert(QStringLiteral("ocEnabled"), ocEnabled->isChecked());
