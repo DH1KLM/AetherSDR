@@ -563,9 +563,28 @@ Whole banks reflow rather than clipping the final row or frequency field.
 
 `hw.get` includes a read-only `defaultFilterEdges` object with `receive` and
 `lowPass` arrays derived from the effective profile's existing model defaults.
-The page reset stages these edges in its editor and uses the existing
-`hw.set` / Apply path. It neither invokes `hw.defaults` nor changes bypass,
+The page reset commits these edges through the existing validated `hw.set`
+path. It neither invokes `hw.defaults` nor changes bypass,
 OC or antenna state. Alex-2 edits and reset remain gated by `hasAlex2Filters`;
 its master bypass is a second view of the existing ADC1 bypass field.
 Independent ADC1 per-band bypass and Alex-2 LPF are disabled with reasons.
 No new wire controls or capability flags are added.
+
+
+### Automatic hardware edits
+
+ANAN Hardware has no manual Apply step. Switches submit field patches on
+change; frequency fields submit their one edge on `editingFinished` (Enter
+or focus loss). The editor merges patches over the latest confirmed state
+and any in-flight patch, serializes writes, and does not collect unfinished
+frequency text when another control changes. Reset operations use one patch
+for their entire scope. First-use OC pin edits retain the displayed regional
+band ranges; they do not submit a mask against the unconfigured zero range.
+
+The existing backend validates complete ranges and commits the per-device /
+effective-model configuration before dispatching hardware controls. On an
+error the editor cancels queued changes, restores its confirmed snapshot,
+and shows the reason. Missing replies have a bounded timeout and permit a
+later retry. Generation and write-revision checks retire replies from old
+connections and polls from before a write; periodic status still owns live
+filter indicators. No new settings writer or wire protocol path is added.

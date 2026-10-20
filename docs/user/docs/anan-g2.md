@@ -115,8 +115,7 @@ The page follows the Nereus hardware-page arrangement:
   controls are dimmed with an explanation; ANAN per-band antenna routing and
   transmit are not implemented. **Current RX Antenna** below the matrices
   contains the working **ADC0 input**, **ANT bank**, and **ADC1 RF filter bypass**
-  controls. ANT1/2/3 changes apply immediately; input and bypass edits require
-  **Apply**. ADC1 keeps its dedicated RX2 input. Settings remain separate for
+  controls. ANT1/2/3, input and bypass changes are saved and applied immediately. ADC1 keeps its dedicated RX2 input. Settings remain separate for
   this MAC address, effective model and physical board.
 
   **Alex-1 Filters** places **Reset filter defaults** above two filter banks.
@@ -137,9 +136,9 @@ The page follows the Nereus hardware-page arrangement:
   displayed disabled because they are not implemented. The current receive
   LPF remains on Alex-1.
 
-  **Reset filter defaults** stages only the frequency edges for the selected
+  **Reset filter defaults** saves and applies only the frequency edges for the selected
   page: ADC0 and available LPF on Alex-1, ADC1 on Alex-2. Bypass, antenna and
-  OC settings are kept. Select **Apply** to save. **Restore model defaults**
+  OC settings are kept. The change is applied automatically. **Restore model defaults**
   remains the separate action that restores the whole hardware-filter
   configuration, including bypass and OC defaults.
 - **OC Outputs**: **HF**, **VHF**, **SWL**. HF has RX/TX pin matrices side by side
@@ -155,8 +154,8 @@ selected compatible model or physical-board profile is used. FlexRadio, Icom
 and HL2 retain their own hardware settings.
 
 **Antenna Control → ADC0 input** selects the ANT1/2/3 path or a dedicated
-receive input. Select **Apply** to save and activate it for this MAC, effective
-model and physical board. Names follow the selected model, including DIY
+receive input. Changes are saved and activated immediately for this MAC,
+effective model and physical board. Names follow the selected model, including DIY
 overrides:
 
 | Effective model | Additional receive inputs |
@@ -185,7 +184,7 @@ When a dedicated ADC0 input is selected, **RX ANT** shows that input's
 model-specific name; when ADC1 feeds the receiver, it shows **RX2**. These
 fixed active routes do not offer an ANT-bank switch that would leave the
 active receiver unchanged. Choose the dedicated ADC0 input on **Antenna
-Control** with **Apply**, or change the ADC source on **ANAN Front End** and
+Control**, or change the ADC source on **ANAN Front End** and
 reconnect. The hardware page's ANT-bank control remains available for ADC0.
 
 **ALEX HPF bands** is used by the legacy Hermes, Angelia and Orion profiles
@@ -213,12 +212,12 @@ With one receiver, both automatic ADC filter banks follow its tuned frequency.
 ADC1 inherits ADC0 ranges until independent Alex-2 limits are saved. ADC0's individual **Bypass** boxes
 apply to that HPF/BPF band only. **Disable 6m LNA on RX** selects ADC0 bypass
 instead of the 6-m filter/LNA; **6m/ByPass on RX** forces the 6-m LPF. These RX
-options take effect after **Apply** and do not bypass ADC1's separate input
+options take effect immediately and do not bypass ADC1's separate input
 filter. On models with **Alex-2 Filters**, ADC1 has its own six frequency
 ranges and commanded-filter LEDs. Its master bypass still takes precedence.
 **ADC1 RF filter bypass** is on **Antenna / ALEX → Antenna Control** for every
 dual-ADC profile, including ANAN-100D/200D and a DIY ANAN-200D mapping whose
-Alex-2 controls are disabled. Select **Apply** to save and activate it. Single-ADC
+Alex-2 controls are disabled. Changes are saved and activated immediately. Single-ADC
 profiles display the control disabled with a reason. Alex-2 retains its bypass
 indicator and independent band table on supported MkII profiles.
 The single receiver frequency drives both banks; changing ADC1 limits does
@@ -227,13 +226,18 @@ not create another receiver or alter ADC0 limits. TX/PureSignal bypass and
 The 6m LNA and TX/PureSignal bypass switches are grouped above the HPF/BPF
 filter grid; **6m/ByPass on RX** is below the LPF grid.
 
-The **Receive-only settings. Apply saves…** note is directly below the HPF/BPF and LPF tables on **Alex-1 Filters**.
+The **Receive-only settings. Switches apply immediately…** note is directly below the HPF/BPF and LPF tables on **Alex-1 Filters**.
 
-**Apply** and **Restore model defaults** are above the hardware tabs, with
-the pending/saved status directly below. Complete filter banks retain their
+**Restore model defaults** is above the hardware tabs, with the save / error
+status directly below. There is no Apply button: switches and selections
+are saved and applied immediately. A frequency edge is committed with
+**Enter** or on leaving its field, after range validation. Invalid or
+overlapping limits and refused storage writes restore the last confirmed
+settings and display an error. Unconfirmed fields are not included in an
+unrelated checkbox change. Complete filter banks retain their
 required height; use the page’s vertical scrollbar in a short window.
 
-Select **Apply** to save for this MAC and model and update the running receiver;
+Changes are saved for this MAC and model and update the running receiver;
 no reconnect is needed. These saved hardware settings take precedence over the
 connection page's initial bypass defaults. **Restore model defaults** saves and
 applies the Thetis-compatible frequency limits and default bypass states
@@ -247,7 +251,9 @@ can be recovered. High Priority packets retain their 100 ms keepalive.
 
 This is separate from OC outputs:
 external filters wired to open collectors use **OC Outputs → HF** instead.
-Check the wanted RX pins per band and **Enable RX OC outputs**, then **Apply**.
+Check the wanted RX pins per band and **Enable RX OC outputs**. Both changes
+apply immediately; selecting a pin while outputs are enabled changes the
+commanded output at once.
 Both the enable and every pin default off, including after upgrading older
 filter settings. The seven ordinary OC pins are supported by P1 and P2;
 Anvelina's extra pins remain off. Band limits come from the active band plan
@@ -261,12 +267,12 @@ clears OC assignments and disables outputs.
 On **Alex-1 Filters**, a green LED beside the HPF/BPF and LPF band identifies
 the currently commanded filter. Other rows stay unlit. Receive bypass has its
 own indicator. Alex-2 has separate ADC1 band and bypass indicators. A profile that does not drive LPF selection leaves all LPF LEDs
-off. LEDs update with tuning, independently of pending table edits, and expose
+off. LEDs update with tuning, independently of unfinished frequency edits, and expose
 selected/not-selected names for screen readers. They do not confirm physical
 relay movement.
 
 **Commanded ADC0 / ADC1 / LPF** indicates the software's requested filter,
-not physical relay feedback. Pending edits are marked **Changes pending** until **Apply** succeeds. The
+not physical relay feedback. The status reports automatic save completion or a refusal. The
 page controls receive filters, antennas and the RX OC matrix; it does not add
 transmit or PureSignal. Unsupported Nereus-style sections remain visible and
 disabled rather than presenting working controls.
@@ -285,20 +291,20 @@ to an incompatible model to enable those controls.
    Antenna / ALEX → Antenna Control** reports **Active receiver: ADC1 / RX2**.
    Connect the receive signal to the fitted ADC1 input; the software cannot
    detect which physical connector is wired to a DIY board.
-2. While receiving on ADC1, change **ADC0 input**, select **Apply**, and change
+2. While receiving on ADC1, change **ADC0 input** and change
    **ANT bank**. They may
    switch ADC0 relays, but must not select a different source for the active
    ADC1 receiver.
 3. If this hardware supports **Alex-2 Filters**, record its current values,
-   clear **ADC1 RF filter bypass** on **Antenna Control** and select **Apply**.
+   clear **ADC1 RF filter bypass** on **Antenna Control**.
    Return to **Alex-2 Filters** and tune across a saved
    ADC1 band boundary. Its band LED should change; verify the corresponding
    hardware relay or receive response separately.
 4. To distinguish the two tables, temporarily move one ADC1 boundary within
-   valid, ordered limits and select **Apply**. ADC1 should use that boundary
+   valid, ordered limits and confirm each field with **Enter**. ADC1 should use that boundary
    while ADC0 keeps its own table. ADC0 band bypass and **Disable 6m LNA on RX**
    must not bypass ADC1. The ADC1 master bypass must take precedence over its
-   table. Restore the recorded values and select **Apply** after the check.
+   table. Restore the recorded values and confirm each field after the check.
 5. Reconnect to confirm the saved filter settings. Select ADC0 on the next
    connection to return the active receiver to ADC0. Single-ADC profiles must
    refuse ADC1 rather than connect with an invented second input.
@@ -409,8 +415,8 @@ Open **Settings → Radio Setup... → ANAN Hardware → Radio Info** and enable
 **CTUN — tune within a fixed spectrum**. The adjacent readout shows CTUN,
 the hardware **DDC centre** and the received **RX** frequency independently.
 The switch applies immediately. CTUN starts off for a new hardware configuration;
-a saved band view can restore it on reconnect or band selection. The switch
-is separate from the filter tables' **Apply** button.
+a saved band view can restore it on reconnect or band selection. Filter and hardware
+switches also apply immediately.
 
 With CTUN on, tuning within the captured band moves the receive marker and
 the DSP tuning offset while the hardware centre and spectrum stay fixed.
@@ -598,7 +604,7 @@ and stack in a narrow setup window.
 **TX Pin Action mapping** and **Live OC pin state** sit below the matrices.
 The seven LEDs and hexadecimal mask show the commanded RX output byte,
 not physical pin feedback. **Reset OC defaults** clears the RX assignments
-and disables RX OC outputs; select **Apply** to save. It leaves the receive
+and disables RX OC outputs immediately. It leaves the receive
 filters and antenna settings alone.
 
 TX controls, User Dig Out and the additional **2m**, **GEN**, **WWV** and
