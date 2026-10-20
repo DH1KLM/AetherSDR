@@ -99,9 +99,12 @@ Configure the receive front end under **Settings → Radio Setup... → Radio �
 
 ## ANAN Hardware
 
-Open **Radio Setup → Radio → ANAN Hardware**. The page is always listed,
-including before connection; device controls are disabled until an ANAN has a
-validated session. It follows the Nereus hardware-page arrangement:
+Open **Radio Setup → Radio → ANAN Hardware** while connected to an ANAN.
+This device-specific page is hidden for HL2, FlexRadio and other backends,
+and while disconnected. Searching the setup pages does not reveal it for
+an unsupported backend. Within the ANAN page, unsupported controls such as
+Alex-2 on a legacy profile remain visible but disabled with a reason.
+The page follows the Nereus hardware-page arrangement:
 
 - **Radio Info**: **Board Identity** (physical board, P1/P2, ADC count, reported
   receiver count, firmware, MAC, IP) and **Operating Parameters**. The effective
