@@ -1444,7 +1444,7 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
         QStringLiteral("anan alex hpf bpf lpf hardware filters bypass model override"),
         [this] { return buildAnanHardwareTab(); });
     m_ananHardwarePageIndex = m_pageIndexes.value(QStringLiteral("ANAN Hardware"));
-    setNavigationItemHidden(ananHardwareItem, false);
+    setNavigationItemHidden(ananHardwareItem, !isCapabilityPageAvailable(ananHardwareItem));
     connect(m_model, &RadioModel::connectionStateChanged, this, [this] {
         if (m_ananHardwareReseed) { m_ananHardwareReseed(); }
     });
@@ -1565,7 +1565,8 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
                 const bool hl2HwRow = item == m_pageItems.value(m_hl2HardwarePageIndex);
                 const bool ananRow = item == m_pageItems.value(m_ananFrontEndPageIndex);
                 const bool gated =
-                    ((isFlexOnlyPage(item) || item == m_pageItems.value(m_rtlReceiverPageIndex))
+                    ((isFlexOnlyPage(item) || item == m_pageItems.value(m_rtlReceiverPageIndex)
+                        || item == m_pageItems.value(m_ananHardwarePageIndex))
                         && !isCapabilityPageAvailable(item))
                     || (isGpsPage(item)
                         && !isGpsSetupAvailable())
@@ -1690,6 +1691,9 @@ bool RadioSetupDialog::isCapabilityPageAvailable(const QTreeWidgetItem* item) co
         return m_model->backendDeclaresExtension(QStringLiteral("rtl"))
             && m_model->backendCapabilities().extensions.value(QStringLiteral("rtl")).toMap()
                 .value(QStringLiteral("settingsVersion")).toInt() == 1;
+    }
+    if (index == m_ananHardwarePageIndex) {
+        return m_model->isConnected() && m_model->backendDeclaresExtension(QStringLiteral("anan"));
     }
     if (index == m_droopCalibrationPageIndex) {
         return droopCalibrationAvailable(m_model->backend());
@@ -1821,7 +1825,7 @@ void RadioSetupDialog::updateRadioCapabilityVisibility()
     const QLineEdit* search = findChild<QLineEdit*>(QStringLiteral("radioSetupSearch"));
     const QString needle = search ? search->text().trimmed() : QString();
     bool navigationChanged = false;
-    for (const int index : {m_filtersPageIndex, m_smartLinkPageIndex, m_rtlReceiverPageIndex}) {
+    for (const int index : {m_filtersPageIndex, m_smartLinkPageIndex, m_rtlReceiverPageIndex, m_ananHardwarePageIndex}) {
         if (QTreeWidgetItem* item = m_pageItems.value(index, nullptr)) {
             const QString haystack = item->text(0) + QStringLiteral(" ")
                 + item->data(0, Qt::UserRole + 1).toString();
