@@ -145,6 +145,15 @@ void AnanRxDsp::beginRebuild()
     m_rebuildInFlight = true;
 }
 
+void AnanRxDsp::resumeAfterPlanning()
+{
+    m_rebuildInFlight=false;if(!m_channel)return;const auto c=m_config;
+    setMode(c.mode);setFilter(c.filterLowHz,c.filterHighHz);setShift(m_shiftHz);
+    setAgc(c.agcMode,c.maximumAgcGainDb);setAgcFixedGain(c.agcFixedGainDb);
+    setNoiseBlanker(c.noiseBlanker,c.noiseBlankerLevel,c.noiseBlankerFill);
+    setSpectrumRateFps(c.spectrumFps);setSpectrumAverageMs(c.spectrumAverageMs);
+    setSpectrumLogAverage(c.spectrumLogAverage);setPanPoints(c.panPoints);
+}
 bool AnanRxDsp::installRebuiltChannel(RebuildResult result)
 {
     m_rebuildInFlight = false;

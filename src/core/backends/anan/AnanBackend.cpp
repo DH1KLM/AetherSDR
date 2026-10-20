@@ -154,7 +154,7 @@ AnanBackend::AnanBackend(QObject* parent)
     , m_droopCalibrator(AnanDroopCalibrator::Hooks{
         [this] { return m_connected && !m_radioSerial.isEmpty()
                          && capabilities().hostDroopCalibration; },
-        [this](int rateKsps) { setPanBandwidth(kPanId, rateKsps * 1000.0); },
+        [this](int rateKsps) { setPanBandwidth(primaryPanId(), rateKsps * 1000.0); },
         [this](bool bypass) {
             if (m_dsp) {
                 QMetaObject::invokeMethod(m_dsp, "setDroopCorrectionBypassed",
@@ -192,6 +192,9 @@ AnanBackend::AnanBackend(QObject* parent)
         }
         publishDroopStatus();
     });
+    m_receiveLayout.reset(1,kFirstConnectFrequencyHz,48);
+    m_receiveMixer=new QTimer(this);m_receiveMixer->setInterval(10);m_receiveMixer->setTimerType(Qt::PreciseTimer);
+    connect(m_receiveMixer,&QTimer::timeout,this,&AnanBackend::mixReceiveAudio);
     m_client = new AnanClient(nullptr);   // nullptr parent: moveToThread requires it
     m_dsp = new AnanRxDsp(nullptr);
 
@@ -233,8 +236,7 @@ AnanBackend::AnanBackend(QObject* parent)
     // explicit to document intent and match Hl2Backend's own explicit
     // DirectConnection on the equivalent wire-to-DSP wiring: no queue, no
     // event-loop hop for the sample path.
-    connect(m_client, &AnanClient::ddc0IqReady, m_dsp, &AnanRxDsp::processIqBlock,
-            Qt::DirectConnection);
+    connect(m_client,&AnanClient::ddcIqReady,m_dsp,[dsp=m_dsp,route=m_primaryRoute](int index,const std::vector<std::complex<float>>& iq){if(index==route->load())dsp->processIqBlock(iq);},Qt::DirectConnection);
 
     // Everything below crosses from the I/O thread to whichever thread this
     // object lives on -- plain AutoConnection resolves to Queued, which is
@@ -249,7 +251,8 @@ AnanBackend::AnanBackend(QObject* parent)
         const bool wasRateChange = m_rateChanging;
         m_rateChanging = false;
         if (!wasRateChange) {
-            emit connected();
+            m_receiveLayout.reset(receiveStreamCeiling(),m_ddcCenterHz,m_pendingParams.ddc0RateKsps,receiveSliceCeiling());
+            emit connected();emit capabilitiesChanged();
             defineMeters();
             // A new session's needle starts from its first reading, not from
             // where the last session's left off.
@@ -271,7 +274,7 @@ AnanBackend::AnanBackend(QObject* parent)
         // model table (5.4 MHz for an unknown "ANAN-G2") and zooms past the 1.536 MHz
         // ceiling into unsampled black bars. Constant per connection (one DDC), so emit
         // on every linkUp; bounds are capabilities().sampleRatesHz's endpoints.
-        emit panBandwidthLimitsChanged(kPanId,
+        emit panBandwidthLimitsChanged(primaryPanId(),
                                       kDdc0RatesKsps.front() * 1000.0 / 1.0e6,
                                       nearestSessionRateKsps(kDdc0RatesKsps.back()) * 1000.0 / 1.0e6);
         publishReceiveGain();
@@ -295,6 +298,7 @@ AnanBackend::AnanBackend(QObject* parent)
     connect(m_client, &AnanClient::linkDown, this, [this] {
         m_connected = false;
         if (!m_rateChanging) {
+            clearAdditionalRx();
             m_pendingBandView.reset();
             m_droopCalibrator.stop(false);
             m_droopCalibrator.setLandedRate(0);
@@ -316,8 +320,8 @@ AnanBackend::AnanBackend(QObject* parent)
     // Only DDC0 feeds this DSP. Like ddc0IqReady above, notification and
     // processing run directly on the I/O thread, with the DSP as context.
     // Invalidate its partial FFT before the discontinuous block arrives.
-    connect(m_client, &AnanClient::ddcSequenceGap, m_dsp, [dsp = m_dsp](int ddcIndex) {
-        if (ddcIndex == 0) {
+    connect(m_client, &AnanClient::ddcSequenceGap, m_dsp, [dsp = m_dsp,route=m_primaryRoute](int ddcIndex) {
+        if (ddcIndex == route->load()) {
             dsp->onSequenceGap();
         }
     }, Qt::DirectConnection);
@@ -362,39 +366,11 @@ AnanBackend::AnanBackend(QObject* parent)
         emit capabilitiesChanged();
     });
 
-    connect(m_dsp, &AnanRxDsp::pcmReady, this, [this](const PcmFrame& frame) {
-        QByteArray bytes = frame.legacyStereo24();
-        if (bytes.isEmpty()) {
-            return;
-        }
-        // THIS SLICE's audio for per-slice consumers (a TCI receiver channel, a
-        // decoder), published BEFORE the receiver's audio stage. The seam
-        // contract on IRadioBackend::sliceAudioFrameReady is pre-mute, pre-gain
-        // and pre-balance, so muting a slice does not stop WSJT-X decoding on it
-        // -- the same split a Flex gets from DAX and HL2 makes in its mixer.
-        publishLegacySliceAudio(kSliceId, bytes);
-
-        // The receiver's own audio stage, applied HERE rather than in the DSP.
-        //
-        // legacyStereo24() already hands back a fresh buffer this backend owns,
-        // and the non-const data() below detaches from anything the slice tap
-        // above may still share, so the stage never reaches that tap. Doing it here also keeps the whole stage on one thread with
-        // the state the three setters write, so a mute needs no queued hop to
-        // take effect on the next block. Both listening paths -- this computer's
-        // speaker and the radio's own speaker below -- see the same audio.
-        applySliceAudioInPlace(reinterpret_cast<float*>(bytes.data()),
-                               static_cast<std::size_t>(bytes.size())
-                                   / (2 * sizeof(float)),
-                               m_sliceAudioMuted, m_sliceAudioGainPercent,
-                               m_sliceAudioPanPercent);
-        // One DDC, so "mixing" the speaker feed is the identity -- no
-        // separate mix stage needed for a single receiver.
-        publishLegacyAudio(bytes);
-        sendSpeakerAudioToRadio(bytes);
-    });
+    connect(m_dsp,&AnanRxDsp::pcmReady,this,[this](const PcmFrame& pcm){collectReceiveAudio(0,pcm.legacyStereo24());});
     // Ungated by design: m_dsp emits on m_ioThread, the thread that emits linkDown,
     // so every frame is delivered before disconnected() (contract rule 6).
     connect(m_dsp, &AnanRxDsp::spectrumReady, this, [this](const std::vector<float>& binsDbfs) {
+        if(!m_connected||!primaryVisible())return;
         std::vector<float> dbm(binsDbfs.size());
         // Attenuation added back, as deskHPSDR does for its panadapter: a
         // signal keeps its level when the operator attenuates, and only the
@@ -408,7 +384,7 @@ AnanBackend::AnanBackend(QObject* parent)
         if (m_bandViewSpanHz > 0 && m_bandViewSpanHz < rateHz) {
             dbm = bandViewSpectrum(dbm, m_bandViewSpanHz / rateHz);
         }
-        emit spectrumFrameReady(kSliceId, floatBytes(dbm));
+        emit spectrumFrameReady(primaryPanIndex(), floatBytes(dbm));
     });
     connect(m_dsp, &AnanRxDsp::meterUpdate, this, &AnanBackend::onDspMeter);
 }
@@ -427,6 +403,7 @@ AnanBackend::~AnanBackend()
         m_dspBuildThread->wait();
     }
     delete m_dspBuildContext;
+    clearAdditionalRx();
 
     if (m_ioThread) {
         if (m_client)
@@ -508,9 +485,9 @@ RadioCapabilities AnanBackend::capabilities() const
     // this says the stronger thing -- that nothing CAN be.
     c.paTelemetryAudit = RadioCapabilities::PaTelemetryAudit{
         /*temperatureAbsent=*/true};
-    c.canCreateSlices = false;
-    c.maxSlices = 1;
-    c.maxPanadapters = 1;
+    c.canCreateSlices = m_connected;
+    c.maxSlices = receiveSliceCeiling();
+    c.maxPanadapters = receiveStreamCeiling();
     for (const int ksps : kDdc0RatesKsps) {
         if (m_pendingParams.protocol == 2 || ksps <= (m_pendingParams.redPitayaP1 ? 384 : 192))
             c.sampleRatesHz.append(ksps * 1000);
@@ -567,7 +544,7 @@ RadioCapabilities AnanBackend::capabilities() const
     c.clientSettingsDomains = RadioCapabilities::ClientSettingsDomain::RfGain
                               | RadioCapabilities::ClientSettingsDomain::Tuning
                               | RadioCapabilities::ClientSettingsDomain::ReceiveOutputLevel;
-    c.hostDroopCalibration = m_pendingParams.protocol == 2; // P2 sweep rate ladder only.
+    c.hostDroopCalibration = m_pendingParams.protocol == 2 && m_additionalRx.empty(); // P2 sweep rate ladder only.
     c.extensionNamespaces = {QStringLiteral("anan")};  // "droop.apply" -- see invokeExtension()
     // From this session's own Discovery reply (P2Client::discoveryInfoReceived()).
     // Absent until it lands ("not reported yet", like tuningMinHz/MaxHz);
@@ -644,7 +621,7 @@ QString AnanBackend::bandViewProfileKey() const
 
 QJsonObject AnanBackend::bandViewSnapshot() const
 {
-    const auto tuning = receiveTuning(m_ctun, m_ddcCenterHz, m_sliceFreqHz,
+    const auto tuning = receiveTuning(m_ctun || m_receiveLayout.occupants(primaryPanIndex())>1, m_ddcCenterHz, m_sliceFreqHz,
         receiveTuningRateHz(), m_filterLowHz, m_filterHighHz, cwBfoHz());
     return {{QStringLiteral("vfoHz"), m_sliceFreqHz},
         {QStringLiteral("centerHz"), tuning ? tuning->centerHz : m_ddcCenterHz},
@@ -734,7 +711,7 @@ void AnanBackend::restoreBandView(const QJsonObject& record, bool preserveVfo)
     const double center = m_ctun ? view.value(QStringLiteral("centerHz")).toDouble() : m_sliceFreqHz;
     const double span = view.value(QStringLiteral("spanHz")).toDouble();
     const int rate = view.value(QStringLiteral("rateKsps")).toInt();
-    setPanBandwidth(kPanId, rate * 1000.0);
+    setPanBandwidth(primaryPanId(), rate * 1000.0);
     pushModeFilterShift();
     if (m_rateChanging) {
         m_pendingBandView = ReceiveBandView{center, rate, false, span};
@@ -821,6 +798,7 @@ void AnanBackend::seedDroopCorrectionTables(bool useSaturnDefaults)
 
 void AnanBackend::connectRadio(const RadioConnectRequest& request)
 {
+    clearAdditionalRx();
     m_rxAntenna = AnanSettings::rxAntenna();
     const QHostAddress hostAddr(request.host);
     if (hostAddr.isNull()) {
@@ -1114,6 +1092,7 @@ void AnanBackend::startP2ClientSession(quint64 generation)
 
 void AnanBackend::disconnectRadio()
 {
+    clearAdditionalRx();
     rememberBandView();
     m_bandViewSpanHz = 0.0;
     m_pendingBandView.reset();
@@ -1182,7 +1161,12 @@ void AnanBackend::pushModeFilterShift()
 
 void AnanBackend::setSliceFrequency(int sliceId, double hz)
 {
-    Q_UNUSED(sliceId);   // one slice in this phase
+    if(m_receiveBuilding){emitSliceState();return;}
+    if(sliceId!=0){auto i=m_additionalRx.find(sliceId);if(i==m_additionalRx.end()||!i->second->ready)return;
+        const auto before=m_receiveLayout.streams();if(!m_receiveLayout.tune(sliceId,hz,false)){publishAdditionalRx(sliceId);return;}
+        retireEmptyReceiveWindows(before);updateReceiveStreams();for(const auto& [id,r]:m_additionalRx)applyAdditionalRx(id);publishReceiveWindows();return;}
+    if(m_connected){if(!primaryVisible())return;const auto before=m_receiveLayout.streams();
+        if(!m_receiveLayout.tune(0,hz,m_ctun)){emitSliceState();return;}m_ddcCenterHz=m_receiveLayout.streams()[primaryPanIndex()].centerHz;retireEmptyReceiveWindows(before);}
     if (!std::isfinite(hz) || hz < 0 || hz > 61'440'000) {
         emitSliceState();
         return;
@@ -1211,6 +1195,8 @@ void AnanBackend::setSliceFrequency(int sliceId, double hz)
 
 void AnanBackend::setSliceMode(int sliceId, const QString& mode)
 {
+    if(sliceId!=0){auto i=m_additionalRx.find(sliceId);if(i==m_additionalRx.end()||!isKnownModeString(mode))return;auto& r=*i->second;
+if(r.mode.compare(mode,Qt::CaseInsensitive)!=0){const auto f=defaultPassbandForMode(mode);r.low=f.first;r.high=f.second;}r.mode=mode;applyAdditionalRx(sliceId);return;}
     Q_UNUSED(sliceId);
     // Idempotence: only reset the passband to the mode's default when the
     // mode actually changes, so a repeated set does not clobber an
@@ -1222,7 +1208,7 @@ void AnanBackend::setSliceMode(int sliceId, const QString& mode)
     }
     m_mode = mode;
     if (m_ctun) { scheduleTuneApply(); }
-    else { m_ddcCenterHz = m_sliceFreqHz; }
+    else if(m_receiveLayout.occupants(primaryPanIndex())<=1) { m_ddcCenterHz = m_sliceFreqHz; }
     pushModeFilterShift();
     emitSliceState();
     emit operatingStateChanged();   // Tuning capture; a mode change is discrete
@@ -1230,6 +1216,7 @@ void AnanBackend::setSliceMode(int sliceId, const QString& mode)
 
 void AnanBackend::setSliceFilter(int sliceId, int lowHz, int highHz)
 {
+    if(sliceId!=0){auto i=m_additionalRx.find(sliceId);if(i==m_additionalRx.end()||lowHz>=highHz||lowHz < -40000||highHz>40000)return;i->second->low=lowHz;i->second->high=highHz;applyAdditionalRx(sliceId);return;}
     Q_UNUSED(sliceId);
     m_filterLowHz = lowHz;
     m_filterHighHz = highHz;
@@ -1245,6 +1232,7 @@ void AnanBackend::setSliceFilter(int sliceId, int lowHz, int highHz)
 
 void AnanBackend::setSliceAgc(int sliceId, const QString& mode, int thresholdDb)
 {
+    if(sliceId!=0){auto i=m_additionalRx.find(sliceId);if(i==m_additionalRx.end())return;const auto m=mode.toLower();i->second->agc=m=="off"?0:m=="slow"?2:m=="fast"?4:3;i->second->threshold=std::clamp(thresholdDb,0,100);applyAdditionalRx(sliceId);return;}
     Q_UNUSED(sliceId);
     // thresholdDb is the AGC-T knob's 0..100, not dB: agcKnobDb() maps it.
     const QString m = mode.trimmed().toLower();
@@ -1265,6 +1253,7 @@ void AnanBackend::setSliceAgc(int sliceId, const QString& mode, int thresholdDb)
 
 void AnanBackend::requestSliceAgc(int sliceId, const SliceAgcRequest& request)
 {
+    if(sliceId!=0&&request.field==SliceAgcRequest::Field::OffLevel){auto i=m_additionalRx.find(sliceId);if(i==m_additionalRx.end())return;i->second->off=std::clamp(request.offLevel,0,100);applyAdditionalRx(sliceId);return;}
     if (request.field != SliceAgcRequest::Field::OffLevel) {
         IRadioBackend::requestSliceAgc(sliceId, request);
         return;
@@ -1283,7 +1272,7 @@ ReceiveDispatch AnanBackend::requestSliceDsp(int sliceId, const SliceDspRequest&
 {
     // #5824 already owns the worker and NB readback. The typed desktop route
     // must consume that implementation, not replace it or invent other DSP.
-    if (sliceId != kSliceId || !request.valid()
+    if (!m_receiveLayout.slice(sliceId) || !request.valid()
         || request.feature != SliceDspRequest::Feature::Nb) {
         return ReceiveDispatch::Unsupported;
     }
@@ -1295,6 +1284,7 @@ ReceiveDispatch AnanBackend::requestSliceDsp(int sliceId, const SliceDspRequest&
 void AnanBackend::setSliceNoiseBlanker(int sliceId, AetherSDR::NoiseBlankerKind kind,
                                        int level, AetherSDR::NoiseBlankerFill fill)
 {
+    if(sliceId!=0){auto i=m_additionalRx.find(sliceId);if(i==m_additionalRx.end())return;i->second->nb=kind;i->second->nbLevel=std::clamp(level,0,100);i->second->nbFill=fill;applyAdditionalRx(sliceId);return;}
     Q_UNUSED(sliceId);   // one slice in this phase
     m_nbKind = kind;
     m_nbLevel = std::clamp(level, 0, 100);
@@ -1309,7 +1299,7 @@ void AnanBackend::setSliceNoiseBlanker(int sliceId, AetherSDR::NoiseBlankerKind 
 
 ReceiveDispatch AnanBackend::requestSliceAudio(int sliceId, const SliceAudioRequest& request)
 {
-    if (sliceId != kSliceId || !request.valid()
+    if (!m_receiveLayout.slice(sliceId) || !request.valid()
         || request.origin != SliceAudioRequest::Origin::Operator) {
         return ReceiveDispatch::Unsupported;
     }
@@ -1323,11 +1313,13 @@ ReceiveDispatch AnanBackend::requestSliceAudio(int sliceId, const SliceAudioRequ
 
 void AnanBackend::setSliceAudioMute(int sliceId, bool mute)
 {
+    if(sliceId!=0){auto i=m_additionalRx.find(sliceId);if(i==m_additionalRx.end())return;i->second->mute=mute;if(mute)i->second->audio.clear();publishAdditionalRx(sliceId);return;}
     Q_UNUSED(sliceId);   // one slice in this phase
     if (m_sliceAudioMuted == mute) {
         return;
     }
     m_sliceAudioMuted = mute;
+    if(mute)m_primaryAudio.clear();
     // Published, not just stored. The gate that decides whether the control is
     // offered at all requires an OBSERVATION as well as the capability, so a
     // mute that is applied but never echoed leaves the control refused with
@@ -1337,6 +1329,7 @@ void AnanBackend::setSliceAudioMute(int sliceId, bool mute)
 
 void AnanBackend::setSliceAudioGain(int sliceId, int gainPercent)
 {
+    if(sliceId!=0){auto i=m_additionalRx.find(sliceId);if(i==m_additionalRx.end())return;i->second->gain=std::clamp(gainPercent,0,100);publishAdditionalRx(sliceId);return;}
     Q_UNUSED(sliceId);
     const int bounded = std::clamp(gainPercent, 0, 100);
     if (m_sliceAudioGainPercent == bounded) {
@@ -1348,6 +1341,7 @@ void AnanBackend::setSliceAudioGain(int sliceId, int gainPercent)
 
 void AnanBackend::setSliceAudioPan(int sliceId, int panPercent)
 {
+    if(sliceId!=0){auto i=m_additionalRx.find(sliceId);if(i==m_additionalRx.end())return;i->second->pan=std::clamp(panPercent,0,100);return;}
     Q_UNUSED(sliceId);
     // NOT published: SliceDelta carries no balance field, so there is no
     // observation to echo and nothing downstream reads one. Applied all the
@@ -1380,7 +1374,10 @@ void AnanBackend::setLineoutMute(bool mute)
 
 void AnanBackend::setPanCenter(const QString& panId, double hz, PanCenterIntent intent)
 {
-    Q_UNUSED(panId);   // one pan in this phase
+    if(m_receiveBuilding){publishReceiveWindows();return;}
+    const int st=streamForPan(panId);if(st<0)return;
+    if(panId!=primaryPanId()||!primaryVisible()){
+      const auto w=m_receiveLayout.streams()[st];if(m_receiveLayout.setWindow(st,hz,w.rateKsps)){updateReceiveStreams();for(const auto& [id,r]:m_additionalRx)applyAdditionalRx(id);}publishReceiveWindows();return;}
     if (!m_ctun) { setSliceFrequency(kSliceId, hz); return; }
     if (intent == PanCenterIntent::Drag && std::isfinite(hz) && hz >= 0 && hz <= 61'440'000) {
         m_pendingBandView.reset();
@@ -1419,6 +1416,7 @@ int AnanBackend::nearestSessionRateKsps(int requestedKsps) const noexcept
 
 void AnanBackend::setPanBandwidth(const QString& panId, double hz)
 {
+    if(!m_additionalRx.empty()){const int st=streamForPan(panId);if(st>=0&&std::isfinite(hz)&&hz>0)changeReceiveStreamRate(st,nearestSessionRateKsps(int(std::min(hz/1000.0,1536.0))));return;}
     Q_UNUSED(panId);   // one pan in this phase
     if (!std::isfinite(hz) || hz <= 0.0 || !m_connected) {
         return;
@@ -1569,7 +1567,7 @@ void AnanBackend::finishRateChange(quint64 generation, bool ok, const QString& e
         if (generation != m_connectGeneration)
             return;
         QMetaObject::invokeMethod(m_client, "setDdcRateLive", Qt::QueuedConnection,
-                                  Q_ARG(int, 0), Q_ARG(int, rateKsps));
+                                  Q_ARG(int, primaryPanIndex()), Q_ARG(int, rateKsps));
     };
     sendRate();
     for (const int delayMs : kRateChangeResendMs)
@@ -1597,6 +1595,9 @@ void AnanBackend::finishRateChange(quint64 generation, bool ok, const QString& e
 
 void AnanBackend::setPanFrameRate(const QString& panId, int fps)
 {
+    if(panId!=primaryPanId()||!primaryVisible()){const int st=streamForPan(panId);if(st<0)return;
+      for(const auto& [id,r]:m_additionalRx){const auto* p=m_receiveLayout.slice(id);if(p&&p->stream==st&&r->ready){const int value=fps;QMetaObject::invokeMethod(r->dsp,[dsp=r->dsp,value]{dsp->setSpectrumRateFps(value);},Qt::QueuedConnection);}}return;}
+
     Q_UNUSED(panId);   // one pan in this phase
     // Default no-op inherited from IRadioBackend was written for Flex,
     // whose own display engine paces its frames -- silently wrong here,
@@ -1618,8 +1619,8 @@ int AnanBackend::maximumReceiveAttenuation() const
 
 void AnanBackend::publishReceiveGain()
 {
-    emit panRfGainInfoChanged(kPanId, -maximumReceiveAttenuation(), 0, 1);
-    emit panRfGainChanged(kPanId, -m_attenuationDb);
+    emit panRfGainInfoChanged(primaryPanId(), -maximumReceiveAttenuation(), 0, 1);
+    emit panRfGainChanged(primaryPanId(), -m_attenuationDb);
     // Thetis' historical Preamp combo contains attenuation presets, not gain.
     QStringList labels;
     const int maximumPreset = maximumReceiveAttenuation() == 61 ? 50 : 30;
@@ -1631,22 +1632,22 @@ void AnanBackend::publishReceiveGain()
         step = labels.size();
         labels.append(QStringLiteral("-%1 dB (custom)").arg(m_attenuationDb));
     }
-    emit panPreampInfoChanged(kPanId, labels);
-    emit panPreampChanged(kPanId, step);
+    emit panPreampInfoChanged(primaryPanId(), labels);
+    emit panPreampChanged(primaryPanId(), step);
 }
 
 void AnanBackend::setPanPreamp(const QString& panId, int step)
 {
     const int maximumStep = maximumReceiveAttenuation() == 61 ? 5 : 3;
     if (step < 0 || step > maximumStep) { publishReceiveGain(); return; }
-    if (panId != kPanId) { return; }
+    if (panId != primaryPanId()) { return; }
     const auto preset = receiveAttenuationPreset(step, maximumReceiveAttenuation() == 61);
     applyReceiveGain(preset.adcDb, preset.alexDb);
 }
 
 void AnanBackend::setPanRfGain(const QString& panId, int gainDb)
 {
-    if (panId != kPanId) { return; }
+    if (panId != primaryPanId()) { return; }
     const auto attenuation = receiveAttenuation(-std::clamp(gainDb, -maximumReceiveAttenuation(), 0),
         maximumReceiveAttenuation() == 61);
     applyReceiveGain(attenuation.adcDb, attenuation.alexDb);
@@ -1672,6 +1673,9 @@ void AnanBackend::applyReceiveGain(int adcDb, int alexDb)
 
 void AnanBackend::setPanAverage(const QString& panId, int average)
 {
+    if(panId!=primaryPanId()||!primaryVisible()){const int st=streamForPan(panId);if(st<0)return;
+      for(const auto& [id,r]:m_additionalRx){const auto* p=m_receiveLayout.slice(id);if(p&&p->stream==st&&r->ready){const int value=std::max(0,average)*kMsPerAverageStep;QMetaObject::invokeMethod(r->dsp,[dsp=r->dsp,value]{dsp->setSpectrumAverageMs(value);},Qt::QueuedConnection);}}return;}
+
     Q_UNUSED(panId);   // one pan in this phase
     // The operator's FFT AVG slider, which otherwise reaches nothing on this
     // radio: the panadapter is averaged inside WDSP's analyzer, as a TIME --
@@ -1683,6 +1687,9 @@ void AnanBackend::setPanAverage(const QString& panId, int average)
 
 void AnanBackend::setPanWeightedAverage(const QString& panId, bool on)
 {
+    if(panId!=primaryPanId()||!primaryVisible()){const int st=streamForPan(panId);if(st<0)return;
+      for(const auto& [id,r]:m_additionalRx){const auto* p=m_receiveLayout.slice(id);if(p&&p->stream==st&&r->ready){const bool value=on;QMetaObject::invokeMethod(r->dsp,[dsp=r->dsp,value]{dsp->setSpectrumLogAverage(value);},Qt::QueuedConnection);}}return;}
+
     Q_UNUSED(panId);   // one pan in this phase
     // deskHPSDR offers the analyzer's averaging MODE alongside its time. The
     // toggle picks between the two recursive modes: on = log-recursive
@@ -1696,6 +1703,9 @@ void AnanBackend::setPanWeightedAverage(const QString& panId, bool on)
 
 void AnanBackend::setPanPixelWidth(const QString& panId, int pixels)
 {
+    if(panId!=primaryPanId()||!primaryVisible()){const int st=streamForPan(panId);if(st<0)return;
+      for(const auto& [id,r]:m_additionalRx){const auto* p=m_receiveLayout.slice(id);if(p&&p->stream==st&&r->ready){const int value=pixels;QMetaObject::invokeMethod(r->dsp,[dsp=r->dsp,value]{dsp->setPanPoints(value);},Qt::QueuedConnection);}}return;}
+
     Q_UNUSED(panId);   // one pan in this phase
     // One analyzer point per screen pixel, as deskHPSDR sizes its analyzer
     // from the panel width. A fixed 1024 points stretched across a wider
@@ -1712,6 +1722,7 @@ void AnanBackend::setPanPixelWidth(const QString& panId, int pixels)
 void AnanBackend::setCwPitch(int hz)
 {
     m_cwPitchHz = hz;
+    for(const auto& [id,r]:m_additionalRx)applyAdditionalRx(id);
     // Both the shift AND the filter depend on the pitch -- HERMES §5:
     // "entering or leaving CW has to re-push the shift, not just the
     // filter." Re-derive both from current state rather than adjusting in
@@ -1901,6 +1912,7 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if(ns==QLatin1String("anan")&&!m_additionalRx.empty()&&(verb==QLatin1String("band.select")||verb==QLatin1String("band.center"))){emit extensionError(requestId,QStringLiteral("Band-view memory requires one slice; tune the individual receivers while multi-receive is active."));return;}
     if (ns == QLatin1String("anan") && verb == QLatin1String("band.select")) {
         const auto fields = arg.toMap();
         const QString band = fields.value(QStringLiteral("band")).toString();
@@ -1990,7 +2002,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         m_tuneThrottleTimer->stop();
         m_tunePendingApply = false;
         m_ctun = true;
-        setPanBandwidth(kPanId, view->rateKsps * 1000.0);
+        setPanBandwidth(primaryPanId(), view->rateKsps * 1000.0);
         if (m_rateChanging) {
             // Do not clamp the new centre against the old narrow sample rate.
             m_pendingBandView = *view;
@@ -2088,7 +2100,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                 ? m_dsp->noiseBlankerState() : AnanRxDsp::NoiseBlankerState{};
             const QVariantMap receiver{
                 {QStringLiteral("ddc"), 0},
-                {QStringLiteral("panId"), kPanId},
+                {QStringLiteral("panId"), primaryPanId()},
                 // `on` stays, and stays first: it is what every existing script
                 // reads. `kind` is the same fact with the second blanker in it.
                 {QStringLiteral("on"), applied.on()},
@@ -2234,6 +2246,7 @@ void AnanBackend::onLinkCounters(const P2Client::LinkCounters& counters)
 
 void AnanBackend::onDspMeter(float dbfs)
 {
+    if(!primaryVisible())return;
     const double dbm = static_cast<double>(dbfs) + kSMeterDbmOffset + m_attenuationDb;
     // Smooth EVERY reading, publish only on the tick -- the same smoother,
     // and the same reasons, as Hl2Backend's receive meter (SMeterSmoother).
@@ -2296,12 +2309,13 @@ void AnanBackend::resetSupplyRailWindow()
 
 void AnanBackend::emitSliceState()
 {
+    if(!primaryVisible())return;
     SliceDelta d;
     d.frequency = m_sliceFreqHz / 1.0e6;   // SliceDelta::frequency is MHz
     d.mode = m_mode;
     d.filterLow = m_filterLowHz;
     d.filterHigh = m_filterHighHz;
-    d.active = true;
+    d.active = m_activeReceiveSlice==0;
     // A different radio replaces the slice model but retains this backend.
     // Publish the retained NB request so that fresh model agrees with the DSP.
     d.nb = m_nbKind != AetherSDR::NoiseBlankerKind::Off;
@@ -2330,7 +2344,7 @@ void AnanBackend::emitSliceState()
     // because MainWindow_Wiring.cpp's tune-target resolver matches on
     // panId equality. Hl2Backend::emitSliceState() sets this every time for
     // the same reason.
-    d.panId = kPanId;
+    d.panId = primaryPanId();
     const auto antenna = activeReceiveAntenna();
     QStringList ports;
     for (std::size_t n = 0; n < antenna.count; ++n) {
@@ -2344,8 +2358,8 @@ void AnanBackend::emitSliceState()
     const quint64 generation = m_connectGeneration;
     emit sliceChanged(kSliceId, d);
     if (!ports.isEmpty() && m_connected && generation == m_connectGeneration) {
-        emit panAntennaListChanged(kPanId, ports);
-        if (m_connected && generation == m_connectGeneration) { emit panRxAntennaChanged(kPanId, current); }
+        emit panAntennaListChanged(primaryPanId(), ports);
+        if (m_connected && generation == m_connectGeneration) { emit panRxAntennaChanged(primaryPanId(), current); }
     }
 }
 
@@ -2397,14 +2411,15 @@ ReceiveDispatch AnanBackend::requestSliceRxAntenna(int sliceId, const QString& a
 
 void AnanBackend::emitPanState()
 {
+    if(!primaryVisible())return;
     const double sampleRateHz = receiveTuningRateHz();
     // Calibration always observes the hardware capture, before display cropping.
     m_droopCalibrator.setLandedRate(static_cast<int>(sampleRateHz / 1000.0));
     const double spanHz = m_bandViewSpanHz > 0 ? std::min(m_bandViewSpanHz, sampleRateHz) : sampleRateHz;
-    emit panBandwidthLimitsChanged(kPanId,
+    emit panBandwidthLimitsChanged(primaryPanId(),
         std::min(48'000.0, spanHz) / 1.0e6,
         nearestSessionRateKsps(kDdc0RatesKsps.back()) * 1000.0 / 1.0e6);
-    emit panCenterBandwidthChanged(kPanId, m_ddcCenterHz / 1.0e6, spanHz / 1.0e6);
+    emit panCenterBandwidthChanged(primaryPanId(), m_ddcCenterHz / 1.0e6, spanHz / 1.0e6);
 }
 
 void AnanBackend::resetSpeakerResamplers()
@@ -2533,12 +2548,12 @@ void AnanBackend::applyTuneToRadioAndPan()
         receiveTuningRateHz(), m_filterLowHz, m_filterHighHz, cwBfoHz());
     if (!tuning) { emitSliceState(); return; }
     m_ddcCenterHz = tuning->centerHz;
-    pushReceiveShift(tuning->shiftHz);
-    if (m_client && m_connected && m_ddcCenterHz != m_lastSentCenterHz) {
-        m_lastSentCenterHz = m_ddcCenterHz;
-        QMetaObject::invokeMethod(m_client, "setDdc0FrequencyHz", Qt::QueuedConnection,
-            Q_ARG(double, m_ddcCenterHz));
+    if(m_connected&&primaryVisible()){
+        if(m_receiveLayout.slices().size()==1)m_receiveLayout.tune(0,m_sliceFreqHz,m_ctun);
+        m_receiveLayout.setWindow(primaryPanIndex(),m_ddcCenterHz,int(receiveTuningRateHz()/1000));
+        updateReceiveStreams();for(const auto& [id,r]:m_additionalRx)applyAdditionalRx(id);
     }
+    pushReceiveShift(tuning->shiftHz);
     emitPanState();
     rememberBandView();
     // Tuning capture, once per settled gesture. Outside the connected guard:

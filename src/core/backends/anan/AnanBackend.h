@@ -6,6 +6,10 @@
 #include "core/Resampler.h"
 #include "core/backends/anan/AnanDroopCalibrator.h"
 #include "core/backends/anan/AnanClient.h"
+#include "core/backends/anan/AnanReceiveLayout.h"
+#include <QPointer>
+#include <atomic>
+#include <deque>
 #include "core/dsp/WdspSMeter.h"
 
 #include <QElapsedTimer>
@@ -54,6 +58,11 @@ public:
     void disconnectRadio() override;
     bool isConnected() const override { return m_connected; }
 
+    bool createSlice(const QString& panId,double hz) override;
+    bool removeSlice(int id) override;
+    bool createPanadapter() override;
+    bool removePanadapter(const QString& panId) override;
+    void setActiveSlice(int id) override;
     void setSliceFrequency(int sliceId, double hz) override;
     void setSliceMode(int sliceId, const QString& mode) override;
     void setSliceFilter(int sliceId, int lowHz, int highHz) override;
@@ -209,6 +218,32 @@ public:
     [[nodiscard]] double sMeterDbmForTest() const noexcept { return m_sMeter.value(); }
 
 private:
+    friend struct AnanMultiRxTestAccess;
+    struct AdditionalRx {
+        int id=0;QPointer<AnanRxDsp> dsp;
+        std::shared_ptr<std::atomic<int>> route=std::make_shared<std::atomic<int>>(-1);
+        std::atomic<bool> seenIq{false};
+        AnanRxDsp::Config config;QString mode=QStringLiteral("USB");
+        int low=100,high=2900,agc=3,threshold=kDefaultAgcThreshold,off=kDefaultAgcOffLevel;
+        bool mute=false,ready=false;int gain=100,pan=50;
+        AetherSDR::NoiseBlankerKind nb=AetherSDR::NoiseBlankerKind::Off;
+        int nbLevel=50;AetherSDR::NoiseBlankerFill nbFill=AetherSDR::kDefaultNoiseBlankerFill;
+        std::deque<float> audio;
+    };
+    std::map<int,std::shared_ptr<AdditionalRx>> m_additionalRx;
+    AnanReceiveLayout m_receiveLayout;
+    std::shared_ptr<std::atomic<int>> m_primaryRoute=std::make_shared<std::atomic<int>>(0);
+    quint64 m_receiveEpoch=0;bool m_receiveBuilding=false;int m_activeReceiveSlice=0;
+    QTimer* m_receiveMixer=nullptr;std::deque<float> m_primaryAudio;
+    std::function<bool(const std::vector<DdcConfig>&,const std::vector<double>&)> m_streamApplyOverride;
+    int receiveStreamCeiling() const;int receiveSliceCeiling() const;
+    QString primaryPanId() const;int primaryPanIndex() const;int streamForPan(const QString&) const;
+    bool primaryVisible() const;bool addReceiveSlice(double,int,bool);
+    void clearAdditionalRx();void applyAdditionalRx(int);void publishAdditionalRx(int);
+    void publishReceiveWindows();void updateReceiveStreams();
+    void collectReceiveAudio(int,const QByteArray&);void mixReceiveAudio();
+    void retireEmptyReceiveWindows(const std::array<AnanReceiveLayout::Stream,5>&);
+    void changeReceiveStreamRate(int,int);
     int effectiveBoardId() const;
     QVariantMap hardwareFilterStatus() const;
     void loadHardwareFilters(int boardId);

@@ -138,6 +138,7 @@ public:
     // control calls take the setup mutex (WdspChannel.cpp's g_setupMutex) the
     // background build holds for its FFTW planning -- pushing would block this thread.
     Q_INVOKABLE void beginRebuild();
+    Q_INVOKABLE void resumeAfterPlanning();
 
     // Installs a built RebuildResult on this object's thread. Not Q_INVOKABLE: moc's
     // dispatch copy-constructs by-value arguments, which the move-only RebuildResult
