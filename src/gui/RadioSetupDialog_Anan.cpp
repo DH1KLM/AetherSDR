@@ -197,7 +197,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     for (int n = 1; n <= 3; ++n) { antennaCombo->addItem(QStringLiteral("ANT%1").arg(n), n); }
     auto* rxInput = new GuardedComboBox(antennaGroup);
     rxInput->setAccessibleName(QStringLiteral("ADC0 receive input"));
-    rxInput->setAccessibleDescription(QStringLiteral("Select the ADC0 receive input; changes apply after Apply"));
+    rxInput->setAccessibleDescription(QStringLiteral("Select the ADC0 receive input; changes apply immediately"));
     antennaForm->addRow(QStringLiteral("ADC0 input:"), rxInput);
     antennaForm->addRow(QStringLiteral("ANT bank:"), antennaCombo);
     auto* antennaHint = new QLabel(QStringLiteral("Connect an ANAN to show its active receive input."));
@@ -325,7 +325,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* alex2Group = new QWidget(alex2);
     auto* alex2GroupLayout = new QVBoxLayout(alex2Group);
     alex2Layout->addWidget(alex2Group);
-    auto* alex2Hint = new QLabel(QStringLiteral("ADC1 follows the single receiver frequency with its own band limits. Edit limits, then select Apply."));
+    auto* alex2Hint = new QLabel(QStringLiteral("ADC1 follows the single receiver frequency with its own band limits. Confirm frequency limits with Enter or by leaving the field."));
     alex2Hint->setWordWrap(true);
     alex2GroupLayout->addWidget(alex2Hint);
     alex2Layout->addStretch();
@@ -360,7 +360,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     ocControls->addWidget(ocEnabled);
     ocControls->addStretch();
     auto* ocReset = new QPushButton(QStringLiteral("Reset OC defaults"), hf);
-    ocReset->setAccessibleDescription(QStringLiteral("Clear RX OC pin assignments and disable RX OC outputs. Select Apply to save."));
+    ocReset->setAccessibleDescription(QStringLiteral("Clear RX OC pin assignments and disable RX OC outputs. Changes are saved and applied automatically."));
     ocReset->setToolTip(ocReset->accessibleDescription());
     ocControls->addWidget(ocReset);
     hfLayout->addLayout(ocControls);
@@ -468,7 +468,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     liveLayout->addWidget(ocLiveNote);
     liveLayout->addStretch();
     hfLayout->addWidget(new FilterTables(ocActions, ocLive, 3, 1));
-    auto* ocNote = new QLabel(QStringLiteral("Hover a band name to inspect its frequency range, taken from the active band plan on first configuration. Outside configured bands all pins are off. Select Apply to save."));
+    auto* ocNote = new QLabel(QStringLiteral("Hover a band name to inspect its frequency range, taken from the active band plan on first configuration. Outside configured bands all pins are off. Enabled OC outputs change immediately when a pin is selected."));
     ocNote->setWordWrap(true);
     hfLayout->addWidget(ocNote);
     hfLayout->addStretch();
@@ -607,7 +607,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             if (hasBypass) {
                 auto* bypass = new QCheckBox(table);
                 bypass->setAccessibleName(QStringLiteral("Receive filter %1 band bypass").arg(row+1));
-                bypass->setAccessibleDescription(QStringLiteral("Bypass this ADC0 receive filter band after Apply"));
+                bypass->setAccessibleDescription(QStringLiteral("Bypass this ADC0 receive filter band immediately"));
                 table->setCellWidget(row, 3, bypass);
             }
             for (int column = 1; column < 3; ++column) {
@@ -638,7 +638,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     }
     auto* adc1Alex2 = new QCheckBox(QStringLiteral("ByPass / 55 MHz BPF (master)"), adc1RangesGroup);
     adc1Alex2->setAccessibleName(QStringLiteral("Alex-2 ADC1 master filter bypass"));
-    adc1Alex2->setAccessibleDescription(QStringLiteral("Same ADC1 filter bypass as Antenna Control; select Apply to save"));
+    adc1Alex2->setAccessibleDescription(QStringLiteral("Same ADC1 filter bypass as Antenna Control; saved and applied automatically"));
     qobject_cast<QVBoxLayout*>(adc1RangesGroup->layout())->insertWidget(0, adc1Alex2);
     connect(adc1Alex2, &QCheckBox::toggled, adc1, &QCheckBox::setChecked);
     connect(adc1, &QCheckBox::toggled, adc1Alex2, &QCheckBox::setChecked);
@@ -677,7 +677,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     }
     auto* disable6mRx = new QCheckBox(QStringLiteral("Disable 6m LNA on RX"), receiveGroup);
     disable6mRx->setAccessibleName(QStringLiteral("Disable 6m LNA on receive"));
-    disable6mRx->setAccessibleDescription(QStringLiteral("Select receive bypass instead of the 6m filter/LNA on ADC0; applies after Apply"));
+    disable6mRx->setAccessibleDescription(QStringLiteral("Select receive bypass instead of the 6m filter/LNA on ADC0; applies immediately"));
     receiveOptions->insertWidget(optionRow, disable6mRx);
     receiveOptions->addStretch();
     receive->setAccessibleName(QStringLiteral("ADC receive filter frequency ranges"));
@@ -689,34 +689,30 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     lpfOptions->insertWidget(0, lpfNote);
     auto* lpfBypassRx = new QCheckBox(QStringLiteral("6m/ByPass on RX"), lpfGroup);
     lpfBypassRx->setAccessibleName(QStringLiteral("Use 6m low pass filter on receive"));
-    lpfBypassRx->setAccessibleDescription(QStringLiteral("Force the 6m LPF instead of automatic receive LPF selection; applies after Apply"));
+    lpfBypassRx->setAccessibleDescription(QStringLiteral("Force the 6m LPF instead of automatic receive LPF selection; applies immediately"));
     lpfOptions->addWidget(lpfBypassRx);
     lpfOptions->addStretch();
     qobject_cast<QVBoxLayout*>(adc1RangesGroup->layout())->addStretch();
     qobject_cast<QVBoxLayout*>(alex2LpfGroup->layout())->addStretch();
     auto* resetAlex1 = new QPushButton(QStringLiteral("Reset filter defaults"), alex1);
     resetAlex1->setAccessibleName(QStringLiteral("Reset Alex-1 filter frequency edges"));
-    resetAlex1->setAccessibleDescription(QStringLiteral("Restore this model's ADC0 and LPF frequency edges. Bypass, antenna and OC settings are kept. Select Apply to save."));
+    resetAlex1->setAccessibleDescription(QStringLiteral("Restore this model's ADC0 and LPF frequency edges. Bypass, antenna and OC settings are kept. Changes are saved and applied automatically."));
     resetAlex1->setToolTip(resetAlex1->accessibleDescription());
     layout->insertWidget(0, resetAlex1, 0, Qt::AlignLeft);
     auto* resetAlex2 = new QPushButton(QStringLiteral("Reset filter defaults"), alex2);
     resetAlex2->setAccessibleName(QStringLiteral("Reset Alex-2 filter frequency edges"));
-    resetAlex2->setAccessibleDescription(QStringLiteral("Restore this model's ADC1 frequency edges. Bypass, ADC0, LPF, antenna and OC settings are kept. Select Apply to save."));
+    resetAlex2->setAccessibleDescription(QStringLiteral("Restore this model's ADC1 frequency edges. Bypass, ADC0, LPF, antenna and OC settings are kept. Changes are saved and applied automatically."));
     resetAlex2->setToolTip(resetAlex2->accessibleDescription());
     alex2Layout->insertWidget(0, resetAlex2, 0, Qt::AlignLeft);
-    auto* apply = new QPushButton(QStringLiteral("Apply"));
-    apply->setAutoDefault(false);
-    apply->setAccessibleName(QStringLiteral("Apply ANAN receive filter configuration"));
     auto* defaults = new QPushButton(QStringLiteral("Restore model defaults"));
     defaults->setAutoDefault(false);
     defaults->setAccessibleName(QStringLiteral("Restore ANAN model filter defaults"));
     auto* actions = new QHBoxLayout;
-    actions->addWidget(apply);
     actions->addWidget(defaults);
     actions->addStretch();
     outer->insertLayout(0, actions);
     outer->insertWidget(1, status);
-    auto* note = new QLabel(QStringLiteral("Receive-only settings. Apply saves this device and model and updates the running receiver. "
+    auto* note = new QLabel(QStringLiteral("Receive-only settings. Switches apply immediately; frequency limits apply on Enter or when leaving the field. Settings are saved for this device and model. "
         "Filter indicators show commands, not physical relay feedback. TX and PureSignal are unavailable. OC outputs are configured on their own tab."));
     note->setWordWrap(true);
     layout->addWidget(note);
@@ -729,21 +725,36 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         "margin-top: 10px; padding-top: 12px; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; }"));
 
-    struct State { QVariantMap current; bool dirty = false; bool filling = false; };
+    struct State {
+        QVariantMap current;
+        QVariantMap pending;
+        QVariantMap sent;
+        bool dirty = false;
+        bool filling = false;
+        bool writing = false;
+        bool resetRequested = false;
+        quint64 generation = 0;
+        quint64 revision = 0;
+        quint64 pollRevision = 0;
+        quint64 ctunRequest = 0;
+        quint64 antennaRequest = 0;
+    };
     const auto state = std::make_shared<State>();
+    auto* writeTimer = new QTimer(page);
+    writeTimer->setSingleShot(true);
     const auto setAlex2Available = [=](bool available, const QString& reason) {
         alex2Hint->setText(available
-            ? QStringLiteral("ADC1 follows the receiver frequency with independent filter limits. Changes apply after Apply.") : reason);
+            ? QStringLiteral("ADC1 follows the receiver frequency with independent filter limits. Changes apply automatically.") : reason);
         alex2Hint->setAccessibleDescription(alex2Hint->text());
         alex2->setAccessibleDescription(alex2Hint->text());
         antennaTabs->setTabToolTip(antennaTabs->indexOf(alex2), alex2Hint->text());
         adc1RangesGroup->setEnabled(available);
         resetAlex2->setEnabled(available);
         resetAlex2->setAccessibleDescription(available
-            ? QStringLiteral("Restore ADC1 frequency edges only; select Apply to save") : reason);
+            ? QStringLiteral("Restore ADC1 frequency edges only; saved and applied automatically") : reason);
         receiveAdc1->setEnabled(available);
         adc1Alex2->setAccessibleDescription(available
-            ? QStringLiteral("Same ADC1 filter bypass as Antenna Control; select Apply to save") : reason);
+            ? QStringLiteral("Same ADC1 filter bypass as Antenna Control; saved and applied automatically") : reason);
         receiveAdc1->setAccessibleDescription(available
             ? QStringLiteral("Independent ADC1 ranges in MHz; ordered and non-overlapping") : reason);
         adc1BypassLed->setEnabled(available);
@@ -754,12 +765,20 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             for (int col = 1; col < 3; ++col) {
                 auto* field = receiveAdc1->cellWidget(row, col);
                 field->setAccessibleDescription(available
-                    ? QStringLiteral("Independent ADC1 filter frequency in MHz; select Apply to save") : reason);
+                    ? QStringLiteral("Independent ADC1 filter frequency in MHz; saved and applied automatically") : reason);
                 field->setToolTip(field->accessibleDescription());
             }
         }
     };
     const auto unavailable = [=] {
+        ++state->generation;
+        ++state->revision;
+        ++state->pollRevision;
+        writeTimer->stop();
+        state->writing = false;
+        state->resetRequested = false;
+        state->pending.clear();
+        state->sent.clear();
         state->current.clear();
         state->dirty = false;
         identity->clear();
@@ -791,19 +810,19 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         }
         active->clear();
         status->setText(QStringLiteral("Connect an ANAN with a validated receive profile first."));
-        for (QWidget* widget : std::array<QWidget*, 9>{adc0, adc1, receive, receiveAdc1, lpf, apply, defaults, disable6mRx, lpfBypassRx}) {
+        for (QWidget* widget : std::array<QWidget*, 8>{adc0, adc1, receive, receiveAdc1, lpf, defaults, disable6mRx, lpfBypassRx}) {
             widget->setEnabled(false);
             widget->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
         }
     };
-    const auto fill = [=](const QVariantMap& data) {
+    const auto fill = [=](const QVariantMap& data, bool force = false) {
         if (data.isEmpty()) { unavailable(); return; }
         const bool changed = state->current.value(QStringLiteral("identity")) != data.value(QStringLiteral("identity"))
             || state->current.value(QStringLiteral("modelId")) != data.value(QStringLiteral("modelId"))
             || state->current.value(QStringLiteral("boardId")) != data.value(QStringLiteral("boardId"));
         if (changed) {
             state->dirty = false;
-            status->setText(QStringLiteral("Edit the receive input, filters or RX OC pins, then select Apply. ANT1/2/3 selection applies immediately."));
+            status->setText(QStringLiteral("Switches apply immediately. Confirm frequency limits with Enter or by leaving the field."));
         }
         state->current = data;
         identity->setText(QStringLiteral("Model: %1 • P%2 • Override %3\nDetected: %4 • %5")
@@ -839,7 +858,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             ? QStringLiteral("ANT%1").arg(data.value(QStringLiteral("antenna")).toInt())
             : inputNames.value(input);
         rxInput->setEnabled(true);
-        rxInput->setAccessibleDescription(QStringLiteral("Select the ADC0 input; applies after Apply. Active input: %1").arg(inputName));
+        rxInput->setAccessibleDescription(QStringLiteral("Select the ADC0 input; applies immediately. Active input: %1").arg(inputName));
         const QString route = activeAdc1
             ? QStringLiteral("Active receiver: ADC1 / RX2. ADC0 input and antenna settings do not change this active input.")
             : QStringLiteral("Active receiver: ADC0 / %1. %2")
@@ -847,14 +866,14 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                 .arg(data.value(QStringLiteral("numAdcs")).toInt() > 1
                     ? QStringLiteral("ADC1 uses its dedicated RX2 input.")
                     : QStringLiteral("This profile has one ADC."));
-        setAntennaHint(route + QStringLiteral(" Input changes apply after Apply; ANT bank changes apply immediately."));
+        setAntennaHint(route + QStringLiteral(" Input changes apply immediately; ANT bank changes apply immediately."));
         antennaCombo->setAccessibleDescription(route + QStringLiteral(" ADC0 antenna changes apply immediately."));
         { const QSignalBlocker block(antennaCombo); antennaCombo->setCurrentIndex(data.value(QStringLiteral("antenna")).toInt()-1); }
         ocRx->group->setEnabled(true);
         ocRx->group->setAccessibleDescription(QStringLiteral("Receive OC pins, all off by default"));
         ocEnabled->setEnabled(true);
         ocReset->setEnabled(true);
-        ocReset->setAccessibleDescription(QStringLiteral("Clear RX OC pin assignments and disable RX OC outputs. Select Apply to save."));
+        ocReset->setAccessibleDescription(QStringLiteral("Clear RX OC pin assignments and disable RX OC outputs. Changes are saved and applied automatically."));
         droop->setEnabled(data.value(QStringLiteral("protocol")).toInt() == 2);
         droop->setAccessibleDescription(droop->isEnabled() ? QStringLiteral("Open the existing P2 DDC droop sweep page")
             : QStringLiteral("Unavailable: the droop sweep requires Protocol 2"));
@@ -870,7 +889,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         receiveGroup->setTitle(mkII ? QStringLiteral("ALEX BPF bands") : QStringLiteral("ALEX HPF bands"));
         adc0->setText(mkII ? QStringLiteral("BPF Bypass (master)") : QStringLiteral("HPF Bypass (master)"));
         resetAlex1->setEnabled(true);
-        resetAlex1->setAccessibleDescription(QStringLiteral("Restore ADC0 and LPF frequency edges only; select Apply to save"));
+        resetAlex1->setAccessibleDescription(QStringLiteral("Restore ADC0 and LPF frequency edges only; saved and applied automatically"));
         for (int inputIndex = 1; inputIndex < inputNames.size() && inputIndex <= 3; ++inputIndex) {
             (*rxOnlyHeaders)[inputIndex-1]->setText(inputNames[inputIndex]);
         }
@@ -905,18 +924,16 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         adc0->setEnabled(true);
         disable6mRx->setEnabled(true);
         lpfBypassRx->setEnabled(lpEnabled);
-        lpfBypassRx->setAccessibleDescription(lpEnabled ? QStringLiteral("Force 6m LPF after Apply")
+        lpfBypassRx->setAccessibleDescription(lpEnabled ? QStringLiteral("Force 6m LPF immediately")
             : QStringLiteral("Unavailable: this profile does not drive receive LPF selection"));
         adc1->setEnabled(twoAdcs);
         adc1->setAccessibleDescription(twoAdcs
-            ? QStringLiteral("Bypass the separate ADC1/RX2 receive filter bank; select Apply to save and activate")
+            ? QStringLiteral("Bypass the separate ADC1/RX2 receive filter bank; saved and applied automatically and activate")
             : QStringLiteral("This profile has only one ADC"));
         receive->setEnabled(true);
         receive->setAccessibleDescription(QStringLiteral("Ordered, non-overlapping frequency ranges in MHz"));
         lpf->setEnabled(lpEnabled);
         lpf->setAccessibleDescription(lpEnabled ? QStringLiteral("Ordered, non-overlapping frequency ranges in MHz") : QStringLiteral("LPF control is not enabled for this receive profile"));
-        apply->setEnabled(true);
-        apply->setAccessibleDescription(QStringLiteral("Save and apply the edited receive filter settings"));
         defaults->setEnabled(true);
         defaults->setAccessibleDescription(QStringLiteral("Save and apply Thetis-compatible defaults for this model"));
         bool editing = false;
@@ -928,7 +945,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                 }
             }
         }
-        if (!state->dirty && (!editing || changed)) {
+        if (force || (!state->dirty && (!editing || changed))) {
             state->filling = true;
             {
                 const QSignalBlocker block(rxInput);
@@ -985,119 +1002,110 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             state->filling = false;
         }
     };
-    const auto resetEdges = [=](FilterGrid* grid, const QVariantList& edges) {
-        if (edges.size() != grid->rowCount()) { return; }
-        for (int row = 0; row < grid->rowCount(); ++row) {
-            for (int col = 1; col < 3; ++col) {
-                auto* spin = qobject_cast<QDoubleSpinBox*>(grid->cellWidget(row, col));
-                spin->setValue(edges[row].toMap().value(col == 1 ? QStringLiteral("lowHz") : QStringLiteral("highHz")).toDouble() / 1e6);
-            }
-        }
-    };
-    const auto dirty = [=] { if (!state->filling) { state->dirty = true; status->setText(QStringLiteral("Changes pending — select Apply to update the receiver.")); } };
-    connect(resetAlex1, &QPushButton::clicked, page, [=] {
-        const auto edges = state->current.value(QStringLiteral("defaultFilterEdges")).toMap();
-        resetEdges(receive, edges.value(QStringLiteral("receive")).toList());
-        if (state->current.value(QStringLiteral("selectLpf")).toBool()) {
-            resetEdges(lpf, edges.value(QStringLiteral("lowPass")).toList());
-        }
-        dirty();
-    });
-    connect(resetAlex2, &QPushButton::clicked, page, [=] {
-        if (!state->current.value(QStringLiteral("hasAlex2Filters")).toBool()) { return; }
-        const auto edges = state->current.value(QStringLiteral("defaultFilterEdges")).toMap();
-        resetEdges(receiveAdc1, edges.value(QStringLiteral("receive")).toList());
-        dirty();
-    });
-    connect(disable6mRx, &QCheckBox::toggled, page, dirty);
-    connect(lpfBypassRx, &QCheckBox::toggled, page, dirty);
-    connect(rxInput, &QComboBox::currentIndexChanged, page, dirty);
-    for (int row = 0; row < 6; ++row) {
-        connect(qobject_cast<QCheckBox*>(receive->cellWidget(row,3)), &QCheckBox::toggled, page, dirty);
-    }
-    connect(ocEnabled, &QCheckBox::toggled, page, dirty);
-    connect(ocReset, &QPushButton::clicked, page, [=] {
-        ocEnabled->setChecked(false);
-        for (const auto& band : ocRx->pins) {
-            for (auto* check : band) { check->setChecked(false); }
-        }
-        dirty();
-    });
-    for (int row = 0; row < 11; ++row) {
-        for (int pin = 0; pin < 7; ++pin) {
-            connect(ocRx->pins[row][pin], &QCheckBox::toggled, page, dirty);
-        }
-    }
-    connect(adc0, &QCheckBox::toggled, page, dirty);
-    connect(adc1, &QCheckBox::toggled, page, dirty);
-    for (FilterGrid* table : {receive, receiveAdc1, lpf}) {
-        for (int row = 0; row < table->rowCount(); ++row) {
-            for (int col = 1; col < 3; ++col) {
-                connect(qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, col)),
-                    &QDoubleSpinBox::valueChanged, page, dirty);
-            }
-        }
-    }
     const auto request = [=, this](const QString& verb, const QVariant& options) {
         IRadioBackend* backend = m_model->backend();
         if (!backend || !m_model->backendDeclaresExtension(QStringLiteral("anan"))) { unavailable(); return; }
+        const bool write = verb == QLatin1String("hw.set") || verb == QLatin1String("hw.defaults");
+        if (verb == QLatin1String("hw.get") && (state->writing || state->dirty)) { return; }
+        const quint64 generation = state->generation;
+        if (write) { ++state->revision; }
+        const quint64 revision = state->revision;
+        if (verb != QLatin1String("hw.get")) { ++state->pollRevision; }
+        const quint64 pollRevision = state->pollRevision;
         const QVariantMap target = state->current;
-        const auto sameAntennaTarget = [state, target] {
+        const auto sameTarget = [state, target] {
             for (const QString& key : {QStringLiteral("identity"), QStringLiteral("modelId"), QStringLiteral("boardId")}) {
                 if (state->current.value(key) != target.value(key)) { return false; }
             }
             return true;
         };
-        //DH1KLM: A fresh receiver-bound guard prevents replies from a previous session repainting this page.
         auto* guard = new QObject(page);
         static quint64 nextId = 0x414e414e0000ULL;
         const quint64 id = ++nextId;
+        if (verb == QLatin1String("ctun.set")) { state->ctunRequest = id; }
+        if (verb == QLatin1String("rx-antenna.set")) { state->antennaRequest = id; }
+        const auto restore = [=](const QString& error) {
+            state->writing = false;
+            state->pending.clear();
+            state->sent.clear();
+            state->resetRequested = false;
+            state->dirty = false;
+            writeTimer->stop();
+            fill(state->current, true);
+            status->setText(error);
+        };
         connect(backend, &IRadioBackend::extensionResult, guard, [=, this](quint64 replyId, const QVariant& result) {
             if (replyId != id) { return; }
             guard->deleteLater();
-            if (m_model->backend() != backend) { return; }
+            if (m_model->backend() != backend || state->generation != generation) { return; }
+            if (verb == QLatin1String("hw.get") && (state->pollRevision != pollRevision || state->dirty)) { return; }
+            if (verb != QLatin1String("hw.get") && !sameTarget()) { return; }
+            if (write && state->revision != revision) { return; }
+            if (write) {
+                const auto receipt = result.toMap();
+                for (const QString& key : {QStringLiteral("identity"), QStringLiteral("modelId"), QStringLiteral("boardId")}) {
+                    if (receipt.value(key) != target.value(key)) { unavailable(); return; }
+                }
+            }
             if (verb == QLatin1String("ctun.set")) {
-                if (!sameAntennaTarget()) { return; }
-                fill(result.toMap());
-                status->setText(state->dirty
-                    ? QStringLiteral("CTUN applied. Filter edits are still pending Apply.")
-                    : QStringLiteral("CTUN applied to this receive session."));
+                if (state->ctunRequest != id) { return; }
+                QVariantMap current = state->current;
+                const auto receipt = result.toMap();
+                for (const QString& key : {QStringLiteral("ctun"), QStringLiteral("ctunAvailable"),
+                        QStringLiteral("ddcCenterHz"), QStringLiteral("sliceFrequencyHz"), QStringLiteral("frequencyHz")}) {
+                    if (receipt.contains(key)) { current.insert(key, receipt.value(key)); }
+                }
+                fill(current);
+                status->setText(QStringLiteral("CTUN applied to this receive session."));
                 return;
             }
             if (verb == QLatin1String("rx-antenna.set")) {
-                if (!sameAntennaTarget()) { return; }
-                //DH1KLM: Antenna replies contain only the selected input; retain
-                // the full hardware snapshot and any un-applied filter edits.
+                if (state->antennaRequest != id) { return; }
                 QVariantMap current = state->current;
                 current.insert(QStringLiteral("antenna"), result.toMap().value(QStringLiteral("antenna")));
                 fill(current);
                 status->setText(QStringLiteral("RX antenna saved for this device and model; applied to ADC0."));
                 return;
             }
-            if (verb != QLatin1String("hw.get")) {
-                state->dirty = false;
-                status->setText(QStringLiteral("Saved for this device and model; applied to the receiver."));
+            if (write) {
+                state->writing = false;
+                state->sent.clear();
+                state->dirty = !state->pending.isEmpty() || state->resetRequested;
             }
             fill(result.toMap());
+            if (write) {
+                status->setText(state->dirty ? QStringLiteral("Applying the next change…")
+                    : QStringLiteral("Saved for this device and model; applied to the receiver."));
+                if (state->dirty) { writeTimer->start(0); }
+            }
         });
         connect(backend, &IRadioBackend::extensionError, guard, [=, this](quint64 replyId, const QString& error) {
             if (replyId != id) { return; }
             guard->deleteLater();
-            if (m_model->backend() == backend) {
-                if (verb == QLatin1String("rx-antenna.set")) {
-                    if (!sameAntennaTarget()) { return; }
-                    const QSignalBlocker block(antennaCombo);
-                    antennaCombo->setCurrentIndex(state->current.value(QStringLiteral("antenna")).toInt() - 1);
-                }
-                if (verb == QLatin1String("ctun.set")) {
-                    if (!sameAntennaTarget()) { return; }
-                    const QSignalBlocker block(ctun);
-                    ctun->setChecked(state->current.value(QStringLiteral("ctun")).toBool());
-                }
-                status->setText(error);
+            if (m_model->backend() != backend || state->generation != generation || !sameTarget()) { return; }
+            if (verb == QLatin1String("hw.get") && (state->pollRevision != pollRevision || state->dirty)) { return; }
+            if (write) {
+                if (state->revision == revision) { restore(error); }
+                return;
+            }
+            if (verb == QLatin1String("rx-antenna.set")) {
+                if (state->antennaRequest != id) { return; }
+                const QSignalBlocker block(antennaCombo);
+                antennaCombo->setCurrentIndex(state->current.value(QStringLiteral("antenna")).toInt() - 1);
+            }
+            if (verb == QLatin1String("ctun.set")) {
+                if (state->ctunRequest != id) { return; }
+                const QSignalBlocker block(ctun);
+                ctun->setChecked(state->current.value(QStringLiteral("ctun")).toBool());
+            }
+            status->setText(error);
+        });
+        QTimer::singleShot(1500, guard, [=, this] {
+            guard->deleteLater();
+            if (write && m_model->backend() == backend && state->generation == generation && state->revision == revision && sameTarget()) {
+                restore(QStringLiteral("No reply to the hardware change. Restored the last confirmed settings; checking receiver state."));
             }
         });
-        QTimer::singleShot(1500, guard, &QObject::deleteLater);
         m_model->invokeBackendExtension(QStringLiteral("anan"), verb, id, options);
     };
     connect(ctun, &QCheckBox::toggled, page, [=](bool enabled) {
@@ -1106,50 +1114,120 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     connect(antennaCombo, &QComboBox::currentIndexChanged, page, [=](int) {
         request(QStringLiteral("rx-antenna.set"), antennaCombo->currentData());
     });
-    const auto collect = [=] {
+    const auto workingOptions = [state] {
         QVariantMap options = state->current;
-        const auto rows = [](FilterGrid* table) {
-            QVariantList values;
-            for (int row = 0; row < table->rowCount(); ++row) {
-                QVariantMap value;
-                for (int col = 1; col < 3; ++col) {
-                    const double mhz = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, col))->value();
-                    value.insert(col == 1 ? QStringLiteral("lowHz") : QStringLiteral("highHz"), qRound64(mhz * 1e6));
-                }
-                values.append(value);
-            }
-            return values;
-        };
-        QVariantList ocRows;
-        for (int row = 0; row < 11; ++row) {
-            int mask = 0;
-            for (int pin = 0; pin < 7; ++pin) {
-                if (ocRx->pins[row][pin]->isChecked()) { mask |= 1<<pin; }
-            }
-            ocRows.append(QVariantMap{{QStringLiteral("lowHz"), ocRx->bands[row]->property("lowHz")},
-                {QStringLiteral("highHz"), ocRx->bands[row]->property("highHz")}, {QStringLiteral("mask"), mask}});
+        for (const auto& patch : {state->sent, state->pending}) {
+            for (auto it = patch.cbegin(); it != patch.cend(); ++it) { options.insert(it.key(), it.value()); }
         }
-        options.insert(QStringLiteral("rxOnlyInput"), rxInput->currentData());
-        options.insert(QStringLiteral("ocEnabled"), ocEnabled->isChecked());
-        options.insert(QStringLiteral("ocReceive"), ocRows);
-        QVariantList bypasses;
-        for (int row = 0; row < 6; ++row) {
-            bypasses.append(qobject_cast<QCheckBox*>(receive->cellWidget(row,3))->isChecked());
-        }
-        options.insert(QStringLiteral("receiveBypass"), bypasses);
-        options.insert(QStringLiteral("disable6mLnaOnRx"), disable6mRx->isChecked());
-        options.insert(QStringLiteral("lpfBypassOnRx"), lpfBypassRx->isChecked());
-        options.insert(QStringLiteral("receive"), rows(receive));
-        if (state->current.value(QStringLiteral("hasAlex2Filters")).toBool()) {
-            options.insert(QStringLiteral("receiveAdc1"), rows(receiveAdc1));
-        }
-        options.insert(QStringLiteral("lowPass"), rows(lpf));
-        options.insert(QStringLiteral("bypassAdc0"), adc0->isChecked());
-        options.insert(QStringLiteral("bypassAdc1"), adc1->isChecked());
         return options;
     };
-    connect(apply, &QPushButton::clicked, page, [=] { request(QStringLiteral("hw.set"), collect()); });
-    connect(defaults, &QPushButton::clicked, page, [=] { request(QStringLiteral("hw.defaults"), state->current); });
+    const auto submit = [=](const QVariantMap& patch) {
+        if (state->filling || state->current.isEmpty()) { return; }
+        const auto working = workingOptions();
+        for (auto it = patch.cbegin(); it != patch.cend(); ++it) {
+            if (working.value(it.key()) != it.value()) { state->pending.insert(it.key(), it.value()); }
+        }
+        state->dirty = state->writing || !state->pending.isEmpty() || state->resetRequested;
+        if (!state->dirty) { return; }
+        status->setText(QStringLiteral("Applying hardware changes…"));
+        writeTimer->start(0);
+    };
+    connect(writeTimer, &QTimer::timeout, page, [=] {
+        if (state->writing || state->current.isEmpty()) { return; }
+        if (state->resetRequested) {
+            state->resetRequested = false;
+            state->writing = true;
+            request(QStringLiteral("hw.defaults"), state->current);
+            return;
+        }
+        if (state->pending.isEmpty()) { return; }
+        state->sent = state->pending;
+        state->pending.clear();
+        QVariantMap options = state->current;
+        for (auto it = state->sent.cbegin(); it != state->sent.cend(); ++it) { options.insert(it.key(), it.value()); }
+        state->writing = true;
+        request(QStringLiteral("hw.set"), options);
+    });
+    for (const auto& field : std::array<std::pair<QCheckBox*, QString>, 5>{{
+            {adc0, QStringLiteral("bypassAdc0")}, {adc1, QStringLiteral("bypassAdc1")},
+            {disable6mRx, QStringLiteral("disable6mLnaOnRx")}, {lpfBypassRx, QStringLiteral("lpfBypassOnRx")},
+            {ocEnabled, QStringLiteral("ocEnabled")}}}) {
+        connect(field.first, &QCheckBox::toggled, page, [=](bool value) { submit({{field.second, value}}); });
+    }
+    connect(rxInput, &QComboBox::currentIndexChanged, page, [=] {
+        submit({{QStringLiteral("rxOnlyInput"), rxInput->currentData()}});
+    });
+    for (int row = 0; row < 6; ++row) {
+        connect(qobject_cast<QCheckBox*>(receive->cellWidget(row,3)), &QCheckBox::toggled, page, [=](bool value) {
+            auto flags = workingOptions().value(QStringLiteral("receiveBypass")).toList();
+            if (flags.size() != 6) { return; }
+            flags[row] = value;
+            submit({{QStringLiteral("receiveBypass"), flags}});
+        });
+    }
+    for (int row = 0; row < 11; ++row) {
+        for (int pin = 0; pin < 7; ++pin) {
+            connect(ocRx->pins[row][pin], &QCheckBox::toggled, page, [=](bool value) {
+                auto bands = workingOptions().value(QStringLiteral("ocReceive")).toList();
+                if (bands.size() != 11) { return; }
+                auto band = bands[row].toMap();
+                if (band.value(QStringLiteral("lowHz")) == band.value(QStringLiteral("highHz"))) {
+                    band.insert(QStringLiteral("lowHz"), ocRx->bands[row]->property("lowHz"));
+                    band.insert(QStringLiteral("highHz"), ocRx->bands[row]->property("highHz"));
+                }
+                const int mask = band.value(QStringLiteral("mask")).toInt();
+                band.insert(QStringLiteral("mask"), value ? mask | (1 << pin) : mask & ~(1 << pin));
+                bands[row] = band;
+                submit({{QStringLiteral("ocReceive"), bands}});
+            });
+        }
+    }
+    for (const auto& bank : std::array<std::pair<FilterGrid*, QString>, 3>{{
+            {receive, QStringLiteral("receive")}, {receiveAdc1, QStringLiteral("receiveAdc1")},
+            {lpf, QStringLiteral("lowPass")}}}) {
+        for (int row = 0; row < bank.first->rowCount(); ++row) {
+            for (int col = 1; col < 3; ++col) {
+                auto* spin = qobject_cast<QDoubleSpinBox*>(bank.first->cellWidget(row, col));
+                connect(spin, &QDoubleSpinBox::editingFinished, page, [=] {
+                    const auto working = workingOptions();
+                    auto bands = working.value(bank.second, working.value(QStringLiteral("receive"))).toList();
+                    if (bands.size() != bank.first->rowCount()) { return; }
+                    auto band = bands[row].toMap();
+                    band.insert(col == 1 ? QStringLiteral("lowHz") : QStringLiteral("highHz"), qRound64(spin->value() * 1e6));
+                    bands[row] = band;
+                    submit({{bank.second, bands}});
+                });
+            }
+        }
+    }
+    connect(resetAlex1, &QPushButton::clicked, page, [=] {
+        const auto edges = state->current.value(QStringLiteral("defaultFilterEdges")).toMap();
+        QVariantMap patch{{QStringLiteral("receive"), edges.value(QStringLiteral("receive"))}};
+        if (state->current.value(QStringLiteral("selectLpf")).toBool()) {
+            patch.insert(QStringLiteral("lowPass"), edges.value(QStringLiteral("lowPass")));
+        }
+        submit(patch);
+    });
+    connect(resetAlex2, &QPushButton::clicked, page, [=] {
+        if (!state->current.value(QStringLiteral("hasAlex2Filters")).toBool()) { return; }
+        const auto edges = state->current.value(QStringLiteral("defaultFilterEdges")).toMap();
+        submit({{QStringLiteral("receiveAdc1"), edges.value(QStringLiteral("receive"))}});
+    });
+    connect(ocReset, &QPushButton::clicked, page, [=] {
+        auto bands = workingOptions().value(QStringLiteral("ocReceive")).toList();
+        for (auto& value : bands) {
+            auto band = value.toMap();
+            band.insert(QStringLiteral("mask"), 0);
+            value = band;
+        }
+        submit({{QStringLiteral("ocEnabled"), false}, {QStringLiteral("ocReceive"), bands}});
+    });
+    connect(defaults, &QPushButton::clicked, page, [=] {
+        state->pending.clear();
+        state->resetRequested = true;
+        state->dirty = true;
+        writeTimer->start(0);
+    });
     m_ananHardwareReseed = [=] { unavailable(); request(QStringLiteral("hw.get"), {}); };
     auto* timer = new QTimer(page);
     timer->setInterval(500);
