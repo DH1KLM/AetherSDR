@@ -173,6 +173,19 @@ int main(int argc, char** argv)
     wait([&] { return !AnanMultiRxTestAccess::busy(b); });
     check(AnanMultiRxTestAccess::rate(b, 1) == 96 && AnanMultiRxTestAccess::rate(b, 0) == 48,
           "P2 rates change per capture");
+    int spanReports = 0;
+    double reportedSpanMhz = 0;
+    QObject::connect(&b, &IRadioBackend::panCenterBandwidthChanged,
+                     [&](const QString& pan, double, double spanMhz) {
+                         if (pan == QStringLiteral("anan-1")) {
+                             ++spanReports;
+                             reportedSpanMhz = spanMhz;
+                         }
+                     });
+    b.setPanBandwidth(QStringLiteral("anan-1"), 100000);
+    check(spanReports > 0 && std::abs(reportedSpanMhz - 0.096) < 1e-9 &&
+              !AnanMultiRxTestAccess::busy(b),
+          "unchanged snapped rate confirms actual span without a DSP rebuild");
     samples[1].clear();
     AnanMultiRxTestAccess::feed(b, 1, -2000, 96000);
     AnanMultiRxTestAccess::barrier(b);

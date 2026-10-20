@@ -460,6 +460,9 @@ Wider saved P2 rates are limited to the selected P1 profile's maximum. RF gain
 and ANT1/2/3 use receive controls only. P1 does not load P2 droop tables or
 advertise the P2 calibration sweep or P2 supply-voltage telemetry. The
 application supports multiple slices and independent receive windows within the connected hardware limits.
+Zoom requests snap to a supported sample rate. The displayed span confirms
+the actual rate even when the request leaves that rate unchanged or arrives
+while a receiver is being configured.
 
 ## CTUN: tune inside a fixed spectrum
 

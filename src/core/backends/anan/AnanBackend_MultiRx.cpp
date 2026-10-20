@@ -616,8 +616,13 @@ void AnanBackend::mixReceiveAudio()
 namespace AetherSDR::anan {
 void AnanBackend::changeReceiveStreamRate(int stream, int rate)
 {
-    if (!m_connected || m_receiveBuilding || m_rateChanging || m_droopCalibrator.isRunning())
+    if (!m_connected) {
         return;
+    }
+    if (m_receiveBuilding || m_rateChanging || m_droopCalibrator.isRunning()) {
+        publishReceiveWindows();
+        return;
+    }
     const bool global = m_pendingParams.protocol == 1;
     const auto before = m_receiveLayout;
     auto target = before;
@@ -628,8 +633,12 @@ void AnanBackend::changeReceiveStreamRate(int stream, int rate)
             return;
         }
     }
-    if (target.streams()[stream].rateKsps == before.streams()[stream].rateKsps)
+    if (target.streams()[stream].rateKsps == before.streams()[stream].rateKsps) {
+        // The requested span may have snapped to the existing hardware rate.
+        // Confirm that rate so an optimistic view cannot retain the request.
+        publishReceiveWindows();
         return;
+    }
     struct Build {
         int id;
         QPointer<AnanRxDsp> dsp;
