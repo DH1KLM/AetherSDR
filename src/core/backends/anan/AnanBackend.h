@@ -3,6 +3,7 @@
 #include "core/Resampler.h"
 #include "core/backends/IRadioBackend.h"
 #include "core/backends/anan/AnanClient.h"
+#include "core/backends/anan/AnanAudioMixer.h"
 #include "core/backends/anan/AnanDroopCalibrator.h"
 #include "core/backends/anan/AnanReceiveLayout.h"
 #include "core/backends/anan/AnanRxDsp.h"
@@ -10,7 +11,6 @@
 #include "core/dsp/WdspSMeter.h"
 #include <QPointer>
 #include <atomic>
-#include <deque>
 #include <functional>
 #include <map>
 
@@ -237,7 +237,6 @@ private:
         AetherSDR::NoiseBlankerKind nb = AetherSDR::NoiseBlankerKind::Off;
         int nbLevel = 50;
         AetherSDR::NoiseBlankerFill nbFill = AetherSDR::kDefaultNoiseBlankerFill;
-        std::deque<float> audio;
     };
     std::map<int, std::shared_ptr<AdditionalRx>> m_additionalRx;
     AnanReceiveLayout m_receiveLayout;
@@ -247,8 +246,11 @@ private:
     quint64 m_receiveEpoch = 0;
     bool m_receiveBuilding = false;
     int m_activeReceiveSlice = 0;
-    QTimer* m_receiveMixer = nullptr;
-    std::deque<float> m_primaryAudio;
+    // Mixer and its epoch belong exclusively to the I/O thread. The routes
+    // cache belongs to the owner thread; snapshots cross through queued calls.
+    AnanAudioMixer m_receiveAudioMixer;
+    quint64 m_audioIoEpoch = 0;
+    std::vector<AnanAudioMixer::Route> m_audioRoutes;
     // Socket-free tests inject writes; production dispatches on the I/O thread.
     std::function<bool(const std::vector<DdcConfig>&, const std::vector<double>&)>
         m_streamApplyOverride;
@@ -269,8 +271,9 @@ private:
     void checkReceiveIqTimeout(int, quint64);
     void publishReceiveWindows();
     void updateReceiveStreams();
-    void collectReceiveAudio(int, const QByteArray&);
-    void mixReceiveAudio();
+    void syncReceiveAudioRoutes();
+    void resetReceiveAudioBuffers();
+    void submitReceiveAudio(int, const PcmFrame&);
     void retireEmptyReceiveWindows(const std::array<AnanReceiveLayout::Stream, 5>&);
     void changeReceiveStreamRate(int, int);
     int effectiveBoardId() const;

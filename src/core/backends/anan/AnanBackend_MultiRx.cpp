@@ -213,8 +213,7 @@ bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
     r->dsp->moveToThread(m_ioThread);
     m_additionalRx[*id] = r;
     m_receiveBuilding = true;
-    if (!m_receiveMixer->isActive())
-        m_receiveMixer->start();
+    syncReceiveAudioRoutes();
     const auto epoch = m_receiveEpoch;
     connect(
         m_client, &AnanClient::ddcIqReady, r->dsp,
@@ -232,10 +231,12 @@ bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
                 r->dsp->onSequenceGap();
         },
         Qt::DirectConnection);
-    connect(r->dsp, &AnanRxDsp::pcmReady, this, [this, r, epoch](const PcmFrame& frame) {
-        if (epoch == m_receiveEpoch && r->ready && m_additionalRx.contains(r->id))
-            collectReceiveAudio(r->id, frame.legacyStereo24());
-    });
+    connect(r->dsp, &AnanRxDsp::pcmReady, m_client,
+            [this, r, epoch](const PcmFrame& frame) {
+                if (epoch == m_receiveIoEpoch->load() && r->route->load() >= 0) {
+                    submitReceiveAudio(r->id, frame);
+                }
+            }, Qt::DirectConnection);
     connect(r->dsp, &AnanRxDsp::spectrumReady, this,
             [this, r, epoch](const std::vector<float>& bins) {
                 if (epoch != m_receiveEpoch || !r->ready || !m_additionalRx.contains(r->id))
@@ -301,8 +302,7 @@ bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
                                 m_receiveBuilding = false;
                                 m_receiveLayout = previous;
                                 m_additionalRx.erase(r->id);
-                                if (m_additionalRx.empty())
-                                    m_receiveMixer->stop();
+                                syncReceiveAudioRoutes();
                                 retireReceiveDsp(r->dsp);
                                 emit sliceLifecycleFailed(QStringLiteral("create"), -1,
                                                           QString::fromStdString(result->error));
@@ -347,8 +347,6 @@ bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
                                             meter.low = -140;
                                             meter.high = 20;
                                             emit meterDefined(meter);
-                                            if (!m_receiveMixer->isActive())
-                                                m_receiveMixer->start();
                                         },
                                         Qt::QueuedConnection);
                                 },
@@ -403,6 +401,7 @@ void AnanBackend::pushAdditionalShifts()
 }
 void AnanBackend::publishAdditionalRx(int id)
 {
+    syncReceiveAudioRoutes();
     auto i = m_additionalRx.find(id);
     const auto* s = m_receiveLayout.slice(id);
     if (i == m_additionalRx.end() || !s || !i->second->ready)
@@ -466,8 +465,6 @@ bool AnanBackend::removeSlice(int id)
         retireReceiveDsp(i->second->dsp);
         m_additionalRx.erase(i);
     }
-    if (id == 0)
-        m_primaryAudio.clear();
     if (m_activeReceiveSlice == id)
         m_activeReceiveSlice = m_receiveLayout.slices().begin()->first;
     emit sliceRemoved(id);
@@ -475,8 +472,6 @@ bool AnanBackend::removeSlice(int id)
     updateReceiveStreams();
     setActiveSlice(m_activeReceiveSlice);
     emit capabilitiesChanged();
-    if (m_additionalRx.empty())
-        m_receiveMixer->stop();
     return true;
 }
 bool AnanBackend::removePanadapter(const QString& pan)
@@ -518,9 +513,12 @@ void AnanBackend::clearAdditionalRx()
     ++m_receiveEpoch;
     m_receiveIoEpoch->store(m_receiveEpoch);
     m_receiveBuilding = false;
-    if (m_receiveMixer)
-        m_receiveMixer->stop();
-    m_primaryAudio.clear();
+    m_audioRoutes.clear();
+    const auto epoch = m_receiveEpoch;
+    QMetaObject::invokeMethod(m_client, [this, epoch] {
+        m_receiveAudioMixer.reset();
+        m_audioIoEpoch = epoch;
+    }, Qt::QueuedConnection);
     for (const auto& [id, r] : m_additionalRx) {
         r->route->store(-1);
         if (r->dsp)
@@ -547,70 +545,70 @@ void AnanBackend::checkReceiveIqTimeout(int id, quint64 epoch)
         disconnectRadio();
     }
 }
-void AnanBackend::collectReceiveAudio(int id, const QByteArray& bytes)
+void AnanBackend::syncReceiveAudioRoutes()
 {
-    if (bytes.isEmpty() || !m_connected)
+    if (!m_connected) {
         return;
-    auto stage = bytes;
-    std::deque<float>* queue = nullptr;
-    if (id == 0) {
-        if (primaryVisible())
-            publishLegacySliceAudio(0, bytes);
-        else
-            stage.fill(0);
-        applySliceAudioInPlace(reinterpret_cast<float*>(stage.data()),
-                               stage.size() / (2 * sizeof(float)), m_sliceAudioMuted,
-                               m_sliceAudioGainPercent, m_sliceAudioPanPercent);
-        queue = &m_primaryAudio;
-        if (m_additionalRx.empty()) {
-            if (primaryVisible()) {
-                publishLegacyAudio(stage);
-                sendSpeakerAudioToRadio(stage);
-            }
+    }
+    std::vector<AnanAudioMixer::Route> routes;
+    if (primaryVisible()) {
+        routes.push_back({0, m_sliceAudioMuted, m_sliceAudioGainPercent, m_sliceAudioPanPercent});
+    }
+    for (const auto& [id, r] : m_additionalRx) {
+        if (r->ready && m_receiveLayout.slice(id)) {
+            routes.push_back({id, r->mute, r->gain, r->pan});
+        }
+    }
+    if (routes == m_audioRoutes) {
+        return;
+    }
+    m_audioRoutes = routes;
+    const auto epoch = m_receiveEpoch;
+    QMetaObject::invokeMethod(m_client, [this, routes, epoch] {
+        if (epoch != m_receiveIoEpoch->load()) {
             return;
         }
-    } else {
-        auto i = m_additionalRx.find(id);
-        if (i == m_additionalRx.end())
-            return;
-        const auto& r = *i->second;
-        publishLegacySliceAudio(id, bytes);
-        applySliceAudioInPlace(reinterpret_cast<float*>(stage.data()),
-                               stage.size() / (2 * sizeof(float)), r.mute, r.gain, r.pan);
-        queue = &i->second->audio;
-    }
-    const float* p = reinterpret_cast<const float*>(stage.constData());
-    queue->insert(queue->end(), p, p + stage.size() / sizeof(float));
-    while (queue->size() > 12000) {
-        queue->pop_front();
-        queue->pop_front();
-    }
+        if (m_audioIoEpoch != epoch) {
+            m_receiveAudioMixer.reset();
+            m_audioIoEpoch = epoch;
+        }
+        m_receiveAudioMixer.configure(routes);
+    }, Qt::QueuedConnection);
 }
-void AnanBackend::mixReceiveAudio()
+void AnanBackend::resetReceiveAudioBuffers()
 {
-    if (!m_connected || m_additionalRx.empty())
-        return;
-    std::vector<float> mix(480, 0);
-    auto add = [&](std::deque<float>& q) {
-        for (auto& v : mix) {
-            if (q.empty())
-                break;
-            v += q.front();
-            q.pop_front();
+    const auto epoch = m_receiveEpoch;
+    QMetaObject::invokeMethod(m_client, [this, epoch] {
+        if (epoch == m_receiveIoEpoch->load()) {
+            m_receiveAudioMixer.resetBuffers();
         }
-    };
-    if (primaryVisible())
-        add(m_primaryAudio);
-    else
-        m_primaryAudio.clear();
-    for (const auto& [id, r] : m_additionalRx)
-        if (r->ready)
-            add(r->audio);
-    for (auto& v : mix)
-        v = std::clamp(v, -1.0f, 1.0f);
-    const auto bytes = rxBytes(mix);
-    publishLegacyAudio(bytes);
-    sendSpeakerAudioToRadio(bytes);
+    }, Qt::QueuedConnection);
+}
+void AnanBackend::submitReceiveAudio(int id, const PcmFrame& frame)
+{
+    const auto epoch = m_audioIoEpoch;
+    if (epoch != m_receiveIoEpoch->load()) {
+        return;
+    }
+    const auto raw = frame.legacyStereo24();
+    const auto* samples = reinterpret_cast<const float*>(raw.constData());
+    if (!m_receiveAudioMixer.push(id, {samples, std::size_t(raw.size()) / sizeof(float)})) {
+        return;
+    }
+    const auto mixed = m_receiveAudioMixer.drain();
+    const auto bytes = rxBytes(mixed);
+    QMetaObject::invokeMethod(this, [this, id, raw, bytes, epoch] {
+        if (!m_connected || epoch != m_receiveEpoch) {
+            return;
+        }
+        if (m_receiveLayout.slice(id)) {
+            publishLegacySliceAudio(id, raw);
+        }
+        if (!bytes.isEmpty()) {
+            publishLegacyAudio(bytes);
+            sendSpeakerAudioToRadio(bytes);
+        }
+    }, Qt::QueuedConnection);
 }
 } // namespace AetherSDR::anan
 
@@ -751,10 +749,9 @@ void AnanBackend::changeReceiveStreamRate(int stream, int rate)
                                             updateReceiveStreams();
                                             publishReceiveWindows();
                                             for (const auto& [id, r] : m_additionalRx) {
-                                                r->audio.clear();
                                                 applyAdditionalRx(id);
                                             }
-                                            m_primaryAudio.clear();
+                                            resetReceiveAudioBuffers();
                                             pushModeFilterShift();
                                             QTimer::singleShot(200, this, [this, builds, epoch] {
                                                 if (epoch != m_receiveEpoch)

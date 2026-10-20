@@ -195,10 +195,6 @@ AnanBackend::AnanBackend(QObject* parent)
         publishDroopStatus();
     });
     m_receiveLayout.reset(1, kFirstConnectFrequencyHz, 48);
-    m_receiveMixer = new QTimer(this);
-    m_receiveMixer->setInterval(10);
-    m_receiveMixer->setTimerType(Qt::PreciseTimer);
-    connect(m_receiveMixer, &QTimer::timeout, this, &AnanBackend::mixReceiveAudio);
     m_client = new AnanClient(nullptr);   // nullptr parent: moveToThread requires it
     m_dsp = new AnanRxDsp(nullptr);
 
@@ -376,8 +372,9 @@ AnanBackend::AnanBackend(QObject* parent)
         emit capabilitiesChanged();
     });
 
-    connect(m_dsp, &AnanRxDsp::pcmReady, this, [this](const PcmFrame& pcm) { collectReceiveAudio(0, pcm.legacyStereo24());
-    });
+    connect(m_dsp, &AnanRxDsp::pcmReady, m_client,
+            [this](const PcmFrame& pcm) { submitReceiveAudio(0, pcm); },
+            Qt::DirectConnection);
     // Ungated by design: m_dsp emits on m_ioThread, the thread that emits
     // linkDown, so every frame is delivered before disconnected() (contract rule
     // 6).
@@ -1422,8 +1419,6 @@ void AnanBackend::setSliceAudioMute(int sliceId, bool mute)
         if (i == m_additionalRx.end())
             return;
         i->second->mute = mute;
-        if (mute)
-            i->second->audio.clear();
         publishAdditionalRx(sliceId);
         return;
     }
@@ -1432,8 +1427,6 @@ void AnanBackend::setSliceAudioMute(int sliceId, bool mute)
         return;
     }
     m_sliceAudioMuted = mute;
-    if (mute)
-        m_primaryAudio.clear();
     // Published, not just stored. The gate that decides whether the control is
     // offered at all requires an OBSERVATION as well as the capability, so a
     // mute that is applied but never echoed leaves the control refused with
@@ -1469,6 +1462,7 @@ void AnanBackend::setSliceAudioPan(int sliceId, int panPercent)
         if (i == m_additionalRx.end())
             return;
         i->second->pan = std::clamp(panPercent, 0, 100);
+        syncReceiveAudioRoutes();
         return;
     }
     Q_UNUSED(sliceId);
@@ -1476,6 +1470,7 @@ void AnanBackend::setSliceAudioPan(int sliceId, int panPercent)
     // observation to echo and nothing downstream reads one. Applied all the
     // same -- the audio stage is the same stage either way.
     m_sliceAudioPanPercent = std::clamp(panPercent, 0, 100);
+    syncReceiveAudioRoutes();
 }
 
 void AnanBackend::setLineoutGain(int percent)
@@ -2564,6 +2559,7 @@ void AnanBackend::resetSupplyRailWindow()
 
 void AnanBackend::emitSliceState()
 {
+    syncReceiveAudioRoutes();
     for (const auto& [id, r] : m_additionalRx)
         publishAdditionalRx(id);
     if (!primaryVisible())

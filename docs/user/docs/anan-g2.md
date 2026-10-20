@@ -40,6 +40,11 @@ Use the main UI's add-slice control on an existing panadapter for another
 independently demodulated frequency inside its sampled span. The slices share
 one hardware IQ stream, with separate mode, filter, AGC, noise blanker, volume,
 mute and stereo balance. Each slice also has its own pre-volume audio tap.
+The speaker mix is sample-driven on the receive I/O/DSP thread. Active audio
+contributors are synchronized through per-slice buffers, so temporarily uneven
+block delivery does not insert silence for a late slice or depend on a GUI
+mixer timer. A new slice joins the mix on its first audio block; closing it
+explicitly removes its contribution. Mute and balance preserve this audio timing.
 Adding an independent panadapter claims a separate hardware receive stream;
 it is refused when none is free, rather than creating a coupled duplicate.
 

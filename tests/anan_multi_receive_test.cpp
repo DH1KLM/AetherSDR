@@ -26,6 +26,22 @@ struct AnanMultiRxTestAccess {
         b.m_receiveLayout.reset(5, b.m_sliceFreqHz, 48);
         emit b.connected();
     }
+    static void pcm(AnanBackend& b, int id, int frames, float value)
+    {
+        PcmProducer producer;
+        checkProducer(producer.start(PcmPurpose::Speaker, -1, {24000, PcmLayout::Stereo}));
+        auto frame = producer.produce(QVector<float>(frames * 2, value));
+        checkProducer(frame.has_value());
+        QMetaObject::invokeMethod(b.m_client, [&b, id, frame] {
+            b.submitReceiveAudio(id, *frame);
+        }, Qt::BlockingQueuedConnection);
+    }
+    static void resetAudio(AnanBackend& b)
+    {
+        b.resetReceiveAudioBuffers();
+        barrier(b);
+    }
+    static void checkProducer(bool ok) { if (!ok) { std::abort(); } }
     static void p1(AnanBackend& b) { b.m_pendingParams.protocol = 1; }
     static void profile(AnanBackend& b, int board, int protocol)
     {
@@ -130,6 +146,38 @@ int main(int argc, char** argv)
     check(AnanMultiRxTestAccess::stream(b, 1) == 0 && state.contains(1),
           "shared slice has its own observed identity");
     check(state[1].letter == QStringLiteral("B"), "second receiver is labelled B");
+    std::vector<float> mixedSamples;
+    const auto mixConnection = QObject::connect(&b, &IRadioBackend::audioFrameReady,
+        [&](const PcmFrame& pcm) {
+            const auto bytes = pcm.legacyStereo24();
+            const auto* p = reinterpret_cast<const float*>(bytes.constData());
+            mixedSamples.insert(mixedSamples.end(), p, p + bytes.size() / sizeof(float));
+        });
+    AnanMultiRxTestAccess::pcm(b, 0, 1, 0);
+    AnanMultiRxTestAccess::pcm(b, 1, 1, 0);
+    AnanMultiRxTestAccess::pcm(b, 0, 1, 0);
+    QCoreApplication::processEvents();
+    mixedSamples.clear();
+    AnanMultiRxTestAccess::pcm(b, 0, 6, 0.1f);
+    QCoreApplication::processEvents();
+    check(mixedSamples.empty(), "backend waits for a late slice instead of padding silence");
+    AnanMultiRxTestAccess::pcm(b, 1, 2, 0.2f);
+    AnanMultiRxTestAccess::pcm(b, 1, 4, 0.2f);
+    QCoreApplication::processEvents();
+    check(mixedSamples.size() == 12, "backend emits every matched frame despite a delayed GUI drain");
+    for (float sample : mixedSamples) {
+        check(std::abs(sample - 0.3f) < 1e-6, "backend mixed output contains both slices continuously");
+    }
+    QElapsedTimer noInput;
+    noInput.start();
+    while (noInput.elapsed() < 30) {
+        QCoreApplication::processEvents();
+        QThread::msleep(1);
+    }
+    check(mixedSamples.size() == 12, "idle GUI callbacks cannot invent mixed audio frames");
+    QObject::disconnect(mixConnection);
+    AnanMultiRxTestAccess::resetAudio(b);
+
     b.setSliceFrequency(1, 14'179'000);
     check(state[1].frequency == 14.179, "second receiver accepts its own tuning intent");
     b.setPanCenter(QStringLiteral("anan-0"), 14'180'000,
