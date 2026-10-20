@@ -107,22 +107,38 @@ validated session. It follows the Nereus hardware-page arrangement:
   receiver count, firmware, MAC, IP) and **Operating Parameters**. The effective
   model and override remain distinct from the physical board. One receiver is active.
 - **Antenna / ALEX**: **Antenna Control**, **Alex-1 Filters**, **Alex-2 Filters**.
-  **Receive Antenna → ADC0** selects ANT1/2/3 immediately. The active input
-  readout distinguishes **ADC0 / ANT1/2/3** from **ADC1 / RX2**. When ADC1
-  feeds the receiver, this selector still controls ADC0 and does not switch
-  the active receiver away from RX2. Single-ADC profiles are identified as
-  such. The choice is saved separately for this MAC address, effective model
-  and physical board. A refused antenna change displays the backend error
-  and restores the last confirmed selection; pending filter edits remain. A live antenna change does
-  not change another device’s starting selection. Existing global antenna
-  defaults remain a fallback until this device/model has its own choice. ADC0 filter limits and bypass are on
-  Alex-1. **Alex-2 Filters** remains visible for every ANAN profile. Its controls
-  are enabled for the dual-ADC MkII filter profiles (ANAN-7000/8000, Orion MkII,
-  Anvelina and G2). For legacy models, including an Orion MkII explicitly
-  mapped as ANAN-200D, and for single-ADC profiles, the controls are dimmed
-  with a visible and screen-reader-accessible explanation. A second ADC by
-  itself does not imply a second ALEX filter board.
-  Alex-2 provides independent ADC1 band limits and green filter/bypass LEDs.
+  **Antenna Control** places the TX safety options above TX and RX per-band
+  antenna matrices, followed by the TX bypass options. These per-band and TX
+  controls are dimmed with an explanation; ANAN per-band antenna routing and
+  transmit are not implemented. **Current RX Antenna** below the matrices
+  contains the working **ADC0 input**, **ANT bank**, and **ADC1 RF filter bypass**
+  controls. ANT1/2/3 changes apply immediately; input and bypass edits require
+  **Apply**. ADC1 keeps its dedicated RX2 input. Settings remain separate for
+  this MAC address, effective model and physical board.
+
+  **Alex-1 Filters** places **Reset filter defaults** above two filter banks.
+  The receive-bank master bypass and RX/TX options sit above the filter rows;
+  the LPF bank has its RX bypass option below the rows. Every row shows its
+  name, commanded-state LED, optional band bypass, and lower/upper frequency
+  fields with six decimal places and an **MHz** suffix. LEDs align vertically;
+  complete banks stack when the window is narrow. Older profiles show
+  **ALEX HPF bands**; MkII profiles show **ALEX BPF bands**.
+
+  **Alex-2 Filters** uses the same two-bank arrangement and remains visible
+  for every ANAN profile. Its ADC1 receive controls are enabled for supported
+  dual-ADC MkII profiles (ANAN-7000/8000, Orion MkII, Anvelina and G2).
+  Legacy models, single-ADC profiles and an ANAN-200D override show disabled
+  controls with an explanation. A second ADC alone does not imply Alex-2.
+  The master bypass mirrors **ADC1 RF filter bypass** in **Antenna Control**.
+  Individual ADC1 band bypasses and an independent Alex-2 LPF bank are
+  displayed disabled because they are not implemented. The current receive
+  LPF remains on Alex-1.
+
+  **Reset filter defaults** stages only the frequency edges for the selected
+  page: ADC0 and available LPF on Alex-1, ADC1 on Alex-2. Bypass, antenna and
+  OC settings are kept. Select **Apply** to save. **Restore model defaults**
+  remains the separate action that restores the whole hardware-filter
+  configuration, including bypass and OC defaults.
 - **OC Outputs**: **HF**, **VHF**, **SWL**. HF has RX/TX pin matrices side by side
   and a commanded RX pin-state readout. The RX matrix is configurable; TX, VHF,
   SWL and user digital outputs are visible but disabled
@@ -178,16 +194,17 @@ do not establish a separate receive profile for this ID. A newer PCB revision
 alone does not imply board ID 11. An automatic board profile identifies
 a board family, not a guaranteed commercial model or external DIY filter board.
 
-Edit **Low MHz** and **High MHz** with six decimal places (1 Hz resolution).
-The Bypass column is compact; filter names and six-decimal frequency fields
+Edit the lower and upper **MHz** fields with six decimal places (1 Hz resolution).
+The band-bypass checkbox is compact; filter names and six-decimal fields
 retain readable widths. LEDs occupy the same fixed position in each row.
 On narrow windows, HPF/BPF and LPF tables stack vertically; enlarge the
 resizable setup window to place them side by side. Each filter name is drawn
-once, with the LED in a fixed position before the name.
+once, with the LED in a fixed position after the name.
 Rows must be ordered, non-overlapping, and within 0–61.44 MHz. Frequencies in
 receive-table gaps select bypass. LPF gaps select the 6 m LPF fallback.
-**ADC0 RF filter bypass** and **ADC1 RF filter bypass** override the respective
-receive bank. Single-ADC models disable ADC1 controls. LPF limits are disabled
+**HPF Bypass (master)** / **BPF Bypass (master)** on Alex-1 overrides ADC0.
+**ADC1 RF filter bypass** in Antenna Control overrides ADC1; the Alex-2
+**ByPass / 55 MHz BPF (master)** checkbox mirrors it on supported profiles. Single-ADC models disable ADC1 controls. LPF limits are disabled
 when the active profile does not drive LPF selection (the P2 Saturn profile).
 With one receiver, both automatic ADC filter banks follow its tuned frequency.
 ADC1 inherits ADC0 ranges until independent Alex-2 limits are saved. ADC0's individual **Bypass** boxes
@@ -204,8 +221,8 @@ indicator and independent band table on supported MkII profiles.
 The single receiver frequency drives both banks; changing ADC1 limits does
 not create another receiver or alter ADC0 limits. TX/PureSignal bypass and
 **Disable 6m LNA on TX** remain disabled because ANAN transmit is unsupported.
-The 6m LNA and TX/PureSignal bypass switches are grouped below the HPF/BPF
-filter table, alongside the LPF options below their own table.
+The 6m LNA and TX/PureSignal bypass switches are grouped above the HPF/BPF
+filter grid; **6m/ByPass on RX** is below the LPF grid.
 
 The **Receive-only settings. Apply saves…** note is directly below the HPF/BPF and LPF tables on **Alex-1 Filters**.
 
