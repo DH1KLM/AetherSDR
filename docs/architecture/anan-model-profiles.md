@@ -329,7 +329,7 @@ based on `6e6f530f`. Preserve physical/model identity, P1/P2 probing, overrides,
 per-device filters and the operator-confirmed relay path. P2 General refresh,
 P1/P2 filter encoders and independent ADC1 tables are unchanged by this merge.
 
-Adopt main's ANAN Front End page for next-connect sample rate, ADC choice,
+Adopt main's original ANAN Front End page for next-connect sample rate, ADC choice,
 dither/randomization, initial bypass and radio-speaker defaults. Keep
 model/protocol/board-override choices on Connect by IP, and per-device live
 filter controls under Anan Hardware. Correct main's pre-filter-support bypass
@@ -588,3 +588,13 @@ and shows the reason. Missing replies have a bounded timeout and permit a
 later retry. Generation and write-revision checks retire replies from old
 connections and polls from before a write; periodic status still owns live
 filter indicators. No new settings writer or wire protocol path is added.
+
+## Unified hardware setup, 2026-10-20
+
+The separate ANAN Front End navigation page is replaced by ANAN Hardware →
+Connection Defaults. Its five controls retain their existing family-wide
+AnanSettings owner and next-connect semantics. It requires an active ANAN
+session; first connection uses the existing defaults. The active rate/ADC
+remain visible in Radio Info. Filter bypass is edited only through the live,
+device/profile-scoped Antenna / ALEX controls; the old duplicate family-default
+bypass widgets are removed without deleting saved configuration.

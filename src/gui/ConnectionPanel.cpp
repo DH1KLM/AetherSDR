@@ -993,20 +993,14 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualAnanProtocolCombo->addItem(tr("Protocol 2"), 2);
     m_manualAnanProtocolRow = addManualRow(QStringLiteral("Protocol:"), m_manualAnanProtocolCombo);
 
-    // ANAN-G2's front-end options (DDC0 rate, ADC select, dither,
-    // randomization, the two filter-bank bypasses and the radio-speaker stream)
-    // are set on Settings > Radio Setup > "ANAN Front End", which is reachable
-    // with no radio connected: they configure the session a connect starts, so
-    // they must be settable before the first one. The connect path reads them
-    // from AnanSettings (RadioModel's populateFamilyParams()), never from this
-    // form; this row only points there.
-    //
+    // Connection defaults are edited under ANAN Hardware after connecting.
+    // The existing AnanSettings values still seed every connection.
     // Added straight to manualForm rather than through addManualRow(): that
     // helper gives its field a FIXED row height, which would clip a label that
     // wraps.
     auto* ananHint = makeWrappedLabel(
-        QStringLiteral("Sample rate, ADC choice, dither, randomization, filter bypass and the "
-                       "radio's own speaker are in Settings > Radio Setup > ANAN Front End. "
+        QStringLiteral("After connecting, configure sample rate, ADC choice, dither, randomization and the "
+                       "radio's own speaker in Settings > Radio Setup > ANAN Hardware > Connection Defaults. "
                        "They apply to the next connect."),
         kHintLabelStyle);
     ananHint->setObjectName(QStringLiteral("connectionManualAnanSetupHint"));

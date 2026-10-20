@@ -181,6 +181,9 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     ctunInfo->setAccessibleDescription(QStringLiteral("Live CTUN state and hardware DDC centre"));
     operatingLayout->addRow(ctunInfo);
     infoLayout->addWidget(operatingGroup);
+    auto* defaultsPage = buildAnanConnectionDefaults();
+    defaultsPage->setParent(tabs);
+    tabs->insertTab(1, defaultsPage, QStringLiteral("Connection Defaults"));
     infoLayout->addStretch();
     auto* antennaLayout = new QVBoxLayout(antennaPage);
     auto* antennaTabs = new QTabWidget(antennaPage);
