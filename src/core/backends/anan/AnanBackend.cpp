@@ -2135,6 +2135,19 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    int bandSliceId = m_activeReceiveSlice;
+    if (ns == QLatin1String("anan") && verb == QLatin1String("band.select")) {
+        const auto fields = arg.toMap();
+        if (fields.contains(QStringLiteral("sliceId"))) {
+            const QVariant target = fields.value(QStringLiteral("sliceId"));
+            if (target.metaType().id() != QMetaType::Int ||
+                !m_receiveLayout.slice(target.toInt())) {
+                emit extensionError(requestId, QStringLiteral("Band selection target no longer exists"));
+                return;
+            }
+            bandSliceId = target.toInt();
+        }
+    }
     if(ns==QLatin1String("anan")&&!m_additionalRx.empty()&&verb==QLatin1String("band.select")) {
         const auto fields=arg.toMap();const double hz=fields.value(QStringLiteral("frequencyHz")).toDouble();
         const auto mode=fields.value(QStringLiteral("mode")).toString();const auto band=fields.value(QStringLiteral("band")).toString();
@@ -2142,7 +2155,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             ||(band!=QLatin1String("GEN")&&band!=QLatin1String("WWV")&&BandSettings::bandForFrequency(hz/1e6)!=band)) {
             emit extensionError(requestId,QStringLiteral("Band selection requires a valid frequency, mode and ready receiver"));return;
         }
-        const int id=m_activeReceiveSlice;setSliceFrequency(id,hz);
+        const int id=bandSliceId;setSliceFrequency(id,hz);
         const auto* selected=m_receiveLayout.slice(id);
         if(!selected||std::abs(selected->frequencyHz-hz)>0.5) {
             emit extensionError(requestId,QStringLiteral("No receive stream is available for this band"));return;

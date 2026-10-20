@@ -176,13 +176,29 @@ int main(int argc, char** argv)
     check(state[1].mode == QStringLiteral("LSB") && state[1].filterLow == -2700 &&
               state[1].audioGain == 35,
           "extra slice controls are independent");
+    b.setActiveSlice(0);
     b.invokeExtension(QStringLiteral("anan"), QStringLiteral("band.select"), 1,
                       QVariantMap{{QStringLiteral("band"), QStringLiteral("40m")},
+                                  {QStringLiteral("sliceId"), 1},
                                   {QStringLiteral("frequencyHz"), 7'100'000.0},
                                   {QStringLiteral("mode"), QStringLiteral("LSB")}});
     check(AnanMultiRxTestAccess::stream(b, 1) == 1 &&
               AnanMultiRxTestAccess::center(b, 0) == 14'175'000,
           "leaving shared capture preserves the other window");
+    check(state[0].frequency == 14.175 && state[0].mode == QStringLiteral("USB") &&
+              state[0].active.value_or(false) && state[1].frequency == 7.1,
+          "band selection addresses B while A remains globally active and unchanged");
+    int refusedTarget = 0;
+    QObject::connect(&b, &IRadioBackend::extensionError,
+                     [&](quint64 id, const QString&) { if (id == 99) { ++refusedTarget; } });
+    b.invokeExtension(QStringLiteral("anan"), QStringLiteral("band.select"), 99,
+                      QVariantMap{{QStringLiteral("sliceId"), 999},
+                                  {QStringLiteral("band"), QStringLiteral("80m")},
+                                  {QStringLiteral("frequencyHz"), 3'700'000.0},
+                                  {QStringLiteral("mode"), QStringLiteral("LSB")}});
+    check(refusedTarget == 1 && state[0].frequency == 14.175 && state[1].frequency == 7.1,
+          "missing explicit band target cannot fall back to the active receiver");
+    b.setActiveSlice(1);
     check(b.createPanadapter(), "create independent pan");
     wait([&] { return !AnanMultiRxTestAccess::busy(b); });
     check(AnanMultiRxTestAccess::stream(b, 2) == 2, "explicit pan always owns a DDC");

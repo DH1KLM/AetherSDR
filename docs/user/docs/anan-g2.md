@@ -83,7 +83,10 @@ operator-selected filter/bypass configuration. Changes to shared gain or antenna
 controls apply to the common RF path.
 
 Additional slices/windows are session-only and are not restored on reconnect.
-Band buttons select the active slice's frequency and mode without restoring a saved CTUN view while multi-receive is active.
+Band buttons address a slice in their own panadapter, preferring the active slice
+in that pan. Selecting a band in another panadapter leaves the globally active
+receiver in its original band. Saved CTUN views are not restored while
+multi-receive is active.
 The existing **B** band-view toggle/recall and droop sweep require the original
 receiver to be the only slice. The original receiver retains its CTUN control. TX, diversity,
 PureSignal and simultaneous independent ADC selection are not added by this

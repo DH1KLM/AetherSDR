@@ -3722,6 +3722,17 @@ void MainWindow::selectBand(const QString& panId, const QString& bandName, doubl
         }
 
         SliceModel* s = activeSlice();
+        if (!panId.isEmpty() && (!s || s->panId() != panId)) {
+            s = nullptr;
+            for (SliceModel* candidate : m_radioModel.slices()) {
+                if (candidate->panId() == panId) {
+                    s = candidate;
+                    if (candidate->isActive()) {
+                        break;
+                    }
+                }
+            }
+        }
         if (!s) {
             statusBar()->showMessage(tr("No active slice to tune"), 4000);
             return;
@@ -3758,6 +3769,7 @@ void MainWindow::selectBand(const QString& panId, const QString& bandName, doubl
             lifetime->start(10000);
             m_radioModel.invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("band.select"), request,
                 QVariantMap{{QStringLiteral("band"), bandName}, {QStringLiteral("frequencyHz"), freqMhz * 1e6},
+                            {QStringLiteral("sliceId"), s->sliceId()},
                             {QStringLiteral("mode"), mode.isEmpty() ? s->mode() : mode}});
             return;
         }
