@@ -1510,10 +1510,15 @@ void AnanBackend::setPanCenter(const QString& panId, double hz, PanCenterIntent 
     const int st = streamForPan(panId);
     if (st < 0)
         return;
-    if (panId != primaryPanId() || !primaryVisible()) {
+    if (panId != primaryPanId() || !primaryVisible() || m_receiveLayout.occupants(st) > 1) {
         const auto w = m_receiveLayout.streams()[st];
         if (m_receiveLayout.setWindow(st, hz, w.rateKsps)) {
-            updateReceiveStreams();
+            if (primaryVisible() && st == primaryPanIndex()) {
+                m_ddcCenterHz = hz;
+                scheduleTuneApply();
+            } else {
+                updateReceiveStreams();
+            }
             pushAdditionalShifts();
         }
         publishReceiveWindows();
@@ -2785,7 +2790,9 @@ void AnanBackend::scheduleTuneApply()
 
 void AnanBackend::applyTuneToRadioAndPan()
 {
-    const auto tuning = receiveTuning(m_ctun, m_ddcCenterHz, m_sliceFreqHz,
+    const auto tuning = receiveTuning(
+        m_ctun || m_receiveLayout.occupants(primaryPanIndex()) > 1,
+        m_ddcCenterHz, m_sliceFreqHz,
         receiveTuningRateHz(), m_filterLowHz, m_filterHighHz, cwBfoHz());
     if (!tuning) { emitSliceState(); return; }
     m_ddcCenterHz = tuning->centerHz;

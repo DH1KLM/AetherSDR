@@ -16,6 +16,7 @@ class AnanReceiveLayout {
     struct Slice {
         int stream = 0;
         double frequencyHz = 0;
+        int labelIndex = 0;
     };
     void reset(int streams, double hz, int rate, int slices = 5)
     {
@@ -71,7 +72,16 @@ class AnanReceiveLayout {
             m_streams[st] = {true, hz, m_default};
         }
         const int id = m_next++;
-        m_slices[id] = {st, hz};
+        int label = 0;
+        for (; label < m_sliceLimit; ++label) {
+            const bool used = std::any_of(m_slices.begin(), m_slices.end(), [label](const auto& entry) {
+                return entry.second.labelIndex == label;
+            });
+            if (!used) {
+                break;
+            }
+        }
+        m_slices[id] = {st, hz, label};
         return id;
     }
     bool tune(int id, double hz, bool pinned)

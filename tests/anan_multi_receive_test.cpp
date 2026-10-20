@@ -129,6 +129,26 @@ int main(int argc, char** argv)
     wait([&] { return !AnanMultiRxTestAccess::busy(b); });
     check(AnanMultiRxTestAccess::stream(b, 1) == 0 && state.contains(1),
           "shared slice has its own observed identity");
+    check(state[1].letter == QStringLiteral("B"), "second receiver is labelled B");
+    b.setSliceFrequency(1, 14'179'000);
+    check(state[1].frequency == 14.179, "second receiver accepts its own tuning intent");
+    b.setPanCenter(QStringLiteral("anan-0"), 14'180'000,
+                   IRadioBackend::PanCenterIntent::Range);
+    check(state[1].frequency == 14.179 &&
+              AnanMultiRxTestAccess::center(b, 0) == 14'180'000,
+          "shared pan centering preserves the additional VFO");
+    b.setSliceFrequency(0, 14'176'000);
+    AnanMultiRxTestAccess::barrier(b);
+    QElapsedTimer tuneWait;
+    tuneWait.start();
+    while (tuneWait.elapsed() < 100) { QCoreApplication::processEvents(); QThread::msleep(1); }
+    check(AnanMultiRxTestAccess::center(b, 0) == 14'180'000 &&
+              state[1].frequency == 14.179,
+          "trailing primary tuning preserves the shared capture and peer VFO");
+    b.setSliceFrequency(0, 14'175'000);
+    b.setSliceFrequency(1, 14'178'000);
+    b.setPanCenter(QStringLiteral("anan-0"), 14'175'000,
+                   IRadioBackend::PanCenterIntent::Range);
     AnanMultiRxTestAccess::feed(b, 0, 4000);
     AnanMultiRxTestAccess::barrier(b);
     QCoreApplication::processEvents();

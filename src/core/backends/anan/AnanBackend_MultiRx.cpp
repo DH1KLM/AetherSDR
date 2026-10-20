@@ -410,6 +410,7 @@ void AnanBackend::publishAdditionalRx(int id)
     const auto& r = *i->second;
     SliceDelta d;
     d.frequency = s->frequencyHz / 1e6;
+    d.letter = QString(QChar('A' + s->labelIndex));
     d.panId = rxPan(s->stream);
     d.mode = r.mode;
     d.filterLow = r.low;

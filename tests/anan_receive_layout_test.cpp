@@ -42,6 +42,12 @@ int main()
     l.reset(2,14'175'000,96);check(l.add(14'215'000,0).has_value(),"second slice fits a wider shared capture");
     check(!l.setWindow(0,14'175'000,48)&&l.streams()[0].rateKsps==96,"narrowing cannot exclude a co-hosted slice or alter the old rate");
     l.reset(2,14'175'000,48,2);check(l.add(14'176'000,0).has_value()&&!l.add(14'177'000,-1,true),"two-slice model ceiling also bounds independent windows");
+    l.reset(5, 14'175'000, 48);
+    const int retired = *l.add(14'176'000, 0);
+    check(l.slice(retired)->labelIndex == 1 && l.remove(retired), "second label is B");
+    const int replacement = *l.add(14'177'000, 0);
+    check(replacement > retired && l.slice(replacement)->labelIndex == 1,
+          "recreated slice reuses display B with a fresh asynchronous identity");
     p1::ReceiveConfig c;
     c.receivers = 5;
     c.independentFrequencies = true;

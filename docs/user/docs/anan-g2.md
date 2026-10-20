@@ -49,6 +49,10 @@ place. A lone receiver can retune its own hardware centre. If no compatible
 stream is available, the frequency change is refused and the observed VFO
 remains at the previous value. Closing the final slice of a stream releases
 its window; the final slice of the whole connection cannot be removed.
+Moving a shared panadapter preserves each slice's tuned frequency; a center
+that would exclude a hosted slice is refused. Slice letters reuse the lowest
+free letter when a receiver is closed and replaced. Internal receiver identities
+remain distinct so delayed work cannot affect its replacement.
 
 | Effective profile | Maximum slices | Maximum independent P1 windows | Maximum independent P2 windows |
 |---|---:|---:|---:|
