@@ -4,7 +4,9 @@
 #include "models/RadioModel.h"
 #include <QApplication>
 #include <QComboBox>
+#include <QElapsedTimer>
 #include <QSignalSpy>
+#include <QThread>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -25,8 +27,11 @@ public:
         backend.m_pendingParams.model = redPitaya ? AnanModel::RedPitaya : AnanModel::Anan7000;
         backend.m_pendingParams.ddc0RateKsps = 48;
         backend.m_pendingDspConfig.inputSampleRateHz = 48000;
+        backend.m_sliceFreqHz = backend.m_ddcCenterHz = 14'175'000;
         backend.m_receiveLayout.reset(5, backend.m_sliceFreqHz, 48);
+        backend.m_streamApplyOverride = [](const auto&, const auto&) { return true; };
     }
+    static void publish(AnanBackend& backend) { backend.emitPanState(); backend.emitSliceState(); }
     static void connected(AnanBackend& backend, bool connected) { backend.m_connected = connected; }
 };
 }
@@ -69,5 +74,26 @@ int main(int argc, char** argv)
         emit model.connectionStateChanged(true);
         check(rate->isEnabled() && rate->count() == count && window->count() == 1,
               "reconnect repopulates an unchanged window and rate list");
+        if (protocol == 2) {
+            model.setLineoutGain(31);
+            model.setLineoutMute(true);
+            check(backend->lineoutGainPercentForTest() == 31 && backend->lineoutMutedForTest(),
+                  "typed setup routing retains ANAN's native lineout gain and mute");
+            anan::AnanLinkStatsTestAccess::publish(*backend);
+            check(model.slices().size() == 1 && !model.panId().isEmpty(),
+                  "real ANAN observations establish the original receiver and pan");
+            check(model.addSliceOnPan(model.panId(), 14.178),
+                  "typed model lifecycle reaches ANAN's native shared-slice adapter");
+            QElapsedTimer deadline;
+            deadline.start();
+            while (model.slices().size() != 2 && deadline.elapsed() < 10000) {
+                QCoreApplication::processEvents();
+                QThread::msleep(1);
+            }
+            check(model.slices().size() == 2 && model.slice(1),
+                  "ANAN DSP completion still publishes the new receiver through the model");
+            check(model.removeSlice(1) && model.slices().size() == 1 && model.slice(0),
+                  "typed removal retains the original ANAN receiver");
+        }
     }
 }
