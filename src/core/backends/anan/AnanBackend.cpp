@@ -2157,6 +2157,30 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     state.insert(QStringLiteral("firmware"), m_discoveredFirmwareVer);
     state.insert(QStringLiteral("reportedReceivers"), m_discoveredReceiverCount);
     state.insert(QStringLiteral("rateKsps"), m_pendingParams.ddc0RateKsps);
+    QVariantList sampleRates;
+    for (const int hz : capabilities().sampleRatesHz) {
+        sampleRates.append(hz);
+    }
+    state.insert(QStringLiteral("sampleRatesHz"), sampleRates);
+    QVariantList rateWindows;
+    for (int stream = 0; stream < m_receiveLayout.limit(); ++stream) {
+        const auto& window = m_receiveLayout.streams()[stream];
+        if (!window.active) { continue; }
+        const bool single = m_additionalRx.empty();
+        int anchor = -1;
+        for (const auto& [id, slice] : m_receiveLayout.slices()) {
+            if (slice.stream == stream) { anchor = id; break; }
+        }
+        rateWindows.append(QVariantMap{
+            {QStringLiteral("panId"), QStringLiteral("anan-%1").arg(stream)},
+            {QStringLiteral("label"), QStringLiteral("Window %1").arg(stream + 1)},
+            {QStringLiteral("sliceId"), anchor},
+            {QStringLiteral("rateHz"), single ? static_cast<int>(receiveTuningRateHz()) : window.rateKsps * 1000}});
+    }
+    state.insert(QStringLiteral("sampleRateWindows"), rateWindows);
+    state.insert(QStringLiteral("sampleRateBusy"), m_rateChanging || m_receiveBuilding);
+    state.insert(QStringLiteral("sampleRateAvailable"), m_discoveryInfoReceived &&
+        !m_rateChanging && !m_receiveBuilding && !m_droopCalibrator.isRunning());
     state.insert(QStringLiteral("adcIndex"), m_pendingParams.ddc0AdcIndex);
     state.insert(QStringLiteral("dither"), m_pendingParams.ditherEnabled);
     state.insert(QStringLiteral("random"), m_pendingParams.randomEnabled);
@@ -2301,6 +2325,43 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             {QStringLiteral("wholeBand"), view->wholeBand},
             {QStringLiteral("ctun"), true},
             {QStringLiteral("pending"), m_rateChanging}});
+        return;
+    }
+    if (ns == QLatin1String("anan") && verb == QLatin1String("sample-rate.set")) {
+        const QVariantMap state = hardwareFilterStatus();
+        const QVariantMap fields = arg.toMap();
+        if (state.isEmpty() || !state.value(QStringLiteral("sampleRateAvailable")).toBool()) {
+            emit extensionError(requestId, QStringLiteral("Sample rate requires a connected ANAN with no receive rebuild or droop sweep running."));
+            return;
+        }
+        for (const QString& key : {QStringLiteral("identity"), QStringLiteral("modelId"), QStringLiteral("boardId")}) {
+            if (fields.value(key) != state.value(key)) {
+                emit extensionError(requestId, QStringLiteral("The connected hardware changed; reload this page."));
+                return;
+            }
+        }
+        const QVariant rate = fields.value(QStringLiteral("rateHz"));
+        const int stream = streamForPan(fields.value(QStringLiteral("panId")).toString());
+        const QVariant anchor = fields.value(QStringLiteral("sliceId"));
+        const auto* slice = anchor.metaType().id() == QMetaType::Int ? m_receiveLayout.slice(anchor.toInt()) : nullptr;
+        if (rate.metaType().id() != QMetaType::Int ||
+            !capabilities().sampleRatesHz.contains(rate.toInt()) || stream < 0 || !slice || slice->stream != stream) {
+            emit extensionError(requestId, QStringLiteral("Select an active receive window and a supported sample rate."));
+            return;
+        }
+        // Thetis setup.cs InitAudioTab and RX1/RX2 rate handlers at 852bf0ef:
+        // P1 has one wire rate; P2 permits independent receive captures.
+        if (!m_additionalRx.empty()) {
+            if (!changeReceiveStreamRate(stream, rate.toInt() / 1000)) {
+                emit extensionError(requestId, QStringLiteral("This rate would exclude a slice sharing a receive window. Choose a wider rate."));
+                return;
+            }
+        } else {
+            m_pendingBandView.reset();
+            m_bandViewSpanHz = 0.0;
+            setPanBandwidth(primaryPanId(), rate.toInt());
+        }
+        emit extensionResult(requestId, hardwareFilterStatus());
         return;
     }
     if (ns == QLatin1String("anan") && verb == QLatin1String("ctun.set")) {

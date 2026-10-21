@@ -601,6 +601,25 @@ bypass widgets are removed without deleting saved configuration.
 
 ## Multi-receive integration, 2026-10-20
 
+### Manual receive sample rate
+
+Radio Info exposes live capture windows and protocol-valid rates through
+`hw.get`; `sample-rate.set` validates the device identity, window and exact
+integer-Hz rate before using the existing rate-change coordinator. P1 changes
+every active capture; P2 changes only the selected capture and its co-hosted
+slices. Rebuild/droop conflicts and narrowing that excludes a shared slice
+are refused. Acceptance is distinct from DSP completion and from firmware
+acknowledgement. No new persistence owner is introduced.
+
+Thetis is the authority: `852bf0ef0b4f3886a13fc2846489aee16f361872`,
+`Project Files/Source/Console/setup.cs`, `InitAudioTab` (P1/P2 rate lists and
+Red Pitaya exception), `comboAudioSampleRate1_SelectedIndexChanged` and
+`comboAudioSampleRateRX2_SelectedIndexChanged` (coordinated live DSP/DDC rate
+changes). Nereus `RadioInfoTab::onSampleRateChanged` and `SampleRateCatalog`
+are supplementary UI references. Aether retains its existing rate defaults.
+
+### Capture and slice lifecycle
+
 The Nereus reference behavior is shared IQ windows for additional slices,
 and a dedicated hardware DDC for an explicitly independent panadapter.
 `AnanReceiveLayout` implements placement, refusal, tuning and release without

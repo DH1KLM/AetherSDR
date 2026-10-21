@@ -170,7 +170,7 @@ Configure the receive front end under **Settings → Radio Setup... → Radio �
 | **Dither** / **Randomization** | On | The ADC's linearisation bits. Leave them on unless you are testing. |
 | **Send receive audio to the radio** | Off | Also plays receive audio through the G2's own speaker and headphone jack. Takes effect on the next connect. |
 
-Filter bypass is controlled only under **ANAN Hardware → Antenna / ALEX** and applies immediately for the connected device and effective model. Use the panadapter **− / +** buttons to change the sample rate during a session.
+Filter bypass is controlled only under **ANAN Hardware → Antenna / ALEX** and applies immediately for the connected device and effective model. Change the live sample rate under **ANAN Hardware → Radio Info → Operating Parameters**, or use the panadapter **− / +** buttons.
 
 ## ANAN Hardware
 
@@ -185,6 +185,16 @@ The page follows the Nereus hardware-page arrangement:
 - **Radio Info**: **Board Identity** (physical board, P1/P2, ADC count, reported
   receiver count, firmware, MAC, IP) and **Operating Parameters**. The effective
   model and override remain distinct from the physical board. Active receive windows share the selected ADC and its analogue front end.
+  **Receive window** selects a live capture; **Sample rate (Hz)** changes its
+  rate immediately through the existing DSP rebuild. P2 offers 48000, 96000,
+  192000, 384000, 768000 and 1536000 Hz. P1 offers 48000, 96000 and 192000 Hz;
+  an explicit Red Pitaya P1 profile also offers 384000 Hz. P2 changes the
+  selected window and all slices sharing it; P1 changes every receive window.
+  A narrower rate is refused if it would exclude a co-hosted slice. Selection
+  is disabled during a receive rebuild or droop sweep. The displayed rate is
+  session state, not an acknowledgement from the radio. Connection Defaults
+  remains the independent starting-rate setting for the next connection;
+  existing exact-profile band-view recall keeps its normal precedence.
 - **Antenna / ALEX**: **Antenna Control**, **Alex-1 Filters**, **Alex-2 Filters**.
   **Antenna Control** places the TX safety options above TX and RX per-band
   antenna matrices, followed by the TX bypass options. These per-band and TX

@@ -277,7 +277,7 @@ private:
     void resetReceiveAudioBuffers();
     void submitReceiveAudio(int, const PcmFrame&);
     void retireEmptyReceiveWindows(const std::array<AnanReceiveLayout::Stream, 5>&);
-    void changeReceiveStreamRate(int, int);
+    bool changeReceiveStreamRate(int, int);
     int effectiveBoardId() const;
     QVariantMap hardwareFilterStatus() const;
     void loadHardwareFilters(int boardId);

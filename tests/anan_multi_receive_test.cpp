@@ -266,7 +266,51 @@ int main(int argc, char** argv)
     AnanMultiRxTestAccess::feed(b, 2);
     AnanMultiRxTestAccess::barrier(b);
     QCoreApplication::processEvents();
-    b.setPanBandwidth(QStringLiteral("anan-1"), 96000);
+    int rateAccepted = 0;
+    int rateRefused = 0;
+    QObject::connect(&b, &IRadioBackend::extensionResult, [&](quint64 id, const QVariant&) {
+        if (id == 4100) { ++rateAccepted; }
+    });
+    QObject::connect(&b, &IRadioBackend::extensionError, [&](quint64 id, const QString&) {
+        if (id == 4100) { ++rateRefused; }
+    });
+    const auto requestRate = [&](const QString& pan, const QVariant& hz, bool stale = false) {
+        const auto snapshot = AnanMultiRxTestAccess::filterStatus(b);
+        QVariantMap fields;
+        for (const QString& key : {QStringLiteral("identity"), QStringLiteral("modelId"), QStringLiteral("boardId")}) {
+            fields.insert(key, snapshot.value(key));
+        }
+        if (stale) { fields.insert(QStringLiteral("identity"), QStringLiteral("another-radio")); }
+        fields.insert(QStringLiteral("panId"), pan);
+        for (const auto& value : snapshot.value(QStringLiteral("sampleRateWindows")).toList()) {
+            const auto window = value.toMap();
+            if (window.value(QStringLiteral("panId")) == pan) {
+                fields.insert(QStringLiteral("sliceId"), window.value(QStringLiteral("sliceId")));
+            }
+        }
+        fields.insert(QStringLiteral("rateHz"), hz);
+        b.invokeExtension(QStringLiteral("anan"), QStringLiteral("sample-rate.set"), 4100, fields);
+    };
+    for (const QVariant& invalid : {QVariant(100000), QVariant(96000.5), QVariant(QStringLiteral("96000")), QVariant(true)}) {
+        requestRate(QStringLiteral("anan-1"), invalid);
+    }
+    requestRate(QStringLiteral("anan-9"), 96000);
+    requestRate(QStringLiteral("anan-1"), 96000, true);
+    check(rateRefused == 6 && rateAccepted == 0 && !AnanMultiRxTestAccess::busy(b) &&
+              AnanMultiRxTestAccess::rate(b, 1) == 48,
+          "manual rate refuses unsupported/ill-typed values, retired windows and stale device identity without rebuilding");
+    const auto rateStatus = AnanMultiRxTestAccess::filterStatus(b);
+    check(rateStatus.value(QStringLiteral("sampleRateWindows")).toList().size() == 3 &&
+              rateStatus.value(QStringLiteral("sampleRatesHz")).toList().size() == 6,
+          "manual rate status publishes live capture targets and the P2 rate ladder");
+    requestRate(QStringLiteral("anan-1"), 96000);
+    check(rateAccepted == 1 && AnanMultiRxTestAccess::busy(b), "manual rate accepts the coordinated P2 DSP rebuild");
+    const auto pendingStatus = AnanMultiRxTestAccess::filterStatus(b);
+    check(pendingStatus.value(QStringLiteral("sampleRateBusy")).toBool() &&
+              !pendingStatus.value(QStringLiteral("sampleRateAvailable")).toBool(),
+          "manual rate UI is unavailable while the DSP rebuild is in flight");
+    requestRate(QStringLiteral("anan-1"), 192000);
+    check(rateRefused == 7, "manual rate refuses overlapping receive rebuilds");
     wait([&] { return !AnanMultiRxTestAccess::busy(b); });
     check(AnanMultiRxTestAccess::rate(b, 1) == 96 && AnanMultiRxTestAccess::rate(b, 0) == 48,
           "P2 rates change per capture");
@@ -290,7 +334,10 @@ int main(int argc, char** argv)
     check(tonePower(1, 2000) > 1e-9 && tonePower(1, 2000) > 20 * tonePower(1, 2200),
           "independent LSB receiver adopts 96 ksps and demodulates at 2 kHz");
     AnanMultiRxTestAccess::p1(b);
-    b.setPanBandwidth(QStringLiteral("anan-2"), 192000);
+    requestRate(QStringLiteral("anan-2"), 384000);
+    check(rateRefused == 8 && !AnanMultiRxTestAccess::busy(b), "standard P1 refuses the Red Pitaya-only 384 kHz rate");
+    requestRate(QStringLiteral("anan-2"), 192000);
+    check(rateAccepted == 2, "manual P1 rate request accepted");
     wait([&] { return !AnanMultiRxTestAccess::busy(b); });
     check(AnanMultiRxTestAccess::rate(b, 0) == 192 && AnanMultiRxTestAccess::rate(b, 1) == 192 &&
               AnanMultiRxTestAccess::rate(b, 2) == 192,

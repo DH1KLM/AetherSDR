@@ -4163,6 +4163,35 @@ add_test(NAME radio_setup_headphone_output_gate_test COMMAND radio_setup_headpho
 set_tests_properties(radio_setup_headphone_output_gate_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 
+# Real backend status and same-rate intent; no radio transport or sockets.
+add_executable(radio_setup_anan_sample_rate_test
+    tests/radio_setup_anan_sample_rate_test.cpp
+    src/gui/DragValuePopup.cpp
+    src/gui/FirmwareReleasesDialog.cpp
+    src/gui/RadioSetupDialog.cpp
+    src/gui/RadioSetupDialog_Anan.cpp
+    src/gui/CanonWindow.cpp
+    src/gui/RtlReceiverSettingsWidget.cpp
+    src/gui/ControlAvailabilityRegistry.cpp
+    src/gui/RadioSetupDialog_Peripherals.cpp
+    src/gui/Kxpa100AdvancedWidget.cpp
+    src/gui/Kat500AdvancedWidget.cpp
+    src/gui/Kpa500AdvancedWidget.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+    src/gui/SliceColorManager.cpp
+    src/gui/KiwiPublicReceiverPicker.cpp
+    src/gui/GuardedSlider.h
+    ${THEME_TEST_RESOURCES}
+)
+target_include_directories(radio_setup_anan_sample_rate_test PRIVATE src tests)
+target_link_libraries(radio_setup_anan_sample_rate_test PRIVATE
+    aetherdesktop_support Qt6::Widgets Qt6::Test)
+add_test(NAME radio_setup_anan_sample_rate_test COMMAND radio_setup_anan_sample_rate_test)
+set_tests_properties(radio_setup_anan_sample_rate_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+
 # Recorded status and injected command/reply sinks; no synthetic radio or sockets.
 add_executable(tune_output_control_test tests/tune_output_control_test.cpp)
 target_include_directories(tune_output_control_test PRIVATE src tests)
@@ -9512,6 +9541,7 @@ set(AETHER_SETTINGS_CONSUMERS
     hl2_session_memory_test
     anan_backend_test
     anan_multi_receive_test
+    radio_setup_anan_sample_rate_test
     anan_noise_blanker_readback_test
     noise_blanker_kind_model_test
     automation_nb2_capability_test

@@ -638,14 +638,15 @@ void AnanBackend::submitReceiveAudio(int id, const PcmFrame& frame)
 } // namespace AetherSDR::anan
 
 namespace AetherSDR::anan {
-void AnanBackend::changeReceiveStreamRate(int stream, int rate)
+bool AnanBackend::changeReceiveStreamRate(int stream, int rate)
 {
-    if (!m_connected) {
-        return;
+    if (!m_connected || stream < 0 || stream >= m_receiveLayout.limit() ||
+        !m_receiveLayout.streams()[stream].active) {
+        return false;
     }
     if (m_receiveBuilding || m_rateChanging || m_droopCalibrator.isRunning()) {
         publishReceiveWindows();
-        return;
+        return false;
     }
     const bool global = m_pendingParams.protocol == 1;
     const auto before = m_receiveLayout;
@@ -654,14 +655,14 @@ void AnanBackend::changeReceiveStreamRate(int stream, int rate)
         const auto w = target.streams()[st];
         if (w.active && (global || st == stream) && !target.setWindow(st, w.centerHz, rate)) {
             publishReceiveWindows();
-            return;
+            return false;
         }
     }
     if (target.streams()[stream].rateKsps == before.streams()[stream].rateKsps) {
         // The requested span may have snapped to the existing hardware rate.
         // Confirm that rate so an optimistic view cannot retain the request.
         publishReceiveWindows();
-        return;
+        return true;
     }
     struct Build {
         int id;
@@ -801,5 +802,6 @@ void AnanBackend::changeReceiveStreamRate(int stream, int rate)
                 Qt::QueuedConnection);
         },
         Qt::QueuedConnection);
+    return true;
 }
 } // namespace AetherSDR::anan

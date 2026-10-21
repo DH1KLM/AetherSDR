@@ -173,6 +173,18 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     operating->setWordWrap(true);
     operating->setAccessibleDescription(QStringLiteral("Live sample rate, ADC routing and linearisation"));
     operatingLayout->addRow(operating);
+    auto* rateWindow = new GuardedComboBox(operatingGroup);
+    rateWindow->setObjectName(QStringLiteral("ananSampleRateWindow"));
+    rateWindow->setAccessibleName(QStringLiteral("Sample rate receive window"));
+    operatingLayout->addRow(QStringLiteral("Receive window:"), rateWindow);
+    auto* sampleRate = new GuardedComboBox(operatingGroup);
+    sampleRate->setObjectName(QStringLiteral("ananSampleRate"));
+    sampleRate->setAccessibleName(QStringLiteral("ANAN sample rate in Hz"));
+    operatingLayout->addRow(QStringLiteral("Sample rate (Hz):"), sampleRate);
+    auto* rateHint = new QLabel(operatingGroup);
+    rateHint->setWordWrap(true);
+    rateHint->setAccessibleName(QStringLiteral("Sample rate change status"));
+    operatingLayout->addRow(rateHint);
     auto* ctun = new QCheckBox(QStringLiteral("CTUN — tune within a fixed spectrum"), operatingGroup);
     ctun->setObjectName(QStringLiteral("ananCtun"));
     ctun->setAccessibleName(QStringLiteral("ANAN CTUN"));
@@ -743,8 +755,38 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         quint64 pollRevision = 0;
         quint64 ctunRequest = 0;
         quint64 antennaRequest = 0;
+        quint64 rateRequest = 0;
     };
     const auto state = std::make_shared<State>();
+    const auto refreshRate = [=] {
+        const QVariantMap data = state->current;
+        const bool available = data.value(QStringLiteral("sampleRateAvailable")).toBool();
+        const QString reason = data.isEmpty()
+            ? QStringLiteral("Connect an ANAN with a validated receive profile first.")
+            : data.value(QStringLiteral("sampleRateBusy")).toBool()
+                ? QStringLiteral("Receive DSP reconfiguration is running; showing the current rate.")
+                : !available ? QStringLiteral("Sample rate changes are unavailable during a droop sweep.")
+                : data.value(QStringLiteral("protocol")).toInt() == 1
+                    ? QStringLiteral("Applies immediately to all receive windows: Protocol 1 shares one sample rate.")
+                    : QStringLiteral("Applies immediately to this window and all slices sharing it. Other windows retain their rate.");
+        sampleRate->setEnabled(available);
+        rateWindow->setEnabled(available);
+        for (QWidget* control : std::array<QWidget*, 2>{sampleRate, rateWindow}) {
+            control->setAccessibleDescription(reason);
+            control->setToolTip(reason);
+        }
+        rateHint->setText(reason);
+        int hz = 0;
+        for (const auto& value : data.value(QStringLiteral("sampleRateWindows")).toList()) {
+            const auto window = value.toMap();
+            if (window.value(QStringLiteral("panId")) == rateWindow->currentData()) {
+                hz = window.value(QStringLiteral("rateHz")).toInt();
+                break;
+            }
+        }
+        const QSignalBlocker block(sampleRate);
+        sampleRate->setCurrentIndex(sampleRate->findData(hz));
+    };
     auto* writeTimer = new QTimer(page);
     writeTimer->setSingleShot(true);
     const auto setAlex2Available = [=](bool available, const QString& reason) {
@@ -800,6 +842,9 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             }
         }
         operating->clear();
+        { const QSignalBlocker block(rateWindow); rateWindow->clear(); }
+        { const QSignalBlocker block(sampleRate); sampleRate->clear(); }
+        refreshRate();
         ctun->setEnabled(false);
         ctun->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
         { const QSignalBlocker block(ctun); ctun->setChecked(false); }
@@ -830,6 +875,34 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             status->setText(QStringLiteral("Switches apply immediately. Confirm frequency limits with Enter or by leaving the field."));
         }
         state->current = data;
+        {
+            const QSignalBlocker block(rateWindow);
+            const QString selected = changed ? QString() : rateWindow->currentData().toString();
+            QStringList ids;
+            const auto windows = data.value(QStringLiteral("sampleRateWindows")).toList();
+            for (const auto& value : windows) { ids.append(value.toMap().value(QStringLiteral("panId")).toString()); }
+            if (ids != rateWindow->property("windowIds").toStringList() || rateWindow->count() != ids.size()) {
+                rateWindow->clear();
+                for (const auto& value : windows) {
+                    const auto window = value.toMap();
+                    rateWindow->addItem(window.value(QStringLiteral("label")).toString(), window.value(QStringLiteral("panId")));
+                }
+                rateWindow->setProperty("windowIds", ids);
+            }
+            for (int n = 0; n < windows.size(); ++n) {
+                rateWindow->setItemData(n, windows[n].toMap().value(QStringLiteral("sliceId")), Qt::UserRole + 1);
+            }
+            const int index = rateWindow->findData(selected);
+            rateWindow->setCurrentIndex(index >= 0 ? index : (rateWindow->count() ? 0 : -1));
+            const QSignalBlocker rateBlock(sampleRate);
+            const auto rates = data.value(QStringLiteral("sampleRatesHz")).toList();
+            if (rates != sampleRate->property("ratesHz").toList() || sampleRate->count() != rates.size()) {
+                sampleRate->clear();
+                for (const auto& rate : rates) { sampleRate->addItem(QString::number(rate.toInt()), rate); }
+                sampleRate->setProperty("ratesHz", rates);
+            }
+        }
+        refreshRate();
         identity->setText(QStringLiteral("Model: %1 • P%2 • Override %3\nDetected: %4 • %5")
             .arg(data.value(QStringLiteral("model")).toString()).arg(data.value(QStringLiteral("protocol")).toInt())
             .arg(data.value(QStringLiteral("override")).toBool() ? QStringLiteral("ON") : QStringLiteral("OFF"))
@@ -1034,6 +1107,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         const quint64 id = ++nextId;
         if (verb == QLatin1String("ctun.set")) { state->ctunRequest = id; }
         if (verb == QLatin1String("rx-antenna.set")) { state->antennaRequest = id; }
+        if (verb == QLatin1String("sample-rate.set")) { state->rateRequest = id; }
         const auto restore = [=](const QString& error) {
             state->writing = false;
             state->pending.clear();
@@ -1051,6 +1125,12 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             if (verb == QLatin1String("hw.get") && (state->pollRevision != pollRevision || state->dirty)) { return; }
             if (verb != QLatin1String("hw.get") && !sameTarget()) { return; }
             if (write && state->revision != revision) { return; }
+            if (verb == QLatin1String("sample-rate.set")) {
+                if (state->rateRequest != id) { return; }
+                fill(result.toMap());
+                status->setText(QStringLiteral("Sample rate request accepted. Operating Parameters shows the current receive rate and rebuild status."));
+                return;
+            }
             if (write) {
                 const auto receipt = result.toMap();
                 for (const QString& key : {QStringLiteral("identity"), QStringLiteral("modelId"), QStringLiteral("boardId")}) {
@@ -1108,6 +1188,10 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                 const QSignalBlocker block(ctun);
                 ctun->setChecked(state->current.value(QStringLiteral("ctun")).toBool());
             }
+            if (verb == QLatin1String("sample-rate.set")) {
+                if (state->rateRequest != id) { return; }
+                refreshRate();
+            }
             status->setText(error);
         });
         QTimer::singleShot(1500, guard, [=, this] {
@@ -1120,6 +1204,18 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     };
     connect(ctun, &QCheckBox::toggled, page, [=](bool enabled) {
         request(QStringLiteral("ctun.set"), enabled);
+    });
+    connect(rateWindow, &QComboBox::currentIndexChanged, page, [=](int) { refreshRate(); });
+    connect(sampleRate, &QComboBox::activated, page, [=](int index) {
+        if (index < 0 || !sampleRate->isEnabled()) { return; }
+        QVariantMap options;
+        for (const QString& key : {QStringLiteral("identity"), QStringLiteral("modelId"), QStringLiteral("boardId")}) {
+            options.insert(key, state->current.value(key));
+        }
+        options.insert(QStringLiteral("panId"), rateWindow->currentData());
+        options.insert(QStringLiteral("sliceId"), rateWindow->currentData(Qt::UserRole + 1));
+        options.insert(QStringLiteral("rateHz"), sampleRate->itemData(index));
+        request(QStringLiteral("sample-rate.set"), options);
     });
     connect(antennaCombo, &QComboBox::currentIndexChanged, page, [=](int) {
         request(QStringLiteral("rx-antenna.set"), antennaCombo->currentData());
