@@ -222,6 +222,9 @@ public:
     // zoom toggles read (#4057).
     bool bandZoomOn() const { return m_bandZoomOn; }
     bool segmentZoomOn() const { return m_segmentZoomOn; }
+    // Radio-owned noise floor range in dB (FlexLib Panadapter.NoiseFloorRange);
+    // empty until the radio reports it.
+    std::optional<double> noiseFloorRange() const { return m_noiseFloorRange; }
 
     // Configuration flags
     bool isResized() const { return m_resized; }
@@ -273,6 +276,7 @@ signals:
     void daxiqChannelChanged(int channel);
     void bandZoomChanged(bool on);
     void segmentZoomChanged(bool on);
+    void noiseFloorRangeChanged(double db);
 
 private:
     quint64 m_controlRevision{0};
@@ -327,6 +331,7 @@ private:
     int         m_daxiqChannel{0};
     bool        m_bandZoomOn{false};
     bool        m_segmentZoomOn{false};
+    std::optional<double> m_noiseFloorRange;
     bool        m_resized{false};
     bool        m_wfConfigured{false};
 };
