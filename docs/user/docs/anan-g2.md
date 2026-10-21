@@ -560,10 +560,10 @@ coverage. Manual tuning, spectrum dragging or another span request cancels
 an outstanding centring action. If no regional amateur band contains RX,
 **B** explains why it cannot centre a band.
 
-Band selection recalls each band's last active **CTUN view, including VFO
-frequency, capture centre and display zoom**, and enables CTUN again. Turning
-B off temporarily keeps that active view in memory. Bands without a saved
-active CTUN view recall their last normal view. Mode and receive filter are retained with
+Band selection recalls each band's **last CTUN state (on or off), VFO
+frequency, capture centre and display zoom**. Turning B off and then leaving
+a band saves CTUN off; returning to that band keeps it off, even if an older
+CTUN-on view exists. Mode and receive filter are retained with
 that view so the recalled receiver remains consistent. A first visit uses the
 normal band-button defaults. Direct frequency entry continues to honour the
 frequency you enter rather than substituting an old band's VFO frequency.

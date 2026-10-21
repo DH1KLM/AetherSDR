@@ -220,9 +220,27 @@ static void bandViewMemoryChecks()
 
     select(backend, QStringLiteral("20m"), 14'200'000, QStringLiteral("USB"));
     select(backend, QStringLiteral("60m"), 5'357'000, QStringLiteral("USB"));
-    check(AnanLinkStatsTestAccess::ctun(backend) && backend.currentOperatingState().rfFrequencyHz == 5'359'500
-          && AnanLinkStatsTestAccess::center(backend) == 5'359'200,
-          "temporarily switching B off does not erase the last active CTUN view recalled on band return");
+    check(!AnanLinkStatsTestAccess::ctun(backend) && backend.currentOperatingState().rfFrequencyHz == 5'359'500
+          && AnanLinkStatsTestAccess::center(backend) == 5'359'500,
+          "band return restores the latest CTUN-off state instead of an older active view");
+
+    //DH1KLM Reproduce repeated 20m/40m switches after both bands have used B.
+    const QVariantMap twentyWindow{{QStringLiteral("lowHz"), 14'240'000.0}, {QStringLiteral("highHz"), 14'260'000.0}};
+    const QVariantMap forty{{QStringLiteral("lowHz"), 7'090'000.0}, {QStringLiteral("highHz"), 7'110'000.0}};
+    for (const auto& band : {QStringLiteral("20m"), QStringLiteral("40m")}) {
+        const bool isTwenty = band == QLatin1String("20m");
+        select(backend, band, isTwenty ? 14'200'000 : 7'100'000, isTwenty ? QStringLiteral("USB") : QStringLiteral("LSB"));
+        backend.invokeExtension(ns, QStringLiteral("band.center"), 860, isTwenty ? twentyWindow : forty);
+        check(AnanLinkStatsTestAccess::ctun(backend), "B enables CTUN before testing its saved off state");
+        backend.invokeExtension(ns, QStringLiteral("band.center"), 861, {});
+        check(!AnanLinkStatsTestAccess::ctun(backend), "B leaves each test band with CTUN off");
+    }
+    for (int repeat = 0; repeat < 3; ++repeat) {
+        select(backend, QStringLiteral("20m"), 14'200'000, QStringLiteral("USB"));
+        check(!AnanLinkStatsTestAccess::ctun(backend), "20m retains CTUN off on repeated band return");
+        select(backend, QStringLiteral("40m"), 7'100'000, QStringLiteral("LSB"));
+        check(!AnanLinkStatsTestAccess::ctun(backend), "40m retains CTUN off on repeated band return");
+    }
 
     AnanBackend restored;
     restored.applyRestoredState(saved);

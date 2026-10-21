@@ -317,8 +317,7 @@ edit at disconnect. Empty/same-family restores reset the memory owner. A validat
 connection restores the last exact-profile view unless given an explicit RX
 frequency; an unseen mapping starts independently of another profile's RF state.
 
-Band-button recall prefers the last active CTUN snapshot, retained separately
-from the latest live view. Temporarily disabling B therefore does not erase
-the active window or its pre-B snapshot. Reconnect restores the latest live
-state (so disconnecting with CTUN off keeps it off), while a band return
-re-enables that band's last active CTUN view and restores its saved VFO.
+Band-button recall and reconnect both restore the latest live view, including
+CTUN off. Older active CTUN snapshots remain compatible with the stored schema
+but never override the latest state. This follows Thetis' current-state handling
+in `OnCTUNChanged` and `SetBand`: a saved false value remains false on recall.

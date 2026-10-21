@@ -2240,12 +2240,8 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         rememberBandView();
         const auto profile = m_bandViewMemory.value(QStringLiteral("profiles")).toObject()
             .value(bandViewProfileKey()).toObject();
-        auto record = profile.value(QStringLiteral("bands")).toObject().value(band).toObject();
-        const auto activeView = record.value(QStringLiteral("ctunView")).toObject();
-        if (validBandViewSnapshot(activeView) && activeView.value(QStringLiteral("ctun")).toBool()) {
-            record.insert(QStringLiteral("view"), activeView);
-            record.insert(QStringLiteral("beforeB"), record.value(QStringLiteral("ctunBeforeB")));
-        }
+        //DH1KLM Recall the latest state, including CTUN off, rather than an older active B view.
+        const auto record = profile.value(QStringLiteral("bands")).toObject().value(band).toObject();
         const auto view = record.value(QStringLiteral("view")).toObject();
         const bool restored = band != QLatin1String("GEN") && band != QLatin1String("WWV")
             && m_bandViewMemory.value(QStringLiteral("radioSerial")).toString() == m_radioSerial
@@ -2350,8 +2346,8 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             emit extensionError(requestId, QStringLiteral("Select an active receive window and a supported sample rate."));
             return;
         }
-        // Thetis setup.cs InitAudioTab and RX1/RX2 rate handlers at 852bf0ef:
-        // P1 has one wire rate; P2 permits independent receive captures.
+        //DH1KLM Thetis setup.cs InitAudioTab and RX1/RX2 rate handlers at 852bf0ef:
+        //DH1KLM P1 has one wire rate; P2 permits independent receive captures.
         if (!m_additionalRx.empty()) {
             if (!changeReceiveStreamRate(stream, rate.toInt() / 1000)) {
                 emit extensionError(requestId, QStringLiteral("This rate would exclude a slice sharing a receive window. Choose a wider rate."));
