@@ -4,7 +4,7 @@
 
 Burndown manifest for the engine/UI decoupling ([RFC](../aetherd-headless-engine-design.md) §2, §10). One row per engine header the UI includes; converting a touchpoint means the UI reaches that surface through the versioned protocol instead of the header.
 
-**Totals:** 270 touchpoint headers (219 core, 51 models) — 270/270 tagged, 0/270 converted.
+**Totals:** 271 touchpoint headers (220 core, 51 models) — 271/271 tagged, 0/271 converted.
 
 | Header | Includers | Tag | Status |
 |---|---:|---|---|
@@ -19,8 +19,9 @@ Burndown manifest for the engine/UI decoupling ([RFC](../aetherd-headless-engine
 | `core/AgcTCalibrator.h` | 1 | universal — Engine algo sweeping slice AGC threshold vs audio RMS/S-meter to recommend a value; only canonical state. | unconverted |
 | `core/AppActivity.h` | 3 | ui-support — Process-lifetime activity hold (App Nap opt-out on macOS, process power-throttling opt-out on Windows; never blocks sleep) and startStreamThread(), the High-QoS thread start for stream threads; app plumbing, not radio state. | unconverted |
 | `core/AppSettings.h` | 111 | ui-support — Client-side XML settings store (SSDR.settings-style key/value persistence); app plumbing, not radio state. | unconverted |
+| `core/AsioOutput.h` | 1 | ui-support — Host audio-device enumeration, ASIO RX output configuration and a local PCM sink. No radio state, radio wire format or TX controls; the Audio page edits this client-only device configuration through the existing AudioEngine owner thread. | unconverted |
 | `core/AudioDevicePreferencePolicy.h` | 1 | ui-support — Header-only policy over PC audio device ids: whether a device-list change keeps the engine's device, falls back to the system default or returns to the saved device, and whether a selection is written to the saved id (#6040); also which enumerable ids count as present and which as arrivals. Host audio, no radio state. | unconverted |
-| `core/AudioEngine.h` | 48 | mixed(flex) — Client audio I/O + full RX/TX DSP chain (universal) fused with Flex VITA-49/DAX/Opus TX and Kiwi buffering | unconverted |
+| `core/AudioEngine.h` | 49 | mixed(flex) — Client audio I/O + full RX/TX DSP chain (universal) fused with Flex VITA-49/DAX/Opus TX and Kiwi buffering | unconverted |
 | `core/AudioOutputRouter.h` | 1 | ui-support — Registry fanning the user-selected QAudioDevice to local playback sinks; OS device plumbing, no radio state | unconverted |
 | `core/AutomationBridgeSettings.h` | 3 | ui-support — Owned configuration for the agent automation bridge (enabled / txAllowed / txAck / readOnly) under one nested key; the secret token lives in the OS keychain, not here. Dev and test tooling — same home decision as core/AutomationServer.h. NOTE for RFC §6: txAllowed() is read as a TX-guard input by BOTH AutomationServer and Hl2Backend, so this header is a step-4 consolidation target. | unconverted |
 | `core/AutomationServer.h` | 3 | ui-support — QLocalServer GUI-automation/test bridge (dumpTree/grab/invoke on QWidgets); dev tooling, stays in gui shell | unconverted |

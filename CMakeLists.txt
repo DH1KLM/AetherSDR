@@ -989,6 +989,7 @@ set(CORE_SOURCES
     src/core/RxClientEffects.cpp
     src/core/RxChainRunner.cpp
     src/core/AudioEngine.cpp
+    src/core/AsioOutput.cpp
     src/core/TxCaptureBuffer.cpp
     src/core/TxMicChannelNormalizer.cpp
     src/core/TxVoiceProcessor.cpp
@@ -1357,6 +1358,7 @@ set(GUI_SOURCES
     src/gui/RadioSetupDialog.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp
     src/gui/NetworkDiagnosticsDialog.cpp
     src/gui/SystemInfoDialog.cpp

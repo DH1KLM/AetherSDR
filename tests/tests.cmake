@@ -3822,6 +3822,7 @@ add_executable(firmware_close_dialog_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3851,6 +3852,7 @@ add_executable(flex_control_visibility_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3879,6 +3881,7 @@ add_executable(radio_setup_no_transient_window_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3919,6 +3922,7 @@ add_executable(radio_setup_region_field_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3947,6 +3951,7 @@ add_executable(radio_setup_operations_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/TxBandDialog.cpp
     src/gui/CanonWindow.cpp
@@ -3982,6 +3987,7 @@ add_executable(radio_setup_label_theme_token_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4010,6 +4016,7 @@ add_executable(radio_setup_window_size_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4038,6 +4045,7 @@ add_executable(radio_setup_pair_grid_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4072,6 +4080,7 @@ add_executable(radio_setup_max_power_field_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4103,6 +4112,7 @@ add_executable(radio_setup_tx_timing_fields_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4135,6 +4145,7 @@ add_executable(radio_setup_recording_mode_dim_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4168,6 +4179,7 @@ add_executable(radio_setup_headphone_output_gate_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4197,6 +4209,7 @@ add_executable(radio_setup_anan_sample_rate_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4234,6 +4247,7 @@ add_executable(radio_nickname_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
@@ -4285,6 +4299,7 @@ add_executable(radio_setup_show_tx_waterfall_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
@@ -5663,6 +5678,7 @@ add_executable(peripheral_auth_dialog_test
     src/gui/DragValuePopup.cpp
     src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -9567,7 +9583,15 @@ if(NOT WIN32)
     set_tests_properties(dax_receive_applet_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+#DH1KLM: ASIO FIFO, native sample encoding and isolated configuration; no hardware driver is opened.
+add_executable(asio_output_test tests/asio_output_test.cpp)
+target_include_directories(asio_output_test PRIVATE src tests)
+target_link_libraries(asio_output_test PRIVATE aethercore Qt6::Core)
+add_test(NAME asio_output_test COMMAND asio_output_test)
+set_tests_properties(asio_output_test PROPERTIES TIMEOUT 20)
+
 set(AETHER_SETTINGS_CONSUMERS
+    asio_output_test
     flex_readonly_metadata_test
     dsp_parameter_reset_test
     cw_rx_model_test

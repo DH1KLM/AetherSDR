@@ -810,3 +810,10 @@ The native helpers' separate historical MIT notice above remains in effect.
   License:   https://raw.githubusercontent.com/n9bc/DeepFist/930bd3cea7d9bf19fd45413acc9064b54c722871/LICENSE
   LICENSE:   35927 bytes; SHA-256
              d8dcabd2c59c9e96be89f094a94474685e3fcd5ee8c4304ae7fbbf6c722df6ab
+
+34. Steinberg ASIO interface headers
+-------------------------------------------------------------------------------
+Copyright (c) Steinberg Media Technologies GmbH.
+ASIO SDK 2.3.4 interface headers, used under the GNU GPL version 3 option.
+See third_party/asiosdk/LICENSE.txt and third_party/asiosdk/README.md.
+The application supplies its own native Windows receive-output host.

@@ -25,6 +25,30 @@ See [Radio Setup](./radio-setup.md).
 
 Choose the computer's microphone (**Input**) and speaker (**Output**) devices. The selection is saved and restored at startup, and you can switch devices while connected.
 
+### ASIO receive output on Windows
+
+**ASIO RX Output** selects a native 64-bit ASIO driver for the computer's
+receive speakers. It is off by default. Enable **Use ASIO for PC receive audio**,
+choose the **Driver**, **First stereo channel**, **Sample rate** and
+**Buffer frames**, then select **Apply ASIO Output**. Turn on **PC Audio**
+to hear reception. Applying while reception is playing restarts the speaker output.
+
+The first channel is numbered from 1; selecting 3 uses outputs 3 and 4.
+**Driver preferred** uses the driver's preferred buffer size. Explicit sizes
+and rates must be supported by the driver. The status beneath the controls
+reports an unavailable driver, invalid pair, unsupported format or failed start.
+Close other applications holding the same driver before retrying.
+
+The master volume and mute control the ASIO receive output. Microphone input,
+CW sidetone, Quindar and separately routed outputs continue using their existing
+devices. ASIO does not enable transmission. On other operating systems the
+ASIO group is dimmed and the regular audio devices remain available.
+
+If the driver requests a reset or changes its sample rate or buffer size,
+playback stops with a status message. Reapply the settings and toggle **PC Audio**
+off and on to restart. To return to the ordinary **Output** device, clear
+**Use ASIO for PC receive audio** and select **Apply ASIO Output**.
+
 If the saved device is not connected, AetherSDR uses the system default device and keeps your saved choice. It switches back to the saved device when that device connects, without asking. On Linux, saved devices with IDs containing `.monitor`, `auto_null`, `echo-cancel`, or `combined`, or starting with `pulse_input_loopback`, are used again at the next launch rather than automatically restored when they reappear.
 
 AetherSDR handles sample-rate conversion itself. The microphone is captured at whatever rate the device offers, processed at 48 kHz, and converted once to the radio's transport rate. The PC microphone is used for transmit when the radio's mic source is **PC** (see [Choosing the mic source](#choosing-the-mic-source)).

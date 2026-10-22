@@ -113,6 +113,12 @@
   "split": "",
   "confidence": "high"
  },
+ "core/AsioOutput.h": {
+  "tag": "ui-support",
+  "note": "Host audio-device enumeration, ASIO RX output configuration and a local PCM sink. No radio state, radio wire format or TX controls; the Audio page edits this client-only device configuration through the existing AudioEngine owner thread.",
+  "split": "",
+  "confidence": "high"
+ },
  "core/AudioEngine.h": {
   "tag": "mixed(flex)",
   "note": "Client audio I/O + full RX/TX DSP chain (universal) fused with Flex VITA-49/DAX/Opus TX and Kiwi buffering",

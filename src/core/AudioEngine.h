@@ -6,6 +6,7 @@
 #include "RxChainRunner.h"
 
 #include <QAudioSink>
+#include "AsioOutput.h"
 #include <QAudioSource>
 #include <QAudioDevice>
 #include <QAudioFormat>
@@ -681,6 +682,7 @@ public:
     void setAllowBluetoothTelephonyOutput(bool on);
 #endif
     QAudioDevice outputDevice() const { return m_outputDevice; }
+    void setAsioOutputConfig(const AsioOutputConfig& config);
     QAudioDevice inputDevice()  const { return m_inputDevice; }
     qsizetype rxBufferBytes() const { return m_rxBufferBytes.load(); }
     qsizetype rxBufferPeakBytes() const { return m_rxBufferPeakBytes.load(); }
@@ -874,6 +876,7 @@ signals:
     void mutedChanged(bool muted);                          // local audio output mute state
     void inputDeviceChanged();
     void outputDeviceChanged();
+    void asioOutputStatus(const QString& message);
     void txBypassChanged(bool on);                          // master TX BYPASS state
     void rxBypassChanged(bool on);                          // master RX BYPASS state
     // Fired by saveClientReverbSettings() after any reverb param
@@ -1091,6 +1094,7 @@ private:
 
     // RX
     QAudioSink*   m_audioSink{nullptr};
+    std::unique_ptr<AsioOutput> m_asioOutput;
     QPointer<QIODevice> m_audioDevice;   // sink-owned device, may vanish on hot-unplug
     // A negotiated fallback still satisfies one producer-domain attempt. Keep
     // this separate from m_rxOutputRate so a 48 -> 24 fallback cannot reopen on
