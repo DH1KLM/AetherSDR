@@ -641,7 +641,9 @@ To measure your own radio instead, open **Settings → Radio Setup... → Droop 
 
 ### What is remembered
 
-The G2 stores none of its settings, so AetherSDR keeps these per radio: frequency and mode (14.175 MHz USB on a first connect), tuning step, **RF Gain**, the radio's own output level (what the volume slider sets with PC Audio off) and the panadapter dBm range. The span always starts at the connect form's **Sample rate:**. AGC settings and FFT averaging start from their defaults.
+The G2 stores none of its settings, so AetherSDR keeps these per radio: frequency and mode (14.175 MHz USB on a first connect), tuning step, **RF Gain**, the radio's own output level (what the volume slider sets with PC Audio off) and the panadapter dBm range. The span always starts at the connect form's **Sample rate:**. AGC settings start from their defaults.
+
+For all supported ANAN profiles, **FFT FPS**, **FFT AVG**, **Wt Avg** and waterfall **Rate** are saved separately for each radio and panadapter. Reconnecting or restarting AetherSDR restores these choices and applies them to the receive display processing. Averaging **0** and **Wt Avg** off are remembered too. Temporary adaptive frame-rate limits do not replace your saved **FFT FPS** choice.
 
 ### Not available on the G2
 

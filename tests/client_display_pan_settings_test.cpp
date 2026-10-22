@@ -19,13 +19,16 @@
 #endif
 #include "gui/DeferredSettingsWrites.h"
 
+#include <QByteArray>
 #include <QCoreApplication>
 #include <QFile>
 #include <QJsonObject>
+#include <QProcess>
 
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <memory>
 
 using namespace AetherSDR;
 using CDS = AetherSDR::ClientDisplaySettings;
@@ -134,11 +137,27 @@ static void checkDeclaredOwner(const RadioCapabilities& caps, const char* family
 
 int main(int argc, char** argv)
 {
-    // Before QCoreApplication: the backends constructed below read AppSettings.
-    TestSettingsProfile profile(QStringLiteral("client-display-pan-settings"));
-    if (!profile.isValid()) { return 1; }
+    //DH1KLM The child keeps the parent's isolated store to verify a real disk reload.
+    const bool restoreAnan = argc == 2 && QByteArray(argv[1]) == "--restore-anan";
+    std::unique_ptr<TestSettingsProfile> profile;
+    if (!restoreAnan) {
+        profile = std::make_unique<TestSettingsProfile>(QStringLiteral("client-display-pan-settings"));
+        if (!profile->isValid()) { return 1; }
+    }
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
+    if (restoreAnan) {
+        const anan::AnanBackend backend;
+        const RadioCapabilities caps = backend.capabilities();
+        const bool ownsAverage = caps.backendPanAveraging
+            && caps.backendPanAveraging->clientPersistsAveraging;
+        const RadioSettingsScope scope(QStringLiteral("anan"), QStringLiteral("FFT-MEMORY"));
+        check(CDS::fftFps(scope, 0, caps.clientPersistsPanFrameRate()) == 12
+                  && CDS::fftAverage(scope, 0, ownsAverage) == CDS::FftAverage{73, true}
+                  && CDS::fftAverage(scope, 1, ownsAverage) == CDS::FftAverage{0, false},
+              "ANAN display choices survive a process restart");
+        return g_failed ? 1 : 0;
+    }
 
     const QString feature = QStringLiteral("ClientDisplay");
     const RadioSettingsScope a(QStringLiteral("hl2"), QStringLiteral("A"));
@@ -183,10 +202,8 @@ int main(int argc, char** argv)
     check(unknown.featureExact(feature).isEmpty(),
           "an unknown identity never writes the family default");
 
-    // 3. Who owns FFT FPS, the dBm range and the waterfall rate: each backend's
-    // own declaration, read through the accessors the wiring calls. The HL2
-    // opts in to all three, the ANAN to the range and the rate; every backend
-    // with no radio-side display engine owns the rate, and a Flex owns none.
+    //DH1KLM Read display ownership from real backends: HL2 and ANAN own all three.
+    //DH1KLM Every backend with no radio-side display engine owns the waterfall rate; Flex owns none.
     {
         hl2::Hl2Backend hl2Backend;
         checkDeclaredOwner(hl2Backend.capabilities(), "hl2", true, true, true);
@@ -194,7 +211,37 @@ int main(int argc, char** argv)
         const RadioCapabilities icomCaps = icomBackend.capabilities();
         checkDeclaredOwner(icomCaps, "icom", false, false, true);
         anan::AnanBackend ananBackend;
-        checkDeclaredOwner(ananBackend.capabilities(), "anan", false, true, true);
+        const RadioCapabilities ananCaps = ananBackend.capabilities();
+        checkDeclaredOwner(ananCaps, "anan", true, true, true);
+        //DH1KLM Use the backend's actual ownership flag to exercise averaging recall.
+        const bool ownsAverage = ananCaps.backendPanAveraging
+            && ananCaps.backendPanAveraging->clientPersistsAveraging;
+        check(ownsAverage, "ANAN declares persistence for FFT AVG and weighted averaging");
+        const RadioSettingsScope ananScope(QStringLiteral("anan"), QStringLiteral("FFT-MEMORY"));
+        check(CDS::saveFftAverage(ananScope, 0, ownsAverage, {73, true}),
+              "ANAN FFT AVG and weighted choice are saved");
+        CDS::saveFftFps(ananScope, 0, ananCaps.clientPersistsPanFrameRate(), 12);
+        check(CDS::fftAverage(ananScope, 0, ownsAverage) == CDS::FftAverage{73, true}
+                  && CDS::fftFps(ananScope, 0, ananCaps.clientPersistsPanFrameRate()) == 12,
+              "ANAN FFT FPS, AVG and weighted choice coexist and are recalled");
+        check(CDS::saveFftAverage(ananScope, 1, ownsAverage, {0, false}),
+              "ANAN averaging off is a saved choice on another pan");
+        check(CDS::fftAverage(ananScope, 1, ownsAverage) == CDS::FftAverage{0, false}
+                  && CDS::fftAverage(ananScope, 0, ownsAverage) == CDS::FftAverage{73, true},
+              "ANAN pan choices remain independent, including zero and false");
+        const RadioSettingsScope otherAnan(QStringLiteral("anan"), QStringLiteral("OTHER-FFT-MEMORY"));
+        check(!CDS::fftAverage(otherAnan, 0, ownsAverage)
+                  && !CDS::fftFps(otherAnan, 0, ananCaps.clientPersistsPanFrameRate()),
+              "ANAN display choices do not leak to another radio");
+        QProcess restoreChild;
+        restoreChild.start(QCoreApplication::applicationFilePath(), {QStringLiteral("--restore-anan")});
+        const bool childFinished = restoreChild.waitForFinished(10000);
+        check(childFinished && restoreChild.exitStatus() == QProcess::NormalExit
+                  && restoreChild.exitCode() == 0,
+              "a fresh process restores ANAN FFT FPS, AVG and weighted state from disk");
+        if (!childFinished || restoreChild.exitCode() != 0) {
+            std::fprintf(stderr, "%s", restoreChild.readAllStandardError().constData());
+        }
         SimBackend simBackend;
         checkDeclaredOwner(simBackend.capabilities(), "sim", false, false, true);
 #ifdef AETHER_BACKEND_RTL

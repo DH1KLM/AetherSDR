@@ -547,8 +547,9 @@ RadioCapabilities AnanBackend::capabilities() const
     c.hasHostNoiseBlanker = true;  // WDSP ANB on the raw IQ, in AnanRxDsp
     c.radioOwnsDbmScale = false;   // client computes it from raw IQ
     c.hasDdcPanEdgeRolloff = true; // see RadioCapabilities.h's own comment
-    c.backendPanAveraging = BackendPanAveraging{kMsPerAverageStep, false, {}, {}}; // AnanPanAnalyzer
-    c.panFrameRateShaping = std::nullopt;  // no client owner is declared for FFT FPS
+    //DH1KLM The host owns FFT averaging and cadence; recall operator choices per radio and pan.
+    c.backendPanAveraging = BackendPanAveraging{kMsPerAverageStep, true, {}, {}};
+    c.panFrameRateShaping = PanFrameRateShaping{true};
     // No protocol field holds a waterfall rate: the client keeps it.
     c.panWaterfallRateShaping =
         PanWaterfallRateShaping{/*clientPersistsWaterfallRate*/ true};
