@@ -1206,6 +1206,7 @@ void RadioModel::setupBackend(const QString& family)
     connect(m_backend.get(), &IRadioBackend::capabilitiesChanged, this,
             [this] {
         publishCapabilities(isConnected());
+        refreshCwProfilesOnCapabilityChange();
         // All currently supported wake profiles transmit. If an RX-only Icom
         // profile is added, readiness must use an explicit identity signal.
         if (m_radioWakeActive && m_backend->capabilities().canTransmit) {
@@ -8246,6 +8247,7 @@ void RadioModel::onDisconnected()
         m_pendingProfileLoadPanWrites.clear();
     }
     m_profileLoadPanWriteFlushTimer.stop();
+    m_cwProfilesRequested = false;
 
     // Release sleep inhibition on disconnect (#1420)
     m_sleepInhibitor.release();
@@ -9648,6 +9650,10 @@ void RadioModel::handleMessageReceived(const ParsedMessage& msg, quint64 gpsSess
         handleProfileStatusRaw("global", body.mid(15));  // skip "profile global "
         return;
     }
+    if (body.startsWith("profile cw ")) {
+        handleProfileStatusRaw("cw", body.mid(11));  // skip "profile cw "
+        return;
+    }
 
     // GPS status: "gps lat=...#lon=...#grid=...#tracked=...#visible=...#status=..."
     if (body.startsWith("gps ")) {
@@ -9770,6 +9776,25 @@ void RadioModel::refreshProfiles()
     for (const ProfileRequest::Kind kind : {ProfileRequest::Kind::Global,
             ProfileRequest::Kind::Transmit, ProfileRequest::Kind::Mic}) {
         requestProfile({kind, ProfileRequest::Action::Refresh, {}});
+    }
+    refreshCwProfilesIfSupported();
+}
+
+void RadioModel::refreshCwProfilesOnCapabilityChange()
+{
+    if (isConnected() && !m_cwProfilesRequested) {
+        refreshCwProfilesIfSupported();
+    }
+}
+
+void RadioModel::refreshCwProfilesIfSupported()
+{
+    // A connect-by-IP learns the firmware version after the connect-time
+    // refresh, so the CW capability can engage later in the session (#6668).
+    if (backendCapabilities().cwProfileControl.has_value()
+        && requestProfile({ProfileRequest::Kind::Cw, ProfileRequest::Action::Refresh, {}})
+            == ReceiveDispatch::Dispatched) {
+        m_cwProfilesRequested = true;
     }
 }
 
@@ -13106,6 +13131,17 @@ void RadioModel::applyProfileChanges(const ProfileDelta& d)
         } else if (d.current) {
             m_transmitModel.setActiveMicProfile(*d.current);
             qCDebug(lcProtocol) << "RadioModel: active mic profile:" << *d.current;
+        }
+    } else if (d.type == QLatin1String("cw")) {
+        if (d.list) {
+            m_transmitModel.setCwProfileList(*d.list);
+            qCDebug(lcProtocol) << "RadioModel: CW profiles:" << *d.list;
+        } else if (d.current) {
+            m_transmitModel.setActiveCwProfile(*d.current);
+            qCDebug(lcProtocol) << "RadioModel: active CW profile:" << *d.current;
+        } else if (d.unsavedChanges) {
+            m_transmitModel.setCwProfileUnsaved(*d.unsavedChanges);
+            qCDebug(lcProtocol) << "RadioModel: CW profile unsaved changes:" << *d.unsavedChanges;
         }
     } else if (d.type == QLatin1String("global")) {
         if (d.list) {
