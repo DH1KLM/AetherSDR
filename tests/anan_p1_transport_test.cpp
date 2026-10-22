@@ -92,6 +92,7 @@ void profilesAndWire() {
                          {10, 5, 5, 2, 0x04}, {20, 20, 4, 1, 0x04}}) {
         std::vector<QByteArray> packets; P1Client client;
         auto p = params(c.normalized);
+        p.frequencyCorrection = 1.00001;
         check(P1ClientTestAccess::prepare(client, p, packets), "profile prepare");
         client.setDdc0FrequencyHz(6'000'000);
         int linked = 0, discovered = -1, blocks = 0;
@@ -110,6 +111,7 @@ void profilesAndWire() {
         P1ClientTestAccess::feed(client, discovery(c.wire));
         check(discovered == c.normalized && packets.size() >= 6, "normalized discovery and control priming");
         const auto cfg = P1ClientTestAccess::config(client);
+        check(cfg.frequencyCorrection == 1.00001, "every supported P1 board preserves its calibrated oscillator factor");
         check(cfg.numAdcs == c.adcs && cfg.receivers == c.count, "board-specific ADC/layout");
         check(cfg.receiveFilterBits == c.filter && cfg.adc1ReceiveFilterBits == (c.adcs == 2 ? 0x20 : 0), "HPF/BPF distinction; ADC1 bypass only for a fitted ADC1");
         check(cfg.lowPassBits == 2, "6 MHz selects 60/40 LPF");

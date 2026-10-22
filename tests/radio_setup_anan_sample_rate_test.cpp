@@ -7,13 +7,17 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QRadioButton>
+#include <QDoubleSpinBox>
+#include <QPushButton>
 #include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QThread>
 #include <cstdlib>
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <tuple>
+#include <vector>
 
 using namespace AetherSDR;
 namespace AetherSDR::anan {
@@ -37,6 +41,26 @@ public:
     }
     static void publish(AnanBackend& backend) { backend.emitPanState(); backend.emitSliceState(); }
     static void connected(AnanBackend& backend, bool connected) { backend.m_connected = connected; }
+    static void calibrationMode(AnanBackend& backend)
+    {
+        backend.m_mode = QStringLiteral("AM");
+        backend.m_filterLowHz = -500; backend.m_filterHighHz = 500;
+    }
+    static void measurement(AnanBackend& backend, int binOffset, bool alterContext = false)
+    {
+        if (!backend.m_receiveCalibrationRun) { return; }
+        //DH1KLM Inject recorded raw meter power and FFT frames; no peer or radio traffic.
+        backend.m_receiveCalibrationRun->meterPower = 10*std::pow(10.0,-90.0/10.0);
+        backend.m_receiveCalibrationRun->meterSamples = 10;
+        std::vector<float> bins(1024,-120);
+        const int index = 512+binOffset;
+        bins[index-1] = -80; bins[index] = -60; bins[index+1] = -80;
+        if (alterContext) { backend.m_ddcCenterHz += 1000; }
+        for (int n = 0; n < 10; ++n) { backend.acceptCalibrationSpectrum(bins, 2000); }
+        if (alterContext) { backend.m_ddcCenterHz -= 1000; }
+    }
+    static auto calibration(const AnanBackend& backend) { return backend.m_receiveCalibration; }
+    static bool calibrating(const AnanBackend& backend) { return backend.m_receiveCalibrationRun.has_value(); }
 };
 }
 
@@ -106,6 +130,41 @@ int main(int argc, char** argv)
             timer.start();
             while (timer.elapsed() < 50) { QCoreApplication::processEvents(); QThread::msleep(1); }
         };
+        //DH1KLM Both protocols expose the same fenced RX calibration path and persisted factor.
+        anan::AnanLinkStatsTestAccess::calibrationMode(*backend);
+        auto* freqReference = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("ananFrequencyCalReference"));
+        auto* freqStart = dialog.findChild<QPushButton*>(QStringLiteral("ananFrequencyCalStart"));
+        auto* levelReference = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("ananLevelCalReference"));
+        auto* levelStart = dialog.findChild<QPushButton*>(QStringLiteral("ananLevelCalStart"));
+        auto* levelReset = dialog.findChild<QPushButton*>(QStringLiteral("ananLevelCalReset"));
+        check(freqReference && freqStart && levelReference && levelStart && levelReset && freqStart->isEnabled(),
+              "calibration controls exist and are available for connected P1/P2");
+        freqReference->setValue(14175000);
+        freqStart->click();
+        check(anan::AnanLinkStatsTestAccess::calibrating(*backend), "frequency measurement starts through GUI extension");
+        anan::AnanLinkStatsTestAccess::measurement(*backend,2);
+        const double factor = anan::AnanLinkStatsTestAccess::calibration(*backend).frequencyFactor;
+        check(std::abs(factor-(1+93.75/14175000)) < 1e-10, "frequency measurement computes and persists reference correction");
+        emit model.connectionStateChanged(true);
+        app.processEvents();
+        levelReference->setValue(14175000);
+        levelStart->click();
+        check(anan::AnanLinkStatsTestAccess::calibrating(*backend), "level measurement starts through GUI extension");
+        anan::AnanLinkStatsTestAccess::measurement(*backend,0);
+        const auto cal = anan::AnanLinkStatsTestAccess::calibration(*backend);
+        check(cal.levelCalibrated[0] && std::abs(cal.meterOffsetDb[0]-17) < 0.001
+              && std::abs(cal.displayOffsetDb[0]+13) < 0.001, "meter and spectrum receive separate reference offsets");
+        emit model.connectionStateChanged(true);
+        app.processEvents();
+        levelReset->click();
+        check(!anan::AnanLinkStatsTestAccess::calibration(*backend).levelCalibrated[0]
+              && anan::AnanLinkStatsTestAccess::calibration(*backend).frequencyFactor == factor,
+              "level reset preserves oscillator correction");
+        freqStart->click();
+        anan::AnanLinkStatsTestAccess::measurement(*backend,2,true);
+        check(!anan::AnanLinkStatsTestAccess::calibrating(*backend)
+              && anan::AnanLinkStatsTestAccess::calibration(*backend).frequencyFactor == factor,
+              "receive-context changes discard measurements without overwriting saved calibration");
         ant2->click();
         settle();
         firstInput->click();

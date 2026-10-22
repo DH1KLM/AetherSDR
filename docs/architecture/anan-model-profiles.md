@@ -218,8 +218,41 @@ and its `hardware/{RadioInfoTab,AntennaAlexTab,OcOutputsTab,CalibrationTab}.cpp`
 children. Aether uses its own widgets and theme tokens with that category and
 sub-tab arrangement. This is a layout correspondence, not parity with every
 Nereus backend function. Unavailable TX, independent ADC1 limits, VHF OC,
-USB BCD and calibration functions are explicitly labelled as unavailable.
+USB BCD, TX/current and LNA-step calibration functions are explicitly labelled as unavailable.
 The existing P2 droop page remains the sole sweep owner.
+
+### Receive frequency and level calibration
+
+Thetis `NetworkIO.VFOfreq` applies the oscillator factor only to wire tuning;
+`console.cs:CalibrateFreq` uses the peak within ±2.5 kHz and the correction
+`1 + offset/reference`. For a previously corrected capture the residual adds
+to the saved factor. P1 multiplies each nominal slot's integer-Hz value;
+P2 multiplies each nominal phase word, leaving filter/OC selection nominal.
+The supported correction range is ±1000 ppm. Default factor 1 preserves
+existing packet bytes, including the retained Saturn path.
+
+Thetis `CalibrateLevel` independently measures meter and spectrum offsets.
+Aether's receive-only procedure keeps the operator's tuned state and requires
+an external carrier at RX1/DDC centre, CTUN off and no additional receivers;
+level measurement additionally requires AM/SAM with the carrier inside the
+passband. It averages ten fresh raw spectra after settling and raw meter power,
+refuses weak/ambiguous carriers and cancels on a changed receive context.
+No tuning/mode/attenuator sweep or new worker thread is introduced.
+
+The version-1 ReceiveCalibration feature document is owned by exact MAC,
+logical model, reported board and protocol, with separate ADC0/ADC1 meter and
+display offsets. Writes validate ranges, preserve sibling profiles, reject
+newer/corrupt storage and complete persistence before applying the live factor.
+Disconnected/replaced sessions discard in-flight measurements.
+
+Local reference snapshots: Thetis-Ramdor
+`852bf0ef0b4f3886a13fc2846489aee16f361872` and NereusSDR
+`3c66d404e95174f925f3c49612a18fbc539aa973`. Nereus
+`CalibrationController`/`CalibrationTab` supply the separate factor/offset
+presentation; its frequency-start operation is marked unbuilt.
+`LevelCalibrationRun` confirms separate meter/display measurement and
+cancel/restore behavior. The Aether implementation uses its existing backend
+extension and spectrum/meter feeds, without porting Nereus's station service.
 
 Manual User Dig Out uses Thetis ChannelMaster `networkproto1.c` bank 11
 (address 0x14), C3 bits 0–3, and `network.c` High Priority byte 1402 bits 0–3.

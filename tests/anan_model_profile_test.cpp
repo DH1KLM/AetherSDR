@@ -1,12 +1,19 @@
 //DH1KLM: Source-pinned logical models, independent of sockets and GUI labels.
 #include "core/backends/anan/P2Protocol.h"
+#include "core/backends/anan/AnanReceiveCalibration.h"
 #include <array>
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <vector>
 
 using namespace AetherSDR::anan;
+static std::uint32_t readU32be(const std::uint8_t* bytes)
+{
+    return (std::uint32_t{bytes[0]} << 24) | (std::uint32_t{bytes[1]} << 16)
+        | (std::uint32_t{bytes[2]} << 8) | bytes[3];
+}
 static void check(bool value, const char* claim)
 {
     if (!value) { std::cerr << "FAIL: " << claim << '\n'; std::exit(1); }
@@ -379,6 +386,40 @@ static void swlRouting()
 }
 int main()
 {
+    //DH1KLM Known positive/negative carrier offsets follow Thetis' correction direction.
+    check(std::abs(*calibratedFrequencyFactor(1.0, 10000000, 100)-1.00001) < 1e-12,
+          "positive reference offset increases oscillator tuning");
+    check(!calibratedFrequencyFactor(1.0, 0, 100)
+          && !calibratedFrequencyFactor(1.0, 100000, 2500), "invalid or excessive calibration refused");
+    std::vector<float> reference(1024, -120);
+    reference[513] = -60; reference[514] = -40; reference[515] = -60;
+    const auto peak = calibrationPeak(reference, 48000);
+    check(peak && std::abs(peak->offsetHz-93.75) < 0.001 && peak->snrDb >= 20,
+          "reference peak uses the raw FFT centre and correct sign");
+    reference[530] = -41;
+    check(!calibrationPeak(reference,48000), "ambiguous reference carrier refused");
+    //DH1KLM Exercise every supported native model's P1/P2 tuning without changing its relays.
+    for (const auto& entry : kAnanModels) {
+        if (entry.model == AnanModel::Automatic || entry.model == AnanModel::Hpsdr
+            || entry.model == AnanModel::HermesLite2) { continue; }
+        const auto profile = receiveProfile(entry.nativeBoardId, entry.model);
+        check(profile.has_value(), "every enabled logical model has a native receive profile");
+        const std::array<std::uint32_t,2> words{phaseWord(10000000),phaseWord(14000000)};
+        const auto normal = buildHighPriority(true, words, false, true, 0, 0, 1,
+            profile->firstDdcIndex, true, profile->filterKind, profile->numAdcs);
+        const auto corrected = buildHighPriority(true, words, false, true, 0, 0, 1,
+            profile->firstDdcIndex, true, profile->filterKind, profile->numAdcs, nullptr, 0, nullptr, 1.00001);
+        const std::size_t offset = 9+4*profile->firstDdcIndex;
+        check(readU32be(corrected.data()+offset) == static_cast<std::uint32_t>(double(words[0])*1.00001)
+              && readU32be(corrected.data()+offset+4) == static_cast<std::uint32_t>(double(words[1])*1.00001),
+              "model-specific physical P2 DDC rows receive the frequency correction");
+        check(std::equal(normal.begin()+1400,normal.end(),corrected.begin()+1400)
+              && (corrected[4] & 0x1e) == 0, "frequency correction preserves model relays and TX refusal");
+        p1::ReceiveConfig config;
+        config.frequencyHz = 10000000; config.frequencyCorrection = 1.00001;
+        const auto control = p1::receiveControl(0x04, config);
+        check(control && readU32be(control->data()+1) == 10000100, "P1 encodes calibrated integer Hz");
+    }
     //DH1KLM Thetis user nibble is independent of OC and never carries keying bits.
     for (int mask = 0; mask <= 15; ++mask) {
         FilterConfig filters = defaultFilterConfig(false);

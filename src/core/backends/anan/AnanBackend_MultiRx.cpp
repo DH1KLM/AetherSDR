@@ -149,12 +149,14 @@ void AnanBackend::updateReceiveStreams()
     const auto epoch = m_receiveEpoch;
     const auto writer = m_streamApplyOverride;
     const auto filterPlan = receiveFilterPlan();
+    const double correction = m_receiveCalibration.frequencyFactor;
     QMetaObject::invokeMethod(
         m_client,
-        [this, configs, centers, routes, first, primary, epoch, writer, filterPlan] {
+        [this, configs, centers, routes, first, primary, epoch, writer, filterPlan, correction] {
             if (m_receiveIoEpoch->load() != epoch)
                 return;
             m_client->setReceiveFilterPlan(filterPlan);
+            m_client->setFrequencyCorrection(correction);
             if (writer ? writer(configs, centers) : m_client->setReceiveStreams(configs, centers)) {
                 primary->store(first);
                 for (const auto& [r, st] : routes)
@@ -285,12 +287,13 @@ bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
                 }
                 auto values = bins;
                 for (auto& v : values)
-                    v += float(m_attenuationDb);
+                    v += float(m_attenuationDb + m_receiveCalibration.displayOffsetDb[m_pendingParams.ddc0AdcIndex]);
                 emit spectrumFrameReady(s->stream, rxBytes(values));
             });
     connect(r->dsp, &AnanRxDsp::meterUpdate, this, [this, r, epoch](float dbfs) {
         if (epoch == m_receiveEpoch && r->ready && m_additionalRx.contains(r->id))
-            if (const auto level = r->sMeter.feed(double(dbfs) + m_attenuationDb))
+            if (const auto level = r->sMeter.feed(double(dbfs) + m_attenuationDb
+                + m_receiveCalibration.meterOffsetDb[m_pendingParams.ddc0AdcIndex]))
                 emit meterUpdate(QStringLiteral("SLC%1:LEVEL").arg(r->id), *level);
     });
     std::vector<QPointer<AnanRxDsp>> running{m_dsp};

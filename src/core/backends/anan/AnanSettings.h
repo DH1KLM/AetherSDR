@@ -25,6 +25,9 @@ public:
         bool overrideDetection = false;
     };
     static QVariantMap hardwareFilters(const QString& serial, int model, int board);
+    static QVariantMap receiveCalibration(const QString& serial, int model, int board, int protocol);
+    static bool setReceiveCalibration(const QString& serial, int model, int board, int protocol,
+                                      const QVariantMap& options);
     static bool setHardwareFilters(const QString& serial, int model, int board,
                                    const QVariantMap& options);
     static RadioProfile radioProfile(const QString& serial);

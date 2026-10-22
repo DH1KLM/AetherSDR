@@ -8,6 +8,7 @@
 #include "core/backends/anan/AnanReceiveLayout.h"
 #include "core/backends/anan/AnanRxDsp.h"
 #include "core/backends/anan/AnanSliceAudio.h"
+#include "core/backends/anan/AnanReceiveCalibration.h"
 #include "core/dsp/WdspSMeter.h"
 #include <QPointer>
 #include <atomic>
@@ -22,6 +23,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -470,6 +472,24 @@ private:
     // Active ADC attenuation, mirrored in m_pendingParams for session restarts.
     // Captured/restored only through RadioStateMemory's rfGain extension.
     int m_attenuationDb = 0;
+    ReceiveCalibration m_receiveCalibration;
+    struct ReceiveCalibrationRun {
+        bool frequency = true;
+        double referenceHz = 0;
+        double referenceDbm = -73;
+        QVariantMap context;
+        std::vector<double> powers;
+        int frames = 0;
+        double meterPower = 0;
+        int meterSamples = 0;
+    };
+    std::optional<ReceiveCalibrationRun> m_receiveCalibrationRun;
+    QElapsedTimer m_receiveCalibrationClock;
+    quint64 m_receiveCalibrationToken = 0;
+    QString m_receiveCalibrationNotice;
+    [[nodiscard]] QVariantMap receiveCalibrationContext() const;
+    [[nodiscard]] QString saveReceiveCalibration(const ReceiveCalibration& value);
+    void acceptCalibrationSpectrum(const std::vector<float>& bins, qint64 elapsedMs);
     bool m_tunePendingApply = false;
 
     // setPanBandwidth() serialization: one rate change at a time, gated on

@@ -12,6 +12,7 @@
 #include "core/AppSettings.h"
 #include "core/backends/anan/AnanSettings.h"
 #include "core/backends/anan/AnanFilterOptions.h"
+#include "core/backends/anan/AnanCalibrationOptions.h"
 #include "core/RadioDiscovery.h"
 #include "core/RadioSettingsScope.h"
 
@@ -39,6 +40,33 @@ int main(int argc, char** argv)
     TestSettingsProfile profile(QStringLiteral("anan-settings-test"));
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
+    {
+        //DH1KLM Calibration belongs to one MAC/model/board/protocol and keeps ADC offsets independent.
+        ReceiveCalibration calibration;
+        calibration.frequencyFactor = 1.00001;
+        calibration.meterOffsetDb[1] = 23.5;
+        calibration.displayOffsetDb[1] = 42;
+        calibration.levelCalibrated[1] = true;
+        check(AnanSettings::setReceiveCalibration(QStringLiteral("CAL-MAC"),7,5,2,calibrationOptions(calibration)),
+              "calibration saves atomically");
+        const auto saved = parseCalibrationOptions(AnanSettings::receiveCalibration(QStringLiteral("CAL-MAC"),7,5,2));
+        check(saved && saved->frequencyFactor == 1.00001 && saved->meterOffsetDb[0] == 0
+              && saved->meterOffsetDb[1] == 23.5 && saved->displayOffsetDb[1] == 42
+              && saved->levelCalibrated[1] && !saved->levelCalibrated[0], "calibration round trip separates ADCs");
+        check(AnanSettings::receiveCalibration(QStringLiteral("OTHER-MAC"),7,5,2).isEmpty()
+              && AnanSettings::receiveCalibration(QStringLiteral("CAL-MAC"),7,5,1).isEmpty()
+              && AnanSettings::receiveCalibration(QStringLiteral("CAL-MAC"),8,5,2).isEmpty(), "calibration scope does not bleed");
+        auto invalid = calibrationOptions(calibration);
+        invalid.insert(QStringLiteral("frequencyFactor"), true);
+        check(!parseCalibrationOptions(invalid), "boolean oscillator factors refused");
+        invalid.insert(QStringLiteral("frequencyFactor"), 1.01);
+        check(!AnanSettings::setReceiveCalibration(QStringLiteral("CAL-MAC"),7,5,2,invalid), "out-of-range calibration cannot overwrite");
+        const RadioSettingsScope scope(QStringLiteral("anan"), QStringLiteral("CAL-FUTURE"));
+        check(scope.setFeature(QStringLiteral("ReceiveCalibration"),99,QJsonObject{{QStringLiteral("future"),true}}), "seed future calibration");
+        check(!AnanSettings::setReceiveCalibration(QStringLiteral("CAL-FUTURE"),7,5,2,calibrationOptions(calibration))
+              && scope.featureExact(QStringLiteral("ReceiveCalibration")).value(QStringLiteral("future")).toBool(),
+              "future calibration cannot be overwritten");
+    }
 
     {
         //DH1KLM Manual user outputs persist per device/profile without borrowing band OC.

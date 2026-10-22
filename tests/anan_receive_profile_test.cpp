@@ -48,6 +48,7 @@ struct P2ClientTestAccess {
         client.handleDatagram(bytes, port);
     }
     static std::uint32_t frequencyWord(const P2Client& client) { return client.m_ddc0FreqWord; }
+    static double correction(const P2Client& client) { return client.m_frequencyCorrection; }
     static bool replaceStreams(P2Client& client, const std::vector<DdcConfig>& streams,
                                const std::vector<double>& centers, qint64 sent = 1444)
     {
@@ -160,6 +161,11 @@ int main(int argc, char** argv)
             if (entry.model == AnanModel::Automatic || !receiveProfile(entry.nativeBoardId)) { continue; }
             P2Client client;
             P2ClientTestAccess::prepare(client, board, entry.model, true);
+            //DH1KLM Oscillator correction follows every valid model/board override, not its label.
+            client.setFrequencyCorrection(1.00001);
+            client.setFrequencyCorrection(std::numeric_limits<double>::quiet_NaN());
+            check(P2ClientTestAccess::correction(client) == 1.00001,
+                  "all P2 profile overrides preserve valid correction and refuse nonfinite factors");
             P2ClientTestAccess::feed(client, discovery(board), 1024);
             check(P2ClientTestAccess::validated(client), "attenuator test requires a validated model override");
             const int adcs = P2ClientTestAccess::adcs(client);

@@ -605,6 +605,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         spin->setAccessibleDescription(QStringLiteral("Unavailable: this ANAN calibration function is not implemented. Displayed value is a reference default, not a measured calibration."));
         spin->setEnabled(false);
         form->addRow(name, spin);
+        return spin;
     };
     const auto unavailableButton = [](QFormLayout* form, const QString& name) {
         auto* button = new QPushButton(name);
@@ -614,19 +615,48 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         button->setEnabled(false);
         form->addRow(button);
     };
-    auto* frequencyCal = calGroup(calLeft, QStringLiteral("Freq Cal"), QStringLiteral("Unavailable: host oscillator calibration is not implemented for ANAN."));
-    unavailableNumber(frequencyCal, QStringLiteral("Frequency (Hz):"),0,30000000,10000000,0);
-    unavailableButton(frequencyCal, QStringLiteral("Start frequency calibration"));
-    auto* levelCal = calGroup(calLeft, QStringLiteral("Level Cal"), QStringLiteral("Unavailable: receive level and LNA calibration are not implemented."));
-    unavailableNumber(levelCal,QStringLiteral("Frequency (Hz):"),0,30000000,14100000,0);
-    unavailableNumber(levelCal,QStringLiteral("Level (dBm):"),-200,0,-73,1);
+    auto* frequencyCal = calGroup(calLeft, QStringLiteral("Freq Cal"), QStringLiteral("Tune RX1 to a known carrier at the reference frequency; turn CTUN off and close additional receivers. Use a narrow sample rate for better accuracy. No signal is transmitted."));
+    auto* freqReference = unavailableNumber(frequencyCal, QStringLiteral("Frequency (Hz):"),100000,61440000,10000000,0);
+    freqReference->setObjectName(QStringLiteral("ananFrequencyCalReference"));
+    auto* freqStart = new QPushButton(QStringLiteral("Start frequency calibration"));
+    freqStart->setObjectName(QStringLiteral("ananFrequencyCalStart"));
+    frequencyCal->addRow(freqStart);
+    auto* levelCal = calGroup(calLeft, QStringLiteral("Level Cal"), QStringLiteral("Feed a known carrier into the selected ADC. Tune RX1 to its frequency in AM/SAM with the carrier inside the passband. Meter and spectrum offsets are measured separately; LNA step sweeps are unavailable."));
+    auto* levelReference = unavailableNumber(levelCal,QStringLiteral("Frequency (Hz):"),100000,61440000,14100000,0);
+    levelReference->setObjectName(QStringLiteral("ananLevelCalReference"));
+    auto* levelDbm = unavailableNumber(levelCal,QStringLiteral("Level (dBm):"),-140,-10,-73,1);
+    levelDbm->setObjectName(QStringLiteral("ananLevelCalDbm"));
     unavailableNumber(levelCal,QStringLiteral("Rx1 6m LNA:"),0,25,13,1);
     unavailableNumber(levelCal,QStringLiteral("Rx2 6m LNA:"),0,25,13,1);
-    unavailableButton(levelCal,QStringLiteral("Start level calibration"));
-    unavailableButton(levelCal,QStringLiteral("Reset level calibration"));
-    auto* diagnosticCal = calGroup(calRight,QStringLiteral("HPSDR Freq Cal Diagnostic"),QStringLiteral("Unavailable: ANAN oscillator correction and external-reference control are not implemented."));
-    unavailableNumber(diagnosticCal,QStringLiteral("Correction factor:"),0.5,1.5,1.0,9);
+    auto* levelStart = new QPushButton(QStringLiteral("Start level calibration"));
+    levelStart->setObjectName(QStringLiteral("ananLevelCalStart"));
+    auto* levelReset = new QPushButton(QStringLiteral("Reset level calibration"));
+    levelReset->setObjectName(QStringLiteral("ananLevelCalReset"));
+    levelCal->addRow(levelStart);
+    levelCal->addRow(levelReset);
+    auto* calibrationOffsets = new QLabel;
+    calibrationOffsets->setWordWrap(true);
+    levelCal->addRow(calibrationOffsets);
+    auto* diagnosticCal = calGroup(calRight,QStringLiteral("HPSDR Freq Cal Diagnostic"),QStringLiteral("Saved oscillator correction, applied to P1 Hz and P2 phase words. External 10 MHz switching is not implemented."));
+    auto* freqFactor = unavailableNumber(diagnosticCal,QStringLiteral("Correction factor:"),0.999,1.001,1.0,9);
+    freqFactor->setSingleStep(0.000000001);
+    freqFactor->setObjectName(QStringLiteral("ananFrequencyCalFactor"));
+    auto* freqReset = new QPushButton(QStringLiteral("Reset frequency correction"));
+    freqReset->setObjectName(QStringLiteral("ananFrequencyCalReset"));
+    diagnosticCal->addRow(freqReset);
     unavailableNumber(diagnosticCal,QStringLiteral("10 MHz factor:"),0.5,1.5,1.0,9);
+    auto* calibrationCancel = new QPushButton(QStringLiteral("Cancel calibration"));
+    calibrationCancel->setObjectName(QStringLiteral("ananCalibrationCancel"));
+    auto* calibrationNotice = new QLabel;
+    calibrationNotice->setWordWrap(true);
+    calibrationLayout->addWidget(calibrationNotice);
+    calibrationLayout->addWidget(calibrationCancel);
+    for (QPushButton* button : {freqStart, levelStart, levelReset, freqReset, calibrationCancel}) {
+        button->setAutoDefault(false);
+        button->setAccessibleName(button->text());
+        button->setEnabled(false);
+        button->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
+    }
     auto* txCal = calGroup(calRight,QStringLiteral("TX Display Cal"),QStringLiteral("Unavailable: ANAN transmit is not implemented."));
     unavailableNumber(txCal,QStringLiteral("Offset (dB):"),-100,100,0,1);
     auto* currentCal = calGroup(calRight,QStringLiteral("Volts/Amps Calibration"),QStringLiteral("Unavailable: ANAN current calibration is not implemented. No measured values are shown."));
@@ -923,6 +953,13 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         { const QSignalBlocker block(ctun); ctun->setChecked(false); }
         ctunInfo->setText(QStringLiteral("Connect an ANAN to use CTUN."));
         ocState->clear();
+        for (QWidget* control : std::array<QWidget*, 9>{freqReference, levelReference, levelDbm, freqFactor,
+                freqStart, levelStart, levelReset, freqReset, calibrationCancel}) {
+            control->setEnabled(false);
+            control->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
+        }
+        calibrationNotice->clear();
+        calibrationOffsets->clear();
         for (QCheckBox* pin : *digitalPins) {
             const QSignalBlocker block(pin);
             pin->setChecked(false);
@@ -1053,6 +1090,32 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         swlEnabled->setEnabled(true);
         swlReset->setEnabled(true);
         ocEnabled->setEnabled(true);
+        const bool calibrating = data.value(QStringLiteral("calibrationRunning")).toBool();
+        const auto calibration = data.value(QStringLiteral("calibration")).toMap();
+        for (QWidget* control : std::array<QWidget*, 8>{freqReference, levelReference, levelDbm, freqFactor,
+                freqStart, levelStart, levelReset, freqReset}) {
+            control->setEnabled(!calibrating);
+            control->setAccessibleDescription(calibrating ? QStringLiteral("Unavailable while calibration is running")
+                : QStringLiteral("Receive calibration for this device, model, protocol and selected ADC; requires an external reference carrier."));
+        }
+        calibrationCancel->setEnabled(calibrating);
+        calibrationCancel->setAccessibleDescription(calibrating ? QStringLiteral("Cancel measurement without changing saved calibration")
+            : QStringLiteral("Unavailable: no calibration is running"));
+        calibrationNotice->setText(data.value(QStringLiteral("calibrationNotice")).toString());
+        if (!freqFactor->hasFocus()) {
+            const QSignalBlocker block(freqFactor);
+            freqFactor->setValue(calibration.value(QStringLiteral("frequencyFactor"), 1.0).toDouble());
+        }
+        const auto calibrationAdcs = calibration.value(QStringLiteral("adcs")).toList();
+        QStringList offsets;
+        for (int adc = 0; adc < calibrationAdcs.size(); ++adc) {
+            const auto row = calibrationAdcs[adc].toMap();
+            offsets.append(QStringLiteral("ADC%1: meter %2 dB, spectrum %3 dB (%4)").arg(adc)
+                .arg(row.value(QStringLiteral("meterDb")).toDouble(),0,'f',2)
+                .arg(row.value(QStringLiteral("displayDb")).toDouble(),0,'f',2)
+                .arg(row.value(QStringLiteral("calibrated")).toBool() ? QStringLiteral("calibrated") : QStringLiteral("uncalibrated")));
+        }
+        calibrationOffsets->setText(offsets.join(QLatin1Char('\n')));
         for (QCheckBox* pin : *digitalPins) {
             pin->setEnabled(true);
             pin->setAccessibleDescription(QStringLiteral("Manual DB9 user output. Saved per radio and hardware profile; independent of HF/SWL OC. Cleared when reception stops."));
@@ -1334,6 +1397,34 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     connect(ctun, &QCheckBox::toggled, page, [=](bool enabled) {
         request(QStringLiteral("ctun.set"), enabled);
     });
+    const auto calibrationRequest = [=](const QString& verb, double reference, double level) {
+        QVariantMap options = state->current;
+        options.insert(QStringLiteral("referenceHz"), reference);
+        options.insert(QStringLiteral("referenceDbm"), level);
+        request(verb, options);
+    };
+    connect(freqStart, &QPushButton::clicked, page, [=] {
+        calibrationRequest(QStringLiteral("calibration.frequency"), freqReference->value(), -73);
+    });
+    connect(levelStart, &QPushButton::clicked, page, [=] {
+        calibrationRequest(QStringLiteral("calibration.level"), levelReference->value(), levelDbm->value());
+    });
+    connect(levelReset, &QPushButton::clicked, page, [=] {
+        calibrationRequest(QStringLiteral("calibration.reset-level"), 0, 0);
+    });
+    connect(calibrationCancel, &QPushButton::clicked, page, [=] {
+        calibrationRequest(QStringLiteral("calibration.cancel"), 0, 0);
+    });
+    const auto setFactor = [=](double factor) {
+        if (state->filling || state->current.isEmpty() || !freqFactor->isEnabled()) { return; }
+        QVariantMap options = state->current;
+        QVariantMap calibration = options.value(QStringLiteral("calibration")).toMap();
+        calibration.insert(QStringLiteral("frequencyFactor"), factor);
+        options.insert(QStringLiteral("calibration"), calibration);
+        request(QStringLiteral("calibration.set"), options);
+    };
+    connect(freqFactor, &QDoubleSpinBox::editingFinished, page, [=] { setFactor(freqFactor->value()); });
+    connect(freqReset, &QPushButton::clicked, page, [=] { setFactor(1.0); });
     connect(rateWindow, &QComboBox::currentIndexChanged, page, [=](int) { refreshRate(); });
     connect(sampleRate, &QComboBox::activated, page, [=](int index) {
         if (index < 0 || !sampleRate->isEnabled()) { return; }

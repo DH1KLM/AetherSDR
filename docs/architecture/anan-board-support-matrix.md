@@ -56,6 +56,29 @@ sources, receive-only boundaries and remaining logical-model overrides.
 
 ## Implemented receive profiles
 
+### Calibration coverage
+
+Frequency correction and independent ADC meter/display offsets use the same
+validated RX profile on P1 and P2. Software tests exercise calibrated tuning
+for every enabled logical model, P1 transport configuration for all six
+supported P1 physical board IDs, and P2 model/board override combinations.
+The default factor remains 1; corrected tuning does not alter ALEX/OC ranges,
+physical DDC ownership, ADC counts or TX refusal.
+
+| Logical family | Calibration protocol coverage |
+|---|---|
+| Hermes, ANAN-10/100, ANAN-10E/100B | P1 and P2 |
+| ANAN-100D/200D | P1 and P2 |
+| Orion MkII, ANAN-7000DLE/8000DLE, Anvelina Pro 3 | P1 and P2 |
+| Red Pitaya, ANAN-G2E | P1 and P2 |
+| ANAN-G2/G2 1K | P2; distinct P1 discovery identity remains unverified |
+
+This is software coverage, not a new hardware qualification. Saturn ID 11,
+Atlas/Metis and HL2 P2 remain excluded. A new device/profile still needs a
+firmware identity and RX wire contract before enabling it; a physical device
+test must then confirm reception, tuning, rates, routing, filters and measured
+calibration. See [model profiles](anan-model-profiles.md).
+
 Discovery still reports physical families rather than selecting a logical SKU.
 The current target for board ID 5 is the operator-confirmed ANAN-7000DLE.
 Other logical models sharing that ID are not independently hardware-qualified.

@@ -1,4 +1,5 @@
 #include "core/backends/anan/AnanFilterOptions.h"
+#include "core/backends/anan/AnanCalibrationOptions.h"
 #include "core/backends/anan/AnanBackend.h"
 #include "core/AppActivity.h"
 #include "core/backends/anan/AnanDroopCalibrator.h"
@@ -46,11 +47,9 @@ constexpr float kUncalibratedDbfsToDbmOffset = 0.0f;
 // as BackendPanAveraging::msPerAverageStep.
 constexpr int kMsPerAverageStep = 10;
 
-// S-meter: WDSP's RXA_S_AV is 10*log10 mean I^2+Q^2 at the P2 24-bit full scale
-// (kFullScale24Bit), i.e. dBFS. deskHPSDR uses the same scaling (1/2^23) and a
-// 0 dB ANAN offset, so dBFS reads as dBm; this follows it. onDspMeter() adds the
-// ADC attenuation before smoothing. No per-radio rx_gain_calibration yet. Kept
-// apart from kUncalibratedDbfsToDbmOffset, which labels the panadapter axis.
+//DH1KLM WDSP RXA_S_AV is a raw dBFS reading. The selected ADC's measured
+// meter offset and commanded attenuation are added before smoothing;
+// spectrum calibration uses its separate display offset.
 constexpr double kSMeterDbmOffset = 0.0;
 
 QByteArray floatBytes(const std::vector<float>& v)
@@ -312,6 +311,8 @@ AnanBackend::AnanBackend(QObject* parent)
             clearAdditionalRx();
             m_pendingBandView.reset();
             m_droopCalibrator.stop(false);
+            m_receiveCalibrationRun.reset();
+            ++m_receiveCalibrationToken;
             m_droopCalibrator.setLandedRate(0);
             emit disconnected();
         }
@@ -383,12 +384,16 @@ AnanBackend::AnanBackend(QObject* parent)
         if (!m_connected || !primaryVisible())
             return;
         std::vector<float> dbm(binsDbfs.size());
+        if (m_receiveCalibrationRun) {
+            acceptCalibrationSpectrum(binsDbfs, m_receiveCalibrationClock.elapsed());
+        }
         // Attenuation added back, as deskHPSDR does for its panadapter: a
         // signal keeps its level when the operator attenuates, and only the
         // part of the floor that was the ADC overloading actually drops.
         const float attenuation = static_cast<float>(m_attenuationDb);
         for (std::size_t i = 0; i < binsDbfs.size(); ++i) {
-            dbm[i] = binsDbfs[i] + kUncalibratedDbfsToDbmOffset + attenuation;
+            dbm[i] = binsDbfs[i] + kUncalibratedDbfsToDbmOffset + attenuation
+                + static_cast<float>(m_receiveCalibration.displayOffsetDb[m_pendingParams.ddc0AdcIndex]);
         }
         m_droopCalibrator.onSpectrumFrame(dbm);
         const double rateHz = receiveTuningRateHz();
@@ -451,13 +456,10 @@ RadioCapabilities AnanBackend::capabilities() const
     c.radioSetupControl = RadioSetupControl{{RadioSetupField::LineoutGain, RadioSetupField::LineoutMute}};
     // No client owner is declared for "Show TX in Waterfall" on an ANAN.
     c.txWaterfallClientFlag = std::nullopt;
-    // The panadapter dBm axis is dBFS with a dBm label: kUncalibratedDbfsToDbmOffset
-    // is 0.0f and bin levels depend on window/normalisation, unverified against a
-    // known input. Internally consistent, but not comparable: never publish as a
-    // spot, compare with another station, or use as an absolute threshold. The
-    // S-meter (kSMeterDbmOffset) is separate and follows deskHPSDR's scaling.
+    //DH1KLM Absolute dBm requires a measured reference for the selected ADC;
+    // absent calibration retains the existing relative dBFS display.
     PanAmplitudeModel amplitude;
-    amplitude.calibratedDbm = false;
+    amplitude.calibratedDbm = m_receiveCalibration.levelCalibrated[m_pendingParams.ddc0AdcIndex];
     // The bins are raw dBFS + 0, so they are ABSOLUTE: nothing in them depends on
     // the display reference level, and the auto-floor loop converges.
     amplitude.binsAbsolute = true;
@@ -861,6 +863,11 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     // just below, and before anything else in this function needs it,
     // matching Hl2Backend's own m_radioSerial assignment ordering.
     m_radioSerial = request.serial;
+    m_receiveCalibration = {};
+    m_receiveCalibrationRun.reset();
+    ++m_receiveCalibrationToken;
+    m_receiveCalibrationNotice.clear();
+    m_pendingParams.frequencyCorrection = 1.0;
     if (!m_bandViewMemory.isEmpty() && m_bandViewMemorySupported
         && m_bandViewMemory.value(QStringLiteral("radioSerial")).toString() != m_radioSerial) {
         m_bandViewMemory = {};
@@ -1124,6 +1131,8 @@ void AnanBackend::startP2ClientSession(quint64 generation)
 
 void AnanBackend::disconnectRadio()
 {
+    m_receiveCalibrationRun.reset();
+    ++m_receiveCalibrationToken;
     clearAdditionalRx();
     rememberBandView();
     m_bandViewSpanHz = 0.0;
@@ -2126,6 +2135,13 @@ void AnanBackend::publishReceiveAntennas()
 
 void AnanBackend::loadHardwareFilters(int boardId)
 {
+    m_receiveCalibration = parseCalibrationOptions(AnanSettings::receiveCalibration(m_radioSerial,
+        static_cast<int>(m_pendingParams.model), boardId, m_pendingParams.protocol)).value_or(ReceiveCalibration{});
+    m_pendingParams.frequencyCorrection = m_receiveCalibration.frequencyFactor;
+    if (m_client && m_discoveryInfoReceived) {
+        const double factor = m_receiveCalibration.frequencyFactor;
+        QMetaObject::invokeMethod(m_client, [client = m_client, factor] { client->setFrequencyCorrection(factor); }, Qt::QueuedConnection);
+    }
     const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
     if (!profile) { return; }
     m_rxAntenna = AnanSettings::radioRxAntenna(m_radioSerial,
@@ -2162,6 +2178,9 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     config.bypassAdc0 = m_pendingParams.bypassAdc0Filters;
     config.bypassAdc1 = m_pendingParams.bypassAdc1Filters;
     QVariantMap state = filterOptions(config);
+    state.insert(QStringLiteral("calibration"), calibrationOptions(m_receiveCalibration));
+    state.insert(QStringLiteral("calibrationRunning"), m_receiveCalibrationRun.has_value());
+    state.insert(QStringLiteral("calibrationNotice"), m_receiveCalibrationNotice);
     const auto defaultEdges = filterOptions(defaultFilterConfig(profile->filterKind == ReceiveFilterKind::MkIIBpf));
     state.insert(QStringLiteral("defaultFilterEdges"), QVariantMap{
         {QStringLiteral("receive"), defaultEdges.value(QStringLiteral("receive"))},
@@ -2275,9 +2294,147 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     return state;
 }
 
+QVariantMap AnanBackend::receiveCalibrationContext() const
+{
+    return {{QStringLiteral("generation"), m_connectGeneration},
+        {QStringLiteral("epoch"), m_receiveEpoch}, {QStringLiteral("serial"), m_radioSerial},
+        {QStringLiteral("model"), static_cast<int>(m_pendingParams.model)},
+        {QStringLiteral("board"), m_discoveredBoardId}, {QStringLiteral("protocol"), m_pendingParams.protocol},
+        {QStringLiteral("adc"), m_pendingParams.ddc0AdcIndex}, {QStringLiteral("attenuation"), m_attenuationDb},
+        {QStringLiteral("center"), m_ddcCenterHz}, {QStringLiteral("slice"), m_sliceFreqHz},
+        {QStringLiteral("rate"), receiveTuningRateHz()}, {QStringLiteral("mode"), m_mode},
+        {QStringLiteral("low"), m_filterLowHz}, {QStringLiteral("high"), m_filterHighHz},
+        {QStringLiteral("ctun"), m_ctun}, {QStringLiteral("additional"), int(m_additionalRx.size())},
+        {QStringLiteral("filters"), m_pendingParams.filters ? filterOptions(*m_pendingParams.filters) : QVariantMap{}}};
+}
+
+QString AnanBackend::saveReceiveCalibration(const ReceiveCalibration& value)
+{
+    if (!m_connected || !m_discoveryInfoReceived || !validReceiveCalibration(value)
+        || !AnanSettings::setReceiveCalibration(m_radioSerial, static_cast<int>(m_pendingParams.model),
+            m_discoveredBoardId, m_pendingParams.protocol, calibrationOptions(value))) {
+        return QStringLiteral("Calibration was not changed: invalid values, unavailable device or unwritable/newer settings.");
+    }
+    m_receiveCalibration = value;
+    m_pendingParams.frequencyCorrection = value.frequencyFactor;
+    const double factor = value.frequencyFactor;
+    QMetaObject::invokeMethod(m_client, [client = m_client, factor] { client->setFrequencyCorrection(factor); }, Qt::QueuedConnection);
+    m_sMeter.reset();
+    for (auto& [id, receiver] : m_additionalRx) { receiver->sMeter.reset(); }
+    emit capabilitiesChanged();
+    return {};
+}
+
+void AnanBackend::acceptCalibrationSpectrum(const std::vector<float>& bins, qint64 elapsedMs)
+{
+    if (!m_receiveCalibrationRun || elapsedMs < 1000) { return; }
+    auto& run = *m_receiveCalibrationRun;
+    if (!m_connected || !m_discoveryInfoReceived || m_rateChanging || m_receiveBuilding
+        || m_droopCalibrator.isRunning() || run.context != receiveCalibrationContext()) {
+        m_receiveCalibrationRun.reset();
+        m_receiveCalibrationNotice = QStringLiteral("Calibration cancelled: receive settings or session changed; saved values retained.");
+        return;
+    }
+    if (run.powers.empty()) { run.powers.resize(bins.size()); }
+    if (run.powers.size() != bins.size() || bins.size() < 32
+        || std::any_of(bins.begin(), bins.end(), [](float value) { return !std::isfinite(value) || value > 20 || value < -400; })) {
+        m_receiveCalibrationRun.reset();
+        m_receiveCalibrationNotice = QStringLiteral("Calibration cancelled: invalid or changed spectrum geometry.");
+        return;
+    }
+    for (std::size_t n = 0; n < bins.size(); ++n) { run.powers[n] += std::pow(10.0, double(bins[n])/10.0); }
+    if (++run.frames < 10) { return; }
+    std::vector<float> averaged(bins.size());
+    for (std::size_t n = 0; n < bins.size(); ++n) { averaged[n] = float(10.0*std::log10(run.powers[n]/run.frames)); }
+    const auto peak = calibrationPeak(averaged, receiveTuningRateHz());
+    ReceiveCalibration next = m_receiveCalibration;
+    QString error;
+    if (!peak) { error = QStringLiteral("No unambiguous calibration carrier at least 20 dB above the local noise floor."); }
+    else if (run.frequency) {
+        const auto factor = calibratedFrequencyFactor(next.frequencyFactor, run.referenceHz, peak->offsetHz);
+        if (!factor) { error = QStringLiteral("Measured frequency correction exceeds the supported +/-1000 ppm range."); }
+        else { next.frequencyFactor = *factor; }
+    } else if (run.meterSamples < 10 || run.meterPower <= 0
+               || peak->offsetHz < m_filterLowHz || peak->offsetHz > m_filterHighHz) {
+        error = QStringLiteral("No fresh receive meter samples or the carrier is outside the receive passband. Use AM/SAM with the carrier inside the filter.");
+    } else {
+        const int adc = m_pendingParams.ddc0AdcIndex;
+        next.meterOffsetDb[adc] = run.referenceDbm - 10.0*std::log10(run.meterPower/run.meterSamples);
+        next.displayOffsetDb[adc] = run.referenceDbm - (peak->levelDb + m_attenuationDb);
+        next.levelCalibrated[adc] = true;
+    }
+    m_receiveCalibrationRun.reset();
+    if (error.isEmpty()) { error = saveReceiveCalibration(next); }
+    m_receiveCalibrationNotice = error.isEmpty() ? QStringLiteral("Calibration completed and saved for this device, model and protocol.") : error;
+}
+
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && verb.startsWith(QLatin1String("calibration."))) {
+        const QVariantMap fields = arg.toMap();
+        const QVariantMap state = hardwareFilterStatus();
+        if (state.isEmpty() || !m_discoveryInfoReceived
+            || fields.value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))
+            || fields.value(QStringLiteral("modelId")) != state.value(QStringLiteral("modelId"))
+            || fields.value(QStringLiteral("boardId")) != state.value(QStringLiteral("boardId"))
+            || fields.value(QStringLiteral("protocol")) != state.value(QStringLiteral("protocol"))) {
+            emit extensionError(requestId, QStringLiteral("Calibration refused: connected device/profile changed. Reload the page."));
+            return;
+        }
+        if (verb == QLatin1String("calibration.cancel")) {
+            m_receiveCalibrationRun.reset();
+            ++m_receiveCalibrationToken;
+            m_receiveCalibrationNotice = QStringLiteral("Calibration cancelled; saved values retained.");
+        } else if (m_receiveCalibrationRun || m_rateChanging || m_receiveBuilding || m_droopCalibrator.isRunning()) {
+            emit extensionError(requestId, QStringLiteral("Calibration refused while another calibration or receive rebuild is active."));
+            return;
+        } else if (verb == QLatin1String("calibration.set") || verb == QLatin1String("calibration.reset-level")) {
+            ReceiveCalibration next = m_receiveCalibration;
+            if (verb == QLatin1String("calibration.set")) {
+                const auto parsed = parseCalibrationOptions(fields.value(QStringLiteral("calibration")).toMap());
+                if (!parsed) { emit extensionError(requestId, QStringLiteral("Invalid calibration values; frequency factor must be within 0.999–1.001.")); return; }
+                next.frequencyFactor = parsed->frequencyFactor;
+            } else {
+                const int adc = m_pendingParams.ddc0AdcIndex;
+                next.meterOffsetDb[adc] = next.displayOffsetDb[adc] = 0;
+                next.levelCalibrated[adc] = false;
+            }
+            const QString error = saveReceiveCalibration(next);
+            if (!error.isEmpty()) { emit extensionError(requestId, error); return; }
+            m_receiveCalibrationNotice = QStringLiteral("Calibration settings saved and applied.");
+        } else if (verb == QLatin1String("calibration.frequency") || verb == QLatin1String("calibration.level")) {
+            bool hzOk = false, levelOk = false;
+            const double reference = fields.value(QStringLiteral("referenceHz")).toDouble(&hzOk);
+            const double level = fields.value(QStringLiteral("referenceDbm")).toDouble(&levelOk);
+            const bool frequency = verb == QLatin1String("calibration.frequency");
+            if (!hzOk || !std::isfinite(reference) || reference < 100000 || reference > 61440000
+                || std::abs(reference-m_ddcCenterHz) > 1 || m_ctun || !primaryVisible() || !m_additionalRx.empty()
+                || (!frequency && (!levelOk || !std::isfinite(level) || level < -140 || level > -10
+                    || (m_mode != QLatin1String("AM") && m_mode != QLatin1String("SAM"))
+                    || m_filterLowHz >= 0 || m_filterHighHz <= 0))) {
+                emit extensionError(requestId, QStringLiteral("Tune RX1/DDC to the reference carrier (0.1–61.44 MHz), turn CTUN off and close additional receivers. Level calibration requires AM/SAM, a passband around zero and a reference from -140 to -10 dBm."));
+                return;
+            }
+            ReceiveCalibrationRun run;
+            run.frequency = frequency; run.referenceHz = reference; run.referenceDbm = level;
+            run.context = receiveCalibrationContext();
+            m_receiveCalibrationRun = std::move(run);
+            m_receiveCalibrationClock.start();
+            const quint64 token = ++m_receiveCalibrationToken;
+            m_receiveCalibrationNotice = QStringLiteral("Measuring ten fresh spectra after settling; do not change receive settings.");
+            QTimer::singleShot(30000, this, [this, token] {
+                if (token != m_receiveCalibrationToken || !m_receiveCalibrationRun) { return; }
+                m_receiveCalibrationRun.reset();
+                m_receiveCalibrationNotice = QStringLiteral("Calibration timed out; saved values retained.");
+            });
+        } else {
+            emit extensionError(requestId, QStringLiteral("Unknown receive calibration operation."));
+            return;
+        }
+        emit extensionResult(requestId, hardwareFilterStatus());
+        return;
+    }
     int bandSliceId = m_activeReceiveSlice;
     if (ns == QLatin1String("anan") && verb == QLatin1String("band.select")) {
         const auto fields = arg.toMap();
@@ -2688,7 +2845,12 @@ void AnanBackend::onDspMeter(float dbfs)
 {
     if (!primaryVisible())
         return;
-    const double dbm = static_cast<double>(dbfs) + kSMeterDbmOffset + m_attenuationDb;
+    if (m_receiveCalibrationRun && m_receiveCalibrationClock.elapsed() >= 1000 && std::isfinite(dbfs)) {
+        m_receiveCalibrationRun->meterPower += std::pow(10.0, (double(dbfs) + m_attenuationDb)/10.0);
+        ++m_receiveCalibrationRun->meterSamples;
+    }
+    const double dbm = static_cast<double>(dbfs) + kSMeterDbmOffset + m_attenuationDb
+        + m_receiveCalibration.meterOffsetDb[m_pendingParams.ddc0AdcIndex];
     // Smooth EVERY reading, publish only on the tick -- the same smoother,
     // and the same reasons, as Hl2Backend's receive meter (SMeterSmoother).
     // AnanRxDsp reads the tap at one DSP-rate block's cadence whatever the

@@ -1,4 +1,5 @@
 #include "core/backends/anan/AnanSettings.h"
+#include "core/backends/anan/AnanCalibrationOptions.h"
 #include "core/backends/anan/P2Protocol.h"
 #include "core/RadioDiscovery.h"
 #include <QCoreApplication>
@@ -78,6 +79,33 @@ bool AnanSettings::setHardwareFilters(const QString& serial, int model, int boar
         || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
     doc.insert(QStringLiteral("%1:%2").arg(model).arg(board), QJsonObject::fromVariantMap(filterOptions(*config)));
     return scope.setFeature(QStringLiteral("HardwareFilters"), 8, doc);
+}
+
+QVariantMap AnanSettings::receiveCalibration(const QString& serial, int model, int board, int protocol)
+{
+    if (serial.trimmed().isEmpty()) { return {}; }
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    const auto doc = RadioSettingsScope(QStringLiteral("anan"), serial)
+        .featureExact(QStringLiteral("ReceiveCalibration"), &version, &status);
+    if (status != AppSettings::FeatureReadStatus::Present || version != 1) { return {}; }
+    return doc.value(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol)).toObject().toVariantMap();
+}
+bool AnanSettings::setReceiveCalibration(const QString& serial, int model, int board, int protocol,
+                                        const QVariantMap& options)
+{
+    const auto config = parseCalibrationOptions(options);
+    if (serial.trimmed().isEmpty() || !config || (protocol != 1 && protocol != 2)
+        || !ananModelInfo(static_cast<AnanModel>(model)) || !receiveProfile(board)) { return false; }
+    const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("ReceiveCalibration"), &version, &status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
+    doc.insert(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol),
+               QJsonObject::fromVariantMap(calibrationOptions(*config)));
+    return scope.setFeature(QStringLiteral("ReceiveCalibration"), 1, doc);
 }
 
 int AnanSettings::ddc0RateKsps()

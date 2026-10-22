@@ -251,9 +251,11 @@ The page follows the Nereus hardware-page arrangement:
   band table and its enable state.
 - **OC Outputs**: **HF**, **VHF**, **SWL**. HF has RX/TX pin matrices side by side
   and a commanded RX pin-state readout. HF and SWL RX matrices are configurable;
-  TX, VHF and user digital outputs remain disabled with their unsupported reason.
-- **Calibration**: visible frequency, level, TX-display and current-calibration
-  sections explain unavailable functions. **Open Droop Correction** opens the
+  Four manual **User Dig Out** pins are independent of the band matrices.
+  TX and VHF remain disabled with their unsupported reason.
+- **Calibration**: frequency correction and receive level calibration are available
+  for P1/P2. TX-display, current and LNA-step calibration remain unavailable.
+  **Open Droop Correction** opens the
   existing P2 droop sweep; it is disabled for P1.
 
 An explicit model override determines the filter configuration; otherwise the
@@ -642,7 +644,57 @@ ADC1 changes. Both protocols keep each ADC register within 0–31 dB.
 - **Status bar:** the **Network:** indicator follows the G2's link (received data and packet loss; round-trip time and jitter are not measured on this radio). The G2's supply voltage is shown in the status bar and the Meter applet. The G2 reports no PA temperature, so that reading is not shown.
 - **Tools → Radio Health...**
 
-The panadapter is not dBm-calibrated: its levels are relative.
+Without a reference level calibration for the selected ADC, panadapter levels
+are relative. See [Receive calibration](#receive-calibration).
+
+## Receive calibration
+
+Open **Settings → Radio Setup... → ANAN Hardware → Calibration**. Both
+calibrations use an external reference carrier and never transmit. Values are
+saved per radio MAC, selected model, reported board and P1/P2 protocol. ADC0 and
+ADC1 have separate receive meter and spectrum offsets. An uncalibrated profile
+starts with frequency factor 1 and zero offsets.
+
+### Frequency
+
+1. Apply a stable carrier with a known frequency. Tune RX1 exactly to that
+   frequency, turn **CTUN** off and close additional receivers.
+2. Choose a narrow sample rate, preferably **48 ksps**, and allow the spectrum
+   to settle. A larger FFT and lower rate improve measurement resolution.
+3. Enter the carrier frequency in **Freq Cal → Frequency (Hz):**, then click
+   **Start frequency calibration**.
+4. Wait for the completion message. The procedure averages ten fresh spectra
+   after one second of settling and searches within ±2.5 kHz of the reference.
+
+The reference must be unambiguous and at least 20 dB above the local noise
+floor. Weak or competing carriers are refused. Changing receive settings,
+disconnecting, or clicking **Cancel calibration** discards the measurement.
+The procedure times out after 30 seconds without sufficient spectra.
+
+**HPSDR Freq Cal Diagnostic → Correction factor:** also accepts a known factor
+directly, from **0.999** to **1.001** (±1000 ppm); confirm with Enter or by
+leaving the field. **Reset frequency correction** restores 1. The factor changes
+P1 integer-Hz and P2 phase-word tuning, including independent receive streams;
+displayed frequencies and band/filter routing retain their nominal values.
+External 10 MHz reference switching is unavailable.
+
+### Receive level
+
+1. Feed a carrier of known input power into the selected ADC's receive path.
+   Tune RX1 to the carrier, turn CTUN off and close additional receivers.
+2. Select **AM** or **SAM** with a receive passband around the carrier, then
+   allow the receive meter and spectrum to settle.
+3. Enter the frequency and input power under **Level Cal → Frequency (Hz):**
+   and **Level (dBm):**, then click **Start level calibration**.
+4. Wait for completion. The page shows the ADC's independently measured meter
+   and spectrum offsets, including compensation for commanded attenuation.
+
+This is a single-reference level calibration, not an LNA/attenuator-step sweep
+or a frequency-response measurement. The reference level must be between
+−140 and −10 dBm; the same carrier-quality checks apply. **Reset level
+calibration** clears the selected ADC's meter and spectrum offsets and retains
+the oscillator factor and the other ADC's calibration. Filter resets do not
+erase calibration. Saved values are retained when a measurement fails.
 
 > **Upgrading from an older version:** **AGC-T** covers −20 to 120 dB, so a given slider position gives more gain than before (at 100, 120 dB instead of 60 dB). Band-stack bookmarks saved earlier replay their slider position on this scale, so they come back louder. Lower **AGC-T** on each one and save it again.
 

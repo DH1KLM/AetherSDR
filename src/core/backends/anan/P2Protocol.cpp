@@ -1,4 +1,5 @@
 #include "core/backends/anan/P2Protocol.h"
+#include "core/backends/anan/AnanReceiveCalibration.h"
 
 #include <algorithm>
 #include <cstring>
@@ -276,9 +277,10 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   bool selectReceiveLpf,
                                                   ReceiveFilterKind filterKind,
                                                   int numAdcs, const FilterConfig* filters, int alexAttenuationDb,
-                                                  const ReceiveFilterPlan* filterPlan) noexcept
+                                                  const ReceiveFilterPlan* filterPlan, double frequencyCorrection) noexcept
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length
+    if (!validFrequencyFactor(frequencyCorrection)) { return pkt; }
     pkt[4] = run ? 0x01 : 0x00;  // bit[0] = run. Bits[1..4] = PTT0..3 -- there is no
                                   // parameter to set them; see this header's own comment.
     // One 4-byte frequency/phase word per DDC at 9 + 4*n (p.32). Same
@@ -288,7 +290,10 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
         ? std::min(ddcFreqWords.size(), static_cast<std::size_t>(kMaxDdcs - firstDdcIndex))
         : 0;
     for (std::size_t n = 0; n < count; ++n) {
-        writeU32be(&pkt[9 + 4 * (n + static_cast<std::size_t>(firstDdcIndex))], ddcFreqWords[n]);
+        //DH1KLM Correct only wire tuning; nominal frequencies still own ALEX/OC selection.
+        const double corrected = static_cast<double>(ddcFreqWords[n]) * frequencyCorrection;
+        writeU32be(&pkt[9 + 4 * (n + static_cast<std::size_t>(firstDdcIndex))],
+                   static_cast<std::uint32_t>(std::min(corrected, 4294967295.0)));
     }
     // Alex0 register, bytes 1432-1435. Thetis netInterface.c maps RX ANT1,
     // ANT2, ANT3 to bits 24, 25, 26 respectively. Invalid values fail safe to

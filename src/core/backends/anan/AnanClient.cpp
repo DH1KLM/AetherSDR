@@ -61,6 +61,11 @@ void AnanClient::setDdc0FrequencyHz(double hz)
 {
     if (m_protocol == 1) m_p1->setDdc0FrequencyHz(hz); else m_p2->setDdc0FrequencyHz(hz);
 }
+void AnanClient::setFrequencyCorrection(double factor)
+{
+    if (m_protocol == 1) { m_p1->setFrequencyCorrection(factor); }
+    else { m_p2->setFrequencyCorrection(factor); }
+}
 void AnanClient::setFrontEndAttenuation(int adc, int db, int alexDb)
 {
     if (m_protocol == 1) { m_p1->setFrontEndAttenuation(adc, db, alexDb); }

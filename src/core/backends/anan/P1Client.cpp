@@ -1,4 +1,5 @@
 #include "core/backends/anan/P1Client.h"
+#include "core/backends/anan/AnanReceiveCalibration.h"
 #include "core/backends/anan/AnanFilterOptions.h"
 
 #include <QNetworkDatagram>
@@ -64,7 +65,7 @@ P1Client::~P1Client() { stop(); }
 
 bool P1Client::prepare(const Params& params)
 {
-    if (!ananModelInfo(params.model)
+    if (!validFrequencyFactor(params.frequencyCorrection) || !ananModelInfo(params.model)
         || (params.overrideDetection && params.model == AnanModel::Automatic))
         return false;
     const bool redPitaya = params.redPitayaP1 || params.model == AnanModel::RedPitaya;
@@ -90,6 +91,7 @@ bool P1Client::prepare(const Params& params)
     m_receiveFilterPlan = {};
     m_params.redPitayaP1 = redPitaya;
     m_config = {};
+    m_config.frequencyCorrection = params.frequencyCorrection;
     m_config.anvelinaExtraOc = params.model == AnanModel::AnvelinaPro3;
     m_config.rateKsps = params.ddc0RateKsps;
     m_config.antenna = params.rxAntenna;
@@ -345,6 +347,12 @@ void P1Client::setDdc0FrequencyHz(double hz)
     if (m_config.independentFrequencies)
         m_config.receiveFrequencies[0] = m_config.frequencyHz;
     updateFilters();
+}
+void P1Client::setFrequencyCorrection(double factor)
+{
+    if (!validFrequencyFactor(factor)) { return; }
+    m_config.frequencyCorrection = factor;
+    m_params.frequencyCorrection = factor;
 }
 
 void P1Client::setFrontEndAttenuation(int adc, int db, int alexDb)

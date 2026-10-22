@@ -1,4 +1,5 @@
 #include "core/backends/anan/P1Protocol.h"
+#include "core/backends/anan/AnanReceiveCalibration.h"
 
 #include <algorithm>
 
@@ -30,7 +31,7 @@ bool validConfig(const ReceiveConfig& c) noexcept
         std::any_of(c.receiveFrequencies.begin(), c.receiveFrequencies.end(),
                     [](auto hz) { return hz > 61'440'000; }))
         return false;
-    return rate && validReceiverCount(c.receivers)
+    return rate && validFrequencyFactor(c.frequencyCorrection) && validReceiverCount(c.receivers)
         && (c.numAdcs == 1 || c.numAdcs == 2)
         && c.adcIndex >= 0 && c.adcIndex < c.numAdcs
         && c.rxOcMask <= 127
@@ -58,7 +59,8 @@ std::optional<Control> receiveControl(std::uint8_t address,
         if (slot >= c.receivers)
             return std::nullopt;
         put32(bytes.data() + 1,
-              c.independentFrequencies ? c.receiveFrequencies[slot] : c.frequencyHz);
+              static_cast<std::uint32_t>((c.independentFrequencies ? c.receiveFrequencies[slot] : c.frequencyHz)
+                                         * c.frequencyCorrection));
         return bytes;
     }
     switch (address) {

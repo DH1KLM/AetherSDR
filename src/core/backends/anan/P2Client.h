@@ -62,6 +62,7 @@ public:
         bool bypassAdc0Filters = false; //DH1KLM: use Thetis Saturn BPF1 by default
         bool bypassAdc1Filters = true;
         std::optional<FilterConfig> filters;
+        double frequencyCorrection = 1.0;
         // Receive step attenuators, 0-31 dB (buildHighPriority()). Unlike the
         // options above these ARE live: setStepAttenuationDb() changes them
         // mid-session. The values here are what the session starts with.
@@ -98,6 +99,7 @@ public:
     // above this seam. Takes effect immediately (not on the next keepalive
     // tick) and is what the keepalive resends from then on.
     Q_INVOKABLE void setDdc0FrequencyHz(double hz);
+    Q_INVOKABLE void setFrequencyCorrection(double factor);
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
 
@@ -287,6 +289,7 @@ private:
     bool m_overrideDetection = false;
     //DH1KLM: Stream indices stay logical; packet rows/ports use this RX offset.
     int m_firstDdcIndex = 0;
+    double m_frequencyCorrection = 1.0;
     bool m_selectReceiveLpf = false;
     std::optional<FilterConfig> m_filters;
     ReceiveFilterKind m_receiveFilterKind = ReceiveFilterKind::MkIIBpf;
