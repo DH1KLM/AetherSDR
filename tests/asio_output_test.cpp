@@ -14,11 +14,70 @@
 #include <iostream>
 #include <limits>
 #include <thread>
+#include <vector>
 
 using namespace AetherSDR;
 static void check(bool condition, const char* message)
 {
     if (!condition) { std::cerr << message << '\n'; std::exit(1); }
+}
+//DH1KLM: A 40 ms delayed 10 ms refill is shorter than the playback safety prefill.
+static void delayedRefills()
+{
+    for (const int rate : {44100, 48000, 96000, 192000}) {
+        for (const int quantum : {64, 128, 256, 1024}) {
+            const std::size_t capacity = AsioPlaybackBuffer::playbackCapacity(rate, quantum);
+            AsioPlaybackBuffer ring(capacity, capacity / 2, static_cast<std::size_t>(rate / 200));
+            int pending = 0;
+            const int refillFrames = rate / 100;
+            for (int time = 0; time < 2 * rate; ++time) {
+                if (time % refillFrames == 0) { pending += refillFrames; }
+                if (time % refillFrames == 0 && !(time > rate / 10 && time < rate * 14 / 100)) {
+                    std::vector<float> pcm(static_cast<std::size_t>(pending) * 2);
+                    for (int i = 0; i < pending; ++i) { pcm[i*2] = 0.5f; pcm[i*2+1] = -0.25f; }
+                    pending -= static_cast<int>(ring.write(pcm));
+                }
+                if (time % quantum != 0) { continue; }
+                for (int frame = 0; frame < quantum; ++frame) {
+                    const auto sample = ring.read();
+                    if (time >= rate / 10) {
+                        check(sample == std::array<float,2>{0.5f,-0.25f},
+                              "ASIO scheduling jitter must not insert zeros into continuous PCM");
+                    }
+                }
+            }
+            check(ring.underruns() == 0, "no underrun during a delayed refill at any supported rate/quantum");
+        }
+    }
+}
+static void prefillAndRecovery()
+{
+    AsioPlaybackBuffer ring(32, 16, 4);
+    const std::array<float,2> frame{0.8f,-0.4f};
+    for (int i = 0; i < 15; ++i) {
+        check(ring.write(frame) == 1 && ring.read() == std::array<float,2>{0,0},
+              "startup preserves short bursts until prefill is complete");
+    }
+    ring.write(frame);
+    for (int i = 1; i <= 16; ++i) {
+        const auto actual = ring.read();
+        const float gain = std::min(1.0f, i / 4.0f);
+        check(actual == std::array<float,2>{frame[0]*gain,frame[1]*gain}, "prefill fades into stereo PCM");
+    }
+    for (int i = 3; i >= 0; --i) {
+        const auto actual = ring.read();
+        const float gain = i / 4.0f;
+        check(actual == std::array<float,2>{frame[0]*gain,frame[1]*gain}, "a real starvation fades smoothly to silence");
+    }
+    check(ring.underruns() == 1, "one dry interval counts once");
+    for (int i = 0; i < 15; ++i) {
+        ring.write(frame);
+        check(ring.read() == std::array<float,2>{0,0}, "partial recovery waits instead of chattering between PCM and silence");
+    }
+    ring.write(frame);
+    check(ring.read() == std::array<float,2>{0.2f,-0.1f}, "recovery resumes with a fade-in");
+    ring.reset();
+    check(ring.read() == std::array<float,2>{0,0}, "source retirement also rearms the prefill");
 }
 int main(int argc, char** argv)
 {
@@ -114,5 +173,7 @@ int main(int argc, char** argv)
         while (ring.write(frame) == 0) { std::this_thread::yield(); }
     }
     consumer.join();
+    delayedRefills();
+    prefillAndRecovery();
     std::cout << "ASIO output checks passed\n";
 }

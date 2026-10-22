@@ -22,6 +22,11 @@ AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* 
     enabled->setAccessibleName(tr("Use ASIO for PC receive audio"));
     enabled->setChecked(saved.enabled);
     form->addRow(enabled);
+    auto* hint = new QLabel(tr("To enable or disable ASIO, change the checkbox and click Apply ASIO changes. Other edits also require Apply."), this);
+    hint->setWordWrap(true);
+    hint->setAccessibleName(hint->text());
+    enabled->setAccessibleDescription(hint->text());
+    form->addRow(hint);
     auto* driver = new GuardedComboBox(this);
     applyComboStyle(driver);
     driver->setAccessibleName(tr("ASIO driver"));
@@ -56,9 +61,9 @@ AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* 
     if (driver->count() == 0) { status->setText(tr("No 64-bit ASIO driver is installed.")); }
 #endif
     form->addRow(status);
-    auto* apply = new QPushButton(tr("Apply ASIO Output"), this);
+    auto* apply = new QPushButton(tr("Apply ASIO changes"), this);
     apply->setAutoDefault(false);
-    apply->setAccessibleName(tr("Apply ASIO output settings"));
+    apply->setAccessibleName(tr("Apply ASIO changes"));
     form->addRow(apply);
     const QPointer<AudioEngine> engine(audio);
     connect(apply, &QPushButton::clicked, this, [engine, enabled, driver, channel, rate, buffer, status] {

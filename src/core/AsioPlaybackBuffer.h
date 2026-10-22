@@ -16,7 +16,14 @@ namespace AetherSDR {
 //DH1KLM: One AudioEngine producer and one ASIO callback consumer; no DSP or locks in the callback.
 class AsioPlaybackBuffer {
 public:
-    explicit AsioPlaybackBuffer(std::size_t frames) : m_frames(std::max<std::size_t>(frames, 1)) {}
+    explicit AsioPlaybackBuffer(std::size_t frames, std::size_t prefill = 0, std::size_t ramp = 0)
+        : m_frames(std::max<std::size_t>(frames, 1)), m_prefill(std::min(prefill, m_frames.size())),
+          m_ramp(ramp), m_gain(prefill == 0 ? 1.0f : 0.0f) {}
+    //DH1KLM: Prefill covers 50 ms of owner-thread scheduling plus one complete ASIO callback burst.
+    static std::size_t playbackCapacity(int rate, int callbackFrames)
+    {
+        return static_cast<std::size_t>(std::max(4 * callbackFrames, rate / 10 + 2 * callbackFrames));
+    }
     std::size_t freeFrames() const
     {
         return m_frames.size() - static_cast<std::size_t>(m_write.load(std::memory_order_acquire)
@@ -35,13 +42,37 @@ public:
     std::array<float, 2> read()
     {
         const std::uint64_t read = m_read.load(std::memory_order_relaxed);
-        if (read == m_write.load(std::memory_order_acquire)) { return {}; }
-        const std::array<float, 2> frame = m_frames[read % m_frames.size()];
+        const std::uint64_t write = m_write.load(std::memory_order_acquire);
+        if (m_prefill > 0 && !m_playing) {
+            if (m_fadeRemaining > 0 || write - read < m_prefill) { return fadeOut(); }
+            m_playing = true;
+            m_gain = 0;
+        }
+        if (read == write) {
+            if (m_playing) {
+                m_underruns.fetch_add(1, std::memory_order_relaxed);
+                m_playing = false;
+                m_fadeFrom = m_previous;
+                m_fadeRemaining = m_ramp;
+            }
+            return fadeOut();
+        }
+        std::array<float, 2> frame = m_frames[read % m_frames.size()];
         m_read.store(read + 1, std::memory_order_release);
+        m_gain = m_ramp == 0 ? 1.0f : std::min(1.0f, m_gain + 1.0f / static_cast<float>(m_ramp));
+        for (float& value : frame) { value *= m_gain; }
+        m_previous = frame;
         return frame;
     }
+    std::uint64_t underruns() const { return m_underruns.load(std::memory_order_relaxed); }
     //DH1KLM: Reset is legal only after the driver has stopped all callbacks.
-    void reset() { m_read.store(0); m_write.store(0); }
+    void reset()
+    {
+        m_read.store(0); m_write.store(0);
+        m_playing = false;
+        m_gain = m_prefill == 0 ? 1.0f : 0.0f;
+        m_previous = {}; m_fadeFrom = {}; m_fadeRemaining = 0;
+    }
 
     //DH1KLM: Steinberg ASIOSampleType values; aligned Int32 samples are right-justified.
     static int sampleBytes(int type)
@@ -75,8 +106,24 @@ public:
         }
     }
 private:
+    //DH1KLM: A dry run fades once and waits for a complete prefill instead of alternating PCM and zeros.
+    std::array<float, 2> fadeOut()
+    {
+        if (m_fadeRemaining == 0 || m_ramp == 0) { return {}; }
+        --m_fadeRemaining;
+        const float gain = static_cast<float>(m_fadeRemaining) / static_cast<float>(m_ramp);
+        return {m_fadeFrom[0] * gain, m_fadeFrom[1] * gain};
+    }
     std::vector<std::array<float, 2>> m_frames;
     std::atomic<std::uint64_t> m_read{0};
     std::atomic<std::uint64_t> m_write{0};
+    std::atomic<std::uint64_t> m_underruns{0};
+    const std::size_t m_prefill;
+    const std::size_t m_ramp;
+    bool m_playing = false;
+    float m_gain;
+    std::array<float, 2> m_previous{};
+    std::array<float, 2> m_fadeFrom{};
+    std::size_t m_fadeRemaining = 0;
 };
 }

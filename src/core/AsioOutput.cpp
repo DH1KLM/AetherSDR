@@ -1,6 +1,7 @@
 #include "AsioOutput.h"
 #include "AsioPlaybackBuffer.h"
 #include "AppSettings.h"
+#include "LogManager.h"
 
 #include <QJsonDocument>
 #include <QVariant>
@@ -200,8 +201,9 @@ bool AsioOutput::start(const AsioOutputConfig& config, QString& error)
     }
     state.frames = static_cast<int>(frames);
     state.sampleRate = config.sampleRate;
-    state.capacity = static_cast<std::size_t>(std::max<long>(frames * 2, config.sampleRate / 50));
-    state.ring = std::make_unique<AsioPlaybackBuffer>(state.capacity);
+    state.capacity = AsioPlaybackBuffer::playbackCapacity(config.sampleRate, state.frames);
+    state.ring = std::make_unique<AsioPlaybackBuffer>(state.capacity, state.capacity / 2,
+        static_cast<std::size_t>(config.sampleRate / 200));
     for (int channel = 0; channel < 2; ++channel) {
         state.buffers[channel] = {ASIOFalse, config.firstChannel + channel, {nullptr, nullptr}};
     }
@@ -254,6 +256,11 @@ void AsioOutput::stop()
     Impl::active.compare_exchange_strong(expected, nullptr);
     if (state.comOwned) { CoUninitialize(); state.comOwned = false; }
 #endif
+    if (state.ring && state.ring->underruns() != 0) {
+        qCWarning(lcAudio) << "ASIO output buffer underruns:" << state.ring->underruns()
+                          << "driver buffer frames:" << state.frames
+                          << "playback capacity frames:" << state.capacity;
+    }
     state.ring.reset();
     state.capacity = 0;
 }

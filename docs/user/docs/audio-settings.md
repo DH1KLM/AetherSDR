@@ -30,8 +30,14 @@ Choose the computer's microphone (**Input**) and speaker (**Output**) devices. T
 **ASIO RX Output** selects a native 64-bit ASIO driver for the computer's
 receive speakers. It is off by default. Enable **Use ASIO for PC receive audio**,
 choose the **Driver**, **First stereo channel**, **Sample rate** and
-**Buffer frames**, then select **Apply ASIO Output**. Turn on **PC Audio**
+**Buffer frames**, then select **Apply ASIO changes**. Turn on **PC Audio**
 to hear reception. Applying while reception is playing restarts the speaker output.
+Both enabling and disabling ASIO require **Apply ASIO changes**; changing
+the checkbox alone leaves the current output playing.
+
+Playback starts after a short prebuffer. After an interruption it waits for
+the buffer to recover and fades back in, rather than repeatedly switching
+between sound and silence.
 
 The first channel is numbered from 1; selecting 3 uses outputs 3 and 4.
 **Driver preferred** uses the driver's preferred buffer size. Explicit sizes
@@ -47,7 +53,7 @@ ASIO group is dimmed and the regular audio devices remain available.
 If the driver requests a reset or changes its sample rate or buffer size,
 playback stops with a status message. Reapply the settings and toggle **PC Audio**
 off and on to restart. To return to the ordinary **Output** device, clear
-**Use ASIO for PC receive audio** and select **Apply ASIO Output**.
+**Use ASIO for PC receive audio** and select **Apply ASIO changes**.
 
 If the saved device is not connected, AetherSDR uses the system default device and keeps your saved choice. It switches back to the saved device when that device connects, without asking. On Linux, saved devices with IDs containing `.monitor`, `auto_null`, `echo-cancel`, or `combined`, or starting with `pulse_input_loopback`, are used again at the next launch rather than automatically restored when they reappear.
 

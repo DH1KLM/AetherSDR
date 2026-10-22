@@ -8,6 +8,14 @@ native planar PCM/float format, applies atomic volume/mute and fills underruns
 with silence. No Qt calls, allocation, mutex or DSP runs in that callback.
 The normal Qt output remains the default; no input/TX path is added.
 
+The owner-thread refill timer runs every 10 ms, while ASIO consumes a complete
+driver quantum at once. The playback FIFO therefore reserves at least 50 ms
+plus one quantum of prefill (and at least two quanta), with twice that storage.
+Startup and recovery wait for the prefill; a 5 ms ramp smooths the transition.
+One starvation interval counts once, and its count is logged when the sink
+closes. The prefill is separate from the driver's configured buffer frames.
+It covers bounded scheduling jitter; it is not adaptive clock-rate matching.
+
 The Audio-page widget uses the existing AudioEngine device-selection pattern
 to queue the complete configuration and receive status. Its direct AsioOutput
 header dependency supplies only host-device settings and driver identities;
@@ -46,6 +54,10 @@ Software checks cover FIFO/channel order, wrap, full/empty behavior, concurrent
 producer/consumer access, sample conversion/clipping, nonfinite silence,
 settings round-trip/range/schema refusal and unknown-driver failure. They do
 not qualify playback or callback shutdown on a real ASIO driver.
+
+The refill regression injects complete 64/128/256/1024-frame callback bursts
+against a 10 ms producer with a 40 ms delayed refill, at all four configured
+rates. Recovery checks retain short bursts until prefill and verify both ramps.
 
 On 2026-10-22 the full local Windows application build and nine targeted
 CTests passed: ASIO output, six RX rate/sink scenarios, PCM lifetime and the
