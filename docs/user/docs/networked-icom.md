@@ -154,6 +154,14 @@ The **Icom CI-V:** address is wrong. AetherSDR does not correct a wrong address 
 2. Set **Icom CI-V:** to **Auto-detect (recommended)**.
 3. If you use **Custom...**, check the address on the radio under MENU > SET > Connectors > CI-V and type it as hex (for example `A2`).
 
+### Audio and radio updates stop after switching applications
+
+An interrupted application shutdown can leave an old network session on the radio. If the radio releases the current audio and CI-V streams while cleaning it up, AetherSDR disconnects and retries the connection automatically.
+
+1. Allow the automatic reconnect to finish. Frequency and other radio state are read again from the radio.
+2. When switching applications, disconnect the first application and let it finish before opening the next connection.
+3. If the radio continues refusing connections, check that another network client is not still using it.
+
 ### Connect by IP fails with a handshake error
 
 The radio is not accepting network control from AetherSDR. The message names the target and the likely cause.

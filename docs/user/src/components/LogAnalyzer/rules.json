@@ -983,8 +983,25 @@
         },
         {
           "file": "src/core/backends/icom/IcomSession.cpp",
-          "line": 258,
+          "line": 262,
           "text": "the radio rejected the username or password"
+        }
+      ]
+    },
+    {
+      "id": "icom-media-released",
+      "severity": "problem",
+      "title": "Icom: the radio released the audio and CI-V streams",
+      "explanation": "The radio ended the media session. This can follow an interrupted connection from another application. AetherSDR reconnects automatically; let the previous application finish disconnecting before switching applications.",
+      "match": {
+        "substring": "the radio released the serial and audio streams"
+      },
+      "docs": "/next/networked-icom#audio-and-radio-updates-stop-after-switching-applications",
+      "source": [
+        {
+          "file": "src/core/backends/icom/IcomSession.cpp",
+          "line": 401,
+          "text": "the radio released the serial and audio streams; "
         }
       ]
     },
