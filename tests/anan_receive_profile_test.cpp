@@ -478,20 +478,36 @@ int main(int argc, char** argv)
         P2ClientTestAccess::feed(client, discovery(1), 1024);
         check(!P2ClientTestAccess::validated(client), "Hermes cannot use nonexistent ADC1");
     }
-    //DH1KLM: Exercise every source-backed logical model through production validation.
-    for (const auto& entry : kAnanModels) {
-        if (entry.model == AnanModel::Automatic || entry.model == AnanModel::Hpsdr
-            || entry.model == AnanModel::HermesLite2) { continue; }
-        P2Client client;
-        P2ClientTestAccess::prepare(client, entry.nativeBoardId, entry.model);
-        int blocks = 0;
-        QObject::connect(&client, &P2Client::ddc0IqReady, [&](const auto&) { ++blocks; });
-        P2ClientTestAccess::feed(client, discovery(entry.nativeBoardId), 1024);
-        const auto profile = *receiveProfile(entry.nativeBoardId, entry.model);
-        check(P2ClientTestAccess::validated(client), "logical model reaches P2 validated state");
-        P2ClientTestAccess::feed(client, iq(), static_cast<quint16>(1035 + profile.firstDdcIndex));
-        check(blocks == 1, "logical model uses its correct P2 RX port");
+    //DH1KLM: Thetis NetworkIO compatibility includes alternate Hermes IDs and
+    //DH1KLM: Red Pitaya's Hermes identity; every accepted pair must deliver IQ.
+    int compatiblePairs = 0;
+    for (const int board : {1, 2, 3, 4, 5, 10, 20}) {
+        for (const auto& entry : kAnanModels) {
+            const int id = static_cast<int>(entry.model);
+            const bool expected = id == -1 || entry.nativeBoardId == board
+                || (id >= 2 && id <= 5 && (board == 1 || board == 2))
+                || (id == 15 && board == 1);
+            P2Client client;
+            P2ClientTestAccess::prepare(client, board, entry.model);
+            int blocks = 0;
+            QObject::connect(&client, &P2Client::ddc0IqReady, [&](const auto&) { ++blocks; });
+            P2ClientTestAccess::feed(client, discovery(board), 1024);
+            check(P2ClientTestAccess::validated(client) == expected,
+                  "P2 model/board acceptance matches Thetis compatibility without override");
+            if (!expected) { continue; }
+            ++compatiblePairs;
+            const auto profile = *receiveProfile(board, entry.model);
+            for (const int rate : kDdc0RatesKsps) {
+                const auto packet = P2ClientTestAccess::ratePacket(client, 0, rate);
+                const std::size_t row = 17 + 6 * profile.firstDdcIndex;
+                check(packet && (((*packet)[row + 1] << 8) | (*packet)[row + 2]) == rate,
+                      "every compatible P2 pair places all six rates in its effective DDC row");
+            }
+            P2ClientTestAccess::feed(client, iq(), static_cast<quint16>(1035 + profile.firstDdcIndex));
+            check(blocks == 1, "logical model uses its correct P2 RX port");
+        }
     }
+    check(compatiblePairs == 27, "P2 compatibility matrix covers 27 accepted model/board pairs");
     for (const int board : {1, 5}) {
         P2Client client;
         P2ClientTestAccess::prepare(client, board, AnanModel::RedPitaya);

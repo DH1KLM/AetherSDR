@@ -283,6 +283,52 @@ void logicalModels() {
         }
     }
 }
+//DH1KLM: Thetis NetworkIO board matching permits Hermes/Hermes-II for
+//DH1KLM: ANAN-10/10E/100/100B and Hermes/Orion MkII for Red Pitaya.
+void compatibleModelMatrix() {
+    struct Board { int wire; int normalized; };
+    int accepted = 0;
+    for (const Board board : {Board{1,1}, {2,2}, {4,3}, {5,4}, {10,5}, {20,20}}) {
+        for (const auto& entry : kAnanModels) {
+            const int id = static_cast<int>(entry.model);
+            const bool compatible = id == -1 || entry.nativeBoardId == board.normalized
+                || (id >= 2 && id <= 5 && (board.normalized == 1 || board.normalized == 2))
+                || (id == 15 && board.normalized == 1);
+            for (const int rate : {48, 96, 192, 384}) {
+                std::vector<QByteArray> packets;
+                P1Client client;
+                auto p = params(board.normalized);
+                p.model = entry.model;
+                p.ddc0RateKsps = rate;
+                const bool expected = compatible && (rate <= 192 || id == 15);
+                check(P1ClientTestAccess::prepare(client, p, packets) == expected,
+                      "P1 model/board/rate acceptance matches Thetis compatibility");
+                check(packets.empty(), "P1 matrix emits no setup before discovery");
+                if (!expected) { continue; }
+                ++accepted;
+                const int effective = id == -1 ? board.normalized : entry.nativeBoardId;
+                const int slotCount = effective == 2 ? 2 : effective == 1 ? 4 : effective == 20 ? 4 : 5;
+                const int adcs = effective == 1 || effective == 2 || effective == 20 ? 1 : 2;
+                int blocks = 0;
+                QObject::connect(&client, &P1Client::ddc0IqReady, [&](const auto& block) {
+                    ++blocks;
+                    check(block.size() == static_cast<std::size_t>(2 * (504 / (6 * slotCount + 2))),
+                          "compatible P1 model decodes its effective slot geometry");
+                    for (const auto sample : block) {
+                        check(sample.real() > 0.49f, "compatible P1 model retains RX1 slot zero");
+                    }
+                });
+                P1ClientTestAccess::feed(client, discovery(board.wire));
+                const auto config = P1ClientTestAccess::config(client);
+                check(client.isRunning() && config.receivers == slotCount && config.numAdcs == adcs
+                      && config.rateKsps == rate, "P1 discovery applies selected model and rate");
+                P1ClientTestAccess::feed(client, iq(slotCount));
+                check(blocks == 1, "every compatible P1 model/board/rate reaches RX IQ");
+            }
+        }
+    }
+    check(accepted == 74, "P1 compatibility matrix covers 74 accepted model/board/rate combinations");
+}
 void liveRateWriteFailure() {
     for (const auto& entry : kAnanModels) {
         if (entry.model == AnanModel::Automatic
@@ -498,6 +544,7 @@ int main(int argc, char** argv) {
     QLoggingCategory::setFilterRules(QStringLiteral("aether.*.debug=false"));
     const auto previousHandler = qInstallMessageHandler(captureSessionLog);
     profilesAndWire(); refusals(); pacingAndErrors(); dispatch(); redPitaya384(); logicalModels();
+    compatibleModelMatrix();
     liveRateWriteFailure();
     adc1RoutingAndFilters();
     for (const bool discoveryAnswered : {false, true}) {

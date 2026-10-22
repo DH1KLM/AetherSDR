@@ -27,6 +27,14 @@ Orion MkII reports but resolves to the two-ADC Orion-class layout. Unknown
 models and incompatible board/model combinations fail before receive setup
 unless an explicit supported board override is enabled.
 
+Socket-free transport coverage includes 74 accepted P1 model/board/rate
+combinations and 27 P2 model/board pairs at all six rates. The matrix includes
+automatic selection, both Hermes identities for ANAN-10/10E/100/100B and both
+Red Pitaya identities. It checks refusal of incompatible selections without
+override and delivery of RX IQ using the effective model's slot geometry or
+DDC port. This extends software evidence only; physical qualification remains
+limited to the hardware explicitly confirmed in the board-support matrix.
+
 Standard P1 profiles use 48/96/192 ksps; Red Pitaya additionally supports
 384 ksps. P2 retains the existing six-rate ladder. Anvelina P1 emits bank
 0x26 with all extra OC outputs zero. P2's extra-OC byte 1397 remains zero.
