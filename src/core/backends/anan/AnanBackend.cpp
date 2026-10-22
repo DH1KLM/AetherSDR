@@ -8,6 +8,7 @@
 #include "core/AppSettings.h"
 #include "core/RadioSettingsScope.h"
 #include "models/BandSettings.h"
+#include "models/BandPlanManager.h"
 
 #include <QHostAddress>
 #include <QJsonArray>
@@ -1080,7 +1081,12 @@ void AnanBackend::startP2ClientSession(quint64 generation)
     // stream, so carrying that state across would ring the tail of the old rate
     // into the head of the new one.
     resetSpeakerResamplers();
-    const AnanClient::Params params = m_pendingParams;
+    AnanClient::Params params = m_pendingParams;
+    const auto antenna = receiveAntennaRoute();
+    params.rxAntenna = antenna.antenna;
+    if (params.filters) { params.filters->rxOnlyInput = antenna.rxOnly; }
+    m_appliedAntenna = antenna.antenna;
+    m_appliedRxOnly = antenna.rxOnly;
     const bool isRateChange = m_rateChanging;
     const double centerHz = m_ddcCenterHz;
     QMetaObject::invokeMethod(m_client, [this, generation, params, isRateChange, centerHz]() {
@@ -2043,6 +2049,81 @@ QString AnanBackend::applyDroopTables(const QMap<int, DroopCorrectionTable>& tab
     return persistDroopTables(tables);
 }
 
+int AnanBackend::receiveAntennaOwner() const
+{
+    if (!m_connected) { return -1; }
+    if (primaryVisible()) { return 0; }
+    for (const auto& [id, slice] : m_receiveLayout.slices()) {
+        const auto it = m_additionalRx.find(id);
+        if (it != m_additionalRx.end() && it->second->ready) { return id; }
+    }
+    return -1;
+}
+
+int AnanBackend::receiveAntennaBandIndex() const
+{
+    const auto* owner = m_receiveLayout.slice(receiveAntennaOwner());
+    const double hz = owner ? owner->frequencyHz : m_sliceFreqHz;
+    //DH1KLM GEN and WWV are explicit Aether band slots, rather than Thetis's nearest-band fallback.
+    for (const double center : {2.5e6, 5e6, 10e6, 15e6, 20e6, 25e6}) {
+        if (std::abs(hz - center) <= 5000) { return 13; }
+    }
+    const QString planName = AppSettings::instance().value(QStringLiteral("BandPlanName"), QStringLiteral("ARRL (US)")).toString();
+    if (!m_antennaBandPlan || m_antennaPlanName != planName) {
+        if (!m_antennaBandPlan) { m_antennaBandPlan = std::make_unique<BandPlanManager>(); }
+        m_antennaPlanName = planName;
+        m_antennaBandPlan->loadPlans();
+    }
+    const auto band = m_antennaBandPlan->amateurBandAt(hz / 1e6);
+    if (!band) { return 12; }
+    //DH1KLM These separators identify a regional envelope; its actual edges come from BandPlanManager.
+    constexpr std::array<double, 10> separators{2.75, 4.66525, 6.20175, 8.7, 12.075,
+                                               16.209, 19.584, 23.17, 26.465, 39.85};
+    const double midpoint = (band->lowMhz + band->highMhz) / 2;
+    if (midpoint < 1 || midpoint > 61.44) { return 12; }
+    return static_cast<int>(std::upper_bound(separators.begin(), separators.end(), midpoint) - separators.begin());
+}
+
+ReceiveAntennaBand AnanBackend::receiveAntennaRoute() const
+{
+    const auto& config = m_pendingParams.filters;
+    if (config && config->antennaBands && config->antennaBands->enabled) {
+        auto route = config->antennaBands->rows[receiveAntennaBandIndex()];
+        //DH1KLM Thetis Alex.cs at 852bf0ef: XVTR is conditional on transverter mode, unavailable here.
+        if (route.rxOnly >= 3) { route.rxOnly -= 3; }
+        return route;
+    }
+    return {m_rxAntenna, config ? config->rxOnlyInput : 0};
+}
+
+void AnanBackend::applyReceiveAntennaRouting(bool force)
+{
+    if (!m_client || !m_pendingParams.filters) { return; }
+    const auto route = receiveAntennaRoute();
+    const bool changed = m_appliedAntenna != route.antenna || m_appliedRxOnly != route.rxOnly;
+    if (!force && !changed) { return; }
+    auto config = *m_pendingParams.filters;
+    config.rxOnlyInput = route.rxOnly;
+    const auto options = filterOptions(config);
+    //DH1KLM Apply bank and input together, without an intermediate relay command using the old bank.
+    QMetaObject::invokeMethod(m_client, "setReceiveHardware", Qt::QueuedConnection,
+                              Q_ARG(QVariantMap, options), Q_ARG(int, route.antenna));
+    m_appliedAntenna = route.antenna;
+    m_appliedRxOnly = route.rxOnly;
+}
+
+void AnanBackend::publishReceiveAntennas()
+{
+    const quint64 generation = m_connectGeneration;
+    std::vector<int> receivers;
+    for (const auto& [id, rx] : m_additionalRx) { if (rx->ready) { receivers.push_back(id); } }
+    emitSliceState();
+    for (int id : receivers) {
+        if (!m_connected || generation != m_connectGeneration) { return; }
+        publishAdditionalRx(id);
+    }
+}
+
 void AnanBackend::loadHardwareFilters(int boardId)
 {
     const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
@@ -2058,15 +2139,16 @@ void AnanBackend::loadHardwareFilters(int boardId)
         config.bypassAdc0 = m_pendingParams.bypassAdc0Filters;
         config.bypassAdc1 = m_pendingParams.bypassAdc1Filters;
     }
+    //DH1KLM Seed every new row from the saved manual path; upgrades never switch an antenna.
+    if (!config.antennaBands) {
+        config.antennaBands.emplace();
+        for (auto& row : config.antennaBands->rows) { row = {m_rxAntenna, config.rxOnlyInput}; }
+    }
     m_pendingParams.filters = config;
     m_pendingParams.bypassAdc0Filters = config.bypassAdc0;
     m_pendingParams.bypassAdc1Filters = config.bypassAdc1;
     if (m_client && m_discoveryInfoReceived) {
-        const QVariantMap options = filterOptions(config);
-        QMetaObject::invokeMethod(m_client, "setHardwareFilters", Qt::QueuedConnection,
-                                  Q_ARG(QVariantMap, options));
-        QMetaObject::invokeMethod(m_client, "setRxAntenna", Qt::QueuedConnection,
-                                  Q_ARG(int, m_rxAntenna));
+        applyReceiveAntennaRouting(true);
     }
 }
 
@@ -2154,7 +2236,11 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
         inputNames.append(QString::fromLatin1(name.data(), static_cast<int>(name.size())));
     }
     state.insert(QStringLiteral("rxInputNames"), inputNames);
-    state.insert(QStringLiteral("antenna"), m_rxAntenna);
+    const auto antennaRoute = receiveAntennaRoute();
+    state.insert(QStringLiteral("antenna"), antennaRoute.antenna);
+    state.insert(QStringLiteral("activeRxOnlyInput"), antennaRoute.rxOnly);
+    state.insert(QStringLiteral("antennaOwner"), receiveAntennaOwner());
+    state.insert(QStringLiteral("antennaBandRow"), receiveAntennaBandIndex());
     state.insert(QStringLiteral("host"), m_pendingParams.host);
     state.insert(QStringLiteral("firmware"), m_discoveredFirmwareVer);
     state.insert(QStringLiteral("reportedReceivers"), m_discoveredReceiverCount);
@@ -2396,19 +2482,22 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             }
             const QVariantMap options = verb == QLatin1String("hw.defaults")
                 ? filterOptions(defaultFilterConfig(state.value(QStringLiteral("mkII")).toBool())) : fields;
-            const auto config = parseFilterOptions(options);
+            auto config = parseFilterOptions(options);
+            //DH1KLM Older callers and filter resets retain the antenna table they do not own.
+            if (config && !config->antennaBands && m_pendingParams.filters) {
+                config->antennaBands = m_pendingParams.filters->antennaBands;
+            }
             if (!config || !AnanSettings::setHardwareFilters(m_radioSerial,
-                    static_cast<int>(m_pendingParams.model), m_discoveredBoardId, options)) {
-                emit extensionError(requestId, QStringLiteral("Filter and OC ranges must be valid integer Hz within 0–61.44 MHz; configured OC bands need distinct ranges and masks 0–127. Settings must be writable."));
+                    static_cast<int>(m_pendingParams.model), m_discoveredBoardId, filterOptions(*config))) {
+                emit extensionError(requestId, QStringLiteral("Receive settings were not changed. Filter/OC ranges require integer Hz within 0–61.44 MHz, distinct OC ranges and masks 0–127. Band antennas require ANT1–3 and RX-only values 0–5. Device settings must be writable."));
                 return;
             }
             m_pendingParams.filters = *config;
             m_pendingParams.bypassAdc0Filters = config->bypassAdc0;
             m_pendingParams.bypassAdc1Filters = config->bypassAdc1;
-            QMetaObject::invokeMethod(m_client, "setHardwareFilters", Qt::QueuedConnection,
-                                      Q_ARG(QVariantMap, options));
+            applyReceiveAntennaRouting(true);
             updateReceiveStreams();
-            emitSliceState();
+            publishReceiveAntennas();
         }
         emit extensionResult(requestId, hardwareFilterStatus());
         return;
@@ -2418,7 +2507,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
     if (ns == QLatin1String("anan") && verb == QLatin1String("rx-antenna.get")) {
         if (requestId != 0) {
             emit extensionResult(requestId, QVariantMap{
-                {QStringLiteral("antenna"), m_rxAntenna},
+                {QStringLiteral("antenna"), receiveAntennaRoute().antenna},
             });
         }
         return;
@@ -2434,7 +2523,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         if (!error.isEmpty()) { emit extensionError(requestId, error); return; }
         if (requestId != 0) {
             emit extensionResult(requestId, QVariantMap{
-                {QStringLiteral("antenna"), m_rxAntenna},
+                {QStringLiteral("antenna"), receiveAntennaRoute().antenna},
             });
         }
         return;
@@ -2718,8 +2807,9 @@ ReceiveAntennaSelection AnanBackend::activeReceiveAntenna() const
     if (!m_connected || !m_discoveryInfoReceived) { return {}; }
     const auto profile = receiveProfile(m_discoveredBoardId, m_pendingParams.model, m_pendingParams.overrideDetection);
     if (!profile) { return {}; }
+    const auto route = receiveAntennaRoute();
     return receiveAntennaSelection(profile->numAdcs, m_pendingParams.ddc0AdcIndex,
-        m_pendingParams.filters ? m_pendingParams.filters->rxOnlyInput : 0, m_rxAntenna,
+        route.rxOnly, route.antenna,
         receiveInputNames(m_pendingParams.model, m_discoveredBoardId));
 }
 
@@ -2729,20 +2819,40 @@ QString AnanBackend::applyReceiveAntenna(int antenna)
         return QStringLiteral("Connect a validated ANAN before changing its RX antenna");
     }
     if (antenna < 1 || antenna > 3) { return QStringLiteral("RX antenna must be ANT1, ANT2 or ANT3"); }
+    if (m_pendingParams.filters && m_pendingParams.filters->antennaBands
+        && m_pendingParams.filters->antennaBands->enabled) {
+        auto config = *m_pendingParams.filters;
+        auto& row = config.antennaBands->rows[receiveAntennaBandIndex()];
+        row = {antenna, 0};
+        if (!AnanSettings::setHardwareFilters(m_radioSerial, static_cast<int>(m_pendingParams.model),
+                                              m_discoveredBoardId, filterOptions(config))) {
+            return QStringLiteral("Band antenna was not changed: device settings could not be saved");
+        }
+        m_pendingParams.filters = config;
+        applyReceiveAntennaRouting();
+        publishReceiveAntennas();
+        return {};
+    }
     if (!AnanSettings::setRadioRxAntenna(m_radioSerial,
             static_cast<int>(m_pendingParams.model), m_discoveredBoardId, antenna)) {
         return QStringLiteral("RX antenna was not changed: device settings could not be saved");
     }
     m_rxAntenna = antenna;
     m_pendingParams.rxAntenna = antenna;
-    QMetaObject::invokeMethod(m_client, "setRxAntenna", Qt::QueuedConnection, Q_ARG(int, antenna));
-    emitSliceState();
+    applyReceiveAntennaRouting();
+    publishReceiveAntennas();
     return {};
 }
 
 ReceiveDispatch AnanBackend::requestSliceRxAntenna(int sliceId, const QString& antenna)
 {
     const auto route = activeReceiveAntenna();
+    const bool automatic = m_pendingParams.filters && m_pendingParams.filters->antennaBands
+        && m_pendingParams.filters->antennaBands->enabled;
+    if (automatic && sliceId != receiveAntennaOwner()) {
+        if (sliceId == 0) { emitSliceState(); } else { publishAdditionalRx(sliceId); }
+        return ReceiveDispatch::Unsupported;
+    }
     if (m_receiveLayout.slice(sliceId) && route.count == 3) {
         for (int n = 0; n < 3; ++n) {
             if (antenna == QString::fromLatin1(route.ports[n].data(), static_cast<int>(route.ports[n].size()))) {

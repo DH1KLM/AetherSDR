@@ -402,12 +402,17 @@ void P2Client::setDdc0FrequencyHz(double hz)
 //DH1KLM: Apply ANT1/ANT2/ANT3 through Thetis' Alex0 antenna bits.
 void P2Client::setHardwareFilters(const QVariantMap& options)
 {
+    setReceiveHardware(options, m_rxAntenna);
+}
+
+void P2Client::setReceiveHardware(const QVariantMap& options, int antenna)
+{
     const auto config = parseFilterOptions(options);
-    if (!config) { return; }
+    if (!config || antenna < 1 || antenna > 3) { return; }
     m_filters = *config;
     m_bypassAdc0Filters = config->bypassAdc0;
     m_bypassAdc1Filters = config->bypassAdc1;
-    setRxAntenna(m_rxAntenna);
+    setRxAntenna(antenna);
 }
 
 void P2Client::setRxAntenna(int antenna)

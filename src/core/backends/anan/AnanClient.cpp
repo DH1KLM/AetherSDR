@@ -74,6 +74,12 @@ void AnanClient::setRxAntenna(int antenna)
 {
     if (m_protocol == 1) m_p1->setRxAntenna(antenna); else m_p2->setRxAntenna(antenna);
 }
+void AnanClient::setReceiveHardware(const QVariantMap& options, int antenna)
+{
+    if (m_protocol == 1) { m_p1->setReceiveHardware(options, antenna); }
+    else { m_p2->setReceiveHardware(options, antenna); }
+}
+
 void AnanClient::setHardwareFilters(const QVariantMap& options)
 {
     if (m_protocol == 1) { m_p1->setHardwareFilters(options); }

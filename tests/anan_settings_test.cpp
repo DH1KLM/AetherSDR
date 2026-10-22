@@ -40,6 +40,50 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
 
+    {
+        auto config = defaultFilterConfig(false);
+        config.antennaBands.emplace();
+        config.antennaBands->enabled = true;
+        config.antennaBands->rows[5] = {2, 5};
+        const auto options = filterOptions(config);
+        const QString mac = QStringLiteral("band-antenna-settings");
+        check(AnanSettings::setHardwareFilters(mac, 7, 5, options), "save band antenna table atomically");
+        const auto loaded = parseFilterOptions(AnanSettings::hardwareFilters(mac, 7, 5));
+        check(loaded && loaded->antennaBands && loaded->antennaBands->enabled
+              && loaded->antennaBands->rows[5].antenna == 2 && loaded->antennaBands->rows[5].rxOnly == 5,
+              "independent ANT bank and Thetis external plus XVTR state survive storage");
+        check(AnanSettings::hardwareFilters(QStringLiteral("other-band-antenna-radio"), 7, 5).isEmpty()
+              && AnanSettings::hardwareFilters(mac, 8, 5).isEmpty()
+              && AnanSettings::hardwareFilters(mac, 7, 4).isEmpty(), "band antennas cannot leak across MAC, model or board");
+        auto invalid = options;
+        auto table = invalid.value(QStringLiteral("antennaBands")).toMap();
+        table.insert(QStringLiteral("enabled"), QStringLiteral("true"));
+        invalid.insert(QStringLiteral("antennaBands"), table);
+        check(!parseFilterOptions(invalid), "band antenna enable must be an actual boolean");
+        for (const QVariant bad : {QVariant(-1), QVariant(6), QVariant(1.5), QVariant(true), QVariant(QStringLiteral("2"))}) {
+            auto table = options.value(QStringLiteral("antennaBands")).toMap();
+            auto rows = table.value(QStringLiteral("rows")).toList();
+            auto row = rows[5].toMap();
+            row.insert(QStringLiteral("rxOnly"), bad);
+            rows[5] = row;
+            table.insert(QStringLiteral("rows"), rows);
+            invalid = options;
+            invalid.insert(QStringLiteral("antennaBands"), table);
+            check(!parseFilterOptions(invalid) && !AnanSettings::setHardwareFilters(mac, 7, 5, invalid),
+                  "malformed band input cannot replace the persisted table");
+        }
+        table = options.value(QStringLiteral("antennaBands")).toMap();
+        table.insert(QStringLiteral("rows"), QVariantList{});
+        invalid = options;
+        invalid.insert(QStringLiteral("antennaBands"), table);
+        check(!parseFilterOptions(invalid), "incomplete band table is refused");
+        const RadioSettingsScope scope(QStringLiteral("anan"), mac);
+        check(scope.setFeature(QStringLiteral("HardwareFilters"), 99, QJsonObject{{QStringLiteral("future"), true}}), "seed future band schema");
+        check(!AnanSettings::setHardwareFilters(mac, 7, 5, options)
+              && scope.featureExact(QStringLiteral("HardwareFilters")).value(QStringLiteral("future")).toBool(),
+              "band edits never overwrite a newer document");
+    }
+
     //DH1KLM: Logical hardware selection is exact-radio scoped, not inherited.
     const QString rp = QStringLiteral("88:A2:9E:6D:9F:6A");
     const QString other = QStringLiteral("88:A2:9E:6D:9F:6B");
@@ -263,7 +307,7 @@ int main(int argc, char** argv)
         check(AnanSettings::setHardwareFilters(serial,7,5,legacy), "upgrade old filter document atomically");
         int version = 0;
         scope.featureExact(QStringLiteral("HardwareFilters"), &version);
-        check(version == 5, "hardware filters use schema 5 with RX input selection");
+        check(version == 6, "hardware filters use schema 6 with independent band antennas");
         auto rows = options.value(QStringLiteral("receiveAdc1")).toList();
         rows[2] = QVariantMap{{QStringLiteral("lowHz"), 1000000}, {QStringLiteral("highHz"), 6500000}};
         options.insert(QStringLiteral("receiveAdc1"),rows);

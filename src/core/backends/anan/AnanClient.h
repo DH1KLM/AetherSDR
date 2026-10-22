@@ -21,6 +21,7 @@ public:
     Q_INVOKABLE void setRxAntenna(int antenna);
     void setReceiveFilterPlan(const ReceiveFilterPlan& plan);
     Q_INVOKABLE void setHardwareFilters(const QVariantMap& options);
+    Q_INVOKABLE void setReceiveHardware(const QVariantMap& options, int antenna);
     Q_INVOKABLE bool setDdcRateLive(int ddc, int rateKsps);
     Q_INVOKABLE void enqueueSpeakerAudio(const QByteArray& audio);
 signals:

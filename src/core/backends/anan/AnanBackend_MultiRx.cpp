@@ -125,6 +125,9 @@ void AnanBackend::updateReceiveStreams()
 {
     if (!m_connected)
         return;
+    const auto antenna = receiveAntennaRoute();
+    const bool antennaChanged = m_appliedAntenna != antenna.antenna || m_appliedRxOnly != antenna.rxOnly;
+    applyReceiveAntennaRouting();
     int count = 1;
     for (int st = 0; st < m_receiveLayout.limit(); ++st)
         if (m_receiveLayout.streams()[st].active)
@@ -180,6 +183,7 @@ void AnanBackend::updateReceiveStreams()
                     Qt::QueuedConnection);
         },
         Qt::QueuedConnection);
+    if (antennaChanged) { publishReceiveAntennas(); }
 }
 bool AnanBackend::createSlice(const QString& pan, double hz)
 {
@@ -456,9 +460,28 @@ void AnanBackend::publishAdditionalRx(int id)
     QStringList ports;
     for (std::size_t n = 0; n < a.count; ++n)
         ports.append(QString::fromLatin1(a.ports[n].data(), int(a.ports[n].size())));
+    const QString current = QString::fromLatin1(a.current.data(), int(a.current.size()));
+    if (m_pendingParams.filters && m_pendingParams.filters->antennaBands
+        && m_pendingParams.filters->antennaBands->enabled && id != receiveAntennaOwner()) {
+        ports = {current};
+    }
+    QStringList panPorts = ports;
+    const auto* owner = m_receiveLayout.slice(receiveAntennaOwner());
+    if (owner && owner->stream == s->stream) {
+        panPorts.clear();
+        for (std::size_t n = 0; n < a.count; ++n) {
+            panPorts.append(QString::fromLatin1(a.ports[n].data(), int(a.ports[n].size())));
+        }
+    }
     d.rxAntennaList = ports;
-    d.rxAntenna = QString::fromLatin1(a.current.data(), int(a.current.size()));
+    d.rxAntenna = current;
+    const quint64 generation = m_connectGeneration;
+    const QString pan = rxPan(s->stream);
     emit sliceChanged(id, d);
+    if (!panPorts.isEmpty() && m_connected && generation == m_connectGeneration) {
+        emit panAntennaListChanged(pan, panPorts);
+        if (m_connected && generation == m_connectGeneration) { emit panRxAntennaChanged(pan, current); }
+    }
 }
 ReceiveDispatch AnanBackend::requestSliceControl(int id, const SliceControlRequest& request)
 {

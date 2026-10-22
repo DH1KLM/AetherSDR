@@ -60,6 +60,7 @@ struct P2ClientTestAccess {
     static bool validated(const P2Client& client) { return client.m_discoveryValidated; }
     static int physicalDdc(const P2Client& client) { return client.m_firstDdcIndex; }
     static int receiveInput(const P2Client& client) { return client.m_filters ? client.m_filters->rxOnlyInput : 0; }
+    static int antenna(const P2Client& client) { return client.m_rxAntenna; }
     static bool selectLpf(const P2Client& client) { return client.m_selectReceiveLpf; }
     static void setAdcs(P2Client& client, int count) { client.m_numAdcs = count; }
     static void setDdcCount(P2Client& client, int count) { client.m_activeDdcCount = count; }
@@ -226,8 +227,19 @@ int main(int argc, char** argv)
         invalid.insert(QStringLiteral("rxOnlyInput"),4);
         client.setHardwareFilters(invalid);
         check(P2ClientTestAccess::receiveInput(client) == 3, "P2 malformed input preserves the RX route");
+        config.rxOnlyInput = 1;
+        client.setReceiveHardware(filterOptions(config), 2);
+        check(P2ClientTestAccess::receiveInput(client) == 1 && P2ClientTestAccess::antenna(client) == 2,
+              "P2 applies an antenna bank and RX-only input as one complete receive configuration");
+        client.setReceiveHardware(filterOptions(config), 0);
+        check(P2ClientTestAccess::receiveInput(client) == 1 && P2ClientTestAccess::antenna(client) == 2,
+              "invalid combined P2 bank cannot partially replace the input");
+        client.setReceiveHardware(invalid, 3);
+        check(P2ClientTestAccess::receiveInput(client) == 1 && P2ClientTestAccess::antenna(client) == 2,
+              "invalid combined P2 input cannot partially replace the bank");
         client.setHardwareFilters(filterOptions(defaultFilterConfig(false)));
-        check(P2ClientTestAccess::receiveInput(client) == 0, "P2 model defaults restore ANT input bank");
+        check(P2ClientTestAccess::receiveInput(client) == 0 && P2ClientTestAccess::antenna(client) == 2,
+              "P2 model defaults restore ANT input without changing its independent bank");
         client.stop();
     }
     //DH1KLM: Exercise production live-rate dispatch with an injected send, never a socket.

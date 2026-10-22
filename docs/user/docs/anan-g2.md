@@ -197,12 +197,33 @@ The page follows the Nereus hardware-page arrangement:
   existing exact-profile band-view recall keeps its normal precedence.
 - **Antenna / ALEX**: **Antenna Control**, **Alex-1 Filters**, **Alex-2 Filters**.
   **Antenna Control** places the TX safety options above TX and RX per-band
-  antenna matrices, followed by the TX bypass options. These per-band and TX
-  controls are dimmed with an explanation; ANAN per-band antenna routing and
-  transmit are not implemented. **Current RX Antenna** below the matrices
-  contains the working **ADC0 input**, **ANT bank**, and **ADC1 RF filter bypass**
-  controls. ANT1/2/3, input and bypass changes are saved and applied immediately. ADC1 keeps its dedicated RX2 input. Settings remain separate for
-  this MAC address, effective model and physical board.
+  antenna matrices, followed by the TX bypass options. TX controls remain
+  dimmed with an explanation. **Enable RX antenna per band** activates the RX
+  table; it starts off so existing manual choices remain effective. Each band
+  keeps an independent ANT1/2/3 selection and RX-only selection. The two external
+  input checkboxes exclude each other and can both be cleared to receive through
+  the ANT bank. Names follow the selected model. Edits are saved immediately;
+  the current band's row is applied when band routing is enabled.
+
+  RX1 controls the shared ADC0 antenna path using its receive frequency, including
+  when CTUN holds the capture centre elsewhere. Other slices follow this physical
+  path; selecting or tuning one cannot take antenna control from RX1. If RX1 is
+  closed, the lowest remaining receiver ID takes control. All receiver labels
+  report the commanded shared input. ADC1 retains its dedicated RX2 input;
+  the table does not provide independent antennas for slices sharing one ADC.
+
+  Amateur-band selection follows the active regional band plan. Frequencies
+  outside those bands use **GEN**. **WWV** covers ±5 kHz around 2.5, 5, 10, 15,
+  20 and 25 MHz. GEN/WWV are explicit Aether slots rather than Thetis's
+  nearest-amateur-band fallback. **2m**, **XVTR** operating mode and the table's
+  conditional XVTR checkboxes remain disabled with explanations: transverter
+  translation is not implemented and receive tuning ends at 61.44 MHz.
+
+  **Current RX Antenna** below the matrices displays the effective **ADC0 input**
+  and **ANT bank**. These manual selectors are disabled while band routing is on;
+  edit the band row instead. Turning band routing off restores the separately
+  saved manual path. **ADC1 RF filter bypass** remains independent. Settings
+  remain separate for this MAC address, effective model and physical board.
 
   **Alex-1 Filters** places **Reset filter defaults** above two filter banks.
   The receive-bank master bypass and RX/TX options sit above the filter rows;
@@ -226,7 +247,8 @@ The page follows the Nereus hardware-page arrangement:
   page: ADC0 and available LPF on Alex-1, ADC1 on Alex-2. Bypass, antenna and
   OC settings are kept. The change is applied automatically. **Restore model defaults**
   remains the separate action that restores the whole hardware-filter
-  configuration, including bypass and OC defaults.
+  configuration, including bypass and OC defaults, while retaining the antenna
+  band table and its enable state.
 - **OC Outputs**: **HF**, **VHF**, **SWL**. HF has RX/TX pin matrices side by side
   and a commanded RX pin-state readout. The RX matrix is configurable; TX, VHF,
   SWL and user digital outputs are visible but disabled
@@ -239,8 +261,8 @@ An explicit model override determines the filter configuration; otherwise the
 selected compatible model or physical-board profile is used. FlexRadio, Icom
 and HL2 retain their own hardware settings.
 
-**Antenna Control → ADC0 input** selects the ANT1/2/3 path or a dedicated
-receive input. Changes are saved and activated immediately for this MAC,
+With **Enable RX antenna per band** off, **Antenna Control → ADC0 input** selects
+the ANT1/2/3 path or a dedicated receive input. Changes are saved and activated immediately for this MAC,
 effective model and physical board. Names follow the selected model, including DIY
 overrides:
 

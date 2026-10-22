@@ -499,8 +499,8 @@ board/model override matrix, including P1/P2 byte differences and return to
 ANT-bank input. Other filters, ADC1, OC, attenuation, frequency and PTT/MOX
 remain unchanged. Injected P1/P2 setters and per-device persistence tests cover
 propagation, refusal and defaults. Physical RX-connector qualification is
-pending; no TX, per-band antenna matrix, frequency-offset transverter support,
-new ID-11 profile or expanded droop support is introduced.
+pending; no TX, frequency-offset transverter support, new ID-11 profile or
+expanded droop support is introduced. Band-dependent RX routing is described below.
 
 Validation: model-profile, P1/P2 protocol, injected P1/P2 transport and settings
 tests pass. External mutations suppressing P2 input selection or replacing
@@ -556,8 +556,9 @@ Antenna Control and the Alex pages follow the public NereusSDR
 [`AntennaAlexAlex1Tab`](https://github.com/boydsoftprez/NereusSDR/blob/main/src/gui/setup/hardware/AntennaAlexAlex1Tab.cpp)
 and
 [`AntennaAlexAlex2Tab`](https://github.com/boydsoftprez/NereusSDR/blob/main/src/gui/setup/hardware/AntennaAlexAlex2Tab.cpp)
-arrangement. Per-band RX/TX antenna matrices and TX options are unavailable
-previews; current RX routing retains its existing controls and persistence.
+arrangement. The RX band matrix has an explicit enable control; TX options
+remain unavailable. Manual routing retains its separate values and is restored
+when band routing is disabled.
 Filter rows are widget grids with aligned LEDs and MHz-suffixed edge fields.
 Whole banks reflow rather than clipping the final row or frequency field.
 
@@ -652,3 +653,51 @@ to the original receiver as the sole slice, and ADC selection is not independent
 Qualification: placement/codec tests, injected P1/P2 transport tests and an
 actual additional-WDSP lifecycle/rate/audio test. These are software evidence,
 not a claim of multi-receive operation on every physical radio.
+
+
+### Band-dependent RX antennas
+
+`HardwareFilters` schema 6 adds optional `antennaBands` with `enabled` and 15
+stable rows (160m..6m, 2m, GEN, WWV, XVTR). Each row keeps `antenna` (1..3)
+and `rxOnly` (0..5) independently. Missing tables start disabled and are seeded
+from the saved manual bank and physical RX-only input without rewriting the
+legacy document on read. Exact MAC/model/board scope, atomic persistence and
+newer-schema refusal remain on the existing `hw.set` save-before-dispatch path.
+Filter resets and callers that omit the table retain it.
+
+Thetis `Alex.cs` and `setup.cs` at `852bf0ef0b4f3886a13fc2846489aee16f361872`
+are the behavior reference: RX-only checkboxes can all be cleared, the first
+two exclude each other, and the XVTR checkbox adds 3 to the saved selection.
+With no transverter mode, values 3..5 resolve to 0..2, as Thetis specifies.
+Aether's conditional XVTR column and 2m/XVTR rows remain disabled because no
+transverter operating mode is implemented. Manual physical XVTR RX selection
+remains available when automatic band routing is off.
+
+RX1 (slice ID 0) owns ADC0's common antenna path. If it is removed, the lowest
+remaining ready slice ID owns the path; GUI focus cannot transfer ownership.
+The owner's RF dial, not the capture centre, selects the row. Regional amateur
+band envelopes come from `BandPlanManager`; unsupported/out-of-allocation
+frequencies use GEN. WWV uses the six 2.5/5/10/15/20/25 MHz centres ±5 kHz.
+The explicit GEN/WWV rows are an Aether extension to Thetis's nearest-band
+fallback. Every slice observes the shared input. Non-owner antenna requests
+are refused, and ADC1 continues to report its dedicated RX2 input.
+
+`AnanClient::setReceiveHardware` passes the complete filter/input snapshot and
+ANT bank together to P1/P2. Both validate the complete update before mutation;
+P2 emits one high-priority update without an intermediate old-bank command.
+Session starts and rate restarts derive their snapshot from the same band row.
+No MOX/PTT path changes.
+
+Additional implementation comparisons: Nereus `9a20b6b0` has separate band
+arrays and a kept-antenna extension; Longpath `4c8f406f` has separate arrays
+but documents the per-band/per-slice ownership conflict; deskHPSDR `fc53f93b`
+stores a single combined RX selection per band and follows VFO A. Aether uses
+Thetis's independent values with explicit common-path ownership, rather than
+independent per-slice relay claims or a kept-antenna extension.
+
+New backend/storage/UI assertions cover migration, 20m→40m→20m, RX-only release,
+regional GEN/WWV selection, ownership handoff, refused writes and process-boundary
+restore. The full application builds with Qt 6.12; the seven affected backend,
+settings, UI, P1/P2, model-profile and multi-receiver tests pass. The standalone
+P1/P2 protocol tests also pass. Windows build and hardware verification remain
+operator checks.

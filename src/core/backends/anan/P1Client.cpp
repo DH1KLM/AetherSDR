@@ -365,8 +365,14 @@ void P1Client::setRxAntenna(int antenna)
 
 void P1Client::setHardwareFilters(const QVariantMap& options)
 {
+    setReceiveHardware(options, m_config.antenna);
+}
+
+void P1Client::setReceiveHardware(const QVariantMap& options, int antenna)
+{
     const auto config = parseFilterOptions(options);
-    if (!config) { return; }
+    if (!config || antenna < 1 || antenna > 3) { return; }
+    m_config.antenna = antenna;
     m_params.filters = *config;
     m_params.bypassAdc0Filters = config->bypassAdc0;
     m_params.bypassAdc1Filters = config->bypassAdc1;

@@ -21,6 +21,8 @@
 #include "core/backends/anan/AnanSettings.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
+#include "models/BandPlanManager.h"
+#include "core/backends/anan/AnanFilterOptions.h"
 
 #include <QCoreApplication>
 #include <QEventLoop>
@@ -83,6 +85,31 @@ public:
         backend.applyTuneToRadioAndPan();
     }
     static int antenna(const AnanBackend& backend) { return backend.m_rxAntenna; }
+    static void antennaPlan(AnanBackend& backend)
+    {
+        backend.m_receiveLayout.reset(5, backend.m_sliceFreqHz, 48);
+        backend.m_antennaBandPlan = std::make_unique<BandPlanManager>();
+        backend.m_antennaPlanName = AppSettings::instance().value(QStringLiteral("BandPlanName"), QStringLiteral("ARRL (US)")).toString();
+        backend.m_antennaBandPlan->setSegmentsForTest({{3.5, 3.8, {}, {}, {}}, {7.0, 7.2, {}, {}, {}},
+                                                    {14.0, 14.35, {}, {}, {}}});
+    }
+    static void loadAntennas(AnanBackend& backend) { backend.loadHardwareFilters(5); }
+    static auto antennaRoute(const AnanBackend& backend) { return backend.receiveAntennaRoute(); }
+    static auto client(AnanBackend& backend) { return backend.m_client; }
+    static int secondary(AnanBackend& backend, double hz)
+    {
+        const auto added = backend.m_receiveLayout.add(hz);
+        if (!added) { return -1; }
+        const int id = *added;
+        auto receiver = std::make_shared<AnanBackend::AdditionalRx>();
+        receiver->id = id;
+        receiver->ready = true;
+        backend.m_additionalRx[id] = receiver;
+        return id;
+    }
+    static void removePrimary(AnanBackend& backend) { backend.m_receiveLayout.remove(0); backend.updateReceiveStreams(); }
+    static bool moveCapture(AnanBackend& backend, double hz) { return backend.m_receiveLayout.setWindow(backend.primaryPanIndex(), hz, 48); }
+
     static void prepareRate(AnanBackend& backend, int protocol, bool redPitaya, int rate)
     {
         backend.m_pendingParams.protocol = protocol;
@@ -109,6 +136,22 @@ public:
         P2Client::LinkCounters counters;
         counters.rxBytes = rxBytes;
         backend.onLinkCounters(counters);
+    }
+};
+
+//DH1KLM Inspect the real idle P2 client on its I/O thread; no socket or peer is created.
+struct P2ClientTestAccess {
+    static ReceiveAntennaBand route(const P2Client& client)
+    {
+        return {client.m_rxAntenna, client.m_filters ? client.m_filters->rxOnlyInput : 0};
+    }
+};
+struct AnanClientTestAccess {
+    static ReceiveAntennaBand route(AnanClient* client)
+    {
+        ReceiveAntennaBand result;
+        QMetaObject::invokeMethod(client, [&] { result = P2ClientTestAccess::route(*client->m_p2); }, Qt::BlockingQueuedConnection);
+        return result;
     }
 };
 
@@ -290,6 +333,106 @@ static void bandViewMemoryChecks()
     }
 }
 
+//DH1KLM Drive the actual scoped settings, backend band selection and queued client apply together.
+static void bandAntennaChecks(bool restoreChild)
+{
+    const QString serial = QStringLiteral("02:00:00:00:AB:01");
+    AnanBackend backend;
+    AnanLinkStatsTestAccess::antennaSession(backend, serial);
+    AnanLinkStatsTestAccess::antennaPlan(backend);
+    backend.setSliceFrequency(0, 14'175'000);
+    AnanLinkStatsTestAccess::flushTune(backend);
+    if (restoreChild) {
+        AnanLinkStatsTestAccess::loadAntennas(backend);
+        const auto route = AnanClientTestAccess::route(AnanLinkStatsTestAccess::client(backend));
+        check(route.antenna == 2 && route.rxOnly == 0, "fresh process restores and applies the saved 20m antenna");
+        AnanLinkStatsTestAccess::setConnected(backend, false);
+        return;
+    }
+    check(AnanSettings::setRadioRxAntenna(serial, 7, 5, 3), "seed legacy manual bank");
+    auto manual = defaultFilterConfig(false);
+    manual.rxOnlyInput = 2;
+    check(AnanSettings::setHardwareFilters(serial, 7, 5, filterOptions(manual)), "seed legacy manual RX-only input");
+    AnanLinkStatsTestAccess::loadAntennas(backend);
+    QVariantMap status;
+    int errors = 0;
+    QObject::connect(&backend, &IRadioBackend::extensionResult, &backend,
+        [&](quint64, const QVariant& data) { status = data.toMap(); });
+    QObject::connect(&backend, &IRadioBackend::extensionError, &backend,
+        [&](quint64, const QString&) { ++errors; });
+    const auto read = [&] { backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("hw.get"), 920, {}); };
+    const auto write = [&] { backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("hw.set"), 921, status); };
+    const auto routeIs = [&](int bank, int input) {
+        const auto route = AnanClientTestAccess::route(AnanLinkStatsTestAccess::client(backend));
+        return route.antenna == bank && route.rxOnly == input;
+    };
+    read();
+    auto bands = status.value(QStringLiteral("antennaBands")).toMap();
+    auto rows = bands.value(QStringLiteral("rows")).toList();
+    check(!bands.value(QStringLiteral("enabled")).toBool() && rows.size() == 15 && routeIs(3, 2),
+          "legacy migration seeds a disabled table and preserves the physical manual path");
+    rows[5] = QVariantMap{{QStringLiteral("antenna"), 2}, {QStringLiteral("rxOnly"), 0}};
+    rows[3] = QVariantMap{{QStringLiteral("antenna"), 1}, {QStringLiteral("rxOnly"), 2}};
+    rows[12] = QVariantMap{{QStringLiteral("antenna"), 1}, {QStringLiteral("rxOnly"), 1}};
+    rows[13] = QVariantMap{{QStringLiteral("antenna"), 3}, {QStringLiteral("rxOnly"), 0}};
+    bands.insert(QStringLiteral("rows"), rows);
+    bands.insert(QStringLiteral("enabled"), true);
+    status.insert(QStringLiteral("antennaBands"), bands);
+    write();
+    check(errors == 0 && routeIs(2, 0), "enabling the table applies the current 20m row");
+    backend.setSliceFrequency(0, 7'100'000);
+    AnanLinkStatsTestAccess::flushTune(backend);
+    check(routeIs(1, 2), "20m to 40m applies its independent ANT bank and RX-only input");
+    backend.setSliceFrequency(0, 14'175'000);
+    AnanLinkStatsTestAccess::flushTune(backend);
+    check(routeIs(2, 0), "return to 20m releases RX-only and restores ANT2");
+    read();
+    const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+    const auto saved = scope.featureExact(QStringLiteral("HardwareFilters"));
+    check(scope.setFeature(QStringLiteral("HardwareFilters"), 99, QJsonObject{{QStringLiteral("future"), true}}), "future band document fixture");
+    write();
+    check(errors == 1 && routeIs(2, 0) && scope.featureExact(QStringLiteral("HardwareFilters")).value(QStringLiteral("future")).toBool(),
+          "refused persistence leaves the actual client route and future document untouched");
+    check(scope.setFeature(QStringLiteral("HardwareFilters"), 6, saved), "restore compatible test document");
+    status.insert(QStringLiteral("identity"), QStringLiteral("another-radio"));
+    write();
+    check(errors == 2 && routeIs(2, 0), "stale setup identity cannot change this radio's band routing");
+    read();
+    backend.invokeExtension(QStringLiteral("anan"), QStringLiteral("hw.defaults"), 922, status);
+    check(status.value(QStringLiteral("antennaBands")).toMap().value(QStringLiteral("enabled")).toBool() && routeIs(2, 0),
+          "restoring filter defaults retains independently configured antenna bands");
+    backend.setSliceFrequency(0, 14'000'500);
+    AnanLinkStatsTestAccess::flushTune(backend);
+    check(AnanLinkStatsTestAccess::moveCapture(backend, 13'990'000),
+          "a valid capture can straddle the amateur-band edge while retaining the RX dial");
+    read();
+    check(status.value(QStringLiteral("antennaBandRow")).toInt() == 5,
+          "band routing follows the RX dial, not a pan or CTUN capture centre");
+    const int secondary = AnanLinkStatsTestAccess::secondary(backend, 7'100'000);
+    check(secondary > 0, "secondary receiver fixture has its own valid stream");
+    backend.setActiveSlice(secondary);
+    check(backend.requestSliceRxAntenna(secondary, QStringLiteral("ANT3")) == ReceiveDispatch::Unsupported && routeIs(2, 0),
+          "activating another slice cannot override RX1's shared antenna");
+    AnanLinkStatsTestAccess::removePrimary(backend);
+    read();
+    check(status.value(QStringLiteral("antennaOwner")).toInt() == secondary && routeIs(1, 2),
+          "removing RX1 hands control to the lowest remaining ready receiver");
+    AnanLinkStatsTestAccess::setConnected(backend, false);
+
+    AnanBackend single;
+    AnanLinkStatsTestAccess::antennaSession(single, serial);
+    AnanLinkStatsTestAccess::antennaPlan(single);
+    AnanLinkStatsTestAccess::loadAntennas(single);
+    single.setSliceFrequency(0, 3'900'000);
+    AnanLinkStatsTestAccess::flushTune(single);
+    check(AnanLinkStatsTestAccess::antennaRoute(single).rxOnly == 1,
+          "a frequency outside the active regional allocation uses GEN rather than US-only 80m edges");
+    single.setSliceFrequency(0, 10'000'000);
+    AnanLinkStatsTestAccess::flushTune(single);
+    check(AnanLinkStatsTestAccess::antennaRoute(single).antenna == 3, "time-signal frequency uses the explicit WWV row");
+    AnanLinkStatsTestAccess::setConnected(single, false);
+}
+
 int main(int argc, char** argv)
 {
     // The child inherits the parent's isolated store to prove disk persistence.
@@ -303,6 +446,7 @@ int main(int argc, char** argv)
     }
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
+    bandAntennaChecks(restoreChild);
     if (!restoreChild) {
         filterDefaultEdgesChecks();
         bandViewMemoryChecks();

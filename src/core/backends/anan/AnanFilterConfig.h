@@ -10,6 +10,15 @@ namespace AetherSDR::anan {
 //DH1KLM: Thetis RX filter rows, in integer Hz. No TX relay or keying state.
 struct FilterBand { std::uint32_t lowHz; std::uint32_t highHz; };
 struct OcReceiveBand { std::uint32_t lowHz = 0; std::uint32_t highHz = 0; std::uint8_t mask = 0; };
+//DH1KLM Stable row order: 160m..6m, 2m, GEN, WWV, XVTR. ANT and RX-only are independent.
+struct ReceiveAntennaBand {
+    int antenna = 1;
+    int rxOnly = 0;
+};
+struct ReceiveAntennaBands {
+    bool enabled = false;
+    std::array<ReceiveAntennaBand, 15> rows{};
+};
 struct FilterConfig {
     std::array<FilterBand, 6> receive;
     std::array<FilterBand, 7> lowPass;
@@ -24,6 +33,8 @@ struct FilterConfig {
     int rxOnlyInput = 0;
     //DH1KLM: Old documents inherit ADC0 ranges until ADC1 is configured.
     std::optional<std::array<FilterBand, 6>> receiveAdc1{};
+    //DH1KLM Absent in legacy documents; seed from the saved manual path before enabling.
+    std::optional<ReceiveAntennaBands> antennaBands{};
 };
 inline constexpr FilterConfig defaultFilterConfig(bool mkII) noexcept
 {

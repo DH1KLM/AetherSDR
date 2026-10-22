@@ -568,8 +568,16 @@ int main(int argc, char** argv) {
         check(independent.receiveFilterBits == 0x10 && independent.adc1ReceiveFilterBits == 0x08,
             "P1 dispatcher applies separate ADC1 limits without retuning ADC0");
         config.rxOnlyInput = 2;
-        dispatcher.setHardwareFilters(filterOptions(config));
+        dispatcher.setReceiveHardware(filterOptions(config), 3);
         const auto routed = P1ClientTestAccess::config(client);
+        check(routed.antenna == 3, "P1 dispatcher changes the bank and RX-only input together");
+        dispatcher.setReceiveHardware(filterOptions(config), 0);
+        auto malformed = filterOptions(config);
+        malformed.insert(QStringLiteral("rxOnlyInput"), 7);
+        dispatcher.setReceiveHardware(malformed, 1);
+        check(P1ClientTestAccess::config(client).antenna == 3
+              && P1ClientTestAccess::config(client).rxOnlyInput == 2,
+              "invalid combined P1 settings cannot partially replace the bank or input");
         check(routed.rxOnlyInput == 2 && routed.mkIIBpf
               && p1::receiveControl(0,routed)->at(3) == 0x59,
               "P1 dispatcher maps EXT1 and MkII RX master into general bank");

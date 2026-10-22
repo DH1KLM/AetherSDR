@@ -112,6 +112,7 @@ public:
     Q_INVOKABLE void setRxAntenna(int antenna);
     void setReceiveFilterPlan(const ReceiveFilterPlan& plan) { m_receiveFilterPlan = plan; }
     Q_INVOKABLE void setHardwareFilters(const QVariantMap& options);
+    void setReceiveHardware(const QVariantMap& options, int antenna);
 
     // Hand over demodulated receiver audio for the radio's speaker: L,R,... int16 in
     // HOST order at kSpeakerSampleRateHz (buildSpeakerAudio() byte-swaps). One call

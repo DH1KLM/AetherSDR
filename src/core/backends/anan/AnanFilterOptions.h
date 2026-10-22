@@ -32,6 +32,16 @@ inline QVariantMap filterOptions(const FilterConfig& config)
             {QStringLiteral("bypassAdc0"), config.bypassAdc0},
             {QStringLiteral("bypassAdc1"), config.bypassAdc1}};
     if (config.receiveAdc1) { options.insert(QStringLiteral("receiveAdc1"), rows(*config.receiveAdc1)); }
+    if (config.antennaBands) {
+        QVariantList antennas;
+        for (const auto& row : config.antennaBands->rows) {
+            antennas.append(QVariantMap{{QStringLiteral("antenna"), row.antenna},
+                                       {QStringLiteral("rxOnly"), row.rxOnly}});
+        }
+        options.insert(QStringLiteral("antennaBands"), QVariantMap{
+            {QStringLiteral("enabled"), config.antennaBands->enabled},
+            {QStringLiteral("rows"), antennas}});
+    }
     return options;
 }
 inline std::optional<FilterConfig> parseFilterOptions(const QVariantMap& map)
@@ -69,6 +79,34 @@ inline std::optional<FilterConfig> parseFilterOptions(const QVariantMap& map)
         if (!numeric || !ok || !std::isfinite(input) || input < 0 || input > 3
             || std::floor(input) != input) { return std::nullopt; }
         config.rxOnlyInput = static_cast<int>(input);
+    }
+    if (map.contains(QStringLiteral("antennaBands"))) {
+        const QVariant value = map.value(QStringLiteral("antennaBands"));
+        if (value.metaType().id() != QMetaType::QVariantMap) { return std::nullopt; }
+        const auto bands = value.toMap();
+        const auto rows = bands.value(QStringLiteral("rows")).toList();
+        if (bands.value(QStringLiteral("enabled")).metaType().id() != QMetaType::Bool
+            || rows.size() != 15) { return std::nullopt; }
+        config.antennaBands.emplace();
+        config.antennaBands->enabled = bands.value(QStringLiteral("enabled")).toBool();
+        const auto integer = [](const QVariant& value, int low, int high) {
+            const int type = value.metaType().id();
+            const bool numeric = type == QMetaType::Int || type == QMetaType::UInt
+                || type == QMetaType::LongLong || type == QMetaType::ULongLong
+                || type == QMetaType::Double;
+            bool ok = false;
+            const double number = value.toDouble(&ok);
+            return numeric && ok && std::isfinite(number) && number >= low && number <= high
+                && std::floor(number) == number;
+        };
+        for (int n = 0; n < 15; ++n) {
+            if (rows[n].metaType().id() != QMetaType::QVariantMap) { return std::nullopt; }
+            const auto row = rows[n].toMap();
+            if (!integer(row.value(QStringLiteral("antenna")), 1, 3)
+                || !integer(row.value(QStringLiteral("rxOnly")), 0, 5)) { return std::nullopt; }
+            config.antennaBands->rows[n] = {row.value(QStringLiteral("antenna")).toInt(),
+                                          row.value(QStringLiteral("rxOnly")).toInt()};
+        }
     }
     if (map.contains(QStringLiteral("receiveAdc1"))) {
         config.receiveAdc1.emplace();

@@ -210,9 +210,11 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* antennaGroup = new QGroupBox(QStringLiteral("Receive Antenna"), antennaControl);
     auto* antennaForm = new QFormLayout(antennaGroup);
     auto* antennaCombo = new GuardedComboBox(antennaGroup);
+    antennaCombo->setObjectName(QStringLiteral("ananRxAntennaBank"));
     antennaCombo->setAccessibleName(QStringLiteral("ADC0 receive antenna"));
     for (int n = 1; n <= 3; ++n) { antennaCombo->addItem(QStringLiteral("ANT%1").arg(n), n); }
     auto* rxInput = new GuardedComboBox(antennaGroup);
+    rxInput->setObjectName(QStringLiteral("ananRxInput"));
     rxInput->setAccessibleName(QStringLiteral("ADC0 receive input"));
     rxInput->setAccessibleDescription(QStringLiteral("Select the ADC0 receive input; changes apply immediately"));
     antennaForm->addRow(QStringLiteral("ADC0 input:"), rxInput);
@@ -245,7 +247,13 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         return group;
     };
     const QString txReason = QStringLiteral("Unavailable: ANAN transmit is not implemented");
-    const QString bandAntennaReason = QStringLiteral("Unavailable: per-band antenna routing is not implemented. Use Current RX Antenna below for the active receive path.");
+    const QString bandAntennaReason = QStringLiteral("Separate ANT1/2/3 and RX-only choices for ADC0. RX1 controls the shared path; other slices follow. Clear both external inputs to use the ANT bank.");
+    auto* bandAntennasEnabled = new QCheckBox(QStringLiteral("Enable RX antenna per band"), antennaControl);
+    bandAntennasEnabled->setObjectName(QStringLiteral("ananBandAntennasEnabled"));
+    bandAntennasEnabled->setAccessibleName(bandAntennasEnabled->text());
+    bandAntennasEnabled->setAccessibleDescription(bandAntennaReason);
+    bandAntennasEnabled->setToolTip(bandAntennaReason);
+    antennaControlLayout->addWidget(bandAntennasEnabled);
     const auto unavailableCheck = [](QWidget* parent, const QString& text, const QString& reason) {
         auto* check = new QCheckBox(text, parent);
         check->setAccessibleName(text);
@@ -289,18 +297,42 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             txGrid->setColumnStretch(column+1, 1);
         }
     }
+    struct AntennaRows {
+        std::array<QButtonGroup*, 15> banks{};
+        std::array<std::array<QCheckBox*, 3>, 15> inputs{};
+    };
+    const auto antennaRows = std::make_shared<AntennaRows>();
     for (int row = 0; row < antennaBands.size(); ++row) {
         txGrid->addWidget(new QLabel(antennaBands[row], txAntennas), row+2, 0);
         rxGrid->addWidget(new QLabel(antennaBands[row], rxAntennas), row+2, 0);
         auto* txButtons = new QButtonGroup(txAntennas);
         auto* rxButtons = new QButtonGroup(rxAntennas);
+        antennaRows->banks[row] = rxButtons;
+        const bool supported = row != 11 && row != 14;
+        const QString reason = supported ? bandAntennaReason
+            : QStringLiteral("Unavailable: 2m and transverter operating modes are not implemented; reception is limited to 61.44 MHz.");
         for (int column = 0; column < 6; ++column) {
-            auto* radio = new QRadioButton(rxAntennas);
-            radio->setAccessibleName(QStringLiteral("%1 receive antenna %2").arg(antennaBands[row]).arg(column+1));
-            radio->setAccessibleDescription(bandAntennaReason);
-            radio->setToolTip(bandAntennaReason);
-            rxButtons->addButton(radio);
-            rxGrid->addWidget(radio, row+2, column+1, Qt::AlignCenter);
+            if (column < 3) {
+                auto* radio = new QRadioButton(rxAntennas);
+                radio->setObjectName(QStringLiteral("ananBand%1Ant%2").arg(row).arg(column+1));
+                radio->setAccessibleName(QStringLiteral("%1 ANT%2").arg(antennaBands[row]).arg(column+1));
+                radio->setAccessibleDescription(reason);
+                radio->setToolTip(reason);
+                radio->setEnabled(supported);
+                rxButtons->addButton(radio, column+1);
+                rxGrid->addWidget(radio, row+2, column+1, Qt::AlignCenter);
+            } else {
+                auto* check = new QCheckBox(rxAntennas);
+                check->setObjectName(QStringLiteral("ananBand%1Input%2").arg(row).arg(column-2));
+                check->setAccessibleName(QStringLiteral("%1 RX-only input %2").arg(antennaBands[row]).arg(column-2));
+                const QString inputReason = column == 5
+                    ? QStringLiteral("Unavailable: Thetis enables this input in transverter mode, which is not implemented. Use manual ADC0 input for the physical XVTR RX port.") : reason;
+                check->setAccessibleDescription(inputReason);
+                check->setToolTip(inputReason);
+                check->setEnabled(supported && column != 5);
+                antennaRows->inputs[row][column-3] = check;
+                rxGrid->addWidget(check, row+2, column+1, Qt::AlignCenter);
+            }
             if (column < 3) {
                 auto* txRadio = new QRadioButton(txAntennas);
                 txRadio->setAccessibleName(QStringLiteral("%1 TX antenna %2").arg(antennaBands[row]).arg(column+1));
@@ -311,11 +343,11 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             }
         }
     }
-    for (auto* group : {txAntennas, rxAntennas}) {
-        group->setEnabled(false);
-        group->setAccessibleDescription(group == txAntennas ? txReason : bandAntennaReason);
-        group->setToolTip(group->accessibleDescription());
-    }
+    txAntennas->setEnabled(false);
+    txAntennas->setAccessibleDescription(txReason);
+    txAntennas->setToolTip(txReason);
+    rxAntennas->setAccessibleDescription(bandAntennaReason);
+    rxAntennas->setToolTip(bandAntennaReason);
     antennaControlLayout->addWidget(new FilterTables(txAntennas, rxAntennas, 1, 2));
     auto* bypassStripFirst = new QWidget(antennaControl);
     auto* bypassStripSecond = new QWidget(antennaControl);
@@ -858,6 +890,10 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             control->setEnabled(false);
             control->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
         }
+        for (QWidget* control : std::array<QWidget*, 2>{rxAntennas, bandAntennasEnabled}) {
+            control->setEnabled(false);
+            control->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
+        }
         active->clear();
         status->setText(QStringLiteral("Connect an ANAN with a validated receive profile first."));
         for (QWidget* widget : std::array<QWidget*, 8>{adc0, adc1, receive, receiveAdc1, lpf, defaults, disable6mRx, lpfBypassRx}) {
@@ -927,16 +963,26 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             .arg(ctun->isChecked() ? QStringLiteral("ON") : QStringLiteral("OFF"))
             .arg(data.value(QStringLiteral("ddcCenterHz")).toDouble() / 1e6, 0, 'f', 6)
             .arg(data.value(QStringLiteral("sliceFrequencyHz")).toDouble() / 1e6, 0, 'f', 6));
-        antennaCombo->setEnabled(true);
+        const auto antennaBandsData = data.value(QStringLiteral("antennaBands")).toMap();
+        const bool bandRouting = antennaBandsData.value(QStringLiteral("enabled")).toBool();
+        rxAntennas->setEnabled(!antennaBandsData.isEmpty());
+        bandAntennasEnabled->setEnabled(!antennaBandsData.isEmpty());
+        rxAntennas->setAccessibleDescription(bandAntennaReason);
+        bandAntennasEnabled->setAccessibleDescription(bandAntennaReason);
+        antennaCombo->setEnabled(!bandRouting);
         //DH1KLM: The ADC0 relay bank is distinct from the active receiver's ADC route.
         const bool activeAdc1 = data.value(QStringLiteral("adcIndex")).toInt() == 1;
         const QStringList inputNames = data.value(QStringLiteral("rxInputNames")).toStringList();
-        const int input = data.value(QStringLiteral("rxOnlyInput")).toInt();
+        const int input = data.value(bandRouting ? QStringLiteral("activeRxOnlyInput") : QStringLiteral("rxOnlyInput")).toInt();
         const QString inputName = input == 0
             ? QStringLiteral("ANT%1").arg(data.value(QStringLiteral("antenna")).toInt())
             : inputNames.value(input);
-        rxInput->setEnabled(true);
-        rxInput->setAccessibleDescription(QStringLiteral("Select the ADC0 input; applies immediately. Active input: %1").arg(inputName));
+        rxInput->setEnabled(!bandRouting);
+        const QString manualReason = bandRouting
+            ? QStringLiteral("Band routing is enabled. Edit its table or disable Enable RX antenna per band to use manual controls.")
+            : QStringLiteral("Select the ADC0 input; applies immediately. Active input: %1").arg(inputName);
+        rxInput->setAccessibleDescription(manualReason);
+        rxInput->setToolTip(manualReason);
         const QString route = activeAdc1
             ? QStringLiteral("Active receiver: ADC1 / RX2. ADC0 input and antenna settings do not change this active input.")
             : QStringLiteral("Active receiver: ADC0 / %1. %2")
@@ -945,7 +991,14 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                     ? QStringLiteral("ADC1 uses its dedicated RX2 input.")
                     : QStringLiteral("This profile has one ADC."));
         setAntennaHint(route + QStringLiteral(" Input changes apply immediately; ANT bank changes apply immediately."));
-        antennaCombo->setAccessibleDescription(route + QStringLiteral(" ADC0 antenna changes apply immediately."));
+        antennaCombo->setAccessibleDescription(bandRouting ? manualReason : route + QStringLiteral(" ADC0 antenna changes apply immediately."));
+        antennaCombo->setToolTip(antennaCombo->accessibleDescription());
+        const int owner = data.value(QStringLiteral("antennaOwner"), -1).toInt();
+        const int bandRow = data.value(QStringLiteral("antennaBandRow"), 12).toInt();
+        antennaBandNote->setText(bandAntennaReason + QStringLiteral("\n%1 • Controller: %2 • Band: %3. ADC1 retains its dedicated RX2 input. 2m and transverter mode are unavailable.")
+            .arg(bandRouting ? QStringLiteral("Band routing ON") : QStringLiteral("Manual routing"))
+            .arg(owner >= 0 ? QStringLiteral("RX%1").arg(owner+1) : QStringLiteral("initial RX1 frequency"))
+            .arg(antennaBands.value(bandRow)));
         { const QSignalBlocker block(antennaCombo); antennaCombo->setCurrentIndex(data.value(QStringLiteral("antenna")).toInt()-1); }
         ocRx->group->setEnabled(true);
         ocRx->group->setAccessibleDescription(QStringLiteral("Receive OC pins, all off by default"));
@@ -1030,6 +1083,20 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         }
         if (force || (!state->dirty && (!editing || changed))) {
             state->filling = true;
+            bandAntennasEnabled->setChecked(bandRouting);
+            const auto antennaBandRows = antennaBandsData.value(QStringLiteral("rows")).toList();
+            if (antennaBandRows.size() == 15) {
+                for (int row = 0; row < 15; ++row) {
+                    const auto value = antennaBandRows[row].toMap();
+                    const int bank = value.value(QStringLiteral("antenna")).toInt();
+                    if (auto* button = antennaRows->banks[row]->button(bank)) { button->setChecked(true); }
+                    const int input = value.value(QStringLiteral("rxOnly")).toInt();
+                    for (int n = 0; n < 3; ++n) {
+                        antennaRows->inputs[row][n]->setChecked(n == 2 ? input >= 3 : input % 3 == n+1);
+                        antennaRows->inputs[row][n]->setAccessibleName(QStringLiteral("%1 %2").arg(antennaBands[row], inputNames.value(n+1)));
+                    }
+                }
+            }
             {
                 const QSignalBlocker block(rxInput);
                 if (changed || rxInput->count() != inputNames.size()) {
@@ -1263,6 +1330,40 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     connect(rxInput, &QComboBox::currentIndexChanged, page, [=] {
         submit({{QStringLiteral("rxOnlyInput"), rxInput->currentData()}});
     });
+    connect(bandAntennasEnabled, &QCheckBox::toggled, page, [=](bool enabled) {
+        auto bands = workingOptions().value(QStringLiteral("antennaBands")).toMap();
+        bands.insert(QStringLiteral("enabled"), enabled);
+        submit({{QStringLiteral("antennaBands"), bands}});
+    });
+    const auto editAntennaRow = [=](int row, int bank, int input, bool checked) {
+        if (state->filling) { return; }
+        auto bands = workingOptions().value(QStringLiteral("antennaBands")).toMap();
+        auto rows = bands.value(QStringLiteral("rows")).toList();
+        if (rows.size() != 15) { return; }
+        auto value = rows[row].toMap();
+        if (bank > 0) { value.insert(QStringLiteral("antenna"), bank); }
+        if (input > 0) {
+            const int old = value.value(QStringLiteral("rxOnly")).toInt();
+            value.insert(QStringLiteral("rxOnly"), (old >= 3 ? 3 : 0) + (checked ? input : 0));
+        }
+        rows[row] = value;
+        bands.insert(QStringLiteral("rows"), rows);
+        submit({{QStringLiteral("antennaBands"), bands}});
+    };
+    for (int row = 0; row < 15; ++row) {
+        connect(antennaRows->banks[row], &QButtonGroup::idClicked, page, [=](int bank) {
+            editAntennaRow(row, bank, 0, true);
+        });
+        for (int n = 0; n < 2; ++n) {
+            connect(antennaRows->inputs[row][n], &QCheckBox::clicked, page, [=](bool checked) {
+                if (checked) {
+                    const QSignalBlocker block(antennaRows->inputs[row][1-n]);
+                    antennaRows->inputs[row][1-n]->setChecked(false);
+                }
+                editAntennaRow(row, 0, n+1, checked);
+            });
+        }
+    }
     for (int row = 0; row < 6; ++row) {
         connect(qobject_cast<QCheckBox*>(receive->cellWidget(row,3)), &QCheckBox::toggled, page, [=](bool value) {
             auto flags = workingOptions().value(QStringLiteral("receiveBypass")).toList();

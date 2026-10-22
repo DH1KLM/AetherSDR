@@ -25,6 +25,8 @@
 #include <utility>
 #include <vector>
 
+namespace AetherSDR { class BandPlanManager; }
+
 namespace AetherSDR::anan {
 
 // DH1KLM: RX-only backend for source-pinned ANAN P1/P2 board/model profiles.
@@ -288,6 +290,16 @@ private:
     void applyReceiveGain(int adcDb, int alexDb);
     anan::ReceiveAntennaSelection activeReceiveAntenna() const;
     QString applyReceiveAntenna(int antenna);
+    //DH1KLM One physical ADC0 path follows RX1, then the lowest remaining ready slice.
+    int receiveAntennaOwner() const;
+    int receiveAntennaBandIndex() const;
+    ReceiveAntennaBand receiveAntennaRoute() const;
+    void applyReceiveAntennaRouting(bool force = false);
+    void publishReceiveAntennas();
+    mutable std::unique_ptr<BandPlanManager> m_antennaBandPlan;
+    mutable QString m_antennaPlanName;
+    int m_appliedAntenna = -1;
+    int m_appliedRxOnly = -1;
     // DH1KLM: Shipped defaults are valid only for the Saturn RX profile.
     void seedDroopCorrectionTables(bool useSaturnDefaults);
     friend class AnanNoiseBlankerTestAccess;

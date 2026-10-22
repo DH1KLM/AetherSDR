@@ -35,6 +35,7 @@ public:
     void setRxAntenna(int antenna);
     void setReceiveFilterPlan(const ReceiveFilterPlan& plan) { m_receiveFilterPlan = plan; }
     void setHardwareFilters(const QVariantMap& options);
+    void setReceiveHardware(const QVariantMap& options, int antenna);
     bool setDdcRateLive(int ddc, int rateKsps);
     void enqueueSpeakerAudio(const QByteArray& audio);
     [[nodiscard]] bool isRunning() const noexcept { return m_running; }
