@@ -6657,12 +6657,14 @@ void RadioModel::setBinauralRx(bool on)
 
 void RadioModel::setPanWnb(bool on)
 {
-    requestPanDisplay(activePanadapter(), {PanDisplayField::Wnb, on});
+    // Stored-state replay has no individual control action behind it.
+    requestPanDisplay(activePanadapter(), {PanDisplayField::Wnb, on}, {}, /*announce=*/false);
 }
 
 void RadioModel::setPanWnbLevel(int level)
 {
-    requestPanDisplay(activePanadapter(), {PanDisplayField::WnbLevel, level});
+    // Stored-state replay has no individual control action behind it.
+    requestPanDisplay(activePanadapter(), {PanDisplayField::WnbLevel, level}, {}, /*announce=*/false);
 }
 
 void RadioModel::setPanRfGain(int gain)
