@@ -2487,6 +2487,9 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             if (config && !config->antennaBands && m_pendingParams.filters) {
                 config->antennaBands = m_pendingParams.filters->antennaBands;
             }
+            //DH1KLM Legacy callers do not own the independent SWL assignments.
+            if (config && verb == QLatin1String("hw.set") && !fields.contains(QStringLiteral("ocSwl"))
+                && m_pendingParams.filters) { config->ocSwl = m_pendingParams.filters->ocSwl; }
             if (!config || !AnanSettings::setHardwareFilters(m_radioSerial,
                     static_cast<int>(m_pendingParams.model), m_discoveredBoardId, filterOptions(*config))) {
                 emit extensionError(requestId, QStringLiteral("Receive settings were not changed. Filter/OC ranges require integer Hz within 0–61.44 MHz, distinct OC ranges and masks 0–127. Band antennas require ANT1–3 and RX-only values 0–5. Device settings must be writable."));

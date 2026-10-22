@@ -346,8 +346,40 @@ static void ctunTuning()
           "invalid sample geometry and reversed filters are refused");
 }
 
+//DH1KLM Independent SWL relay state, HF priority and RX-only wire encoding.
+static void swlRouting()
+{
+    auto filters = defaultFilterConfig(false);
+    filters.ocSwl[4] = {5060000,7199999,0x41};
+    filters.ocSwl[6] = {9000000,9989999,0x22};
+    filters.ocReceive[3] = {7000000,7300000,0};
+    check(receiveOcMask(filters,6100000) == 0, "SWL defaults off behind shared switch");
+    filters.ocEnabled = true;
+    check(receiveOcMask(filters,5060000) == 0x41 && receiveOcMask(filters,6999999) == 0x41,
+          "SWL range endpoints select their own mask");
+    check(receiveOcMask(filters,7100000) == 0, "unassigned HF range suppresses overlapping SWL");
+    filters.ocReceive[3].mask = 4;
+    check(receiveOcMask(filters,7100000) == 4, "HF masks replace rather than combine SWL");
+    check(receiveOcMask(filters,9500000) == 0x22 && receiveOcMask(filters,12000000) == 0,
+          "SWL band changes clear previous assignments and gaps clear all pins");
+    check(receiveOcMask(filters,std::numeric_limits<double>::quiet_NaN()) == 0,
+          "invalid frequency cannot assert SWL pins");
+    const std::array<std::uint32_t,1> words{phaseWord(6100000)};
+    const auto packet = buildHighPriority(true, words, false, false, 0, 0, 1,
+        0, true, ReceiveFilterKind::LegacyHpf, 1, &filters);
+    check(packet[1401] == 0x82 && (packet[4] & 0x1e) == 0, "P2 SWL pins occupy only RX OC bits");
+    const auto stopped = buildHighPriority(false, words, false, false, 0, 0, 1,
+        0, true, ReceiveFilterKind::LegacyHpf, 1, &filters);
+    check(stopped[1401] == 0, "P2 stop clears SWL pins");
+    p1::ReceiveConfig config;
+    config.rxOcMask = receiveOcMask(filters,6100000);
+    const auto control = p1::receiveControl(0,config);
+    check(control && (*control)[2] == 0x82 && ((*control)[0] & 1) == 0,
+          "P1 SWL pins preserve RX-only control bits");
+}
 int main()
 {
+    swlRouting();
     ctunTuning();
     bandViews();
     frontEndAttenuation();

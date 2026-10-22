@@ -526,8 +526,46 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         QStringLiteral("Unavailable: the current ANAN receive path ends at 61.44 MHz; VHF/transverter OC routing is not implemented."));
     vhfLayout->addStretch();
     auto* swlLayout = new QVBoxLayout(swl);
-    unsupported(swlLayout, QStringLiteral("SWL — RX / TX OC matrix"), {QStringLiteral("Enable SWL OC matrix")},
-        QStringLiteral("Unavailable: independent SWL OC ranges are not implemented. The HF RX matrix remains available."));
+    auto* swlEnabled = new QCheckBox(QStringLiteral("Enable RX OC outputs"), swl);
+    swlEnabled->setAccessibleName(QStringLiteral("Enable receive open collector outputs from SWL"));
+    swlLayout->addWidget(swlEnabled);
+    auto* swlGroup = new QGroupBox(QStringLiteral("SWL RX OC Pins per Band"), swl);
+    auto* swlGrid = new QGridLayout(swlGroup);
+    const QStringList swlNames{QStringLiteral("LMF"), QStringLiteral("120m"), QStringLiteral("90m"),
+        QStringLiteral("61m"), QStringLiteral("49m"), QStringLiteral("41m"), QStringLiteral("31m"),
+        QStringLiteral("25m"), QStringLiteral("22m"), QStringLiteral("19m"), QStringLiteral("16m"),
+        QStringLiteral("14m"), QStringLiteral("13m"), QStringLiteral("11m")};
+    //DH1KLM Thetis non-extended SWL defaults, integer Hz with disjoint inclusive endpoints.
+    const std::array<std::pair<int,int>,14> swlRanges{{{200000,1799999},{2300000,2999999},
+        {3000000,3499999},{4100000,5059999},{5060000,7199999},{7200000,8999999},
+        {9000000,9989999},{11600000,13569999},{13570000,13869999},{15100000,16999999},
+        {17000000,17999999},{18000000,20999999},{21000000,24999999},{25000000,27999999}}};
+    auto swlPins = std::make_shared<std::array<std::array<QCheckBox*,7>,14>>();
+    for (int pin = 0; pin < 7; ++pin) {
+        swlGrid->addWidget(new QLabel(QStringLiteral("P%1").arg(pin+1), swlGroup), 0, pin+1);
+    }
+    for (int row = 0; row < 14; ++row) {
+        auto* label = new QLabel(swlNames[row], swlGroup);
+        label->setToolTip(QStringLiteral("%1 – %2 MHz; HF ranges take precedence")
+            .arg(swlRanges[row].first/1e6, 0, 'f', 6).arg(swlRanges[row].second/1e6, 0, 'f', 6));
+        swlGrid->addWidget(label, row+1, 0);
+        for (int pin = 0; pin < 7; ++pin) {
+            auto* check = new QCheckBox(swlGroup);
+            check->setObjectName(QStringLiteral("ananSwl%1Pin%2").arg(row).arg(pin+1));
+            check->setAccessibleName(QStringLiteral("SWL RX %1 pin %2").arg(swlNames[row]).arg(pin+1));
+            check->setAccessibleDescription(label->toolTip());
+            check->setToolTip(label->toolTip());
+            (*swlPins)[row][pin] = check;
+            swlGrid->addWidget(check, row+1, pin+1);
+        }
+    }
+    swlLayout->addWidget(swlGroup);
+    auto* swlReset = new QPushButton(QStringLiteral("Reset SWL pin assignments"), swl);
+    swlReset->setAccessibleDescription(QStringLiteral("Clear SWL pins while preserving HF assignments and the shared RX OC enable switch"));
+    swlLayout->addWidget(swlReset);
+    auto* swlNote = new QLabel(QStringLiteral("The RX OC enable switch is shared with HF. Hover a band for its range. HF ranges take precedence; SWL masks are never combined with HF masks. TX is unavailable."), swl);
+    swlNote->setWordWrap(true);
+    swlLayout->addWidget(swlNote);
     swlLayout->addStretch();
     BandPlanManager bandPlan;
     bandPlan.loadPlans();
@@ -886,7 +924,7 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             updateFilterLed((*ocLeds)[pin], false, QStringLiteral("OC pin %1").arg(pin+1));
         }
         for (auto* label : *factLabels) { label->setText(QStringLiteral("—")); }
-        for (QWidget* control : std::array<QWidget*, 6>{antennaCombo, rxInput, ocRx->group, ocEnabled, droop, ocReset}) {
+        for (QWidget* control : std::array<QWidget*, 9>{antennaCombo, rxInput, ocRx->group, ocEnabled, droop, ocReset, swlGroup, swlEnabled, swlReset}) {
             control->setEnabled(false);
             control->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
         }
@@ -1002,6 +1040,9 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         { const QSignalBlocker block(antennaCombo); antennaCombo->setCurrentIndex(data.value(QStringLiteral("antenna")).toInt()-1); }
         ocRx->group->setEnabled(true);
         ocRx->group->setAccessibleDescription(QStringLiteral("Receive OC pins, all off by default"));
+        swlGroup->setEnabled(true);
+        swlEnabled->setEnabled(true);
+        swlReset->setEnabled(true);
         ocEnabled->setEnabled(true);
         ocReset->setEnabled(true);
         ocReset->setAccessibleDescription(QStringLiteral("Clear RX OC pin assignments and disable RX OC outputs. Changes are saved and applied automatically."));
@@ -1106,6 +1147,12 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                 rxInput->setCurrentIndex(input);
             }
             ocEnabled->setChecked(data.value(QStringLiteral("ocEnabled")).toBool());
+            swlEnabled->setChecked(data.value(QStringLiteral("ocEnabled")).toBool());
+            const auto swlRows = data.value(QStringLiteral("ocSwl")).toList();
+            for (int row = 0; row < 14; ++row) {
+                const int mask = swlRows.value(row).toMap().value(QStringLiteral("mask")).toInt();
+                for (int pin = 0; pin < 7; ++pin) { (*swlPins)[row][pin]->setChecked(mask & (1 << pin)); }
+            }
             const auto ocRows = data.value(QStringLiteral("ocReceive")).toList();
             for (int row = 0; row < 11; ++row) {
                 auto value = ocRows[row].toMap();
@@ -1389,6 +1436,45 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             });
         }
     }
+    connect(swlEnabled, &QCheckBox::toggled, page, [=](bool value) {
+        submit({{QStringLiteral("ocEnabled"), value}});
+    });
+    for (int row = 0; row < 14; ++row) {
+        for (int pin = 0; pin < 7; ++pin) {
+            connect((*swlPins)[row][pin], &QCheckBox::toggled, page, [=](bool value) {
+                auto bands = workingOptions().value(QStringLiteral("ocSwl")).toList();
+                if (bands.size() != 14) { return; }
+                auto band = bands[row].toMap();
+                band.insert(QStringLiteral("lowHz"), swlRanges[row].first);
+                band.insert(QStringLiteral("highHz"), swlRanges[row].second);
+                const int mask = band.value(QStringLiteral("mask")).toInt();
+                band.insert(QStringLiteral("mask"), value ? mask | (1 << pin) : mask & ~(1 << pin));
+                bands[row] = band;
+                //DH1KLM Seed all regional HF ranges so unassigned amateur bands also suppress SWL.
+                auto hfBands = workingOptions().value(QStringLiteral("ocReceive")).toList();
+                if (hfBands.size() != 11) { return; }
+                for (int n = 0; n < 11; ++n) {
+                    auto hfBand = hfBands[n].toMap();
+                    if (hfBand.value(QStringLiteral("lowHz")) == hfBand.value(QStringLiteral("highHz"))) {
+                        const auto defaults = (*ocDefaultRanges)[n].toMap();
+                        hfBand.insert(QStringLiteral("lowHz"), defaults.value(QStringLiteral("lowHz")));
+                        hfBand.insert(QStringLiteral("highHz"), defaults.value(QStringLiteral("highHz")));
+                        hfBands[n] = hfBand;
+                    }
+                }
+                submit({{QStringLiteral("ocSwl"), bands}, {QStringLiteral("ocReceive"), hfBands}});
+            });
+        }
+    }
+    connect(swlReset, &QPushButton::clicked, page, [=] {
+        auto bands = workingOptions().value(QStringLiteral("ocSwl")).toList();
+        for (auto& entry : bands) {
+            auto band = entry.toMap();
+            band.insert(QStringLiteral("mask"), 0);
+            entry = band;
+        }
+        submit({{QStringLiteral("ocSwl"), bands}});
+    });
     for (const auto& bank : std::array<std::pair<FilterGrid*, QString>, 3>{{
             {receive, QStringLiteral("receive")}, {receiveAdc1, QStringLiteral("receiveAdc1")},
             {lpf, QStringLiteral("lowPass")}}}) {

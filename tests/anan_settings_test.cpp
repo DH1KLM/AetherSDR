@@ -307,7 +307,7 @@ int main(int argc, char** argv)
         check(AnanSettings::setHardwareFilters(serial,7,5,legacy), "upgrade old filter document atomically");
         int version = 0;
         scope.featureExact(QStringLiteral("HardwareFilters"), &version);
-        check(version == 6, "hardware filters use schema 6 with independent band antennas");
+        check(version == 7, "hardware filters use schema 7 with independent SWL OC");
         auto rows = options.value(QStringLiteral("receiveAdc1")).toList();
         rows[2] = QVariantMap{{QStringLiteral("lowHz"), 1000000}, {QStringLiteral("highHz"), 6500000}};
         options.insert(QStringLiteral("receiveAdc1"),rows);
@@ -353,6 +353,25 @@ int main(int argc, char** argv)
         check(AnanSettings::setHardwareFilters(QStringLiteral("OC-MAC"), 7, 5, data), "save explicit RX OC configuration");
         const auto saved = parseFilterOptions(AnanSettings::hardwareFilters(QStringLiteral("OC-MAC"), 7, 5));
         check(saved && saved->ocEnabled && receiveOcMask(*saved, 3700000) == 11, "RX OC configuration round-trip");
+        config.ocSwl[4] = {5060000,7199999,65};
+        auto swlData = filterOptions(config);
+        check(AnanSettings::setHardwareFilters(QStringLiteral("OC-MAC"), 7, 5, swlData), "save independent SWL pins");
+        const auto swlSaved = parseFilterOptions(AnanSettings::hardwareFilters(QStringLiteral("OC-MAC"),7,5));
+        check(swlSaved && receiveOcMask(*swlSaved,6100000) == 65
+            && receiveOcMask(*swlSaved,3700000) == 11, "SWL and HF persist independently");
+        swlData.remove(QStringLiteral("ocSwl"));
+        const auto oldFilters = parseFilterOptions(swlData);
+        check(oldFilters && receiveOcMask(*oldFilters,6100000) == 0,
+              "older filter documents migrate with every SWL pin off");
+        auto badSwl = filterOptions(config);
+        auto swlRows = badSwl.value(QStringLiteral("ocSwl")).toList();
+        swlRows[5] = QVariantMap{{QStringLiteral("lowHz"),6000000},{QStringLiteral("highHz"),9000000},
+            {QStringLiteral("mask"),1}};
+        badSwl.insert(QStringLiteral("ocSwl"),swlRows);
+        check(!parseFilterOptions(badSwl), "overlapping active SWL ranges refused");
+        swlRows.removeLast();
+        badSwl.insert(QStringLiteral("ocSwl"),swlRows);
+        check(!parseFilterOptions(badSwl), "incomplete SWL table refused");
         auto invalid = data;
         auto rows = invalid.value(QStringLiteral("ocReceive")).toList();
         rows[2] = QVariantMap{{QStringLiteral("lowHz"), 3600000}, {QStringLiteral("highHz"), 4000000}, {QStringLiteral("mask"), 5}};

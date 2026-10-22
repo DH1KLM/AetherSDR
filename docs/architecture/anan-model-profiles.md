@@ -217,7 +217,7 @@ Layout reference: NereusSDR commit `12f2ea5f3ad5b4e6b91903d3a1f8612f6e671ecb`,
 and its `hardware/{RadioInfoTab,AntennaAlexTab,OcOutputsTab,CalibrationTab}.cpp`
 children. Aether uses its own widgets and theme tokens with that category and
 sub-tab arrangement. This is a layout correspondence, not parity with every
-Nereus backend function. Unavailable TX, independent ADC1 limits, VHF/SWL OC,
+Nereus backend function. Unavailable TX, independent ADC1 limits, VHF OC,
 USB BCD, user digital output and calibration functions are explicitly labelled.
 The existing P2 droop page remains the sole sweep owner.
 
@@ -701,3 +701,19 @@ restore. The full application builds with Qt 6.12; the seven affected backend,
 settings, UI, P1/P2, model-profile and multi-receiver tests pass. The standalone
 P1/P2 protocol tests also pass. Windows build and hardware verification remain
 operator checks.
+
+### Independent SWL receive OC matrix
+
+HardwareFilters schema 7 adds optional `ocSwl`: 14 integer-Hz ranges and 7-bit
+masks. Older documents load with SWL off. HF ranges are checked first (including
+zero masks), then SWL; neither wire encoder combines masks. Existing P1 C2 and
+P2 high-priority byte 1401 encoding and stop handling are reused. The shared
+`ocEnabled` switch defaults off. A legacy `hw.set` caller omitting `ocSwl`
+retains saved SWL data; explicit filter defaults clear it.
+
+Reference: DH1KLM/Thetis-Ramdor commit
+`852bf0ef0b4f3886a13fc2846489aee16f361872`, `HPSDR/Penny.cs` RX A masks and
+`clsBandStackManager.cs` non-US/non-extended SWL ranges. The initial range table
+uses disjoint integer endpoints; regional HF precedence is provided by Aether's
+existing saved HF envelopes. Extended/US-specific band-stack classification and
+independent WWV selection are not implemented by this change.

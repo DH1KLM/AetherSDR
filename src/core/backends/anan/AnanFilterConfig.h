@@ -35,6 +35,8 @@ struct FilterConfig {
     std::optional<std::array<FilterBand, 6>> receiveAdc1{};
     //DH1KLM Absent in legacy documents; seed from the saved manual path before enabling.
     std::optional<ReceiveAntennaBands> antennaBands{};
+    //DH1KLM Independent SWL masks; HF ranges take precedence, including unassigned HF pins.
+    std::array<OcReceiveBand, 14> ocSwl{};
 };
 inline constexpr FilterConfig defaultFilterConfig(bool mkII) noexcept
 {
@@ -72,6 +74,9 @@ inline std::uint8_t receiveOcMask(const FilterConfig& config, double hz) noexcep
 {
     if (!config.ocEnabled || !std::isfinite(hz)) { return 0; }
     for (const auto& row : config.ocReceive) {
+        if (row.lowHz < row.highHz && hz >= row.lowHz - 0.02 && hz <= row.highHz + 0.02) { return row.mask & 0x7f; }
+    }
+    for (const auto& row : config.ocSwl) {
         if (row.lowHz < row.highHz && hz >= row.lowHz - 0.02 && hz <= row.highHz + 0.02) { return row.mask & 0x7f; }
     }
     return 0;

@@ -66,6 +66,14 @@ int main(int argc, char** argv)
               "manual control uses protocol/profile rates and displays the live capture rate");
         check(window->count() == 1 && window->currentData() == QStringLiteral("anan-0"),
               "single capture is explicitly selected");
+        auto* swlPin = dialog.findChild<QCheckBox*>(QStringLiteral("ananSwl4Pin7"));
+        check(swlPin && swlPin->isEnabled(), "SWL RX pin controls available for supported P1/P2 profiles");
+        swlPin->setChecked(true);
+        for (int n = 0; n < 10; ++n) { app.processEvents(); QThread::msleep(5); }
+        check(!replies.isEmpty(), "SWL hw.set returns a backend reply");
+        const auto swlReply = replies.last().at(1).toMap();
+        check(swlReply.value(QStringLiteral("ocSwl")).toList().value(4).toMap()
+            .value(QStringLiteral("mask")).toInt() == 64, "SWL pin edit reaches backend through hw.set");
         auto* bandEnable = dialog.findChild<QCheckBox*>(QStringLiteral("ananBandAntennasEnabled"));
         auto* ant2 = dialog.findChild<QRadioButton*>(QStringLiteral("ananBand5Ant2"));
         auto* firstInput = dialog.findChild<QCheckBox*>(QStringLiteral("ananBand5Input1"));

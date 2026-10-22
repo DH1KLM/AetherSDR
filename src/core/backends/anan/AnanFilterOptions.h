@@ -22,11 +22,16 @@ inline QVariantMap filterOptions(const FilterConfig& config)
         oc.append(QVariantMap{{QStringLiteral("lowHz"), band.lowHz},
             {QStringLiteral("highHz"), band.highHz}, {QStringLiteral("mask"), band.mask}});
     }
+    QVariantList swl;
+    for (const auto& band : config.ocSwl) {
+        swl.append(QVariantMap{{QStringLiteral("lowHz"), band.lowHz},
+            {QStringLiteral("highHz"), band.highHz}, {QStringLiteral("mask"), band.mask}});
+    }
     QVariantMap options{{QStringLiteral("rxOnlyInput"), config.rxOnlyInput},
             {QStringLiteral("receiveBypass"), receiveBypass},
             {QStringLiteral("disable6mLnaOnRx"), config.disable6mLnaOnRx},
             {QStringLiteral("lpfBypassOnRx"), config.lpfBypassOnRx},
-            {QStringLiteral("ocReceive"), oc}, {QStringLiteral("ocEnabled"), config.ocEnabled},
+            {QStringLiteral("ocSwl"), swl}, {QStringLiteral("ocReceive"), oc}, {QStringLiteral("ocEnabled"), config.ocEnabled},
             {QStringLiteral("receive"), rows(config.receive)},
             {QStringLiteral("lowPass"), rows(config.lowPass)},
             {QStringLiteral("bypassAdc0"), config.bypassAdc0},
@@ -112,13 +117,12 @@ inline std::optional<FilterConfig> parseFilterOptions(const QVariantMap& map)
         config.receiveAdc1.emplace();
         if (!read(QStringLiteral("receiveAdc1"), *config.receiveAdc1)) { return std::nullopt; }
     }
-    if (map.contains(QStringLiteral("ocEnabled")) || map.contains(QStringLiteral("ocReceive"))) {
-        if (map.value(QStringLiteral("ocEnabled")).metaType().id() != QMetaType::Bool) { return std::nullopt; }
-        const auto rows = map.value(QStringLiteral("ocReceive")).toList();
-        if (rows.size() != 11) { return std::nullopt; }
+    const auto readOc = [&](const QString& key, auto& target) {
+        const auto rows = map.value(key).toList();
+        if (rows.size() != static_cast<int>(target.size())) { return false; }
         std::uint32_t previousHigh = 0;
         bool previous = false;
-        for (int n = 0; n < 11; ++n) {
+        for (int n = 0; n < rows.size(); ++n) {
             const auto row = rows[n].toMap();
             bool lowOk = false, highOk = false, maskOk = false;
             const double low = row.value(QStringLiteral("lowHz")).toDouble(&lowOk);
@@ -127,15 +131,21 @@ inline std::optional<FilterConfig> parseFilterOptions(const QVariantMap& map)
             if (!lowOk || !highOk || !maskOk || !std::isfinite(low) || !std::isfinite(high)
                 || !std::isfinite(mask) || low < 0 || low > high || high > 61440000
                 || mask < 0 || mask > 127 || std::floor(low) != low || std::floor(high) != high
-                || std::floor(mask) != mask || (mask != 0 && low == high)) { return std::nullopt; }
+                || std::floor(mask) != mask || (mask != 0 && low == high)) { return false; }
             if (mask != 0) {
-                if (previous && low <= previousHigh) { return std::nullopt; }
+                if (previous && low <= previousHigh) { return false; }
                 previous = true;
                 previousHigh = static_cast<std::uint32_t>(high);
             }
-            config.ocReceive[n] = {static_cast<std::uint32_t>(low), static_cast<std::uint32_t>(high),
+            target[n] = {static_cast<std::uint32_t>(low), static_cast<std::uint32_t>(high),
                                   static_cast<std::uint8_t>(mask)};
         }
+        return true;
+    };
+    if (map.contains(QStringLiteral("ocSwl")) && !readOc(QStringLiteral("ocSwl"), config.ocSwl)) { return std::nullopt; }
+    if (map.contains(QStringLiteral("ocEnabled")) || map.contains(QStringLiteral("ocReceive"))) {
+        if (map.value(QStringLiteral("ocEnabled")).metaType().id() != QMetaType::Bool) { return std::nullopt; }
+        if (!readOc(QStringLiteral("ocReceive"), config.ocReceive)) { return std::nullopt; }
         config.ocEnabled = map.value(QStringLiteral("ocEnabled")).toBool();
     }
     if (map.contains(QStringLiteral("receiveBypass"))) {

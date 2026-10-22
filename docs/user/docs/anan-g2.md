@@ -250,9 +250,8 @@ The page follows the Nereus hardware-page arrangement:
   configuration, including bypass and OC defaults, while retaining the antenna
   band table and its enable state.
 - **OC Outputs**: **HF**, **VHF**, **SWL**. HF has RX/TX pin matrices side by side
-  and a commanded RX pin-state readout. The RX matrix is configurable; TX, VHF,
-  SWL and user digital outputs are visible but disabled
-  with their unsupported reason.
+  and a commanded RX pin-state readout. HF and SWL RX matrices are configurable;
+  TX, VHF and user digital outputs remain disabled with their unsupported reason.
 - **Calibration**: visible frequency, level, TX-display and current-calibration
   sections explain unavailable functions. **Open Droop Correction** opens the
   existing P2 droop sweep; it is disabled for P1.
@@ -723,6 +722,27 @@ TX controls, User Dig Out and the additional **2m**, **GEN**, **WWV** and
 **XVTR** routing rows remain dimmed with an explanation because these
 functions are not implemented. The existing RX matrix covers 160m through
 6m; its ranges continue to come from the active regional band plan.
+
+**SWL** provides separate seven-pin RX assignments for **LMF**, **120m**, **90m**,
+**61m**, **49m**, **41m**, **31m**, **25m**, **22m**, **19m**, **16m**, **14m**,
+**13m** and **11m**. The enable switches in HF and SWL operate the same master
+switch, initially off. Assignments are saved per radio MAC, selected model and
+physical board and applied automatically on Protocol 1 and Protocol 2.
+
+The initial SWL ranges follow Thetis's non-US, non-extended defaults. Hover the
+band names to inspect exact limits. At shared SWL edges the higher-frequency
+row owns the first integer Hz. HF ranges from the active regional plan are
+seeded when first assigning SWL pins; saved HF ranges and masks are retained.
+HF takes priority even when its mask is zero; masks are never ORed together.
+Routing follows the existing OC receive capture-center frequency. Independent
+WWV, GEN and transverter routing remains unavailable; this is not a complete
+copy of Thetis's regional band-stack classifier.
+
+**Reset SWL pin assignments** clears only SWL masks and preserves HF and the
+master switch. **Reset OC defaults** in HF clears HF masks and disables the
+shared master switch, leaving SWL assignments saved. The general receive-filter
+reset clears both matrices. Outside all configured ranges, and on stream stop,
+the commanded OC pins are off. TX remains unavailable.
 
 Under **Help → Support & Diagnostics... → Application Logs**, the ANAN Protocol 1,
 Protocol 2, RX DSP, Panadapter, Droop Defaults and Droop Calibration filters
