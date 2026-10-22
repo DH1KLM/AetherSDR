@@ -150,10 +150,13 @@ void P1Client::stop()
 {
     m_drainTimer->stop(); m_timeoutTimer->stop(); m_countersTimer->stop();
     if (m_running && m_validated) {
-        if (m_config.rxOcMask != 0) {
+        if (m_config.rxOcMask != 0 || m_config.userDigitalOutputs != 0) {
             m_config.rxOcMask = 0;
+            m_config.userDigitalOutputs = 0;
             const auto clearOc = p1::speakerAndControl(m_txSequence++, 0, 0, m_config);
             if (clearOc) { (void)send(*clearOc); }
+            const auto clearDigital = p1::speakerAndControl(m_txSequence++, 0x14, 0x14, m_config);
+            if (clearDigital) { (void)send(*clearDigital); }
         }
         (void)send(p1::streamCommand(false));
     }
@@ -283,6 +286,7 @@ void P1Client::updateFilters()
         m_config.alexAttenuationDb = 0;
     }
     m_config.rxOcMask = m_params.filters ? receiveOcMask(*m_params.filters, m_config.frequencyHz) : 0;
+    m_config.userDigitalOutputs = filters.userDigitalOutputs;
     m_config.receiveFilterBits = filter(alex);
     //DH1KLM: ADC0 band bypass/LNA controls must not alter ADC1's independent filter bits.
     m_config.adc1ReceiveFilterBits = filter((std::uint32_t{hp[1430]} << 8) | hp[1431]);

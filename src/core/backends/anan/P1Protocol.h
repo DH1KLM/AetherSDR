@@ -30,6 +30,7 @@ struct ReceiveConfig {
     int rxOnlyInput = 0;
     bool mkIIBpf = false;
     std::uint8_t rxOcMask = 0;
+    std::uint8_t userDigitalOutputs = 0;
     bool dither = false;
     bool random = false;
     int alexAttenuationDb = 0; // Classic ALEX only: 0, 10, 20 or 30 dB.

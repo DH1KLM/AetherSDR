@@ -718,10 +718,19 @@ not physical pin feedback. **Reset OC defaults** clears the RX assignments
 and disables RX OC outputs immediately. It leaves the receive
 filters and antenna settings alone.
 
-TX controls, User Dig Out and the additional **2m**, **GEN**, **WWV** and
+TX controls and the additional **2m**, **GEN**, **WWV** and
 **XVTR** routing rows remain dimmed with an explanation because these
 functions are not implemented. The existing RX matrix covers 160m through
 6m; its ranges continue to come from the active regional band plan.
+
+**User Dig Out → Pin 1–4** independently selects the four manual DB9 user
+outputs on Protocol 1 and Protocol 2. Multiple pins can be selected together;
+these outputs do not follow the HF/SWL band matrices or their master switch.
+New configurations start with all four pins off. Selections are saved per radio
+MAC, selected model and physical board, and restored on reconnect. The command
+bits are cleared on a normal receive stop; the interface shows commanded state,
+without physical pin readback. The receive-filter reset clears the saved pins.
+Physical availability follows the connected device's firmware and wiring.
 
 **SWL** provides separate seven-pin RX assignments for **LMF**, **120m**, **90m**,
 **61m**, **49m**, **41m**, **31m**, **25m**, **22m**, **19m**, **16m**, **14m**,

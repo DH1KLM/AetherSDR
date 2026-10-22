@@ -2490,9 +2490,12 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             //DH1KLM Legacy callers do not own the independent SWL assignments.
             if (config && verb == QLatin1String("hw.set") && !fields.contains(QStringLiteral("ocSwl"))
                 && m_pendingParams.filters) { config->ocSwl = m_pendingParams.filters->ocSwl; }
+            //DH1KLM Older callers do not own the independent manual digital outputs.
+            if (config && verb == QLatin1String("hw.set") && !fields.contains(QStringLiteral("userDigitalOutputs"))
+                && m_pendingParams.filters) { config->userDigitalOutputs = m_pendingParams.filters->userDigitalOutputs; }
             if (!config || !AnanSettings::setHardwareFilters(m_radioSerial,
                     static_cast<int>(m_pendingParams.model), m_discoveredBoardId, filterOptions(*config))) {
-                emit extensionError(requestId, QStringLiteral("Receive settings were not changed. Filter/OC ranges require integer Hz within 0–61.44 MHz, distinct OC ranges and masks 0–127. Band antennas require ANT1–3 and RX-only values 0–5. Device settings must be writable."));
+                emit extensionError(requestId, QStringLiteral("Receive settings were not changed. Filter/OC ranges require integer Hz within 0–61.44 MHz, distinct OC ranges and masks 0–127. User digital outputs require an integer mask 0–15. Band antennas require ANT1–3 and RX-only values 0–5. Device settings must be writable."));
                 return;
             }
             m_pendingParams.filters = *config;

@@ -634,6 +634,26 @@ int main(int argc, char** argv) {
               "P1 applies RX 6m LNA bypass and forced 6m LPF in bank-local bits");
     }
     qInstallMessageHandler(previousHandler);
+    {
+        //DH1KLM Stop emits cleared bank 11 before the P1 stream-stop command.
+        std::vector<QByteArray> packets;
+        P1Client client;
+        auto p = params(4);
+        FilterConfig filters = defaultFilterConfig(false);
+        filters.userDigitalOutputs = 9;
+        p.filters = filters;
+        check(P1ClientTestAccess::prepare(client, p, packets), "P1 user outputs fixture");
+        P1ClientTestAccess::feed(client, discovery(5));
+        check(P1ClientTestAccess::config(client).userDigitalOutputs == 9, "P1 loads manual digital mask");
+        const std::size_t before = packets.size();
+        client.stop();
+        check(packets.size() == before + 3, "P1 stop clears OC and digital banks before stopping");
+        const QByteArray cleared = packets[before+1];
+        check(cleared.size() == 1032 && static_cast<unsigned char>(cleared[11]) == 0x14
+              && cleared[14] == 0 && static_cast<unsigned char>(cleared[523]) == 0x14
+              && cleared[526] == 0, "P1 stop sends both user nibbles cleared");
+        check(packets.back().size() == 64 && packets.back()[3] == 0, "P1 stream stop follows output clearing");
+    }
     check(sessionLog.filter(QStringLiteral("validated board")).size() > 0
           && sessionLog.filter(QStringLiteral("RX IQ started")).size() > 0
           && sessionLog.filter(QStringLiteral("connection failed")).size() > 0,

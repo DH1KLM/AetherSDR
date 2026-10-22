@@ -331,6 +331,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
     }
     //DH1KLM: Thetis CmdHighPriority byte 1401: OC1..7 occupy bits 1..7.
     pkt[1401] = run && filters ? static_cast<std::uint8_t>(receiveOcMask(*filters, hz) << 1) : 0;
+    //DH1KLM Thetis DB9 pins 1-4 are independent of band OC; stop clears them.
+    pkt[1402] = run && filters ? filters->userDigitalOutputs & 0x0f : 0;
     writeU32be(&pkt[1432], alex0);
     if (selectReceiveLpf) {
         //DH1KLM: Thetis SetAntBits/SetAlexLPFBits also populate Alex1's upper

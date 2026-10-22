@@ -218,8 +218,15 @@ and its `hardware/{RadioInfoTab,AntennaAlexTab,OcOutputsTab,CalibrationTab}.cpp`
 children. Aether uses its own widgets and theme tokens with that category and
 sub-tab arrangement. This is a layout correspondence, not parity with every
 Nereus backend function. Unavailable TX, independent ADC1 limits, VHF OC,
-USB BCD, user digital output and calibration functions are explicitly labelled.
+USB BCD and calibration functions are explicitly labelled as unavailable.
 The existing P2 droop page remains the sole sweep owner.
+
+Manual User Dig Out uses Thetis ChannelMaster `networkproto1.c` bank 11
+(address 0x14), C3 bits 0–3, and `network.c` High Priority byte 1402 bits 0–3.
+The independent four-bit mask is stored in HardwareFilters schema 8 per
+MAC/model/board; older documents default it to zero. P1 clears that bank
+before its normal stream-stop command and P2 clears it in the stop packet.
+These are commanded outputs without pin readback; no TX bit is enabled.
 
 HF receive OC is operator-enabled and defaults off with zero pin masks.
 Ranges are seeded from the current BandPlanManager plan, persisted with the

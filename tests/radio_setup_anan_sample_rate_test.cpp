@@ -74,6 +74,21 @@ int main(int argc, char** argv)
         const auto swlReply = replies.last().at(1).toMap();
         check(swlReply.value(QStringLiteral("ocSwl")).toList().value(4).toMap()
             .value(QStringLiteral("mask")).toInt() == 64, "SWL pin edit reaches backend through hw.set");
+        //DH1KLM Independent manual pins combine without changing the HF/SWL master.
+        auto* digital1 = dialog.findChild<QCheckBox*>(QStringLiteral("ananUserDigitalPin1"));
+        auto* digital4 = dialog.findChild<QCheckBox*>(QStringLiteral("ananUserDigitalPin4"));
+        check(digital1 && digital4 && digital1->isEnabled() && digital4->isEnabled(),
+              "manual digital controls available for P1/P2");
+        digital1->click();
+        digital4->click();
+        for (int n = 0; n < 10; ++n) { app.processEvents(); QThread::msleep(5); }
+        check(replies.last().at(1).toMap().value(QStringLiteral("userDigitalOutputs")).toInt() == 9,
+              "manual digital edits retain multiple selected pins");
+        QVariantMap legacyFields = replies.last().at(1).toMap();
+        legacyFields.remove(QStringLiteral("userDigitalOutputs"));
+        backend->invokeExtension(QStringLiteral("anan"), QStringLiteral("hw.set"), 9100, legacyFields);
+        check(replies.last().at(1).toMap().value(QStringLiteral("userDigitalOutputs")).toInt() == 9,
+              "legacy filter callers preserve manual digital outputs");
         auto* bandEnable = dialog.findChild<QCheckBox*>(QStringLiteral("ananBandAntennasEnabled"));
         auto* ant2 = dialog.findChild<QRadioButton*>(QStringLiteral("ananBand5Ant2"));
         auto* firstInput = dialog.findChild<QCheckBox*>(QStringLiteral("ananBand5Input1"));
@@ -125,6 +140,8 @@ int main(int argc, char** argv)
         anan::AnanLinkStatsTestAccess::connected(*backend, false);
         emit model.connectionStateChanged(false);
         check(!bandEnable->isEnabled() && !ant2->isEnabled(), "disconnect disables the band antenna controls");
+        check(!digital1->isEnabled() && !digital4->isEnabled() && !digital1->isChecked()
+              && !digital1->accessibleDescription().isEmpty(), "disconnect clears and disables manual digital controls");
         check(!rate->isEnabled() && rate->count() == 0 && !rate->accessibleDescription().isEmpty(),
               "disconnect clears and disables the control with an announced reason");
         anan::AnanLinkStatsTestAccess::connected(*backend, true);

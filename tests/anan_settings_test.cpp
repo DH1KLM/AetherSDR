@@ -41,6 +41,28 @@ int main(int argc, char** argv)
     AppSettings::instance().load();
 
     {
+        //DH1KLM Manual user outputs persist per device/profile without borrowing band OC.
+        FilterConfig config = defaultFilterConfig(false);
+        config.userDigitalOutputs = 9;
+        QVariantMap options = filterOptions(config);
+        check(AnanSettings::setHardwareFilters(QStringLiteral("DIGITAL-MAC"), 7, 5, options),
+              "manual user outputs save");
+        const auto saved = parseFilterOptions(AnanSettings::hardwareFilters(QStringLiteral("DIGITAL-MAC"), 7, 5));
+        check(saved && saved->userDigitalOutputs == 9 && !saved->ocEnabled,
+              "manual user outputs round trip independently of disabled band OC");
+        check(AnanSettings::hardwareFilters(QStringLiteral("DIGITAL-MAC-OTHER"), 7, 5).isEmpty()
+              && AnanSettings::hardwareFilters(QStringLiteral("DIGITAL-MAC"), 8, 5).isEmpty(),
+              "manual user outputs remain scoped to the device and model");
+        for (const QVariant value : {QVariant(-1), QVariant(16), QVariant(1.5), QVariant(true), QVariant(QStringLiteral("3"))}) {
+            options.insert(QStringLiteral("userDigitalOutputs"), value);
+            check(!parseFilterOptions(options), "invalid user nibble is refused");
+        }
+        options.remove(QStringLiteral("userDigitalOutputs"));
+        const auto legacy = parseFilterOptions(options);
+        check(legacy && legacy->userDigitalOutputs == 0, "legacy documents default manual outputs off");
+    }
+
+    {
         auto config = defaultFilterConfig(false);
         config.antennaBands.emplace();
         config.antennaBands->enabled = true;
@@ -307,7 +329,7 @@ int main(int argc, char** argv)
         check(AnanSettings::setHardwareFilters(serial,7,5,legacy), "upgrade old filter document atomically");
         int version = 0;
         scope.featureExact(QStringLiteral("HardwareFilters"), &version);
-        check(version == 7, "hardware filters use schema 7 with independent SWL OC");
+        check(version == 8, "hardware filters use schema 8 with independent digital outputs");
         auto rows = options.value(QStringLiteral("receiveAdc1")).toList();
         rows[2] = QVariantMap{{QStringLiteral("lowHz"), 1000000}, {QStringLiteral("highHz"), 6500000}};
         options.insert(QStringLiteral("receiveAdc1"),rows);

@@ -37,6 +37,8 @@ struct FilterConfig {
     std::optional<ReceiveAntennaBands> antennaBands{};
     //DH1KLM Independent SWL masks; HF ranges take precedence, including unassigned HF pins.
     std::array<OcReceiveBand, 14> ocSwl{};
+    //DH1KLM Independent manual DB9 outputs; only the four user bits are permitted.
+    std::uint8_t userDigitalOutputs = 0;
 };
 inline constexpr FilterConfig defaultFilterConfig(bool mkII) noexcept
 {

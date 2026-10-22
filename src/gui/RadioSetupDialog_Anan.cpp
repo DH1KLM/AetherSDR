@@ -383,10 +383,13 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     auto* digitalGroup = new QGroupBox(QStringLiteral("User Dig Out"), ocPage);
     auto* digitalLayout = new QHBoxLayout(digitalGroup);
     digitalLayout->setContentsMargins(8, 4, 8, 4);
+    auto digitalPins = std::make_shared<std::array<QCheckBox*, 4>>();
     for (int pin = 1; pin <= 4; ++pin) {
         auto* check = new QCheckBox(QStringLiteral("Pin %1").arg(pin), digitalGroup);
+        (*digitalPins)[pin-1] = check;
+        check->setObjectName(QStringLiteral("ananUserDigitalPin%1").arg(pin));
         check->setAccessibleName(QStringLiteral("User digital output %1").arg(pin));
-        check->setAccessibleDescription(QStringLiteral("Unavailable: user digital outputs are not implemented for this ANAN backend"));
+        check->setAccessibleDescription(QStringLiteral("Manual DB9 user output. Saved per radio and hardware profile; independent of HF/SWL OC. Cleared when reception stops."));
         check->setToolTip(check->accessibleDescription());
         check->setEnabled(false);
         digitalLayout->addWidget(check);
@@ -920,6 +923,12 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         { const QSignalBlocker block(ctun); ctun->setChecked(false); }
         ctunInfo->setText(QStringLiteral("Connect an ANAN to use CTUN."));
         ocState->clear();
+        for (QCheckBox* pin : *digitalPins) {
+            const QSignalBlocker block(pin);
+            pin->setChecked(false);
+            pin->setEnabled(false);
+            pin->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
+        }
         for (int pin = 0; pin < 7; ++pin) {
             updateFilterLed((*ocLeds)[pin], false, QStringLiteral("OC pin %1").arg(pin+1));
         }
@@ -1044,6 +1053,10 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         swlEnabled->setEnabled(true);
         swlReset->setEnabled(true);
         ocEnabled->setEnabled(true);
+        for (QCheckBox* pin : *digitalPins) {
+            pin->setEnabled(true);
+            pin->setAccessibleDescription(QStringLiteral("Manual DB9 user output. Saved per radio and hardware profile; independent of HF/SWL OC. Cleared when reception stops."));
+        }
         ocReset->setEnabled(true);
         ocReset->setAccessibleDescription(QStringLiteral("Clear RX OC pin assignments and disable RX OC outputs. Changes are saved and applied automatically."));
         droop->setEnabled(data.value(QStringLiteral("protocol")).toInt() == 2);
@@ -1147,6 +1160,8 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
                 rxInput->setCurrentIndex(input);
             }
             ocEnabled->setChecked(data.value(QStringLiteral("ocEnabled")).toBool());
+            const int digitalMask = data.value(QStringLiteral("userDigitalOutputs")).toInt();
+            for (int pin = 0; pin < 4; ++pin) { (*digitalPins)[pin]->setChecked(digitalMask & (1 << pin)); }
             swlEnabled->setChecked(data.value(QStringLiteral("ocEnabled")).toBool());
             const auto swlRows = data.value(QStringLiteral("ocSwl")).toList();
             for (int row = 0; row < 14; ++row) {
@@ -1382,6 +1397,13 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         bands.insert(QStringLiteral("enabled"), enabled);
         submit({{QStringLiteral("antennaBands"), bands}});
     });
+    for (int pin = 0; pin < 4; ++pin) {
+        connect((*digitalPins)[pin], &QCheckBox::toggled, page, [=](bool checked) {
+            int mask = workingOptions().value(QStringLiteral("userDigitalOutputs")).toInt();
+            mask = checked ? mask | (1 << pin) : mask & ~(1 << pin);
+            submit({{QStringLiteral("userDigitalOutputs"), mask}});
+        });
+    }
     const auto editAntennaRow = [=](int row, int bank, int input, bool checked) {
         if (state->filling) { return; }
         auto bands = workingOptions().value(QStringLiteral("antennaBands")).toMap();

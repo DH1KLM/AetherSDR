@@ -27,7 +27,8 @@ inline QVariantMap filterOptions(const FilterConfig& config)
         swl.append(QVariantMap{{QStringLiteral("lowHz"), band.lowHz},
             {QStringLiteral("highHz"), band.highHz}, {QStringLiteral("mask"), band.mask}});
     }
-    QVariantMap options{{QStringLiteral("rxOnlyInput"), config.rxOnlyInput},
+    QVariantMap options{{QStringLiteral("userDigitalOutputs"), config.userDigitalOutputs},
+            {QStringLiteral("rxOnlyInput"), config.rxOnlyInput},
             {QStringLiteral("receiveBypass"), receiveBypass},
             {QStringLiteral("disable6mLnaOnRx"), config.disable6mLnaOnRx},
             {QStringLiteral("lpfBypassOnRx"), config.lpfBypassOnRx},
@@ -52,6 +53,18 @@ inline QVariantMap filterOptions(const FilterConfig& config)
 inline std::optional<FilterConfig> parseFilterOptions(const QVariantMap& map)
 {
     FilterConfig config{};
+    if (map.contains(QStringLiteral("userDigitalOutputs"))) {
+        const QVariant value = map.value(QStringLiteral("userDigitalOutputs"));
+        const int type = value.metaType().id();
+        const bool numeric = type == QMetaType::Int || type == QMetaType::UInt
+            || type == QMetaType::LongLong || type == QMetaType::ULongLong
+            || type == QMetaType::Double || type == QMetaType::UChar;
+        bool ok = false;
+        const double mask = value.toDouble(&ok);
+        if (!numeric || !ok || !std::isfinite(mask) || mask < 0 || mask > 15
+            || std::floor(mask) != mask) { return std::nullopt; }
+        config.userDigitalOutputs = static_cast<std::uint8_t>(mask);
+    }
     const auto read = [&map](const QString& key, auto& bands) {
         const QVariantList rows = map.value(key).toList();
         if (rows.size() != static_cast<int>(bands.size())) { return false; }

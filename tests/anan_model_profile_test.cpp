@@ -379,6 +379,27 @@ static void swlRouting()
 }
 int main()
 {
+    //DH1KLM Thetis user nibble is independent of OC and never carries keying bits.
+    for (int mask = 0; mask <= 15; ++mask) {
+        FilterConfig filters = defaultFilterConfig(false);
+        filters.userDigitalOutputs = static_cast<std::uint8_t>(mask);
+        const std::array<std::uint32_t, 1> words{phaseWord(6100000)};
+        const auto packet = buildHighPriority(true, words, false, false, 0, 0, 1,
+            0, true, ReceiveFilterKind::LegacyHpf, 1, &filters);
+        const auto stopped = buildHighPriority(false, words, false, false, 0, 0, 1,
+            0, true, ReceiveFilterKind::LegacyHpf, 1, &filters);
+        check(packet[1402] == mask && packet[1401] == 0 && (packet[4] & 0x1e) == 0,
+              "P2 user bits are independent of OC and TX");
+        check(stopped[1402] == 0, "P2 stop clears manual user outputs");
+        p1::ReceiveConfig config;
+        config.userDigitalOutputs = static_cast<std::uint8_t>(mask);
+        const auto bank = p1::receiveControl(0x14, config);
+        check(bank && (*bank)[0] == 0x14 && (*bank)[1] == 0x40
+              && (*bank)[2] == 0 && (*bank)[3] == mask && (*bank)[4] == 0x20,
+              "P1 manual user outputs preserve disabled mic PTT and ADC attenuation");
+        config.userDigitalOutputs = 16;
+        check(!p1::receiveControl(0x14, config), "P1 rejects bits beyond the user nibble");
+    }
     swlRouting();
     ctunTuning();
     bandViews();

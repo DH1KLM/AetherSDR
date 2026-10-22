@@ -34,6 +34,7 @@ bool validConfig(const ReceiveConfig& c) noexcept
         && (c.numAdcs == 1 || c.numAdcs == 2)
         && c.adcIndex >= 0 && c.adcIndex < c.numAdcs
         && c.rxOcMask <= 127
+        && c.userDigitalOutputs <= 15
         && c.antenna >= 1 && c.antenna <= 3
         && c.rxOnlyInput >= 0 && c.rxOnlyInput <= 3
         && c.alexAttenuationDb >= 0 && c.alexAttenuationDb <= 30
@@ -87,6 +88,8 @@ std::optional<Control> receiveControl(std::uint8_t address,
         break;
     case 0x14:
         bytes[1] = 0x40; // Firmware microphone PTT disabled.
+        //DH1KLM Thetis bank 11 C3 carries only the four independent user outputs.
+        bytes[3] = c.userDigitalOutputs;
         bytes[4] = static_cast<std::uint8_t>(0x20 | c.adc0AttenuationDb);
         break;
     case 0x16:
