@@ -89,3 +89,5 @@ third_party/macos-deps/
 
 # macOS Finder metadata
 .DS_Store
+
+/docs/anan-working-state.md
