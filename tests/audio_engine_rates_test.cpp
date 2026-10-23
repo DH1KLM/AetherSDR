@@ -170,6 +170,29 @@ double amplitude(const QByteArray& pcm, int rate, int channel, double frequency)
     return 2.0 * std::hypot(real, imaginary) / static_cast<double>(count);
 }
 
+double toneResidualRatio(const QByteArray& pcm, int rate, int channel, double frequency)
+{
+    const qsizetype frames = pcm.size() / kFrameBytes;
+    const qsizetype count = std::min<qsizetype>(rate / 2, frames / 2);
+    if (count < 100) {
+        return 1.0;
+    }
+    const auto* samples = reinterpret_cast<const float*>(pcm.constData());
+    double cosine = 0.0;
+    double sine = 0.0;
+    double power = 0.0;
+    for (qsizetype index = 0; index < count; ++index) {
+        const double phase = kTau * frequency * static_cast<double>(index) / rate;
+        const double value = samples[(frames - count + index) * 2 + channel];
+        cosine += value * std::cos(phase);
+        sine += value * std::sin(phase);
+        power += value * value;
+    }
+    const double tonePower = 2.0 * (cosine * cosine + sine * sine)
+        / static_cast<double>(count);
+    return power > 0.0 ? std::sqrt(std::max(0.0, power - tonePower) / power) : 1.0;
+}
+
 bool finite(const QByteArray& pcm)
 {
     if (pcm.size() % kFrameBytes != 0) {
@@ -276,6 +299,9 @@ void rateMatrix()
                   "matrix preserves independent right frequency and amplitude");
             check(amplitude(output, deviceRate, 1, 1000) < 0.002,
                   "matrix does not fold left into right");
+            check(toneResidualRatio(output, deviceRate, 0, 1000) < 0.001
+                      && toneResidualRatio(output, deviceRate, 1, 2300) < 0.001,
+                  "producer/device rate matrix keeps unwanted tone components below -60 dB");
             check(AudioEngineRatesTestAccess::producerRate(fixture.engine) == producerRate
                   && AudioEngineRatesTestAccess::outputRate(fixture.engine) == deviceRate,
                   "producer metadata never replaces device rate");
@@ -316,6 +342,10 @@ void bandwidthAndMono()
         if (deviceRate >= 44100) {
             check(amplitude(final, deviceRate, 0, 15000) > 0.27,
                   "48 kHz producer retains 15 kHz at the final speaker output");
+            const double residual = toneResidualRatio(final, deviceRate, 0, 15000);
+            std::printf("speaker 15 kHz residual: device=%d ratio=%.9f\n", deviceRate, residual);
+            check(residual < 0.001,
+                  "high-frequency speaker output keeps unwanted components below -60 dB");
         } else {
             check(amplitude(final, deviceRate, 0, 9000) < 0.003,
                   "48 to 24 fallback rejects the 15 kHz alias at the final speaker output");
