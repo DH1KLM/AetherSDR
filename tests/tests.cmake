@@ -426,6 +426,18 @@ target_include_directories(byte_relay_test PRIVATE src)
 target_link_libraries(byte_relay_test PRIVATE aethercore Qt6::Core)
 add_test(NAME byte_relay_test COMMAND byte_relay_test)
 
+# VPN source-path resolver family rules. Socket-free (reads the interface list only).
+add_executable(network_path_resolver_test tests/network_path_resolver_test.cpp)
+target_include_directories(network_path_resolver_test PRIVATE src)
+target_link_libraries(network_path_resolver_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME network_path_resolver_test COMMAND network_path_resolver_test)
+
+# Unicast-endpoint helpers (IPv4/IPv6 radio address, bracketed endpoint text). Socket-free.
+add_executable(unicast_endpoint_test tests/unicast_endpoint_test.cpp)
+target_include_directories(unicast_endpoint_test PRIVATE src)
+target_link_libraries(unicast_endpoint_test PRIVATE Qt6::Core Qt6::Network)
+add_test(NAME unicast_endpoint_test COMMAND unicast_endpoint_test)
+
 # CTR2 relay model: the destination is only the radio the owner pushes in, and
 # every unusable case keeps Start disabled with its reason. Socket-free.
 add_executable(ctr2_proxy_model_test tests/ctr2_proxy_model_test.cpp)
@@ -3270,6 +3282,15 @@ endif()
 add_executable(vita_dscp_flow_test tests/vita_dscp_flow_test.cpp)
 target_include_directories(vita_dscp_flow_test PRIVATE src)
 add_test(NAME vita_dscp_flow_test COMMAND vita_dscp_flow_test)
+
+# Socket-free: unbound native IPv4/IPv6 UDP descriptors (no bind, send or connect);
+# checks the marker sets the option that marks each family. Exit 77 without IPv6.
+add_executable(vita_dscp_family_test tests/vita_dscp_family_test.cpp
+    src/core/backends/flex/VitaDscpMarker.cpp)
+target_include_directories(vita_dscp_family_test PRIVATE src)
+target_link_libraries(vita_dscp_family_test PRIVATE Qt6::Core Qt6::Network)
+add_test(NAME vita_dscp_family_test COMMAND vita_dscp_family_test)
+set_tests_properties(vita_dscp_family_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 10)
 
 # SOCKETS: two ephemeral IPv4 UDP sockets on 127.0.0.1, our own sender/sink.
 # Tests the native marker across close/rebind; no firmware peer or RF.
@@ -8104,6 +8125,26 @@ set_target_properties(connection_panel_size_test PROPERTIES AUTOMOC ON)
 add_test(NAME connection_panel_size_test COMMAND connection_panel_size_test)
 set_tests_properties(connection_panel_size_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The VPN source-path picker keeps the operator's own pick across family
+# flips while the address is edited. Socket-free (reads the interface list);
+# exit 77 without an adapter carrying an IPv6 GUA and ULA.
+add_executable(connection_panel_source_pick_test
+    tests/connection_panel_source_pick_test.cpp
+    src/gui/ConnectionPanel.cpp
+    src/gui/CanonWindow.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(connection_panel_source_pick_test PRIVATE src tests)
+target_link_libraries(connection_panel_source_pick_test PRIVATE
+    aethercore Qt6::Core Qt6::Network Qt6::Widgets
+)
+set_target_properties(connection_panel_source_pick_test PROPERTIES AUTOMOC ON)
+add_test(NAME connection_panel_source_pick_test COMMAND connection_panel_source_pick_test)
+set_tests_properties(connection_panel_source_pick_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" SKIP_RETURN_CODE 77)
 
 # Leaving minimal mode after a launch in it must not draw the spectrum's first
 # QRhi frame inside the exit's resize cascade (#5915; #4363, #4990). Plain
