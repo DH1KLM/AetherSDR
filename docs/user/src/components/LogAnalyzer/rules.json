@@ -879,6 +879,57 @@
       ]
     },
     {
+      "id": "anan-discovery-bind-failed",
+      "severity": "warning",
+      "title": "OpenHPSDR discovery could not open its UDP socket",
+      "explanation": "AetherSDR could not open the UDP socket it searches for a supported OpenHPSDR radio with, so no supported radio can appear under On This Network. Discovery tries again on every sweep; the text after the colon is the operating system's reason. If you don't use a supported OpenHPSDR radio, you can ignore this.",
+      "match": {
+        "substring": "ANAN discovery: cannot bind a UDP socket"
+      },
+      "docs": "/anan-g2#setup",
+      "source": [
+        {
+          "file": "src/core/backends/anan/AnanDiscovery.cpp",
+          "line": 90,
+          "text": "ANAN discovery: cannot bind a UDP socket"
+        }
+      ]
+    },
+    {
+      "id": "anan-discovery-no-subnet",
+      "severity": "warning",
+      "title": "OpenHPSDR discovery found no network to search",
+      "explanation": "No network interface had an IPv4 broadcast address when AetherSDR searched for a supported OpenHPSDR radio, so the search went to the global broadcast only: the computer was offline, or connected only through a VPN or a point-to-point link. Connect it to the radio's network; discovery keeps searching. If you don't use a supported OpenHPSDR radio, you can ignore this.",
+      "match": {
+        "substring": "ANAN discovery: no IPv4 interface has a broadcast address"
+      },
+      "docs": "/anan-g2#setup",
+      "source": [
+        {
+          "file": "src/core/backends/anan/AnanDiscovery.cpp",
+          "line": 107,
+          "text": "ANAN discovery: no IPv4 interface has a broadcast address"
+        }
+      ]
+    },
+    {
+      "id": "anan-discovery-send-failed",
+      "severity": "warning",
+      "title": "OpenHPSDR discovery could not send a probe",
+      "explanation": "AetherSDR could not send its OpenHPSDR radio search to one address; the line names the address and the operating system's reason. A supported radio on that address's subnet may not appear under On This Network. If your radio is listed anyway, another address reached it. If you don't use a supported OpenHPSDR radio, you can ignore this. P1 and P2 send failures are tracked separately; the log identifies the protocol.",
+      "match": {
+        "substring": "ANAN discovery: cannot send a probe to"
+      },
+      "docs": "/anan-g2#setup",
+      "source": [
+        {
+          "file": "src/core/backends/anan/AnanDiscovery.cpp",
+          "line": 119,
+          "text": "ANAN discovery: cannot send a probe to"
+        }
+      ]
+    },
+    {
       "id": "hl2-socket-failed",
       "severity": "problem",
       "title": "Hermes-Lite 2: the UDP socket could not be opened",

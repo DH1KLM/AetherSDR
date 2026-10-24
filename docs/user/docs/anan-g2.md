@@ -122,6 +122,16 @@ The G2 is found automatically on your LAN: open **File → Connect to Radio...**
 
 Discovery also sends a directed broadcast to each attached IPv4 subnet. This can find a G2 on a second NIC with its own subnet. Two NICs sharing a subnet still use the preferred route; VPNs and routers may block broadcast discovery. If the G2 does not appear, use **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P1/P2)** (see [Manual Connection](./manual-connection.md)).
 
+If opening the discovery UDP socket fails, automatic discovery retries on each
+scan (normally every five seconds). Bind failures, missing IPv4 subnet broadcast
+addresses and probe-send failures appear under the discovery log category.
+Repeated failures are reported once until that condition recovers; send failures
+are tracked separately for P1 and P2 at each destination. After three scans that
+sent a probe but received no accepted reply, an informational message reports
+that no supported OpenHPSDR radio answered. This alone does not identify a
+hardware fault. With no successful sends, the send/bind diagnostics explain the
+failure instead. Stop/start clears the diagnostic history.
+
 Click **Scan** on **On This Network** to request discovery immediately, even
 when radios are already listed. This also sends the HL2 and ANAN P1/P2 probes.
 The status shows **Scanning…**, then the end time of the two-second response
