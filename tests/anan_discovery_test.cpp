@@ -167,7 +167,7 @@ void sendFailureIsLoggedOncePerCondition()
           "send failure: the same target failing on later sweeps logs nothing");
 
     const QStringList other = logged([&n] { n.sendFailed(kSubnetB, QStringLiteral("x")); });
-    check(other.size() == 1 && other.first().contains(QStringLiteral("to 10.0.5.255: x")),
+    check(other.size() == 1 && other.first().contains(QStringLiteral("to 10.0.5.255 (P2): x")),
           "send failure: another target is its own condition");
 
     check(logged([&n] { n.sendFailed(kGlobal, QStringLiteral("x")); })
