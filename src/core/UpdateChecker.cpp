@@ -56,8 +56,9 @@ QString probeStoreName()
 }
 } // namespace
 
-UpdateChecker::UpdateChecker(QObject* parent)
+UpdateChecker::UpdateChecker(QObject* parent, QNetworkAccessManager* network)
     : QObject(parent)
+    , m_nam(network ? network : new QNetworkAccessManager(this))
 {}
 
 QString UpdateChecker::storeName()
@@ -131,7 +132,7 @@ void UpdateChecker::fail(const QString& reason)
     // A failed automatic check still starts the daily wait, so a blocking
     // proxy or a rate-limited reply costs one request a day, not one a launch.
     // The known release is left as it was.
-    if (m_trigger == Trigger::Automatic) {
+    if (m_startedAutomatically) {
         UpdateSettings::setLastCheckUtc(QDateTime::currentDateTimeUtc());
     }
     emit checkFailed(m_trigger);
@@ -147,6 +148,7 @@ bool UpdateChecker::checkNow(Trigger trigger)
     }
     m_inFlight = true;
     m_tooLarge = false;
+    m_startedAutomatically = trigger == Trigger::Automatic;
     m_trigger = trigger;
     qCInfo(lcUpdater) << triggerName(trigger) << "check started";
 
@@ -156,8 +158,13 @@ bool UpdateChecker::checkNow(Trigger trigger)
     req.setRawHeader("User-Agent",
         QByteArrayLiteral("AetherSDR/") + QCoreApplication::applicationVersion().toUtf8());
     req.setTransferTimeout(15000);
+    // One fixed endpoint, read only for tag_name: a redirect is never a
+    // legitimate answer here. Set per request, so a supplied manager is left
+    // as its owner configured it; the 3xx is refused when the reply finishes.
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::ManualRedirectPolicy);
 
-    auto* reply = m_nam.get(req);
+    auto* reply = m_nam->get(req);
     NetworkDiagnostics::watch(reply, "update check");
     connect(reply, &QNetworkReply::downloadProgress, this,
             [this, reply](qint64 received, qint64) {
@@ -176,6 +183,11 @@ bool UpdateChecker::checkNow(Trigger trigger)
         }
         if (reply->error() != QNetworkReply::NoError) {
             fail(reply->errorString());
+            return;
+        }
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (status >= 300 && status < 400) {
+            fail(QStringLiteral("endpoint answered with redirect %1").arg(status));
             return;
         }
 
