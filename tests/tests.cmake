@@ -3811,26 +3811,15 @@ set_tests_properties(client_chain_audio_path_test PROPERTIES
 # Local Qt dialog + injected uploader callbacks; no radio connection or peer.
 add_executable(firmware_close_dialog_test
     tests/firmware_close_dialog_test.cpp
-    src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
-    src/gui/RadioSetupDialog.cpp
+    src/gui/UpdatesWindow.cpp
+    src/gui/FirmwareUpdateCard.cpp
+    src/gui/CanonPrompt.cpp
     src/gui/CanonWindow.cpp
-    src/gui/RtlReceiverSettingsWidget.cpp
-    src/gui/ControlAvailabilityRegistry.cpp
-    src/gui/RadioSetupDialog_Peripherals.cpp
-    src/gui/Kxpa100AdvancedWidget.cpp
-    src/gui/Kat500AdvancedWidget.cpp  # Kat500Model links through aetherdesktop_support -> aethercore
-    src/gui/Kpa500AdvancedWidget.cpp
-    src/gui/PersistentDialog.cpp
-    src/gui/FramelessResizer.cpp
-    src/gui/FramelessWindowTitleBar.cpp
-    src/gui/SliceColorManager.cpp
-    src/gui/KiwiPublicReceiverPicker.cpp
-    src/gui/GuardedSlider.h
 )
 target_include_directories(firmware_close_dialog_test PRIVATE src tests)
 target_link_libraries(firmware_close_dialog_test PRIVATE
-    aetherdesktop_support Qt6::Widgets Qt6::Test)
+    aetherdesktop_support aethercore Qt6::Widgets Qt6::Network Qt6::Test)
+set_target_properties(firmware_close_dialog_test PROPERTIES AUTOMOC ON)
 add_test(NAME firmware_close_dialog_test COMMAND firmware_close_dialog_test)
 set_tests_properties(firmware_close_dialog_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
@@ -3840,7 +3829,6 @@ set_tests_properties(firmware_close_dialog_test PROPERTIES
 add_executable(flex_control_visibility_test
     tests/flex_control_visibility_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3867,7 +3855,6 @@ set_tests_properties(flex_control_visibility_test PROPERTIES
 add_executable(radio_setup_no_transient_window_test
     tests/radio_setup_no_transient_window_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3906,7 +3893,6 @@ set_tests_properties(radio_setup_no_transient_window_test PROPERTIES
 add_executable(radio_setup_region_field_test
     tests/radio_setup_region_field_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3933,7 +3919,6 @@ set_tests_properties(radio_setup_region_field_test PROPERTIES
 add_executable(radio_setup_operations_test
     tests/radio_setup_operations_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/TxBandDialog.cpp
     src/gui/CanonWindow.cpp
@@ -3967,7 +3952,6 @@ set_tests_properties(radio_setup_operations_test PROPERTIES
 add_executable(radio_setup_label_theme_token_test
     tests/radio_setup_label_theme_token_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3994,7 +3978,6 @@ set_tests_properties(radio_setup_label_theme_token_test PROPERTIES
 add_executable(radio_setup_window_size_test
     tests/radio_setup_window_size_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4021,7 +4004,6 @@ set_tests_properties(radio_setup_window_size_test PROPERTIES
 add_executable(radio_setup_pair_grid_test
     tests/radio_setup_pair_grid_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4054,7 +4036,6 @@ set_tests_properties(radio_setup_pair_grid_test PROPERTIES
 add_executable(radio_setup_max_power_field_test
     tests/radio_setup_max_power_field_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4084,7 +4065,6 @@ set_tests_properties(radio_setup_max_power_field_test PROPERTIES
 add_executable(radio_setup_tx_timing_fields_test
     tests/radio_setup_tx_timing_fields_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4115,7 +4095,6 @@ set_tests_properties(radio_setup_tx_timing_fields_test PROPERTIES
 add_executable(radio_setup_recording_mode_dim_test
     tests/radio_setup_recording_mode_dim_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4147,7 +4126,6 @@ set_tests_properties(radio_setup_recording_mode_dim_test PROPERTIES
 add_executable(radio_setup_headphone_output_gate_test
     tests/radio_setup_headphone_output_gate_test.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4183,7 +4161,6 @@ add_executable(radio_nickname_test
     tests/radio_nickname_test.cpp
     src/gui/CanonWindow.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
@@ -4233,7 +4210,6 @@ add_executable(radio_setup_show_tx_waterfall_test
     tests/radio_setup_show_tx_waterfall_test.cpp
     src/gui/CanonWindow.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
@@ -4679,6 +4655,8 @@ add_test(NAME update_release_notes_test COMMAND update_release_notes_test)
 add_executable(updates_window_test
     tests/updates_window_test.cpp
     src/gui/UpdatesWindow.cpp
+    src/gui/FirmwareUpdateCard.cpp
+    src/gui/CanonPrompt.cpp
     src/gui/CanonWindow.cpp
 )
 target_include_directories(updates_window_test PRIVATE src tests)
@@ -5705,7 +5683,6 @@ add_executable(peripheral_auth_dialog_test
     tests/peripheral_auth_dialog_test.cpp
     tests/fakes/PeripheralAuthStoreFake.cpp
     src/gui/DragValuePopup.cpp
-    src/gui/FirmwareReleasesDialog.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
