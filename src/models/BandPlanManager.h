@@ -19,9 +19,15 @@ public:
     struct Segment {
         double lowMhz;
         double highMhz;
-        QString label;
+        QString label;      //DH1KLM preferred mode — painted on the band strip
         QString license;
         QColor color;
+        //DH1KLM Optional usage annotation (the IARU chart's second column, e.g.
+        //DH1KLM "Digimodes, automatically controlled data stations (unattended)").
+        //DH1KLM Shown on hover only. Never feeds isVoiceSegmentLabel(), which
+        //DH1KLM keys the S-History voice mask off `label` alone. Last so existing
+        //DH1KLM positional initialisers stay valid. (#4667)
+        QString usage{};
     };
 
     struct Spot {

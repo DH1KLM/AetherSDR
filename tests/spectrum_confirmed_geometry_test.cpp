@@ -11,7 +11,9 @@
 #include "core/backends/rtl/RtlSdrBackend.h"
 #include "models/SliceModel.h"
 #include "models/PanadapterModel.h"
+#include "models/BandPlanManager.h"
 #include <QImage>
+#include <QToolTip>
 #include <QPainter>
 
 #include <QApplication>
@@ -83,6 +85,14 @@ struct SpectrumOffscreenTestAccess {
         widget.m_frequencyPreviewBaseBandwidthMhz = span * 2;
         widget.m_frequencyPreviewTargetCenterMhz = target;
         widget.m_frequencyPreviewTargetBandwidthMhz = span;
+    }
+    //DH1KLM A point inside the band-plan hover row at `mhz` — the same geometry
+    //DH1KLM mouseMoveEvent() hit-tests (bottom 8 px of the spectrum area). (#4667)
+    static QPoint bandRow(const SpectrumWidget& widget, double mhz) {
+        const int specH = static_cast<int>((widget.height() - widget.freqScaleH()
+                                            - SpectrumWidget::DIVIDER_H)
+                                           * widget.m_spectrumFrac);
+        return {widget.mhzToX(mhz), specH - 4};
     }
     static QPoint marker(SpectrumWidget& widget) {
         QImage image(widget.size(), QImage::Format_ARGB32);
@@ -746,5 +756,57 @@ int main(int argc, char** argv)
               "Hermes Range centering moves its DDC pan while preserving slice RF");
     }
     widget.prepareForShutdown();
+    {
+        //DH1KLM Band-plan segment `usage` surfaces on hover over the band strip, and
+        //DH1KLM only there: a segment without usage, or a hidden strip, shows nothing.
+        //DH1KLM (#4667)
+        BandPlanManager plans;
+        plans.loadPlans();
+        plans.setActivePlan(QStringLiteral("IARU Region 1"));
+        check(plans.activePlanName() == QStringLiteral("IARU Region 1"),
+              "usage hover: IARU Region 1 plan loads from resources");
+        SpectrumWidget band;
+        band.resize(800, 400);
+        band.setBandPlanManager(&plans);
+        band.setBandPlanFontSize(6);
+        band.setFrequencyRangeImmediate(14.110, 0.040);
+        band.show();
+        //DH1KLM Offscreen there is no QRhi, so PanadapterMessageOverlay shows its
+        //DH1KLM "Spectrum renderer unavailable" notice over the band row just after
+        //DH1KLM show(), and mouseMoveEvent() yields to any child under the pointer.
+        //DH1KLM Wait for it to clear the row.
+        for (int i = 0; i < 100 && band.childAt(SpectrumOffscreenTestAccess::bandRow(band, 14.105)); ++i) {
+            wait(50);
+        }
+        const auto hoverAt = [&](double mhz) {
+            const QPoint p = SpectrumOffscreenTestAccess::bandRow(band, mhz);
+            mouse(band, QEvent::MouseMove, p.x(), p.y());
+            wait(50);
+        };
+        const auto tipGone = [&]() {
+            wait(500);  //DH1KLM QToolTip::hideText() fades on a timer
+            return !QToolTip::isVisible();
+        };
+        //DH1KLM Control: the pre-existing spot tooltip must work under this harness,
+        //DH1KLM or the usage assertions below prove nothing.
+        hoverAt(14.100);
+        check(QToolTip::isVisible() && QToolTip::text().contains(QStringLiteral("IBP")),
+              "usage hover: control — spot tooltip at 14.100 shows");
+        QToolTip::hideText();
+        wait(500);
+        hoverAt(14.105);
+        const QString tip = QToolTip::text();
+        std::printf("    tooltip at 14.105: %s\n", qPrintable(tip));
+        check(QToolTip::isVisible()
+                  && tip.contains(QStringLiteral("14.101"))
+                  && tip.contains(QStringLiteral("ALL"))
+                  && tip.contains(QStringLiteral("automatically controlled data stations")),
+              "usage hover: 14.101-14.112 shows its chart usage note");
+        hoverAt(14.120);  //DH1KLM 14.112-14.350 ALL, no usage
+        check(tipGone(), "usage hover: a segment without usage shows no tooltip");
+        band.setBandPlanFontSize(0);
+        hoverAt(14.105);
+        check(tipGone(), "usage hover: no tooltip while the band strip is Off");
+    }
     return failures ? 1 : 0;
 }
