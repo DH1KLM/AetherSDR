@@ -43,8 +43,8 @@ checked-toggle accent red where the root theme has it blue — scope
 paths are slash-joined, and a widget opts in by carrying the path in
 its `themeContainer` property). The `canon` scope does the same for
 whole windows: AetherRX, AetherTX, AetherModem, AetherMap, AetherGPS, SpotHub, AetherControl, the multiFLEX Dashboard, Radio Setup,
-TX Band Settings, Connect to Radio and AGC-T Calibration sit under `canon/aetherRx`, `canon/aetherTx`, `canon/aetherModem`,
-`canon/aetherMap`, `canon/aetherGps`, `canon/spotHub`, `canon/aetherControl`, `canon/multiFlex`, `canon/radioSetup`, `canon/txBand`, `canon/connection` and `canon/agcCalibration`, and it maps the base tokens onto the canon palette
+TX Band Settings, Connect to Radio, AGC-T Calibration and Icom RC-28 Button Mapping sit under `canon/aetherRx`, `canon/aetherTx`, `canon/aetherModem`,
+`canon/aetherMap`, `canon/aetherGps`, `canon/spotHub`, `canon/aetherControl`, `canon/multiFlex`, `canon/radioSetup`, `canon/txBand`, `canon/connection`, `canon/agcCalibration` and `canon/rc28Mapping`, and it maps the base tokens onto the canon palette
 there (see [`aethersdr-style-guide.md`](aethersdr-style-guide.md)). The
 widget-aware accessors below resolve scope automatically — prefer them
 inside applets and anything painted inside a scoped window.
@@ -67,6 +67,12 @@ sizes and paddings after it. The selection rule sets no text color, so a
 window that colors items (the dashboard's PTT tick and its own station) keeps
 those colors on a selected row through a delegate, and a window that wants
 plain ink there adds it, as SpotHub does.
+
+Its scroll bars take `canonScrollBarRules()` (`CanonScrollBarStyle.h`): a
+12 px transparent track and a `color.canon.lineHi` handle with no step
+arrows, both orientations. AetherModem, AetherGPS, AetherMap, SpotHub,
+Network Diagnostics, Radio Setup and Icom RC-28 Button Mapping append it to
+their sheets.
 
 ### Consuming tokens
 
