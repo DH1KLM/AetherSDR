@@ -180,6 +180,19 @@ inline constexpr std::array<AnanModelInfo, 18> kAnanModels{{
     }
     return info->nativeBoardId == board;
 }
+//DH1KLM: Thetis clsHardwareSpecific.hasAudioAmpEnable limits HP byte 1400 bit 1
+// to these P2 models. Board 5 alone cannot identify the installed amplifier.
+[[nodiscard]] constexpr bool hasSpeakerAmpMute(int protocol, AnanModel model, int board,
+                                              bool overrideDetection) noexcept
+{
+    if (protocol != 2 || (board != 1 && board != 2 && board != 3 && board != 4
+                         && board != 5 && board != 10 && board != 20)) { return false; }
+    if (!overrideDetection && !modelMatchesBoard(model, board)) { return false; }
+    if (model == AnanModel::Automatic) { return board == 10; }
+    return model == AnanModel::Anan7000 || model == AnanModel::Anan8000
+        || model == AnanModel::AnvelinaPro3 || model == AnanModel::RedPitaya
+        || model == AnanModel::AnanG2 || model == AnanModel::AnanG21K;
+}
 //DH1KLM: Thetis setup.cs RXAntChk1Name/RXAntChk2Name. Generic Orion MkII
 // uses SetAntBits' EXT wire names; an explicit DIY mapping uses its model.
 [[nodiscard]] constexpr std::array<std::string_view, 4> receiveInputNames(AnanModel model, int board) noexcept

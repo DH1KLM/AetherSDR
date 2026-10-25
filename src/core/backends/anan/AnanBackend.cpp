@@ -959,8 +959,8 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         m_pendingParams.alexAttenuationDb = 0;
     }
     m_pendingParams.speakerAmpMuted =
-        m_pendingParams.protocol == 2
-        && (m_pendingParams.expectedBoardId == 10 || m_pendingParams.expectedBoardId == 20)
+        hasSpeakerAmpMute(m_pendingParams.protocol, m_pendingParams.model,
+                          m_pendingParams.expectedBoardId, m_pendingParams.overrideDetection)
         && request.params.value(QStringLiteral("anan.speakerAmpMuted"), false).toBool();
     // applyRestoredState() seeds both ADC values before this connect.
     m_attenuationDb = m_pendingParams.ddc0AdcIndex == 1
@@ -2198,8 +2198,9 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     const auto* descriptor = ananModelInfo(m_pendingParams.model);
     DiscoveryReply physical;
     physical.boardId = m_discoveredBoardId;
-    state.insert(QStringLiteral("speakerAmpMuteAvailable"), m_pendingParams.protocol == 2
-        && (m_discoveredBoardId == 10 || m_discoveredBoardId == 20));
+    state.insert(QStringLiteral("speakerAmpMuteAvailable"), hasSpeakerAmpMute(
+        m_pendingParams.protocol, m_pendingParams.model, m_discoveredBoardId,
+        m_pendingParams.overrideDetection));
     state.insert(QStringLiteral("speakerAmpMuted"), m_pendingParams.speakerAmpMuted);
     state.insert(QStringLiteral("ctun"), m_ctun);
     state.insert(QStringLiteral("ctunAvailable"), !m_droopCalibrator.isRunning() && !m_receiveBuilding && primaryVisible());

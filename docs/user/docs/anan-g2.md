@@ -182,7 +182,7 @@ Configure the receive front end under **Settings → Radio Setup... → Radio �
 
 Filter bypass is controlled only under **ANAN Hardware → Antenna / ALEX** and applies immediately for the connected device and effective model. Change the live sample rate under **ANAN Hardware → Radio Info → Operating Parameters**, or use the panadapter **− / +** buttons.
 
-On **ANAN Hardware → Radio Info → Operating Parameters**, **Mute the radio's speaker amplifier** disables the G2's hardware amplifier immediately. It defaults to off, is remembered for later connections, and requires a G2 using Protocol 2. PC audio is unchanged. Sending silence to the radio leaves its amplifier running; this control also suppresses amplifier hiss. A clean disconnect releases the mute.
+On **ANAN Hardware → Radio Info → Operating Parameters**, **Mute the radio's speaker amplifier** disables the radio's hardware amplifier immediately. It defaults to off and is remembered for later connections. It requires Protocol 2 and an ANAN-7000DLE, ANAN-8000DLE, ANAN-G2, ANAN-G2 1K, Anvelina Pro 3 or Red Pitaya model profile. Automatic detection enables it for Saturn/G2 (board 10); board 5 requires an explicit supported model profile because its amplifier cannot be identified from discovery alone. The control is unavailable for ANAN-100D/200D, generic Orion MkII, G2E and Protocol 1. PC audio is unchanged. Sending silence to the radio leaves its amplifier running; this control also suppresses amplifier hiss. A clean disconnect releases the mute.
 
 ## ANAN Hardware
 

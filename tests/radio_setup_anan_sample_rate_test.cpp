@@ -24,7 +24,8 @@ using namespace AetherSDR;
 namespace AetherSDR::anan {
 class AnanLinkStatsTestAccess {
 public:
-    static void prepare(AnanBackend& backend, int protocol, bool redPitaya, int board = 5)
+    static void prepare(AnanBackend& backend, int protocol, bool redPitaya, int board = 5,
+                        AnanModel model = AnanModel::Automatic)
     {
         backend.m_connected = true;
         backend.m_discoveryInfoReceived = true;
@@ -35,6 +36,7 @@ public:
         backend.m_pendingParams.redPitayaP1 = redPitaya;
         backend.m_pendingParams.model = redPitaya ? AnanModel::RedPitaya
             : board == 10 ? AnanModel::AnanG2 : AnanModel::Anan7000;
+        if (model != AnanModel::Automatic) { backend.m_pendingParams.model = model; }
         backend.m_pendingParams.ddc0RateKsps = 48;
         backend.m_pendingDspConfig.inputSampleRateHz = 48000;
         backend.m_sliceFreqHz = backend.m_ddcCenterHz = 14'175'000;
@@ -232,19 +234,27 @@ int main(int argc, char** argv)
                   "typed removal retains the original ANAN receiver");
         }
     }
-    for (int protocol : {1, 2}) {
+    for (const auto [protocol, selectedModel, board, available] : {
+             std::tuple{1, anan::AnanModel::Anan7000, 5, false},
+             std::tuple{2, anan::AnanModel::AnanG2, 10, true},
+             std::tuple{2, anan::AnanModel::Anan7000, 5, true},
+             std::tuple{2, anan::AnanModel::Anan8000, 5, true},
+             std::tuple{2, anan::AnanModel::Anan100D, 3, false},
+             std::tuple{2, anan::AnanModel::Anan200D, 4, false},
+             std::tuple{2, anan::AnanModel::OrionMkII, 5, false},
+             std::tuple{2, anan::AnanModel::AnanG2E, 20, false}}) {
         anan::AnanSettings::setSpeakerAmpMuted(false);
         RadioModel model;
         auto owned = std::make_unique<anan::AnanBackend>();
         auto* backend = owned.get();
-        anan::AnanLinkStatsTestAccess::prepare(*backend, protocol, false, protocol == 2 ? 10 : 5);
+        anan::AnanLinkStatsTestAccess::prepare(*backend, protocol, false, board, selectedModel);
         model.setBackendForTest(std::move(owned), QStringLiteral("anan"));
         RadioSetupDialog dialog(&model);
         dialog.selectTab(QStringLiteral("ANAN Hardware"));
         auto* mute = dialog.findChild<QCheckBox*>(QStringLiteral("ananSpeakerAmpMute"));
-        check(mute && mute->isEnabled() == (protocol == 2),
-              "amplifier mute stays visible and requires a G2 P2 session");
-        if (protocol == 2) {
+        check(mute && mute->isEnabled() == available,
+              "amplifier mute stays visible and follows the P2 model capability");
+        if (available) {
             mute->click();
             app.processEvents();
             check(anan::AnanSettings::speakerAmpMuted() && mute->isChecked(),

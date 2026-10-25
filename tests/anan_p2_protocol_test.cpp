@@ -65,6 +65,23 @@ static std::vector<std::uint8_t> makeDdcFrame(std::uint32_t seq, int n)
 
 int main()
 {
+    for (const auto& info : kAnanModels) {
+        const bool supported = info.model == AnanModel::Anan7000 || info.model == AnanModel::Anan8000
+            || info.model == AnanModel::AnvelinaPro3 || info.model == AnanModel::RedPitaya
+            || info.model == AnanModel::AnanG2 || info.model == AnanModel::AnanG21K;
+        check(hasSpeakerAmpMute(2, info.model, info.nativeBoardId, false) == supported,
+              "P2 amplifier eligibility follows the explicit Thetis model list");
+        check(!hasSpeakerAmpMute(1, info.model, info.nativeBoardId, true),
+              "P1 never encodes the P2 amplifier control");
+        check(!hasSpeakerAmpMute(2, info.model, 11, true),
+              "unqualified board 11 never enables amplifier control");
+    }
+    check(hasSpeakerAmpMute(2, AnanModel::Automatic, 10, false)
+          && !hasSpeakerAmpMute(2, AnanModel::Automatic, 5, false),
+          "automatic Saturn is identified but board 5 needs a specific amplifier model");
+    check(!hasSpeakerAmpMute(2, AnanModel::Anan7000, 3, false)
+          && hasSpeakerAmpMute(2, AnanModel::Anan7000, 3, true),
+          "only an explicit hardware override permits mismatched supported model wiring");
     //DH1KLM: Patroclus RadioProfile.CreateDiscoveryResponse at 8c275223:
     // every emulated profile shares MAC 00:00:00:00:00:01; P2 byte 12 is 2.
     // Feed its wire shape through the production parser, not a fake radio.

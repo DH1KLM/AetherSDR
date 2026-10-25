@@ -1010,8 +1010,8 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             const bool available = data.value(QStringLiteral("speakerAmpMuteAvailable")).toBool();
             ampMute->setEnabled(available);
             ampMute->setAccessibleDescription(available
-                ? QStringLiteral("Applies immediately to the G2 speaker amplifier; PC audio is unchanged")
-                : QStringLiteral("Unavailable: requires an ANAN-G2 using Protocol 2"));
+                ? QStringLiteral("Applies immediately to the radio speaker amplifier; PC audio is unchanged")
+                : QStringLiteral("Unavailable: requires Protocol 2 and a supported speaker amplifier model (7000, 8000, G2, G2 1K, Anvelina Pro 3 or Red Pitaya)"));
         }
 
         {

@@ -113,7 +113,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     //DH1KLM: Keep the validated hardware ADC count with the session; never infer it from the DDC count.
     m_numAdcs = params.numAdcs;
     m_speakerAudioEnabled = params.speakerAudioEnabled;
-    m_speakerAmpMuted = (params.expectedBoardId == 10 || params.expectedBoardId == 20)
+    m_speakerAmpMuted = hasSpeakerAmpMute(2, params.model, params.expectedBoardId, params.overrideDetection)
         && params.speakerAmpMuted;
     m_speakerPending.clear();
     m_speakerPacer.reset();
@@ -405,7 +405,7 @@ void P2Client::setDdc0FrequencyHz(double hz)
 }
 void P2Client::setSpeakerAmpMuted(bool muted)
 {
-    if (m_expectedBoardId != 10 && m_expectedBoardId != 20) { return; }
+    if (!hasSpeakerAmpMute(2, m_model, m_expectedBoardId, m_overrideDetection)) { return; }
     m_speakerAmpMuted = muted;
     setRxAntenna(m_rxAntenna);
 }
