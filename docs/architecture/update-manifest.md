@@ -191,6 +191,91 @@ fails its `sha256` or exceeds its `size`, a `latest/` that disagrees with
 GitHub, and paths or symlink targets that escape the install (absolute, `..`,
 a write through a link, or a link pointing outside it).
 
+## Swapping it in (Windows, Phase 3)
+
+`AetherSDRUpdater.exe` (`src/updater/`) does the swap after AetherSDR
+exits. It is built with the static MSVC runtime and no Qt, and the app
+copies it into the state folder before starting it
+(`UpdateInstaller::launchHelper`, which the Updates window calls from the
+next PR on), because it renames the folder it was installed in. Its
+command line is versioned (`--protocol 1`), and anything else is refused.
+
+In-place updates are per-user. `launchHelper` refuses while AetherSDR runs
+elevated across a UAC boundary (the split token's full half): the helper
+would run from a user-writable folder at the elevated level, and a
+swapped-in tree would keep that folder's permissions inside Program
+Files. With UAC off, or as the built-in Administrator, there is no lower
+level to escape from, and it runs. A per-machine install run normally fails the
+helper's writable-parent check and is left alone (`NotPossible`); either
+way the answer is to run the installer.
+
+1. It waits for AetherSDR to exit, up to five minutes, and never kills it.
+2. It checks first: the install and the staged release each hold
+   `AetherSDR.exe`, the install's parent folder is writable, and no
+   `<install>.new` it did not create is in the way.
+3. It moves the staged release to `<install>.new`. Across volumes it copies
+   instead, so the swap is a same-volume rename.
+4. It renames `<install>` to `<install>.previous`, then `.new` to `<install>`.
+   A brief lock is retried for up to 30 s; one that persists is undone.
+   Only one `.previous` is kept.
+5. It runs `AetherSDR.exe --update-selftest <marker>` from the new tree.
+   The new version starts Qt, writes its version to the marker and exits,
+   with no window, no settings and no radio. A missing or wrong marker, or
+   no exit within 60 s, restores `.previous` and keeps the failed release as
+   `<install>.failed`.
+6. Restart to update then starts the app; a swap on quit does not.
+
+A journal (`swap-journal.txt`) records each step before it is taken, and
+a step is taken only once its record reached the disk: it is flushed
+(`FlushFileBuffers`) and moved into place with `MOVEFILE_WRITE_THROUGH`, so
+a power cut leaves the old record or the new one whole. If a record can't
+be written, the step is skipped and the swap undone, so the last record on
+disk always matches the folders. A helper that dies mid-swap is repaired by
+the next run, but only after AetherSDR has exited, never while it runs. The
+install is restored from `.previous`, and a release that was in place but
+never passed its self-test (the journal at `swap-2`, `selftest` or
+`rollback`) is rolled back. The journal is kept while a repair is still
+owed: after a failed rollback, or when the app never exited. Windows has
+no atomic folder swap; between step 4's two renames nothing runnable is at
+`<install>` for a moment, so nothing could start AetherSDR to start the
+helper again. Before the first rename the helper therefore arms a repair:
+`repair-plan.txt` in the state folder (the install and the version) and an
+`HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce` entry that runs
+`AetherSDRUpdater.exe --protocol 1 --repair --state-dir <dir>` at the next
+logon. If the repair cannot be armed (or its command line would pass
+RunOnce's 260 characters), nothing is renamed.
+
+The repair runs `recover()` alone. Windows deletes a RunOnce value before
+running it, so the repair arms itself again first, and one cut short runs
+at the following logon. While an `AetherSDR.exe` runs from the install it
+renames nothing and waits for the next logon. It records `SwapUndone`,
+never `RolledBack`, since the release was never tested, and only when it
+moved a folder. One with nothing owed only disarms. The helper disarms it
+whenever it removes the journal.
+
+The journal names the file the swap left at `<install>`: the volume serial
+and NTFS file ID of the new release's `AetherSDR.exe`, which a rename keeps
+and a file written again does not. `recover()` rolls back only that tree,
+so a release reinstalled after the Broken message (below) is never
+replaced by the stale `.previous`. The outcome goes to `swap-result.txt`, which the app reads once
+at its next start and checks before believing (a known outcome and a
+plain version, or nothing is logged or kept). A rolled-back release is
+remembered as `Updates.rolledBackVersion`, which the next PR's Updates
+window uses to never offer it again.
+
+### The self-test is a permanent contract
+
+The helper that runs is the old install's, and it tests every later
+release. So `AetherSDR.exe --update-selftest <marker>` is frozen: one
+marker path argument, read from the Unicode command line, and a marker
+holding exactly the version (`26.10.4`, no newline), written before any
+window, settings write or radio. A release may add a new self-test beside
+it, never rename, drop or change this one: an old helper would otherwise
+start the full app, stop it after 60 s and roll back a good release.
+
+If a rollback rename itself fails, the helper shows a message naming the
+three folders and the log (`updater.log`), rather than failing silently.
+
 ## Bundle naming
 
 `AetherSDR-<tag>-<label>-from-<from tag>.update.tar`, where `<label>` is
