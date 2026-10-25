@@ -577,6 +577,12 @@ private:
     // docked one) and dim it with the reason on the others; otherwise every
     // pane keeps its own live pair. PanSpanControlGate.h.
     void syncPanSpanControlPlacement();
+    //DH1KLM The connected backend declares pan display controls without span, so no
+    //DH1KLM zoom route can change it (the Demo). Absent declarations are not fixed.
+    bool panSpanFixedByBackend() const;
+    //DH1KLM Set while syncKiwiSdrPanadapterUiStates() walks every pane, so the span
+    //DH1KLM pair is re-derived once after the walk rather than once per pane.
+    bool m_kiwiSpanSyncDeferred{false};
     void updateSplitState();
     void disableSplit();
     // The split pair, derived from model truth (#3726) rather than from the
@@ -1615,6 +1621,7 @@ private:
     WorkspaceController* m_workspaceController{nullptr};
     QAction*             m_workspaceCanvasAction{nullptr};
     quint64              m_canvasPanLayoutGeneration{0};
+    quint64              m_panLayoutRequestGeneration{0};
     QString              m_pendingCanvasPanLayoutId;
     int                  m_pendingCanvasPanLayoutTarget{-1};
     // Additional canvas windows (phase 7), keyed by surface id.  A hidden

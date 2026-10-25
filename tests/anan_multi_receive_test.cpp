@@ -260,7 +260,8 @@ int main(int argc, char** argv)
               filterState.value(QStringLiteral("lpfActive")).toInt() == 3,
           "backend derives multi-band bypass and 20m LPF without toggling operator switches");
     b.setActiveSlice(1);
-    check(b.createPanadapter(), "create independent pan");
+    check(b.requestPanLifecycle({PanLifecycleAction::Create, {}, {}}) == ReceiveDispatch::Dispatched,
+          "typed lifecycle creates independent ANAN pan");
     wait([&] { return !AnanMultiRxTestAccess::busy(b); });
     check(AnanMultiRxTestAccess::stream(b, 2) == 2, "explicit pan always owns a DDC");
     AnanMultiRxTestAccess::feed(b, 2);
@@ -323,7 +324,9 @@ int main(int argc, char** argv)
                              reportedSpanMhz = spanMhz;
                          }
                      });
-    b.setPanBandwidth(QStringLiteral("anan-1"), 100000);
+    check(b.requestPanDisplay(QStringLiteral("anan-1"), {},
+              {PanDisplayField::Geometry, PanGeometryRequest{{}, 0.1}}) == ReceiveDispatch::Dispatched,
+          "typed geometry reaches the independent ANAN capture");
     check(spanReports > 0 && std::abs(reportedSpanMhz - 0.096) < 1e-9 &&
               !AnanMultiRxTestAccess::busy(b),
           "unchanged snapped rate confirms actual span without a DSP rebuild");

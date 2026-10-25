@@ -1970,6 +1970,11 @@ void MainWindow::zoomActivePanadapter(double factor)
     if (!sw) {
         return;
     }
+    //DH1KLM A fixed span cannot zoom; skip the local preview too. A Kiwi pane's
+    //DH1KLM zoom is that local view change, so it keeps working.
+    if (panSpanFixedByBackend() && !kiwiSdrPanDisplaysKiwi(s->panId())) {
+        return;
+    }
 
     const double currentBw = sw->bandwidthMhz();
     // Clamp to limits so the final keypress snaps to exact min/max (#1458).
