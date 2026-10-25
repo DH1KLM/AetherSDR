@@ -5,17 +5,20 @@
 #include "core/AppSettings.h"
 #include "core/backends/icom/IcomCredentials.h"
 #include "core/backends/icom/IcomSettings.h"
+#include "core/backends/anan/AnanSettings.h"
 #include "gui/ConnectionPanel.h"
 
 #include <QAbstractButton>
 #include <QApplication>
 #include <QComboBox>
 #include <QFont>
+#include <QHostAddress>
 #include <QFile>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLayout>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPushButton>
 #include <QScreen>
 #include <QScrollArea>
@@ -102,6 +105,43 @@ bool expandManualAdvancedSection(ConnectionPanel& panel)
     section->setVisible(true);
     QApplication::processEvents();
     return true;
+}
+
+void checkForgottenAnanMappingSurvivesCachedDiscovery()
+{
+    RadioInfo radio;
+    radio.family = QStringLiteral("anan");
+    radio.serial = QStringLiteral("forget-cached-discovery");
+    radio.address = QHostAddress(QStringLiteral("192.0.2.42"));
+    radio.boardId = 5;
+    radio.hpsdrProtocol = 2;
+    report("seed explicit ANAN override", anan::AnanSettings::setRadioProfile(
+        radio.serial, anan::AnanModel::Anan200D, 2, true));
+    anan::AnanSettings::applyRadioProfileDisplay(radio);
+    ConnectionPanel panel;
+    panel.onRadioDiscovered(radio);
+    auto* forget = panel.findChild<QPushButton*>(QStringLiteral("connectionForgetProfileMapping"));
+    report("mapped disconnected radio can be forgotten", forget && forget->isEnabled());
+    if (!forget) { return; }
+    forget->click();
+    const auto saved = anan::AnanSettings::radioProfile(radio.serial);
+    report("Forget clears model/override and retains protocol", saved.valid
+        && saved.model == anan::AnanModel::Automatic && !saved.overrideDetection && saved.protocol == 2);
+    for (const bool update : {true, false}) {
+        if (update) { panel.onRadioUpdated(radio); }
+        else { panel.onRadioDiscovered(radio); }
+        const auto radios = panel.automationLocalRadios();
+        report("cached discovery cannot resurrect forgotten override", radios.size() == 1
+            && radios.first().connectionProfile.contains(QStringLiteral("Override OFF"))
+            && radios.first().effectiveModel.isEmpty() && !forget->isEnabled());
+        bool staleRow = false;
+        for (auto* list : panel.findChildren<QListWidget*>()) {
+            for (int row = 0; row < list->count(); ++row) {
+                staleRow |= list->item(row)->text().contains(QStringLiteral("Override ON"));
+            }
+        }
+        report("discovery row displays current override state", !staleRow);
+    }
 }
 
 void checkIcomManualGuidanceIsModelNeutral()
@@ -543,6 +583,7 @@ int main(int argc, char** argv)
            changeEventBody.contains("m_connPanel->isVisible()"));
 
     AppSettings::instance().load();
+    checkForgottenAnanMappingSurvivesCachedDiscovery();
     std::printf("ConnectionPanel screen-fit test harness (#4515)\n\n");
 
     const QFont originalFont = app.font();

@@ -2066,8 +2066,11 @@ void ConnectionPanel::showRadioContextMenu(const QPoint& pos)
     emit radioNicknameChanged();
 }
 
-void ConnectionPanel::onRadioDiscovered(const RadioInfo& radio)
+void ConnectionPanel::onRadioDiscovered(const RadioInfo& discovered)
 {
+    //DH1KLM: Discovery snapshots can predate Forget; the persisted mapping owns display metadata.
+    RadioInfo radio = discovered;
+    anan::AnanSettings::applyRadioProfileDisplay(radio);
     for (int i = 0; i < m_radios.size(); ++i) {
         if (m_radios[i].serial == radio.serial) {
             m_radios[i] = radio;
@@ -2117,8 +2120,11 @@ void ConnectionPanel::moveDemoRadioToBottom()
     }
 }
 
-void ConnectionPanel::onRadioUpdated(const RadioInfo& radio)
+void ConnectionPanel::onRadioUpdated(const RadioInfo& discovered)
 {
+    //DH1KLM: Re-evaluate a cached discovery update against the current saved mapping.
+    RadioInfo radio = discovered;
+    anan::AnanSettings::applyRadioProfileDisplay(radio);
     for (int i = 0; i < m_radios.size(); ++i) {
         if (m_radios[i].serial == radio.serial) {
             m_radios[i] = radio;

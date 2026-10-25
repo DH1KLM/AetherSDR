@@ -511,6 +511,8 @@ DSP, calibration and other connection settings remain. The device stays in
 the list and continues to appear through discovery, now using its physical
 board profile with override OFF. **Forget** is disabled when there is no
 mapping to remove or while connected; its tooltip explains the reason.
+Discovery-list rows always resolve the current saved mapping, including when
+an older discovery snapshot arrives after **Forget**.
 
 Existing Red-Pitaya-P1 settings keep their model, P1 preference and 384 ksps
 ceiling. Red Pitaya P2 is an explicit model choice too: it uses two ADCs,
