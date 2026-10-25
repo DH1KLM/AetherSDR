@@ -1189,6 +1189,12 @@ private:
     void positionZoomButtons();
     void drawFreqScale(QPainter& p, const QRect& r);
     double frequencyCanvasFractionAtGlobal(const QPointF& globalPosition) const;
+    //DH1KLM Zoom the pan by a bandwidth multiplier, pinning the frequency under
+    //DH1KLM globalPosition to its pixel. Shared by the macOS trackpad pinch
+    //DH1KLM (QNativeGestureEvent, ZoomNativeGesture) and the touch pinch
+    //DH1KLM (QPinchGesture) paths in event(). Returns true (the event is consumed)
+    //DH1KLM whether the zoom applied or was clamped at a bandwidth limit.
+    bool applyAnchoredZoom(double bandwidthFactor, const QPointF& globalPosition);
     void drawDbmScale(QPainter& p, const QRect& specRect);
     // Shared strip chrome (background, border, ref-adjust arrows) for both the
     // 2D linear dBm scale and the 3D stacked-trace amplitude scale, so the

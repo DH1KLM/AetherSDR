@@ -87,7 +87,7 @@ def scan():
     for f in ui_files():
         rel = f.relative_to(REPO).as_posix()
         try:
-            text = f.read_text(errors="replace")
+            text = f.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
             print(f"warning: unreadable {rel}: {e}", file=sys.stderr)
             continue
@@ -105,7 +105,7 @@ def load_json(path):
     if not path.is_file():
         return {}
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, ValueError) as e:
         print(f"warning: {path.name} is not valid JSON ({e}); treating as "
               "empty", file=sys.stderr)
@@ -209,7 +209,7 @@ def main():
             print("::error::aetherd touchpoints require a valid semantic tag: "
                   + ", ".join(invalid_tags))
             return 1
-        current = MANIFEST_MD.read_text() if MANIFEST_MD.is_file() else ""
+        current = MANIFEST_MD.read_text(encoding="utf-8") if MANIFEST_MD.is_file() else ""
         if current != out:
             print("::error::aetherd-touchpoints.md is stale — run"
                   " `python tools/gen_touchpoint_manifest.py`")
@@ -218,7 +218,7 @@ def main():
         return 0
 
     MANIFEST_MD.parent.mkdir(parents=True, exist_ok=True)
-    MANIFEST_MD.write_text(out)
+    MANIFEST_MD.write_text(out, encoding="utf-8")
     print(f"wrote {MANIFEST_MD.relative_to(REPO)}: "
           f"{len(touchpoints)} touchpoint headers")
     return 0

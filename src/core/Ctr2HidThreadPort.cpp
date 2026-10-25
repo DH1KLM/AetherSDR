@@ -255,6 +255,13 @@ private:
             }
             const int n = writeReports(m_outbox, 0);
             if (n < 0) {
+                //DH1KLM What this tick did write reached the device: count it
+                //DH1KLM before the failure, which arrives after it.
+                if (sent > 0) {
+                    QMetaObject::invokeMethod(m_port, [port = m_port, sent, generation] {
+                        port->deliverSent(sent, generation);
+                    }, Qt::QueuedConnection);
+                }
                 fail(QStringLiteral("CTR2 USB write failed: %1").arg(errorText()));
                 return;
             }

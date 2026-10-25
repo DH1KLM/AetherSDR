@@ -68,6 +68,11 @@ public:
     // Rescans local IPv4 addresses and CTR2-class USB HID devices, now, on
     // this thread. The periodic rescan does the same work off the GUI thread.
     void refreshDevices();
+    //DH1KLM Forgets what the idle probe last read from the selected device and
+    //DH1KLM reads it again (its version and FIRMWARE offer, usbFirmwareVersion() and
+    //DH1KLM usbFirmwareCommands()). A probe taken while the firmware was still
+    //DH1KLM starting can read nothing; a firmware switch keeps the same path.
+    void reprobeFirmware();
 
     // Setters refuse (return false) while running.
     Transport transport() const { return m_transport; }
@@ -123,6 +128,9 @@ public:
     // controller that switched firmware (and so changed its USB identity)
     // appears without pressing Rescan.
     static constexpr int kDeviceRescanMs = 2000;
+    //DH1KLM After a restart request, the longest auto-start waits for the device to
+    //DH1KLM leave the bus and come back before trying anyway.
+    static constexpr int kRestartHoldMs = 20000;
     //DH1KLM Shown while a USB relay that has run this long has never had an answer
     //DH1KLM from the CTR2, as firmware without USB mode never answers; empty
     //DH1KLM otherwise.
@@ -269,6 +277,16 @@ private:
     //DH1KLM expires, rather than opening the device on this thread every
     //DH1KLM kAutoStartRetryMs. Expired (the default) means no hold.
     QDeadlineTimer m_noAnswerHold;
+    //DH1KLM A restart request (restartUsbDevice) answered: the device leaves the bus
+    //DH1KLM a moment later (Lynovation's firmware after about two seconds), and is
+    //DH1KLM still listed until then. Auto-start leaves m_restartedPath alone until a
+    //DH1KLM scan has seen it gone and back, or m_restartedHold expires.
+    QString m_restartedPath;
+    Ctr2HidPort::DeviceInfo m_restartedDevice;   //DH1KLM as listed when restarted
+    bool m_restartedSeenGone{false};
+    QDeadlineTimer m_restartedHold;
+    //DH1KLM The restarted device is the one selected and still held.
+    bool restartHeld();
     int m_noAnswerRetryMs{kNoAnswerRetryMs};
 };
 

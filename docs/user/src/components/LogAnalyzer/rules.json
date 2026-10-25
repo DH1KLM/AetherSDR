@@ -167,7 +167,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 8732,
+          "line": 8733,
           "text": "consecutive pings unanswered — forcing disconnect"
         }
       ]
@@ -232,12 +232,12 @@
         },
         {
           "file": "src/core/backends/flex/PanadapterStream.cpp",
-          "line": 224,
+          "line": 239,
           "text": "PanadapterStream: failed to bind UDP socket:"
         },
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7844,
+          "line": 7845,
           "text": "RadioModel: client udpport collision"
         }
       ]
@@ -254,7 +254,7 @@
       "source": [
         {
           "file": "src/core/backends/flex/PanadapterStream.cpp",
-          "line": 164,
+          "line": 177,
           "text": "capped by net.core.rmem_max"
         }
       ]
@@ -457,7 +457,7 @@
         },
         {
           "file": "src/core/backends/flex/PanadapterStream.cpp",
-          "line": 1829,
+          "line": 1899,
           "text": "stream create failed/dropped"
         }
       ]
@@ -474,7 +474,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 13311,
+          "line": 13312,
           "text": "RadioModel: DAX TX create failed"
         }
       ]
@@ -547,7 +547,7 @@
       "source": [
         {
           "file": "src/gui/SpectrumWidget.cpp",
-          "line": 13223,
+          "line": 13262,
           "text": "\"SpectrumWidget: QRhi failure:\""
         },
         {
@@ -574,7 +574,7 @@
       "source": [
         {
           "file": "src/gui/SpectrumWidget.cpp",
-          "line": 2002,
+          "line": 2009,
           "text": "SpectrumWidget: AETHER_NO_GPU/QT_OPENGL=software"
         }
       ]
@@ -608,7 +608,7 @@
       "source": [
         {
           "file": "src/main.cpp",
-          "line": 85,
+          "line": 86,
           "text": "Non-fatal X11 error suppressed (error_code="
         }
       ]
@@ -941,7 +941,7 @@
       "source": [
         {
           "file": "src/core/backends/hl2/Hl2Backend.cpp",
-          "line": 2854,
+          "line": 2886,
           "text": "HL2: could not open the UDP socket"
         }
       ]
@@ -961,7 +961,7 @@
       "source": [
         {
           "file": "src/core/backends/hl2/MetisClient.cpp",
-          "line": 510,
+          "line": 523,
           "text": "MetisClient: no EP6 for"
         }
       ]

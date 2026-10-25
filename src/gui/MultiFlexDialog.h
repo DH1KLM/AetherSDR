@@ -1,6 +1,6 @@
 #pragma once
 
-#include "PersistentDialog.h"
+#include "CanonWindow.h"
 
 #include <QSet>
 #include <QString>
@@ -13,7 +13,9 @@ namespace AetherSDR {
 
 class RadioModel;
 
-class MultiFlexDialog : public PersistentDialog {
+//DH1KLM The multiFLEX Dashboard: a canon dialog (style guide, RFC #6226) that stays
+//DH1KLM open beside the main window, listing every station sharing the radio.
+class MultiFlexDialog : public CanonWindow {
     Q_OBJECT
 public:
     explicit MultiFlexDialog(RadioModel* model, QWidget* parent = nullptr);
@@ -23,6 +25,7 @@ signals:
 
 private:
     void refresh();
+    void applyItemColors();
 
     RadioModel* m_model;
     QTableWidget* m_table;

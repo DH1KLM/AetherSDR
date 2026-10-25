@@ -449,7 +449,7 @@ def main() -> int:
     args = ap.parse_args()
 
     try:
-        names = seam_signals(BACKEND_H.read_text(errors="replace"))
+        names = seam_signals(BACKEND_H.read_text(encoding="utf-8", errors="replace"))
     except SystemExit as refusal:
         # A refusal is the most deliberately designed failure this tool has —
         # it must not be the one GitHub declines to annotate. SystemExit writes
@@ -465,7 +465,7 @@ def main() -> int:
     out = render(names)
 
     if args.check:
-        current = PROBE_TABLE.read_text() if PROBE_TABLE.is_file() else ""
+        current = PROBE_TABLE.read_text(encoding="utf-8") if PROBE_TABLE.is_file() else ""
         if current == out:
             print(f"seam probe table up to date ({len(names)} signals)")
             return 0
@@ -490,7 +490,7 @@ def main() -> int:
         return 1
 
     PROBE_TABLE.parent.mkdir(parents=True, exist_ok=True)
-    PROBE_TABLE.write_text(out)
+    PROBE_TABLE.write_text(out, encoding="utf-8")
     print(f"wrote {PROBE_TABLE.relative_to(REPO)}: {len(names)} seam signals")
     return 0
 

@@ -27,8 +27,9 @@ public:
     static void setSkippedVersion(const QString& version);
     static bool isSkipped(const QString& version);
 
-    //DH1KLM When the last check (either trigger) got an answer from the server.
-    //DH1KLM Invalid when there has never been one.
+    //DH1KLM When the last check (either trigger) got an answer from the server, or
+    //DH1KLM an automatic check failed (which still starts the daily wait). Invalid
+    //DH1KLM when there has been neither.
     static QDateTime lastCheckUtc();
     static void setLastCheckUtc(const QDateTime& when);
 
@@ -39,6 +40,19 @@ public:
 
     //DH1KLM One write for a successful answer: its time and the release it named.
     static void recordAnswer(const QDateTime& when, const QString& latestVersion);
+
+    //DH1KLM The generated_at of the newest signed update manifest accepted
+    //DH1KLM (docs/architecture/update-manifest.md): an older one is a replay and
+    //DH1KLM is refused. Compared only with itself, never with the clock. Invalid
+    //DH1KLM before the first.
+    static QDateTime acceptedManifestUtc();
+    static void setAcceptedManifestUtc(const QDateTime& generatedAt);
+
+    //DH1KLM A release the updater installed and then rolled back because it failed
+    //DH1KLM its self-test (RFC #5304 Phase 3). Install update does not offer it
+    //DH1KLM again, so a broken release is never re-staged in a loop. Empty: none.
+    static QString rolledBackVersion();
+    static void setRolledBackVersion(const QString& version);
 
     //DH1KLM Whether an automatic check may run at nowUtc: enabled, and the last
     //DH1KLM answer is missing, older than the interval, or in the future (the

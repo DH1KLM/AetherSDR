@@ -100,6 +100,12 @@ struct SpectrumOffscreenTestAccess {
         widget.drawOffScreenSlices(painter, QRect(0, 0, widget.width(), widget.spectrumPixelHeight()));
         return widget.m_offScreenRects.front().center();
     }
+    //DH1KLM The shared anchored-zoom tail both the macOS trackpad (ZoomNativeGesture)
+    //DH1KLM and the touch pinch (QPinchGesture) funnel through after the refactor.
+    static void anchoredZoom(SpectrumWidget& widget, double bandwidthFactor,
+                             QPointF globalPos) {
+        widget.applyAnchoredZoom(bandwidthFactor, globalPos);
+    }
 };
 }
 namespace AetherSDR::rtl {
@@ -807,6 +813,31 @@ int main(int argc, char** argv)
         band.setBandPlanFontSize(0);
         hoverAt(14.105);
         check(tipGone(), "usage hover: no tooltip while the band strip is Off");
+    }
+
+    {
+        //DH1KLM Anchored gesture zoom (the shared applyAnchoredZoom extracted from the
+        //DH1KLM trackpad/pinch paths). Under confirmation the new span is requested,
+        //DH1KLM not applied locally, so assert the requested span and the clamp.
+        SpectrumWidget widget;
+        widget.resize(1000, 400);
+        widget.setPanGeometryConfirmationRequired(true);
+        widget.setFrequencyRangeImmediate(14.200, 0.200);
+        double reqSpan = -1;
+        QObject::connect(&widget, &SpectrumWidget::frequencyRangeChangeRequested,
+            &widget, [&](double, double span) { reqSpan = span; });
+        const QPointF anchor(widget.mapToGlobal(QPoint(widget.width() / 2,
+                                                       widget.height() / 2)));
+        SpectrumOffscreenTestAccess::anchoredZoom(widget, 0.5, anchor);
+        check(near(reqSpan, 0.100),
+              "anchored zoom: bandwidth factor 0.5 requests half the span");
+        check(near(widget.bandwidthMhz(), 0.200),
+              "anchored zoom: under confirmation the span is requested, not applied");
+        reqSpan = -1;
+        SpectrumOffscreenTestAccess::anchoredZoom(widget, 1.0e6, anchor);  //DH1KLM past max
+        check(reqSpan < 0, "anchored zoom past max bandwidth is clamped (no request)");
+        SpectrumOffscreenTestAccess::anchoredZoom(widget, 1.0e-9, anchor);  //DH1KLM past min
+        check(reqSpan < 0, "anchored zoom past min bandwidth is clamped (no request)");
     }
     return failures ? 1 : 0;
 }
