@@ -194,6 +194,12 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     ctunInfo->setWordWrap(true);
     ctunInfo->setAccessibleDescription(QStringLiteral("Live CTUN state and hardware DDC centre"));
     operatingLayout->addRow(ctunInfo);
+    auto* ampMute = new QCheckBox(QStringLiteral("Mute the radio's speaker amplifier"), operatingGroup);
+    ampMute->setObjectName(QStringLiteral("ananSpeakerAmpMute"));
+    ampMute->setAccessibleName(QStringLiteral("ANAN speaker amplifier mute"));
+    ampMute->setAccessibleDescription(QStringLiteral("Unavailable without a connected G2 Protocol 2 session"));
+    ampMute->setEnabled(false);
+    operatingLayout->addRow(ampMute);
     infoLayout->addWidget(operatingGroup);
     auto* defaultsPage = buildAnanConnectionDefaults();
     defaultsPage->setParent(tabs);
@@ -921,6 +927,9 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         }
     };
     const auto unavailable = [=] {
+        ampMute->setEnabled(false);
+        ampMute->setAccessibleDescription(QStringLiteral("Unavailable without a connected G2 Protocol 2 session"));
+
         ++state->generation;
         ++state->revision;
         ++state->pollRevision;
@@ -995,6 +1004,16 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
             status->setText(QStringLiteral("Switches apply immediately. Confirm frequency limits with Enter or by leaving the field."));
         }
         state->current = data;
+        {
+            const QSignalBlocker block(ampMute);
+            ampMute->setChecked(data.value(QStringLiteral("speakerAmpMuted")).toBool());
+            const bool available = data.value(QStringLiteral("speakerAmpMuteAvailable")).toBool();
+            ampMute->setEnabled(available);
+            ampMute->setAccessibleDescription(available
+                ? QStringLiteral("Applies immediately to the G2 speaker amplifier; PC audio is unchanged")
+                : QStringLiteral("Unavailable: requires an ANAN-G2 using Protocol 2"));
+        }
+
         {
             const QSignalBlocker block(rateWindow);
             const QString selected = changed ? QString() : rateWindow->currentData().toString();
@@ -1394,6 +1413,12 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         });
         m_model->invokeBackendExtension(QStringLiteral("anan"), verb, id, options);
     };
+    connect(ampMute, &QCheckBox::toggled, page, [=](bool muted) {
+        if (!ampMute->isEnabled() || state->current.isEmpty()) { return; }
+        QVariantMap options = state->current;
+        options.insert(QStringLiteral("speakerAmpMuted"), muted);
+        request(QStringLiteral("frontend.set"), options);
+    });
     connect(ctun, &QCheckBox::toggled, page, [=](bool enabled) {
         request(QStringLiteral("ctun.set"), enabled);
     });

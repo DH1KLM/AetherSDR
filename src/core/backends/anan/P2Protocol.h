@@ -360,7 +360,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   const FilterConfig* filters = nullptr,
                                                   int alexAttenuationDb = 0,
                                                   const ReceiveFilterPlan* filterPlan = nullptr,
-                                                  double frequencyCorrection = 1.0) noexcept;
+                                                  double frequencyCorrection = 1.0,
+                                                  bool muteSpeakerAmp = false) noexcept;
 
 // The step attenuators' range (spec pp.34,36), shared by the encoder's clamp and
 // by the backend that offers the control.

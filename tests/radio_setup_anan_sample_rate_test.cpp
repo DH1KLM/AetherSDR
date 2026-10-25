@@ -1,5 +1,6 @@
 #include "TestSettingsProfile.h"
 #include "core/backends/anan/AnanBackend.h"
+#include "core/backends/anan/AnanSettings.h"
 #include "core/AppSettings.h"
 #include "gui/RadioSetupDialog.h"
 #include "models/RadioModel.h"
@@ -23,21 +24,23 @@ using namespace AetherSDR;
 namespace AetherSDR::anan {
 class AnanLinkStatsTestAccess {
 public:
-    static void prepare(AnanBackend& backend, int protocol, bool redPitaya)
+    static void prepare(AnanBackend& backend, int protocol, bool redPitaya, int board = 5)
     {
         backend.m_connected = true;
         backend.m_discoveryInfoReceived = true;
-        backend.m_discoveredBoardId = 5;
+        backend.m_discoveredBoardId = board;
+        backend.m_pendingParams.expectedBoardId = board;
         backend.m_radioSerial = QStringLiteral("sample-rate-ui-test-%1-%2").arg(protocol).arg(redPitaya);
         backend.m_pendingParams.protocol = protocol;
         backend.m_pendingParams.redPitayaP1 = redPitaya;
-        backend.m_pendingParams.model = redPitaya ? AnanModel::RedPitaya : AnanModel::Anan7000;
+        backend.m_pendingParams.model = redPitaya ? AnanModel::RedPitaya
+            : board == 10 ? AnanModel::AnanG2 : AnanModel::Anan7000;
         backend.m_pendingParams.ddc0RateKsps = 48;
         backend.m_pendingDspConfig.inputSampleRateHz = 48000;
         backend.m_sliceFreqHz = backend.m_ddcCenterHz = 14'175'000;
         backend.m_receiveLayout.reset(5, backend.m_sliceFreqHz, 48);
         backend.m_streamApplyOverride = [](const auto&, const auto&) { return true; };
-        backend.loadHardwareFilters(5);
+        backend.loadHardwareFilters(board);
     }
     static void publish(AnanBackend& backend) { backend.emitPanState(); backend.emitSliceState(); }
     static void connected(AnanBackend& backend, bool connected) { backend.m_connected = connected; }
@@ -229,4 +232,39 @@ int main(int argc, char** argv)
                   "typed removal retains the original ANAN receiver");
         }
     }
+    for (int protocol : {1, 2}) {
+        anan::AnanSettings::setSpeakerAmpMuted(false);
+        RadioModel model;
+        auto owned = std::make_unique<anan::AnanBackend>();
+        auto* backend = owned.get();
+        anan::AnanLinkStatsTestAccess::prepare(*backend, protocol, false, protocol == 2 ? 10 : 5);
+        model.setBackendForTest(std::move(owned), QStringLiteral("anan"));
+        RadioSetupDialog dialog(&model);
+        dialog.selectTab(QStringLiteral("ANAN Hardware"));
+        auto* mute = dialog.findChild<QCheckBox*>(QStringLiteral("ananSpeakerAmpMute"));
+        check(mute && mute->isEnabled() == (protocol == 2),
+              "amplifier mute stays visible and requires a G2 P2 session");
+        if (protocol == 2) {
+            mute->click();
+            app.processEvents();
+            check(anan::AnanSettings::speakerAmpMuted() && mute->isChecked(),
+                  "G2 amplifier mute reaches backend and persists without a second filter owner");
+            mute->click();
+            app.processEvents();
+            check(!anan::AnanSettings::speakerAmpMuted(), "G2 amplifier unmutes through the same control");
+            QSignalSpy errors(backend, &IRadioBackend::extensionError);
+            QSignalSpy replies(backend, &IRadioBackend::extensionResult);
+            backend->invokeExtension(QStringLiteral("anan"), QStringLiteral("hw.get"), 9872, {});
+            check(!replies.isEmpty(), "G2 publishes the current hardware identity");
+            QVariantMap options = replies.last().at(1).toMap();
+            options.insert(QStringLiteral("speakerAmpMuted"), QStringLiteral("true"));
+            backend->invokeExtension(QStringLiteral("anan"), QStringLiteral("frontend.set"), 9873, options);
+            options.insert(QStringLiteral("speakerAmpMuted"), true);
+            options.insert(QStringLiteral("identity"), QStringLiteral("stale-device"));
+            backend->invokeExtension(QStringLiteral("anan"), QStringLiteral("frontend.set"), 9874, options);
+            check(errors.count() == 2 && !anan::AnanSettings::speakerAmpMuted(),
+                  "ill-typed and stale-device amplifier requests cannot change saved mute");
+        }
+    }
+
 }

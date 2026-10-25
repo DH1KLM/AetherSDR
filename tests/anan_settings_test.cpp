@@ -502,6 +502,16 @@ int main(int argc, char** argv)
         check(parseFilterOptions(AnanSettings::hardwareFilters(serial,7,5))->rxOnlyInput == 2,
               "refused RX input leaves saved selection unchanged");
     }
+    //DH1KLM The amplifier option does not replace device-scoped filter ownership.
+    AnanSettings::reset();
+    check(!AnanSettings::speakerAmpMuted(), "speaker amplifier defaults unmuted");
+    AnanSettings::setDdc0RateKsps(96);
+    AnanSettings::setSpeakerAmpMuted(true);
+    check(AnanSettings::speakerAmpMuted() && AnanSettings::ddc0RateKsps() == 96,
+          "amplifier mute persists without replacing connection defaults");
+    AnanSettings::setSpeakerAmpMuted(false);
+    check(!AnanSettings::speakerAmpMuted(), "amplifier mute round-trips off");
+
     // The rate list a setup page offers. It exists on this header because a
     // page above the radio seam may not include the protocol header that owns
     // the constant.

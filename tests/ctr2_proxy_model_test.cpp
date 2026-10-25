@@ -1,12 +1,14 @@
 // Ctr2ProxyModel destination handling: the relay targets only the radio its
 // owner pushes in, and every unusable case keeps Start disabled with the
-// pushed reason. Socket-free: nothing is started or bound.
+//DH1KLM pushed reason. Socket-free: nothing is bound, and a relay that reaches
+//DH1KLM its radio connection gets an injected socket.
 
 #include "TestSettingsProfile.h"
 #include "core/Ctr2HidFraming.h"
 #include "core/AppSettings.h"
 #include "core/Ctr2RelaySettings.h"
 #include "core/Ctr2HidPort.h"
+#include "core/Ctr2UsbRelay.h"
 #include "models/Ctr2ProxyModel.h"
 
 #include <QCoreApplication>
@@ -20,6 +22,7 @@
 #include <QPointer>
 #include <QRegularExpression>
 #include <QSet>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 
 #include <cstdio>
@@ -76,6 +79,25 @@ private:
     std::shared_ptr<PortLog> m_log;
     bool m_open{true};
 };
+
+//DH1KLM A radio socket that never connects: a test whose CTR2 answers READY keeps
+//DH1KLM the relay Connecting without reaching the network.
+class InertRadioSocket final : public QTcpSocket {
+public:
+    using QTcpSocket::connectToHost;
+    void connectToHost(const QString&, quint16, OpenMode = ReadWrite,
+                       NetworkLayerProtocol = AnyIPProtocol) override
+    {
+    }
+};
+
+void injectInertRadio(Ctr2ProxyModel& model)
+{
+    auto* relay = model.findChild<AetherSDR::Ctr2UsbRelay*>();
+    check(relay != nullptr, "the model owns a USB relay");
+    if (relay)
+        relay->setRadioSocketFactory([] { return new InertRadioSocket; });
+}
 
 // A relay port whose device offers link extensions it did not take.
 class OfferPort : public FakePort {
@@ -278,8 +300,7 @@ bool waitUntil(const std::function<bool()>& predicate, int timeoutMs)
 
 // The relay starts by itself when AetherSDR connects to a radio, retries
 // until the device is plugged in, stays stopped after the operator's Stop
-// until the next connection, remembers its device, and never starts a stock
-// CTR2 (no USB mode).
+//DH1KLM until the next connection, and remembers its device.
 void testAutoStart(const QString& product)
 {
     using Info = AetherSDR::Ctr2HidPort::DeviceInfo;
@@ -335,14 +356,141 @@ void testAutoStart(const QString& product)
               "and the relay starts on connecting");
         model.stop();
     }
-    {
-        *devices = {stock};
-        Ctr2ProxyModel model;
-        backend(model);
-        model.setAetherRadio(radio, 4992, QStringLiteral("FLEX"), {});
-        check(!waitUntil([&] { return model.isRunning(); }, retry),
-              "a stock CTR2, which has no USB mode, is never started automatically");
-    }
+    AetherSDR::Ctr2RelaySettings{}.save();
+}
+
+//DH1KLM Lynovation's firmware relays over USB from v1.02.00 on, so a CTR2-Max on
+//DH1KLM it starts by itself like AetherCTR2; one that never answers the link (an
+//DH1KLM earlier version) gets the hint, which an answer or a stop clears. Other
+//DH1KLM stock CTR2 identities still have no USB mode.
+void testStockFirmwareOverUsb()
+{
+    using Info = AetherSDR::Ctr2HidPort::DeviceInfo;
+    const Info stock{QStringLiteral("stock"), 0x303A, 0x1001, {}, QStringLiteral("ESP32S3_DEV"),
+                     QStringLiteral("000000000001")};
+    const Info dial{QStringLiteral("dial"), 0x303A, 0x1001, {}, QStringLiteral("M5STACK_DIAL"),
+                    QStringLiteral("000000000002")};
+    check(stock.usbLink(), "a CTR2-Max on Lynovation's firmware relays over USB");
+    check(!dial.usbLink(), "a stock M5Dial CTR2 has no USB mode");
+
+    AetherSDR::Ctr2RelaySettings settings;
+    settings.autoStart = true;
+    settings.save();
+    auto devices = std::make_shared<QList<Info>>(QList<Info>{stock});
+    auto log = std::make_shared<PortLog>();
+    QPointer<FakePort> port;
+    Ctr2ProxyModel model;
+    model.setUsbBackend([devices] { return *devices; },
+                        [log, &port](const Info&, QString*) {
+                            port = new FakePort(log);
+                            return static_cast<AetherSDR::Ctr2HidPort*>(port.data());
+                        });
+    model.setTransport(Ctr2ProxyModel::Transport::Usb);
+    injectInertRadio(model);
+    model.setNoAnswerHintMs(300);
+    const QHostAddress radio(QStringLiteral("192.0.2.10"));
+    model.setAetherRadio(radio, 4992, QStringLiteral("FLEX"), {});
+    check(waitUntil([&] { return model.isRunning(); }, 1000),
+          "a CTR2-Max on Lynovation's firmware is started automatically");
+    check(model.noAnswerHint().isEmpty(), "no hint while the CTR2 may still answer");
+    check(waitUntil([&] { return !model.noAnswerHint().isEmpty(); }, 2000),
+          "a CTR2 that never answers gets the hint");
+    check(model.noAnswerHint().contains(QStringLiteral("v1.02.00"))
+              && model.noAnswerHint().contains(QStringLiteral("Wi-Fi")),
+          "the hint names the firmware needed and the Wi-Fi alternative");
+    model.stop();
+    check(model.noAnswerHint().isEmpty(), "stopping clears the hint");
+
+    model.start();
+    check(waitUntil([&] { return model.isRunning() && port; }, 1000), "started again");
+    const auto ready = QByteArray::fromHex("ff00000200010000");   //DH1KLM READY, counter 0
+    emit port->reportsReceived(ready);
+    check(!waitUntil([&] { return !model.noAnswerHint().isEmpty(); }, 800),
+          "a CTR2 that answered gets no hint");
+    model.stop();
+
+    model.setAetherRadio({}, 0, {}, {});
+    *devices = {dial};
+    check(waitUntil([&] { return model.usbDevicePath() == dial.path; },
+                    Ctr2ProxyModel::kDeviceRescanMs + 2000),
+          "the M5Dial is selected");
+    model.setAetherRadio(radio, 4992, QStringLiteral("FLEX"), {});
+    check(!waitUntil([&] { return model.isRunning(); }, Ctr2ProxyModel::kAutoStartRetryMs + 2000),
+          "a CTR2 identity with no USB mode is never started automatically");
+    AetherSDR::Ctr2RelaySettings{}.save();
+}
+
+//DH1KLM A relay that fails before the CTR2 ever answered (firmware with no USB
+//DH1KLM mode, whose first write fails on Windows and macOS) is not reopened every
+//DH1KLM kAutoStartRetryMs on the GUI thread: it waits for the device list to
+//DH1KLM change. One that fails after an answer is retried as before.
+void testNoRetryWithoutAnswer()
+{
+    using Info = AetherSDR::Ctr2HidPort::DeviceInfo;
+    const Info stock{QStringLiteral("stock"), 0x303A, 0x1001, {}, QStringLiteral("ESP32S3_DEV"),
+                     QStringLiteral("000000000001")};
+    AetherSDR::Ctr2RelaySettings settings;
+    settings.autoStart = true;
+    settings.save();
+    auto devices = std::make_shared<QList<Info>>(QList<Info>{stock});
+    auto log = std::make_shared<PortLog>();
+    QPointer<FakePort> port;
+    Ctr2ProxyModel model;
+    model.setUsbBackend([devices] { return *devices; },
+                        [log, &port](const Info&, QString*) {
+                            port = new FakePort(log);
+                            return static_cast<AetherSDR::Ctr2HidPort*>(port.data());
+                        });
+    model.setTransport(Ctr2ProxyModel::Transport::Usb);
+    injectInertRadio(model);
+    const QHostAddress radio(QStringLiteral("192.0.2.10"));
+    const int retry = Ctr2ProxyModel::kAutoStartRetryMs + 2000;
+    model.setAetherRadio(radio, 4992, QStringLiteral("FLEX"), {});
+    check(waitUntil([&] { return model.isRunning() && port; }, 1000), "auto-start opens the CTR2");
+    const int opened = log->opened;
+    emit port->failed(QStringLiteral("HID write failed"));
+    check(!model.isRunning(), "a failed write stops the relay");
+    check(model.lastError().contains(QStringLiteral("never answered"))
+              && model.lastError().contains(QStringLiteral("HID write failed")),
+          "the error says the CTR2 never answered, after the port's own error");
+    check(!waitUntil([&] { return model.isRunning(); }, retry) && log->opened == opened,
+          "a CTR2 that never answered is not reopened automatically");
+    model.setTransport(Ctr2ProxyModel::Transport::Wifi);
+    model.setTransport(Ctr2ProxyModel::Transport::Usb);
+    check(waitUntil([&] { return model.isRunning() && log->opened > opened; }, retry),
+          "changing the mode tries it again");
+    emit port->failed(QStringLiteral("HID write failed"));
+    check(!model.isRunning(), "and the second unanswered run stops too");
+    const int beforeToggle = log->opened;
+    model.setAutoStart(false);
+    model.setAutoStart(true);
+    check(waitUntil([&] { return model.isRunning() && log->opened > beforeToggle; }, 1000),
+          "ticking Start automatically again tries it again");
+    emit port->failed(QStringLiteral("HID write failed"));
+
+    Info replugged = stock;
+    replugged.serial = QStringLiteral("000000000002");
+    *devices = {replugged};
+    check(waitUntil([&] { return model.isRunning(); }, Ctr2ProxyModel::kDeviceRescanMs + retry),
+          "a change in the device list tries it again");
+
+    check(waitUntil([&] { return bool(port); }, 1000), "with a new port");
+    emit port->reportsReceived(QByteArray::fromHex("ff00000200010000"));   //DH1KLM READY
+    waitUntil([] { return false; }, 100);
+    const int answeredOpens = log->opened;
+    emit port->failed(QStringLiteral("HID read failed"));
+    check(waitUntil([&] { return model.isRunning() && log->opened > answeredOpens; }, retry),
+          "a CTR2 that had answered is retried as before");
+
+    //DH1KLM The hold is a slower retry, not a stop: a fault on the way up heals.
+    model.setNoAnswerRetryMs(500);
+    check(waitUntil([&] { return bool(port); }, 1000), "the retry has a port");
+    const int slowOpens = log->opened;
+    emit port->failed(QStringLiteral("HID write failed"));
+    check(!model.isRunning(), "the retry failed without an answer");
+    check(waitUntil([&] { return model.isRunning() && log->opened > slowOpens; }, retry),
+          "once the hold expires it is tried again");
+    model.stop();
     AetherSDR::Ctr2RelaySettings{}.save();
 }
 
@@ -364,6 +512,17 @@ void testDevicesRescanByThemselves()
     check(waitUntil([&] { return model.usbDevicePath() == aether.path; },
                     Ctr2ProxyModel::kDeviceRescanMs + 2000),
           "after a firmware switch the new device is found without a Rescan");
+
+    //DH1KLM On Linux the switched firmware comes back at the same hidraw path.
+    Info samePath = stock;
+    samePath.path = aether.path;
+    samePath.serial.clear();
+    *devices = {samePath};
+    check(waitUntil([&] {
+              const auto list = model.availableUsbDevices();
+              return list.size() == 1 && list[0].product == samePath.product;
+          }, Ctr2ProxyModel::kDeviceRescanMs + 2000),
+          "a firmware switch at the same device path is noticed too");
 }
 
 // The periodic rescan enumerates a thread-safe source off the GUI thread:
@@ -764,8 +923,14 @@ int main(int argc, char** argv)
     model.setAetherRadio(QHostAddress(QStringLiteral("0.0.0.0")), 4992, QStringLiteral("bogus"), {});
     check(!model.configurationProblem().isEmpty() && !model.start(),
           "an unspecified address is never a destination");
-    model.setAetherRadio(QHostAddress(QStringLiteral("fe80::1")), 4992, QStringLiteral("v6"), {});
-    check(!model.configurationProblem().isEmpty(), "IPv6 is out of scope and stays unavailable");
+    model.setAetherRadio(QHostAddress(QStringLiteral("ff02::1")), 4992, QStringLiteral("v6"), {});
+    check(model.configurationProblem().contains(QStringLiteral("radio"), Qt::CaseInsensitive),
+          "an IPv6 multicast address is never a destination");
+    model.setAetherRadio(QHostAddress(QStringLiteral("fd58:eee:46e8::10")), 4992,
+                         QStringLiteral("FLEX-8600  fd58:eee:46e8::10"), {});
+    check(!model.configurationProblem().contains(QStringLiteral("radio"), Qt::CaseInsensitive),
+          "a radio AetherSDR reached over IPv6 is a usable destination");
+    model.setAetherRadio({}, 0, {}, {});
 
     int changes = 0;
     QObject::connect(&model, &Ctr2ProxyModel::configurationChanged, &model, [&] { ++changes; });
@@ -775,6 +940,9 @@ int main(int argc, char** argv)
     model.setAetherRadio(QHostAddress(QStringLiteral("192.0.2.10")), 4992,
                          QStringLiteral("FLEX-8600 \"Shack\"  192.0.2.10"), {});
     check(changes == 1, "re-pushing the same radio is not a change");
+    model.setAetherRadio(QHostAddress(QStringLiteral("::ffff:192.0.2.10")), 4992,
+                         QStringLiteral("FLEX-8600 \"Shack\"  192.0.2.10"), {});
+    check(changes == 1, "the IPv4-mapped form of the same radio is not a change");
     check(model.aetherRadioLabel() == QStringLiteral("FLEX-8600 \"Shack\"  192.0.2.10"),
           "the radio label is exposed for display");
     const QString wifi = model.configurationProblem();
@@ -799,6 +967,8 @@ int main(int argc, char** argv)
     testSelfNamedDevices();
     testAutoStart(QStringLiteral("AetherCTR2"));   // names itself
     testAutoStart(QStringLiteral("AETHER_KNOB"));  // the fixed AetherKnob identity
+    testStockFirmwareOverUsb();
+    testNoRetryWithoutAnswer();
     testDevicesRescanByThemselves();
     testRescanRunsOffGuiThread();
     testInterfacesRescanWithoutUsbSource();

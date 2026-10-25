@@ -225,6 +225,10 @@ private:
     };
     AnanProbeResult probeAnan(const QString& ip, const RadioBindSettings& bindSettings);
     void probeFlexRadio(const QString& ip, const RadioBindSettings& bindSettings);
+    //DH1KLM For an explicit path and a host name with only IPv6 addresses, moves
+    //DH1KLM `bind` to its interface's IPv6 address. False (with the message shown)
+    //DH1KLM when that interface has none.
+    bool resolveNamedSourceFamily(const QString& host, RadioBindSettings* bind);
     // Reports early startup credential/configuration or directed-probe failures.
     // Session authentication failures and broadcast discovery are separate paths.
     // Interactive/automation attempts are silent once the startup probe ends.
@@ -363,6 +367,10 @@ private:
     QLabel*      m_manualSourceWarningLabel{nullptr};
     QPushButton* m_manualConnectBtn{nullptr};
     QString      m_manualProfileIp;
+    //DH1KLM The source path the operator last chose themselves. Editing the address
+    //DH1KLM can flip the list's family on the way; the pick survives so the exact
+    //DH1KLM address comes back when the family does.
+    RadioBindSettings m_manualSourcePick;
     bool         m_manualConnectPending{false};
     // Set for the duration of a startup probe (probeRadio's restoreSavedFamily
     // call), which is the one probe with no operator watching the manual page.

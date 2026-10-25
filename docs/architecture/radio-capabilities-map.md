@@ -87,6 +87,18 @@ an explicitly enabled entitlement. The RX applet consumes the same admission
 reason through its control availability registry; absent data leaves it dimmed.
 This desktop capability adds no daemon method or persistence ownership.
 
+### Panadapter noise floor range
+
+`noiseFloorRangeControl` declares `PanControlField::NoiseFloorRange` on the
+existing `requestPanControl` verb, and the license the radio must report.
+Flex declares it only for a fully parsed SmartSDR version of 4.3.16 or later on
+a BigBend (FLEX-8000/Aurora) platform, with `requiredLicenseFeature=noise_floor`.
+Other backends leave it absent, and `RadioModel::requestPanControl` refuses the
+field. `RadioModel::panNoiseFloorRangeUnavailableReason()` is the one admission
+rule: the Display panel's **NF Range** slider dims with that reason, and also
+while the pan has not reported `noise_floor_range`. The radio owns the value;
+nothing is persisted on the client.
+
 ### Broadcast FM receiver controls
 
 | Record | Flex | HL2 | Sim | Icom | ANAN | RTL-SDR | Consumers |
@@ -317,6 +329,7 @@ the production dialog and checks its displayed peak level and frequency.
 | `nrsLevelControl` | engaged | — | — | `RadioModel::publishCapabilities` and slice creation/reclaim → `SliceModel::setNrsLevel`, `VfoWidget::setDspLevelTarget` | Existing desktop NRS request bound: 0..50 for fully identified firmware 4.3.16+, otherwise 0..100. Absence and disconnect preserve 0..100. Firmware/range updates leave radio readback unchanged and send no request; the Flex encoder also enforces the bound. No new daemon method. |
 | `hasExtendedDsp` | from table | ❌ | ❌ | `RadioModel::hasExtendedDspFilters()` | NRS / RNN / NRF buttons |
 | `hasProfiles` | ✅ | ❌ | ❌ | `MainWindow::applyCapabilitiesToUi` | PROF applet, Profiles menu, Profile Manager, Import/Export |
+| `cwProfileControl` | engaged on firmware 4.3.16+ | absent | absent | `RadioModel::requestProfile`, `RadioModel::refreshCwProfilesIfSupported`, `ProfileManagerDialog` via `ControlAvailabilityRegistry` | Optional record (#6668): the radio stores named CW profiles (`profile cw info/load/create/delete/reset`). Gates `ProfileRequest::Kind::Cw` and the Profile Manager CW tab; requires `hasProfiles` |
 | `hasDaxStreams` | ✅ | ❌ | ❌ | `MainWindow::applyCapabilitiesToUi` | DAX + DAX-IQ applets, Autostart DAX |
 | `daxIqSampleRates` | model table | empty | empty | `RadioModel` → `DaxIqModel`, `DaxIqApplet`, `TciServer` | Discrete supported DAX IQ rates in Hz. Flex publishes 24/48/96 kHz, plus 192 kHz where its model table permits; an unidentified model has an empty list. Empty prevents IQ creation and rate commands. Saved 192 kHz intent uses 96 kHz on limited models without replacing the saved preference. TCI retains valid pre-identification negotiation and reconciles it when capabilities arrive. Icom, ANAN and RTL also leave this list empty. |
 | `hasRadioSideDsp` | ✅ | ❌ | ❌ | `RadioModel::hasRadioSideDsp()` | NR/NB/ANF/NRL/ANFL/ANFT, the APD row, the WNB row |

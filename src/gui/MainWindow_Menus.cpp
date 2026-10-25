@@ -54,6 +54,8 @@
 #include "WhatsNewDialog.h"
 #include "WindowShowState.h"
 #include "core/UpdateChecker.h"
+#include "FramelessMessageBox.h"
+#include "ReleaseTagText.h"
 #include "core/AppSettings.h"
 #include "core/SpotModeResolver.h"
 #include "core/ThemeManager.h"
@@ -87,6 +89,9 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QAction>
+#include <QMessageBox>
+#include <QSizePolicy>
+#include <QSpacerItem>
 #include <QList>
 #include <QVariant>
 #include <QWidgetAction>
@@ -1746,6 +1751,7 @@ void MainWindow::buildMenuBar()
     refreshWindowMenu();
 
     auto* helpMenu = menuBar()->addMenu("&Help");
+    helpMenu->setToolTipsVisible(true);  //DH1KLM a dimmed item states its reason on hover
 
     // ── Documentation ─────────────────────────────────────────────────────
     // The online manual (docs.aethersdr.com), its printable PDF, and the Log
@@ -1876,6 +1882,34 @@ void MainWindow::buildMenuBar()
     helpMenu->addAction("Check for Updates...", this, [this]() {
         m_updateChecker->checkNow();
     });
+    auto* autoUpdateAct = helpMenu->addAction("Check for Updates Automatically");
+    autoUpdateAct->setCheckable(true);
+    if (const QString store = UpdateChecker::storeName(); !store.isEmpty()) {
+        //DH1KLM The store owns updates here, so the background check never runs.
+        const QString reason =
+            QStringLiteral("Updates for this copy come from %1.").arg(store);
+        autoUpdateAct->setChecked(false);
+        autoUpdateAct->setEnabled(false);
+        autoUpdateAct->setStatusTip(reason);
+        autoUpdateAct->setToolTip(reason);
+    } else {
+        autoUpdateAct->setChecked(UpdateChecker::checkOnStartup());
+        autoUpdateAct->setStatusTip(QStringLiteral(
+            "Check for a newer release at startup, at most once a day, and show "
+            "UPDATE in the title bar when there is one"));
+        //DH1KLM The toggle governs the badge too: off retires it, and on brings a
+        //DH1KLM known update back at once when the daily wait skips the request.
+        connect(autoUpdateAct, &QAction::toggled, this, [this](bool on) {
+            UpdateChecker::setCheckOnStartup(on);
+            if (!on) {
+                if (m_titleBar) {
+                    m_titleBar->setUpdateAvailable({});
+                }
+            } else if (!m_updateChecker->checkAutomaticallyIfDue()) {
+                restoreKnownUpdate();
+            }
+        });
+    }
     helpMenu->addSeparator();
     helpMenu->addAction("About AetherSDR", this, [this]{
         // Styled to the AetherSDR style guide: an ambient ground, the gradient
@@ -2248,6 +2282,109 @@ void MainWindow::showSplitBadgeMenu(int sliceId, const QPoint& globalPos)
     // Keep edits live while the menu is open, but commit the document once.
     if (m_splitQsySettings.toJson() != initialQsySettings) {
         m_splitQsySettings.save();
+    }
+}
+
+
+namespace {
+//DH1KLM Long enough that the update check does not compete with radio discovery
+//DH1KLM and the first connect for the network at launch.
+constexpr int kAutomaticUpdateCheckDelayMs = 15000;
+} //DH1KLM namespace
+
+void MainWindow::wireUpdateChecker()
+{
+    m_updateChecker = new UpdateChecker(this);
+    connect(m_updateChecker, &UpdateChecker::updateAvailable, this,
+            [this](const QString& ver, UpdateChecker::Trigger trigger) {
+        m_latestRelease = ver;
+        if (m_titleBar) {
+            m_titleBar->setUpdateAvailable(
+                UpdateChecker::badgeVersion(ver, QCoreApplication::applicationVersion()));
+        }
+        if (trigger == UpdateChecker::Trigger::Manual) {
+            showUpdateAvailableDialog();
+        }
+    });
+    connect(m_updateChecker, &UpdateChecker::upToDate, this,
+            [this](const QString& ver, UpdateChecker::Trigger trigger) {
+        m_latestRelease.clear();
+        if (m_titleBar) {
+            m_titleBar->setUpdateAvailable({});
+        }
+        if (trigger == UpdateChecker::Trigger::Manual) {
+            FramelessMessageBox::information(this, "Check for Updates",
+                QString("AetherSDR is up to date (v%1).").arg(ver));
+        }
+    });
+    connect(m_updateChecker, &UpdateChecker::checkFailed, this,
+            [this](UpdateChecker::Trigger trigger) {
+        if (trigger == UpdateChecker::Trigger::Manual) {
+            FramelessMessageBox::warning(this, "Check for Updates",
+                "Could not reach GitHub. Check your connection and try again.");
+        }
+    });
+
+    QTimer::singleShot(kAutomaticUpdateCheckDelayMs, m_updateChecker, [checker = m_updateChecker] {
+        checker->checkAutomaticallyIfDue();
+    });
+}
+
+void MainWindow::restoreKnownUpdate()
+{
+    //DH1KLM The daily throttle may skip this launch's check, so the badge comes back
+    //DH1KLM from the release the last answer recorded, under the same rules.
+    const QString known = UpdateChecker::knownBadgeVersion();
+    if (known.isEmpty() || !m_titleBar) {
+        return;
+    }
+    m_latestRelease = known;
+    m_titleBar->setUpdateAvailable(known);
+}
+
+void MainWindow::showUpdateAvailableDialog()
+{
+    if (m_latestRelease.isEmpty()) {
+        return;
+    }
+    const QString ver = m_latestRelease;
+    const QString current = QCoreApplication::applicationVersion();
+    FramelessMessageBox box(this);
+    box.setWindowTitle("AetherSDR Update Available");
+    box.setIcon(QMessageBox::Information);
+    setUpdateAvailableText(box, current, ver);
+    const QString store = UpdateChecker::storeName();
+    if (!store.isEmpty()) {
+        box.setInformativeText(
+            QStringLiteral("You are running v%1. Updates for this copy come from %2.")
+                .arg(current, store));
+    }
+    QPushButton* viewBtn = box.addButton("View Latest Release", QMessageBox::ActionRole);
+    viewBtn->setAutoDefault(false);
+    //DH1KLM A store install never shows the badge, so there is nothing to skip.
+    QPushButton* skipBtn = nullptr;
+    if (store.isEmpty()) {
+        skipBtn = box.addButton("Skip This Version", QMessageBox::ActionRole);
+        skipBtn->setAutoDefault(false);
+        skipBtn->setAccessibleDescription(QStringLiteral(
+            "Stop showing UPDATE in the title bar for this release. "
+            "Help, Check for Updates still reports it."));
+    }
+    QPushButton* closeBtn = box.addButton(QMessageBox::Close);
+    closeBtn->setAutoDefault(false);
+    //DH1KLM Force minimum width via layout spacer — setMinimumWidth() is ignored by QMessageBox
+    if (auto* grid = qobject_cast<QGridLayout*>(box.layout())) {
+        grid->addItem(new QSpacerItem(480, 0, QSizePolicy::Minimum, QSizePolicy::Fixed),
+                      grid->rowCount(), 0, 1, grid->columnCount());
+    }
+    box.exec();
+    if (box.clickedButton() == viewBtn) {
+        QDesktopServices::openUrl(QUrl(UpdateChecker::kReleasesPageUrl));
+    } else if (skipBtn && box.clickedButton() == skipBtn) {
+        UpdateChecker::skipVersion(ver);
+        if (m_titleBar) {
+            m_titleBar->setUpdateAvailable({});
+        }
     }
 }
 

@@ -26,10 +26,10 @@ The **Radio IP address** group starts with two rows:
 
 | Row | What to enter |
 |-----|---------------|
-| **Radio type:** | The radio family to look for: **FlexRadio**, **Hermes-Lite 2**, **ANAN-G2**, **Icom (network)** or **RTL-SDR (USB)**. Only this family is probed. |
+| **Radio type:** | The radio family to look for: **FlexRadio**, **Hermes-Lite 2**, **ANAN / OpenHPSDR (P1/P2)**, **Icom (network)** or **RTL-SDR (USB)**. Only this family is probed. |
 | **Radio IP:** | The IP address or host name, for example `10.0.0.25`. |
 
-**RTL-SDR (USB)** appears only in builds that include the RTL-SDR backend. Choosing **Icom (network)** adds its connection rows. **ANAN-G2** shows a pointer to **Settings → Radio Setup... → Radio → ANAN Front End**, where its receive options are configured before connecting; see [Networked Icom](./networked-icom.md) and [ANAN-G2](./anan-g2.md). For every family's status, see [Supported Radios](./supported-radios.md).
+**RTL-SDR (USB)** appears only in builds that include the RTL-SDR backend. Choosing **Icom (network)** adds its connection rows. **ANAN / OpenHPSDR (P1/P2)** provides the receive-profile and protocol choices; after connecting, use **Settings → Radio Setup... → Radio → ANAN Hardware** for hardware controls and next-connect defaults. See [Networked Icom](./networked-icom.md) and [ANAN / OpenHPSDR](./anan-g2.md). For every family's status, see [Supported Radios](./supported-radios.md).
 
 ## Using Connect by IP
 
@@ -40,7 +40,7 @@ The **Radio IP address** group starts with two rows:
 3. Click **Connect by IP**. AetherSDR probes the radio on TCP 4992.
 4. If the probe fails, the panel shows the reason. **Network Diagnostics**, beside the button, helps you check the path.
 
-If your VPN creates more than one active network adapter, open **Advanced: choose the VPN source path** and pick the **Source path:**. Most users can leave this on Auto.
+If your VPN creates more than one active network adapter, open **Advanced: choose the VPN source path** and pick the **Source path:**. Most users can leave this on Auto. The list matches the address you entered: an IPv6 radio address lists this PC's IPv6 addresses, and an IPv4 address or a host name lists its IPv4 addresses. If a host name turns out to have only IPv6 addresses, Connect uses the IPv6 address of the adapter you picked.
 
 ### Port forwarding (FlexRadio remote access)
 

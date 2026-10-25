@@ -99,6 +99,7 @@
 #include "models/Kat500Model.h"
 #include "models/Kxpa100Model.h"
 #include "core/Kpa1500Connection.h"
+#include "core/RfkitConnection.h"
 #include "core/DxccColorProvider.h"
 
 #include <QMainWindow>
@@ -445,6 +446,9 @@ private:
 
     void buildUI();
     void buildMenuBar();
+    void wireUpdateChecker();          //DH1KLM MainWindow_Menus.cpp
+    void showUpdateAvailableDialog();  //DH1KLM MainWindow_Menus.cpp
+    void restoreKnownUpdate();         //DH1KLM MainWindow_Menus.cpp
     void minimizeActiveApplicationWindow();
     void toggleActiveApplicationWindowFullScreen();
     void applyDarkTheme();
@@ -1350,6 +1354,7 @@ private:
     class Kxpa100RadioAssociation* m_kxpa100Association = nullptr;
     QPointer<class AtuPreTuneDialog> m_kat500PreTuneDialog;
     Kpa500Connection  m_kpa500Conn;      // Elecraft KPA500 amplifier, serial or raw TCP
+    RfkitConnection   m_rfkitConn;       //DH1KLM RF-KIT amplifier, REST/JSON over HTTP (default port 8080)
     Kpa1500Connection m_kpa1500Conn;     // Elecraft KPA1500 amplifier, TCP control/status on port 1500 (#4097)
     BandPlanManager*  m_bandPlanMgr{nullptr};
 #ifdef HAVE_CW_RX_BACKENDS
@@ -2182,6 +2187,7 @@ private:
     QString m_panadapterConnectionAnimationLabel;
     ShortcutManager m_shortcutManager;
     UpdateChecker* m_updateChecker{nullptr};
+    QString m_latestRelease;  //DH1KLM newest release a check found; empty until one does
 
 // CTR2 TCP proxy prototype (MainWindow_Controllers.cpp); never persisted, off at launch
     Ctr2ProxyModel* m_ctr2ProxyModel{nullptr};

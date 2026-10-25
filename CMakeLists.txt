@@ -1114,6 +1114,8 @@ set(CORE_SOURCES
     src/core/VkampConnection.cpp
     src/core/Kpa1500Protocol.cpp
     src/core/Kpa1500Connection.cpp
+    src/core/RfkitProtocol.cpp
+    src/core/RfkitConnection.cpp
     src/core/LpMeterProtocol.cpp
     src/core/LpMeterConnection.cpp
     src/core/FirmwareUploader.cpp
@@ -1145,6 +1147,7 @@ set(CORE_SOURCES
     src/core/FirmwareStager.cpp
     src/core/MsiFirmwareMetadata.cpp
     src/core/UpdateChecker.cpp
+    src/core/UpdateSettings.cpp
     src/core/NetworkDiagnostics.cpp
     src/core/WindowsFirewall.cpp
     src/core/OleCompoundFile.cpp
@@ -1417,6 +1420,7 @@ set(GUI_SOURCES
     src/gui/SpeLcdWidget.cpp
     src/gui/VkampApplet.cpp
     src/gui/Kpa1500Applet.cpp
+    src/gui/RfkitApplet.cpp
     src/gui/LpMeterApplet.cpp
     src/gui/Ctr2ProxyPanel.cpp
     src/gui/FirmwareInstallDialog.cpp
@@ -2531,12 +2535,17 @@ endif()
 
 # macOS app bundle
 if(APPLE)
+    set(AETHER_MACOS_BUNDLE_IDENTIFIER "com.aethersdr.AetherSDR" CACHE STRING
+        "macOS app identity; use a distinct reverse-DNS identifier for a local development build")
+    if(NOT AETHER_MACOS_BUNDLE_IDENTIFIER MATCHES "^[A-Za-z0-9][A-Za-z0-9.-]*$")
+        message(FATAL_ERROR "AETHER_MACOS_BUNDLE_IDENTIFIER must contain only letters, digits, periods and hyphens")
+    endif()
     target_sources(AetherSDR PRIVATE src/MacStartupAbortGuard.cpp)
     target_sources(AetherSDR PRIVATE src/gui/mac/NativeWindowTitle.mm)
     target_link_libraries(AetherSDR PRIVATE "-framework AppKit")
     set_target_properties(AetherSDR PROPERTIES
         MACOSX_BUNDLE TRUE
-        MACOSX_BUNDLE_GUI_IDENTIFIER "com.aethersdr.AetherSDR"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "${AETHER_MACOS_BUNDLE_IDENTIFIER}"
         MACOSX_BUNDLE_BUNDLE_NAME "AetherSDR"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
@@ -3584,6 +3593,22 @@ foreach(_aether_tgt aethercore aetherdesktop_support AetherSDR aetherd)
         )
     endif()
 endforeach()
+
+# Development-only, opt-in signing runs after all resource/helper copies.
+# Release CI leaves it OFF and retains its Apple signing/notarization workflow.
+include(cmake/MacOSDevelopmentSigning.cmake)
+if(APPLE)
+    set(_aether_development_nested_code)
+    if(TARGET aether-dv-waveform)
+        list(APPEND _aether_development_nested_code "$<TARGET_FILE:aether-dv-waveform>")
+    endif()
+    if(Qt6Keychain_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/qtkeychain/lib/libqt6keychain.1.dylib")
+        list(APPEND _aether_development_nested_code
+            "$<TARGET_BUNDLE_CONTENT_DIR:AetherSDR>/Frameworks/libqt6keychain.1.dylib")
+    endif()
+    aether_sign_macos_development_bundle(AetherSDR ${_aether_development_nested_code})
+    unset(_aether_development_nested_code)
+endif()
 
 # ── Unit test harnesses ──────────────────────────────────────────────────────
 # MOVED: every test target is now declared in tests/tests.cmake, which cut this

@@ -3,6 +3,7 @@
 #include "core/Ctr2HidFraming.h"
 #include "core/Ctr2UsbRelay.h"
 #include "core/LogManager.h"
+#include "core/UnicastEndpoint.h"
 #ifdef HAVE_HIDAPI
 #include "core/Ctr2HidapiPort.h"
 #endif
@@ -57,12 +58,24 @@ Ctr2ProxyModel::Ctr2ProxyModel(QObject* parent)
     connect(m_usb, &Ctr2UsbRelay::endpointsChanged, this, &Ctr2ProxyModel::endpointsChanged);
     connect(m_usb, &Ctr2UsbRelay::lastErrorChanged, this, &Ctr2ProxyModel::lastErrorChanged);
     connect(m_usb, &Ctr2UsbRelay::extensionsChanged, this, &Ctr2ProxyModel::extensionsChanged);
+    m_noAnswerTimer = new QTimer(this);
+    m_noAnswerTimer->setSingleShot(true);
+    m_noAnswerTimer->setInterval(kNoAnswerHintMs);
+    connect(m_noAnswerTimer, &QTimer::timeout, this, [this] {
+        if (!m_usbAnswered && m_usb->state() == TcpByteProxy::State::Listening) {
+            m_noAnswer = true;
+            emit configurationChanged();
+        }
+    });
+    connect(m_usb, &Ctr2UsbRelay::stateChanged, this, &Ctr2ProxyModel::onUsbStateChanged);
     // Through the members, so a backend set later (tests) is the one used.
     m_firmware = new Ctr2FirmwareUpdater(
         [this] { return m_usbDevices ? m_usbDevices() : QList<Ctr2HidPort::DeviceInfo>(); },
         [this](const Ctr2HidPort::DeviceInfo& device, QString* error) -> Ctr2HidPort* {
             return m_firmwareOpener
-                ? m_firmwareOpener(device, ctr2hid::capabilityBit(ctr2hid::MessageType::Firmware),
+                ? m_firmwareOpener(device,
+                                   ctr2hid::capabilityBit(ctr2hid::MessageType::Firmware)
+                                       | ctr2hid::kWideReportsBit,
                                    error)
                 : nullptr;
         },
@@ -216,15 +229,23 @@ void Ctr2ProxyModel::applyDeviceScan(DeviceScan scan)
 {
     QStringList& choices = scan.listenChoices;
     const QList<Ctr2HidPort::DeviceInfo>& usb = scan.usb;
+    //DH1KLM By identity, not just path: on Linux a CTR2-Max that switches firmware
+    //DH1KLM comes back at the same hidraw path with another product and serial.
+    const auto same = [](const Ctr2HidPort::DeviceInfo& a, const Ctr2HidPort::DeviceInfo& b) {
+        return a.path == b.path && a.vendorId == b.vendorId && a.productId == b.productId
+            && a.manufacturer == b.manufacturer && a.product == b.product && a.serial == b.serial;
+    };
     bool usbChanged = usb.size() != m_usbChoices.size();
     for (int i = 0; !usbChanged && i < usb.size(); ++i) {
-        usbChanged = usb[i].path != m_usbChoices[i].path;
+        usbChanged = !same(usb[i], m_usbChoices[i]);
     }
     if (choices == m_listenChoices && !usbChanged) {
         return;
     }
     m_listenChoices = std::move(choices);
     m_usbChoices = usb;
+    if (usbChanged)
+        m_noAnswerHold = QDeadlineTimer();   //DH1KLM replugged, or switched firmware: try it again
     // Default to the first recognized CTR2 while nothing is selected or the
     // selected device has gone; an existing choice stands.
     if (!isRunning() && !selectedUsbDevice()) {
@@ -304,6 +325,7 @@ bool Ctr2ProxyModel::setTransport(Transport transport)
         m_activeTransport = transport;
         m_usbStartError.clear();
         m_stopReason.clear();
+        m_noAnswerHold = QDeadlineTimer();
         emit configurationChanged();
         emit stateChanged();
         emit endpointsChanged();
@@ -345,6 +367,7 @@ bool Ctr2ProxyModel::setUsbDevicePath(const QString& path)
     }
     if (m_usbDevicePath != path) {
         m_usbDevicePath = path;
+        m_noAnswerHold = QDeadlineTimer();
         emit configurationChanged();
         probeFirmwareVersion();
     }
@@ -354,18 +377,13 @@ bool Ctr2ProxyModel::setUsbDevicePath(const QString& path)
 void Ctr2ProxyModel::setAetherRadio(const QHostAddress& address, quint16 port,
                                     const QString& label, const QString& unavailableReason)
 {
-    QHostAddress ipv4;
-    bool ok = false;
-    const quint32 v4 = address.toIPv4Address(&ok);
-    if (ok && v4 != 0 && port != 0) {
-        ipv4 = QHostAddress(v4);
-    }
-    const QString reason = ipv4.isNull() && unavailableReason.isEmpty()
+    const QHostAddress radio = port != 0 ? usableUnicastAddress(address) : QHostAddress();
+    const QString reason = radio.isNull() && unavailableReason.isEmpty()
         ? tr("Connect AetherSDR to a radio first") : unavailableReason;
-    if (isRunning() && (ipv4 != m_runningRadioAddress || port != m_runningRadioPort)) {
+    if (isRunning() && (radio != m_runningRadioAddress || port != m_runningRadioPort)) {
         const QString was = m_runningRadioLabel.isEmpty() ? m_runningRadioAddress.toString()
                                                           : m_runningRadioLabel;
-        const QString why = ipv4.isNull()
+        const QString why = radio.isNull()
             ? tr("Stopped: AetherSDR is no longer connected to %1").arg(was)
             : tr("Stopped: AetherSDR switched from %1 to another radio").arg(was);
         qCInfo(lcDevices) << "CTR2 relay:" << why;
@@ -373,19 +391,20 @@ void Ctr2ProxyModel::setAetherRadio(const QHostAddress& address, quint16 port,
         m_stopReason = why;
         emit lastErrorChanged();
     }
-    if (ipv4 == m_aetherRadioAddress && port == m_aetherRadioPort
+    if (radio == m_aetherRadioAddress && port == m_aetherRadioPort
         && label == m_aetherRadioLabel && reason == m_aetherRadioReason) {
         return;
     }
-    const bool newRadio = !ipv4.isNull()
-        && (ipv4 != m_aetherRadioAddress || port != m_aetherRadioPort);
-    m_aetherRadioAddress = ipv4;
+    const bool newRadio = !radio.isNull()
+        && (radio != m_aetherRadioAddress || port != m_aetherRadioPort);
+    m_aetherRadioAddress = radio;
     m_aetherRadioPort = port;
     m_aetherRadioLabel = label;
-    m_aetherRadioReason = ipv4.isNull() ? reason : QString();
+    m_aetherRadioReason = radio.isNull() ? reason : QString();
     emit configurationChanged();
     if (newRadio) {
         m_autoStartHeld = false;   // a new connection: start again
+        m_noAnswerHold = QDeadlineTimer();
         QTimer::singleShot(0, this, &Ctr2ProxyModel::tryAutoStart);
     }
 }
@@ -397,6 +416,7 @@ void Ctr2ProxyModel::setAutoStart(bool on)
     m_settings.autoStart = on;
     m_settings.save();
     if (on) {
+        m_noAnswerHold = QDeadlineTimer();
         m_autoStartTimer->start();
         QTimer::singleShot(0, this, &Ctr2ProxyModel::tryAutoStart);
     } else {
@@ -407,7 +427,7 @@ void Ctr2ProxyModel::setAutoStart(bool on)
 
 void Ctr2ProxyModel::tryAutoStart()
 {
-    if (!m_settings.autoStart || m_autoStartHeld || isRunning()
+    if (!m_settings.autoStart || m_autoStartHeld || !m_noAnswerHold.hasExpired() || isRunning()
         || m_firmware->isRunning() || m_aetherRadioAddress.isNull()) {
         return;
     }
@@ -418,12 +438,58 @@ void Ctr2ProxyModel::tryAutoStart()
     if (m_transport == Transport::Usb) {
         const Ctr2HidPort::DeviceInfo* device = selectedUsbDevice();
         if (!device || !device->usbLink())
-            return;   // a stock CTR2 has no USB mode
+            return;   //DH1KLM firmware with no USB mode
         if (usbDeviceNeedsAccessRule())
             return;   // Start offers to install the rule; nothing to retry
     }
     qCInfo(lcDevices) << "CTR2 relay: starting automatically";
     start();
+}
+
+void Ctr2ProxyModel::onUsbStateChanged()
+{
+    using State = TcpByteProxy::State;
+    const State s = m_usb->state();
+    if (s == State::Listening) {
+        if (!m_usbAnswered && !m_noAnswerTimer->isActive() && !m_noAnswer)
+            m_noAnswerTimer->start();
+        return;
+    }
+    if (s == State::Error && !m_usbAnswered && usbActive()) {
+        m_noAnswerHold = QDeadlineTimer(m_noAnswerRetryMs);
+        QString why = m_usb->lastError();
+        while (why.endsWith(QLatin1Char('.')))
+            why.chop(1);
+        m_stopReason = (why.isEmpty() ? QString() : why + QStringLiteral(". "))
+            + tr("The CTR2 never answered. If it is still plugged in, USB mode needs CTR2-Max "
+                 "firmware v1.02.00 or later, or AetherCTR2. For other firmware, use Wi-Fi mode.");
+        emit lastErrorChanged();
+    }
+    //DH1KLM Connecting means the CTR2 answered; Stopped and Error end the run.
+    m_usbAnswered = s != State::Stopped && s != State::Error;
+    m_noAnswerTimer->stop();
+    if (m_noAnswer) {
+        m_noAnswer = false;
+        emit configurationChanged();
+    }
+}
+
+QString Ctr2ProxyModel::noAnswerHint() const
+{
+    if (!m_noAnswer || !usbActive())
+        return {};
+    return tr("No answer from the CTR2. USB mode needs CTR2-Max firmware v1.02.00 or "
+              "later, or AetherCTR2. For other firmware, stop and use Wi-Fi mode.");
+}
+
+void Ctr2ProxyModel::setNoAnswerHintMs(int ms)
+{
+    m_noAnswerTimer->setInterval(ms);
+}
+
+void Ctr2ProxyModel::setNoAnswerRetryMs(int ms)
+{
+    m_noAnswerRetryMs = ms;
 }
 
 void Ctr2ProxyModel::saveSetup()
@@ -572,6 +638,7 @@ bool Ctr2ProxyModel::start()
     m_activeTransport = m_transport;
     m_usbStartError.clear();
     m_stopReason.clear();
+    m_noAnswerHold = QDeadlineTimer();
     m_runningRadioAddress = m_aetherRadioAddress;
     m_runningRadioPort = m_aetherRadioPort;
     m_runningRadioLabel = m_aetherRadioLabel;

@@ -5,6 +5,7 @@
 #include "core/Ctr2HidPort.h"
 #include "core/TcpByteProxy.h"
 
+#include <QDeadlineTimer>
 #include <QFutureWatcher>
 #include <QHostAddress>
 #include <QList>
@@ -109,15 +110,25 @@ public:
     // Starts the relay by itself whenever AetherSDR is connected to a radio,
     // with the setup it last started with (Ctr2RelaySettings, saved), and
     // keeps trying while the device is missing. In USB mode only a device
-    // whose firmware relays over USB (AetherCTR2, AetherKnob; usbLink()) is
-    // started: stock CTR2 firmware has no USB mode.
+    //DH1KLM whose firmware relays over USB (usbLink()) is started, and a device
+    //DH1KLM that failed without ever answering is retried only every
+    //DH1KLM kNoAnswerRetryMs, or at once when the device list, the selected
+    //DH1KLM device, the mode or the radio changes.
     bool autoStart() const { return m_settings.autoStart; }
     void setAutoStart(bool on);
     static constexpr int kAutoStartRetryMs = 5000;
+    static constexpr int kNoAnswerRetryMs = 60000;
+    void setNoAnswerRetryMs(int ms);   //DH1KLM tests
     // While the relay is stopped, USB devices are rescanned this often, so a
     // controller that switched firmware (and so changed its USB identity)
     // appears without pressing Rescan.
     static constexpr int kDeviceRescanMs = 2000;
+    //DH1KLM Shown while a USB relay that has run this long has never had an answer
+    //DH1KLM from the CTR2, as firmware without USB mode never answers; empty
+    //DH1KLM otherwise.
+    QString noAnswerHint() const;
+    static constexpr int kNoAnswerHintMs = 10000;
+    void setNoAnswerHintMs(int ms);   //DH1KLM tests
 
     TcpByteProxy::State state() const;
     QString stateText() const;
@@ -202,6 +213,7 @@ private:
     void applyDeviceScan(DeviceScan scan);
     void rescanInBackground();
     void tryAutoStart();
+    void onUsbStateChanged();
     void saveSetup();
     static bool parsePort(const QString& text, quint16* port);
     static bool parseIpv4(const QString& text, QHostAddress* address);
@@ -215,6 +227,9 @@ private:
     QTimer* m_statsTimer{nullptr};
     Transport m_transport{Transport::Wifi};
     Transport m_activeTransport{Transport::Wifi};
+    QTimer* m_noAnswerTimer{nullptr};
+    bool m_usbAnswered{false};   //DH1KLM the CTR2 has answered since the relay started
+    bool m_noAnswer{false};
     QString m_usbStartError;
     QStringList m_listenChoices;
     QString m_listenAddress;
@@ -249,6 +264,12 @@ private:
     // background scan that started before one of them is dropped.
     quint64 m_scanGeneration{0};
     bool m_autoStartHeld{false};   // the operator stopped it this connection
+    //DH1KLM The USB relay failed before the CTR2 ever answered (firmware with no
+    //DH1KLM USB mode, or a fault on the way up): no automatic retry before this
+    //DH1KLM expires, rather than opening the device on this thread every
+    //DH1KLM kAutoStartRetryMs. Expired (the default) means no hold.
+    QDeadlineTimer m_noAnswerHold;
+    int m_noAnswerRetryMs{kNoAnswerRetryMs};
 };
 
 } // namespace AetherSDR

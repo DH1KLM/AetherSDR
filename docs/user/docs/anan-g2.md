@@ -182,6 +182,8 @@ Configure the receive front end under **Settings → Radio Setup... → Radio �
 
 Filter bypass is controlled only under **ANAN Hardware → Antenna / ALEX** and applies immediately for the connected device and effective model. Change the live sample rate under **ANAN Hardware → Radio Info → Operating Parameters**, or use the panadapter **− / +** buttons.
 
+On **ANAN Hardware → Radio Info → Operating Parameters**, **Mute the radio's speaker amplifier** disables the G2's hardware amplifier immediately. It defaults to off, is remembered for later connections, and requires a G2 using Protocol 2. PC audio is unchanged. Sending silence to the radio leaves its amplifier running; this control also suppresses amplifier hiss. A clean disconnect releases the mute.
+
 ## ANAN Hardware
 
 Open **Radio Setup → Radio → ANAN Hardware** while connected to an ANAN.
@@ -757,6 +759,9 @@ If the signal path is wrong after changing RF filter options, first restore the 
 1. Open **Settings → Radio Setup... → Radio → ANAN Hardware → Connection Defaults** and tick **Send receive audio to the radio**.
 2. Disconnect and connect again.
 3. Check that the receiver and the title-bar speaker button are not muted; they mute the radio's speaker too.
+4. Check that **Mute the radio's speaker amplifier** is unticked.
+
+If AetherSDR closed without disconnecting, or the network cable was pulled, while the amplifier was muted, the G2 keeps it muted. Connect again with **Mute the radio's speaker amplifier** unticked.
 
 ## See also
 

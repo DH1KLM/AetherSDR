@@ -76,6 +76,7 @@ public:
         // kSpeakerAudioPort). DEFAULT OFF: it is the one option that originates a
         // continuous outbound stream (750 packets/s, ~260 kB/s).
         bool speakerAudioEnabled = false;
+        bool speakerAmpMuted = false;
 
         // Multi-DDC session. EMPTY (default) = single DDC0 built from ddc0RateKsps/
         // ddc0AdcIndex. Non-empty is authoritative and those two fields are ignored;
@@ -100,6 +101,7 @@ public:
     // tick) and is what the keepalive resends from then on.
     Q_INVOKABLE void setDdc0FrequencyHz(double hz);
     Q_INVOKABLE void setFrequencyCorrection(double factor);
+    Q_INVOKABLE void setSpeakerAmpMuted(bool muted);
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
 
@@ -267,6 +269,7 @@ private:
     std::uint32_t m_speakerSequence = 0;
     QElapsedTimer m_speakerClock;
     bool m_speakerAudioEnabled = false;
+    bool m_speakerAmpMuted = false;
     // Logged once per session, not per drop: this fires in the audio path.
     bool m_speakerOverflowLogged = false;
     int m_speakerUnderflowReports = 0;

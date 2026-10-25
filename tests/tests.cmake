@@ -426,6 +426,18 @@ target_include_directories(byte_relay_test PRIVATE src)
 target_link_libraries(byte_relay_test PRIVATE aethercore Qt6::Core)
 add_test(NAME byte_relay_test COMMAND byte_relay_test)
 
+# VPN source-path resolver family rules. Socket-free (reads the interface list only).
+add_executable(network_path_resolver_test tests/network_path_resolver_test.cpp)
+target_include_directories(network_path_resolver_test PRIVATE src)
+target_link_libraries(network_path_resolver_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME network_path_resolver_test COMMAND network_path_resolver_test)
+
+# Unicast-endpoint helpers (IPv4/IPv6 radio address, bracketed endpoint text). Socket-free.
+add_executable(unicast_endpoint_test tests/unicast_endpoint_test.cpp)
+target_include_directories(unicast_endpoint_test PRIVATE src)
+target_link_libraries(unicast_endpoint_test PRIVATE Qt6::Core Qt6::Network)
+add_test(NAME unicast_endpoint_test COMMAND unicast_endpoint_test)
+
 # CTR2 relay model: the destination is only the radio the owner pushes in, and
 # every unusable case keeps Start disabled with its reason. Socket-free.
 add_executable(ctr2_proxy_model_test tests/ctr2_proxy_model_test.cpp)
@@ -1379,8 +1391,10 @@ set_tests_properties(anan_link_telemetry_test PROPERTIES SKIP_RETURN_CODE 77)
 
 # ANAN discovery targets: directed broadcasts for distinct attached subnets,
 # retaining the global broadcast and excluding /31 and /32 point-to-point links.
-# Two NICs sharing a subnet still use the preferred route. Pure address
-# arithmetic: nothing is sent and no socket is opened.
+# Two NICs sharing a subnet still use the preferred route. Also discovery's log
+# lines (#6299): failed bind, no subnet, failed send, a run of unanswered
+# sweeps, each once per occurrence, captured off aether.discovery. Pure address
+# arithmetic and bookkeeping: nothing is sent and no socket is opened.
 add_executable(anan_discovery_test tests/anan_discovery_test.cpp)
 target_include_directories(anan_discovery_test PRIVATE src)
 target_link_libraries(anan_discovery_test PRIVATE aethercore Qt6::Core Qt6::Network)
@@ -3316,6 +3330,15 @@ add_executable(vita_dscp_flow_test tests/vita_dscp_flow_test.cpp)
 target_include_directories(vita_dscp_flow_test PRIVATE src)
 add_test(NAME vita_dscp_flow_test COMMAND vita_dscp_flow_test)
 
+# Socket-free: unbound native IPv4/IPv6 UDP descriptors (no bind, send or connect);
+# checks the marker sets the option that marks each family. Exit 77 without IPv6.
+add_executable(vita_dscp_family_test tests/vita_dscp_family_test.cpp
+    src/core/backends/flex/VitaDscpMarker.cpp)
+target_include_directories(vita_dscp_family_test PRIVATE src)
+target_link_libraries(vita_dscp_family_test PRIVATE Qt6::Core Qt6::Network)
+add_test(NAME vita_dscp_family_test COMMAND vita_dscp_family_test)
+set_tests_properties(vita_dscp_family_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 10)
+
 # SOCKETS: two ephemeral IPv4 UDP sockets on 127.0.0.1, our own sender/sink.
 # Tests the native marker across close/rebind; no firmware peer or RF.
 add_executable(vita_dscp_socket_test tests/vita_dscp_socket_test.cpp
@@ -4729,6 +4752,22 @@ target_include_directories(waterfall_time_marker_settings_test PRIVATE src)
 target_link_libraries(waterfall_time_marker_settings_test PRIVATE aethercore Qt6::Core)
 add_test(NAME waterfall_time_marker_settings_test COMMAND waterfall_time_marker_settings_test)
 
+# Updates settings document (RFC #5304): defaults, daily throttle, skip
+# matching, the known update restored across a restart, stored shape.
+# No network.
+add_executable(update_settings_test tests/update_settings_test.cpp)
+target_include_directories(update_settings_test PRIVATE src)
+target_link_libraries(update_settings_test PRIVATE aethercore Qt6::Core)
+add_test(NAME update_settings_test COMMAND update_settings_test)
+
+# UpdateChecker's request lifecycle over an in-memory QNetworkAccessManager
+# (createRequest override, no sockets): which failures start the daily wait,
+# the trigger a result reports, parsed digits only.
+add_executable(update_checker_test tests/update_checker_test.cpp)
+target_include_directories(update_checker_test PRIVATE src)
+target_link_libraries(update_checker_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME update_checker_test COMMAND update_checker_test)
+
 add_executable(extended_tnf_settings_test tests/extended_tnf_settings_test.cpp)
 target_include_directories(extended_tnf_settings_test PRIVATE src)
 target_link_libraries(extended_tnf_settings_test PRIVATE aethercore Qt6::Core)
@@ -5248,6 +5287,37 @@ target_include_directories(vkamp_protocol_test PRIVATE src)
 target_link_libraries(vkamp_protocol_test PRIVATE Qt6::Core)
 add_test(NAME vkamp_protocol_test COMMAND vkamp_protocol_test)
 
+add_executable(rfkit_protocol_test
+    tests/rfkit_protocol_test.cpp
+    src/core/RfkitProtocol.cpp
+)
+target_include_directories(rfkit_protocol_test PRIVATE src)
+target_link_libraries(rfkit_protocol_test PRIVATE Qt6::Core)
+add_test(NAME rfkit_protocol_test COMMAND rfkit_protocol_test)
+
+# RfkitConnection against a stub RF-KIT speaking HTTP on loopback -- the
+# transport behaviour the pure-codec test above can't reach: the GET /info
+# handshake, strictly serialized requests, command verbs and bodies, refusal of
+# out-of-range antennas before the wire, a non-RF-KIT peer, an oversized
+# response, an invalid address, and link loss after repeated failures. A
+# loopback mock of the vendor's documented, versioned HTTP API (RFKIT API
+# 0.9.0), the case docs/agents/tests-ci.md allows. Socket-owning: binds one
+# ephemeral 127.0.0.1 TCP listener per scenario and skips (exit 77) if it
+# cannot. Isolated settings dir per the CMake contract: LogManager pulls in
+# AppSettings.
+add_executable(rfkit_connection_test
+    tests/rfkit_connection_test.cpp
+    src/core/RfkitConnection.cpp
+    src/core/RfkitProtocol.cpp
+    $<TARGET_OBJECTS:aether_test_settings>
+    $<TARGET_OBJECTS:aether_test_log_manager>
+    $<TARGET_OBJECTS:aether_test_async_log_writer>
+)
+target_include_directories(rfkit_connection_test PRIVATE src tests)
+target_link_libraries(rfkit_connection_test PRIVATE Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME rfkit_connection_test COMMAND rfkit_connection_test)
+set_tests_properties(rfkit_connection_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+
 # VkampConnection against a stub amp on loopback -- the transport behaviour
 # the pure-codec test above can't reach: the bypass/voltage safety interlock,
 # the reset hold's exclusive claim on the wire, the command rate limiter,
@@ -5502,6 +5572,28 @@ if (ENABLE_ASR)
     set_target_properties(copy_assist_panel_test PROPERTIES AUTOMOC ON)
     add_test(NAME copy_assist_panel_test COMMAND copy_assist_panel_test)
     set_tests_properties(copy_assist_panel_test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Real controller failure signals; no sockets, downloads, inference or radio.
+    add_executable(copy_assist_failure_test
+        tests/copy_assist_failure_test.cpp
+        src/gui/CopyAssistController.cpp
+        src/gui/CopyAssistPanel.cpp
+        src/gui/CopyAssistSettings.cpp
+        src/gui/CopyAssistSettingsDialog.cpp
+        src/gui/AsrAudioTap.cpp
+        src/gui/ControlAvailabilityRegistry.cpp
+        src/gui/PersistentDialog.cpp
+        src/gui/FramelessResizer.cpp
+        src/gui/FramelessWindowTitleBar.cpp
+    )
+    add_dependencies(copy_assist_failure_test aether_build_identity)
+    target_include_directories(copy_assist_failure_test PRIVATE src "${AETHER_BUILD_ID_DIR}")
+    target_link_libraries(copy_assist_failure_test PRIVATE
+        aetherdesktop_support aetherasr Qt6::Concurrent Qt6::Test)
+    set_target_properties(copy_assist_failure_test PROPERTIES AUTOMOC ON)
+    add_test(NAME copy_assist_failure_test COMMAND copy_assist_failure_test)
+    set_tests_properties(copy_assist_failure_test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Copy Assist settings dialog: offscreen UI test of the model + GPU pickers.
@@ -5905,6 +5997,13 @@ endif()
 # no app or Qt needed — guards the schema ↔ bridge verb field mapping.
 find_program(PYTHON3_EXECUTABLE NAMES python3 python)
 if(PYTHON3_EXECUTABLE)
+    if(APPLE)
+        # Socket-free CMake fixtures compile/sign binaries but never execute them.
+        add_test(NAME macos_development_signing_test
+                 COMMAND ${PYTHON3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tools/test_macos_development_signing.py)
+        set_tests_properties(macos_development_signing_test PROPERTIES TIMEOUT 60)
+    endif()
     # Socket-free Ninja graph fixtures; no compiler or application is executed.
     add_test(NAME codeql_coverage_guard
              COMMAND ${PYTHON3_EXECUTABLE}
@@ -6713,6 +6812,13 @@ target_link_libraries(reroute_dead_controls_test PRIVATE
     aethercore Qt6::Core Qt6::Network Qt6::Test)
 add_test(NAME reroute_dead_controls_test COMMAND reroute_dead_controls_test)
 
+# #6653: SmartSDR 4.3 FDVU/FDVL over SmartCAT and rigctld. Injected stub
+# backend, protocol objects fed command text. Socket-free, nothing keyed.
+add_executable(cat_freedv_mode_tokens_test tests/cat_freedv_mode_tokens_test.cpp)
+target_include_directories(cat_freedv_mode_tokens_test PRIVATE src tests)
+target_link_libraries(cat_freedv_mode_tokens_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME cat_freedv_mode_tokens_test COMMAND cat_freedv_mode_tokens_test)
+
 # #6142: a band-stack recall into DIGU/DIGL leaves the HL2's data-mode AGC
 # alone. A real, unconnected Hl2Backend behind RadioModel. Socket-free.
 add_executable(hl2_bandstack_digital_agc_test tests/hl2_bandstack_digital_agc_test.cpp)
@@ -6856,6 +6962,12 @@ add_executable(vu_meter_settings_test
 target_include_directories(vu_meter_settings_test PRIVATE src)
 target_link_libraries(vu_meter_settings_test PRIVATE Qt6::Core)
 add_test(NAME vu_meter_settings_test COMMAND vu_meter_settings_test)
+
+# LAN source-family selection, without binding sockets or contacting a radio.
+add_executable(flex_lan_bind_address_test tests/flex_lan_bind_address_test.cpp)
+target_include_directories(flex_lan_bind_address_test PRIVATE src)
+target_link_libraries(flex_lan_bind_address_test PRIVATE Qt6::Core Qt6::Network)
+add_test(NAME flex_lan_bind_address_test COMMAND flex_lan_bind_address_test)
 
 # aetherd RFC step 2.2b regression guard: FlexBackend ctor/dtor thread ownership
 # + #502 teardown ordering. FlexBackend pulls RadioConnection/PanadapterStream
@@ -7847,6 +7959,7 @@ set_tests_properties(stored_control_routing_test PROPERTIES TIMEOUT 45)
 add_executable(stored_control_dialogs_test
     tests/stored_control_dialogs_test.cpp
     src/gui/ProfileManagerDialog.cpp
+    src/gui/ControlAvailabilityRegistry.cpp
     src/gui/MemoryDialog.cpp
     src/gui/MemoryCommands.cpp
     src/gui/PersistentDialog.cpp
@@ -8136,6 +8249,26 @@ add_test(NAME connection_panel_size_test COMMAND connection_panel_size_test)
 set_tests_properties(connection_panel_size_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# The VPN source-path picker keeps the operator's own pick across family
+# flips while the address is edited. Socket-free (reads the interface list);
+# exit 77 without an adapter carrying an IPv6 GUA and ULA.
+add_executable(connection_panel_source_pick_test
+    tests/connection_panel_source_pick_test.cpp
+    src/gui/ConnectionPanel.cpp
+    src/gui/CanonWindow.cpp
+    src/gui/PersistentDialog.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(connection_panel_source_pick_test PRIVATE src tests)
+target_link_libraries(connection_panel_source_pick_test PRIVATE
+    aethercore Qt6::Core Qt6::Network Qt6::Widgets
+)
+set_target_properties(connection_panel_source_pick_test PROPERTIES AUTOMOC ON)
+add_test(NAME connection_panel_source_pick_test COMMAND connection_panel_source_pick_test)
+set_tests_properties(connection_panel_source_pick_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" SKIP_RETURN_CODE 77)
+
 # Leaving minimal mode after a launch in it must not draw the spectrum's first
 # QRhi frame inside the exit's resize cascade (#5915; #4363, #4990). Plain
 # widgets, offscreen, no GPU; the MainWindow ordering is read from the source,
@@ -8327,6 +8460,42 @@ set_target_properties(spectrum_overlay_dax_availability_test PROPERTIES AUTOMOC 
 add_test(NAME spectrum_overlay_dax_availability_test
          COMMAND spectrum_overlay_dax_availability_test)
 set_tests_properties(spectrum_overlay_dax_availability_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# SmartSDR 4.3 Noise Floor Range (#6656): request validation, the Flex
+# declaration and wire text, pan status decode, RadioModel admission and the
+# Display-menu slider. Recording command sinks only; no sockets, radio or TX.
+add_executable(noise_floor_range_test
+    tests/noise_floor_range_test.cpp
+    src/gui/SpectrumOverlayMenu.cpp
+    src/gui/FrontEndOverloadIndicator.cpp
+    src/gui/SpectrumOverlayWheelGuard.cpp
+    src/gui/MemoryBrowsePanel.cpp
+    src/gui/DragValuePopup.cpp
+    src/gui/DspParamPopup.cpp
+)
+target_include_directories(noise_floor_range_test PRIVATE src tests)
+if(DEBIAN_GPU_FIX_REQUIRED)
+    target_include_directories(noise_floor_range_test PRIVATE
+        "${DEBIAN_PRIVATE_INC}"
+        "${DEBIAN_PRIVATE_INC}/QtGui"
+    )
+endif()
+if(QT_FRAMEWORK_PRIVATE_INC)
+    target_include_directories(noise_floor_range_test PRIVATE
+        "${QT_FRAMEWORK_PRIVATE_INC}"
+        "${QT_FRAMEWORK_PRIVATE_INC}/QtGui"
+    )
+endif()
+target_link_libraries(noise_floor_range_test PRIVATE
+    aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
+)
+if(TARGET Qt6::GuiPrivate)
+    target_link_libraries(noise_floor_range_test PRIVATE Qt6::GuiPrivate)
+endif()
+set_target_properties(noise_floor_range_test PROPERTIES AUTOMOC ON)
+add_test(NAME noise_floor_range_test COMMAND noise_floor_range_test)
+set_tests_properties(noise_floor_range_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # AntennaChoiceGate.h: when the RX/TX antenna menus refuse instead of offering
@@ -9421,7 +9590,7 @@ add_test(NAME phone_applet_dexp_visibility_test
 set_tests_properties(phone_applet_dexp_visibility_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-# The bridge may switch VOX off with TX permission and never on (#6053): the
+# The bridge may switch VOX off with or without TX permission, never on (#6053): the
 # VOX button's disarm-only scoped action through the real invoke path, with
 # every refusal and the operator's own input pinned. Offscreen, no radio.
 add_executable(phone_applet_vox_disarm_test
@@ -9619,6 +9788,7 @@ set(AETHER_SETTINGS_CONSUMERS
     graphic_eq_persistence_test
     hl2_discovery_logging_test
     reroute_dead_controls_test
+    cat_freedv_mode_tokens_test
     hl2_bandstack_digital_agc_test
     radio_model_client_state_test
     pan_control_routing_test
@@ -9690,6 +9860,8 @@ set(AETHER_SETTINGS_CONSUMERS
     slice_lifecycle_routing_test
     waterfall_time_marker_settings_test
     extended_tnf_settings_test
+    update_settings_test
+    update_checker_test
     client_display_settings_test
     client_display_pan_settings_test
     spectrum_overlay_fft_fps_bounds_test
@@ -9766,6 +9938,7 @@ set(AETHER_SETTINGS_CONSUMERS
     dstar_model_test
     ole_compound_file_test
     copy_assist_settings_dialog_test
+    copy_assist_failure_test
     s_meter_geometry_test
     qrz_callsign_test
     shortcut_manager_test
@@ -9816,6 +9989,7 @@ set(AETHER_SETTINGS_CONSUMERS
     bandplan_voice_labels_test
     bandplan_usage_resource_test
     vkamp_connection_test
+    rfkit_connection_test
     system_info_dialog_test
     spectrum_overlay_band_highlight_test
     spectrum_overlay_dax_availability_test

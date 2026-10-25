@@ -122,6 +122,24 @@ void PanadapterModel::setAttenuatorStep(int step)
     emit attenuatorStepChanged(m_attenuatorStep);
 }
 
+void PanadapterModel::setScopeModeLabels(const QStringList& labels)
+{
+    if (labels == m_scopeModeLabels) {
+        return;
+    }
+    m_scopeModeLabels = labels;
+    emit scopeModeLabelsChanged(m_scopeModeLabels);
+}
+
+void PanadapterModel::setScopeModeIndex(int index)
+{
+    if (index == m_scopeModeIndex) {
+        return;
+    }
+    m_scopeModeIndex = index;
+    emit scopeModeIndexChanged(m_scopeModeIndex);
+}
+
 bool PanadapterModel::setCenterBandwidth(double centerMhz, double bandwidthMhz)
 {
     bool changed = false;
@@ -533,6 +551,16 @@ void PanadapterModel::applyStateExtension(const QVariantMap& fields)
                 m_segmentZoomOn = on;
                 emit segmentZoomChanged(on);
             }
+        }
+    }
+    //DH1KLM FlexLib parses noise_floor_range with TryParseDouble and skips a
+    //DH1KLM malformed value (Panadapter.cs:1056); a non-finite one is malformed too.
+    if (fields.contains(QStringLiteral("noise_floor_range"))) {
+        bool ok = false;
+        const double db = fields.value(QStringLiteral("noise_floor_range")).toString().toDouble(&ok);
+        if (ok && std::isfinite(db) && m_noiseFloorRange != db) {
+            m_noiseFloorRange = db;
+            emit noiseFloorRangeChanged(db);
         }
     }
     // #3977: ownership is radio-authoritative. When another session reclaims

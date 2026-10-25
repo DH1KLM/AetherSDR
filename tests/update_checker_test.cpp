@@ -1,0 +1,170 @@
+#include "TestSettingsProfile.h"
+#include "core/AppSettings.h"
+#include "core/UpdateChecker.h"
+#include "core/UpdateSettings.h"
+
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDebug>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QPointer>
+
+#include <cstring>
+
+//DH1KLM UpdateChecker's request lifecycle over an in-memory transport (no sockets):
+//DH1KLM which failures start the daily wait, the trigger a result reports, and that
+//DH1KLM only parsed digits leave the checker. The test finishes each reply by hand,
+//DH1KLM so an automatic check can still be in flight when a manual request arrives.
+
+using namespace AetherSDR;
+
+namespace {
+
+class HeldReply final : public QNetworkReply {
+public:
+    HeldReply(const QNetworkRequest& request, QObject* parent)
+        : QNetworkReply(parent)
+    {
+        setRequest(request);
+        setUrl(request.url());
+        setOperation(QNetworkAccessManager::GetOperation);
+        open(QIODevice::ReadOnly | QIODevice::Unbuffered);
+    }
+    void finishWithError(NetworkError error)
+    {
+        setError(error, QStringLiteral("test transport failure"));
+        setFinished(true);
+        emit finished();
+    }
+    void finishWithBody(const QByteArray& body, int status = 200)
+    {
+        m_body = body;
+        setAttribute(QNetworkRequest::HttpStatusCodeAttribute, status);
+        emit readyRead();
+        setFinished(true);
+        emit finished();
+    }
+    void abort() override { finishWithError(OperationCanceledError); }
+    qint64 bytesAvailable() const override
+    {
+        return m_body.size() - m_offset + QNetworkReply::bytesAvailable();
+    }
+
+protected:
+    qint64 readData(char* data, qint64 capacity) override
+    {
+        const qint64 count = std::min(capacity, m_body.size() - m_offset);
+        if (count <= 0) {
+            return -1;
+        }
+        std::memcpy(data, m_body.constData() + m_offset, count);
+        m_offset += count;
+        return count;
+    }
+
+private:
+    QByteArray m_body;
+    qint64 m_offset = 0;
+};
+
+class HeldNetwork final : public QNetworkAccessManager {
+public:
+    QPointer<HeldReply> last;
+    QNetworkRequest lastRequest;
+    int requests = 0;
+
+protected:
+    QNetworkReply* createRequest(Operation, const QNetworkRequest& request, QIODevice*) override
+    {
+        ++requests;
+        lastRequest = request;
+        auto* reply = new HeldReply(request, this);
+        last = reply;
+        return reply;
+    }
+};
+
+} //DH1KLM namespace
+
+int main(int argc, char** argv)
+{
+    TestSettingsProfile profile(QStringLiteral("update-checker"));
+    if (!profile.isValid()) { return 1; }
+    QCoreApplication app(argc, argv);
+    QCoreApplication::setApplicationVersion(QStringLiteral("26.10.2"));
+    AppSettings& settings = AppSettings::instance();
+    settings.load();
+    int failures = 0;
+    const auto check = [&](bool ok, const char* label) {
+        if (!ok) { qCritical() << "FAIL:" << label; ++failures; }
+    };
+
+    //DH1KLM The checker does not adopt a supplied manager; the test owns it.
+    HeldNetwork network;
+    UpdateChecker checker(nullptr, &network);
+    const QNetworkRequest::RedirectPolicy managerPolicy = network.redirectPolicy();
+
+    QList<UpdateChecker::Trigger> failed;
+    QStringList available;
+    QObject::connect(&checker, &UpdateChecker::checkFailed, &app,
+                     [&](UpdateChecker::Trigger t) { failed.append(t); });
+    QObject::connect(&checker, &UpdateChecker::updateAvailable, &app,
+                     [&](const QString& v, UpdateChecker::Trigger) { available.append(v); });
+
+    //DH1KLM Automatic, upgraded to manual mid-flight, then failing: the operator
+    //DH1KLM hears about it, and the attempt still starts the daily wait.
+    check(checker.checkNow(UpdateChecker::Trigger::Automatic), "automatic check starts");
+    check(!checker.checkNow(UpdateChecker::Trigger::Manual), "manual request joins the one in flight");
+    check(network.requests == 1, "joining makes no second request");
+    network.last->finishWithError(QNetworkReply::HostNotFoundError);
+    app.processEvents();
+    check(failed.size() == 1 && failed.last() == UpdateChecker::Trigger::Manual,
+          "the upgraded check reports its failure as manual");
+    const QDateTime recorded = UpdateSettings::lastCheckUtc();
+    check(recorded.isValid(), "an automatic-origin failure starts the daily wait");
+
+    //DH1KLM A manual-only failure leaves the wait alone, so the origin resets per request.
+    //DH1KLM Whole seconds: the store keeps ISO 8601 to the second.
+    const QDateTime earlier = QDateTime::fromString(QStringLiteral("2026-10-20T12:00:00Z"), Qt::ISODate);
+    UpdateSettings::setLastCheckUtc(earlier);
+    check(checker.checkNow(UpdateChecker::Trigger::Manual), "manual check starts");
+    network.last->finishWithError(QNetworkReply::HostNotFoundError);
+    app.processEvents();
+    check(failed.size() == 2 && failed.last() == UpdateChecker::Trigger::Manual,
+          "manual failure is reported");
+    check(UpdateSettings::lastCheckUtc() == earlier,
+          "a manual-only failure does not start the daily wait");
+
+    //DH1KLM A plain automatic failure counts too.
+    check(checker.checkNow(UpdateChecker::Trigger::Automatic), "second automatic check starts");
+    network.last->finishWithError(QNetworkReply::HostNotFoundError);
+    app.processEvents();
+    check(failed.size() == 3 && failed.last() == UpdateChecker::Trigger::Automatic,
+          "automatic failure is reported as automatic");
+    check(UpdateSettings::lastCheckUtc() > earlier, "an automatic failure starts the daily wait");
+
+    //DH1KLM A redirect is refused, even one whose body names a newer release, and
+    //DH1KLM the supplied manager's own policy is left alone.
+    check(checker.checkNow(UpdateChecker::Trigger::Manual), "check answered by a redirect starts");
+    //DH1KLM ManualRedirectPolicy is 0, so the attribute must be present, not just 0.
+    const QVariant policy = network.lastRequest.attribute(QNetworkRequest::RedirectPolicyAttribute);
+    check(policy.isValid() && policy.toInt() == QNetworkRequest::ManualRedirectPolicy,
+          "the request follows no redirects");
+    check(network.redirectPolicy() == managerPolicy, "the supplied manager is not reconfigured");
+    network.last->finishWithBody(QByteArrayLiteral(R"({"tag_name":"v26.10.4"})"), 301);
+    app.processEvents();
+    check(failed.size() == 4 && available.isEmpty(), "a 301 fails the check instead of announcing a release");
+
+    //DH1KLM A newer release leaves the checker as parsed digits only.
+    check(checker.checkNow(UpdateChecker::Trigger::Manual), "check for a newer release starts");
+    network.last->finishWithBody(QByteArrayLiteral(R"({"tag_name":"v26.10.3<b>x"})"));
+    app.processEvents();
+    check(available == QStringList{QStringLiteral("26.10.3")},
+          "updateAvailable carries parsed digits, never the raw tag");
+    check(UpdateSettings::latestVersion() == QLatin1String("26.10.3"),
+          "the known release is stored as parsed digits");
+
+    return failures ? 1 : 0;
+}

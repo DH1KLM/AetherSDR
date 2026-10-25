@@ -672,6 +672,12 @@ struct RadioCapabilities {
     // Desktop utility verbs only; neither record adds daemon permissions.
     std::optional<SpotControl> spotControl;
     std::optional<PanControl> panControl;
+    //DH1KLM PanControlField::NoiseFloorRange, separate from panControl because it
+    //DH1KLM needs a license the radio reports. Absent refuses the field.
+    struct NoiseFloorRangeControl {
+        QString requiredLicenseFeature;
+    };
+    std::optional<NoiseFloorRangeControl> noiseFloorRangeControl;
     std::optional<SlicePresetControl> slicePresetControl;
     // The radio's streaming data plane uses VITA-49. This currently gates the
     // receive-socket buffer and network MTU controls; it describes the transport,
@@ -901,6 +907,12 @@ struct RadioCapabilities {
     // applet, the Profile Manager, import/export, the Profiles menu — goes away,
     // rather than offering an empty list the operator cannot populate.
     bool hasProfiles = false;
+    //DH1KLM The radio also stores named CW profiles (Flex `profile cw …`, SmartSDR
+    //DH1KLM 4.3.16+) that a client can list, load, create, delete and reset. Engaged
+    //DH1KLM gates ProfileRequest::Kind::Cw and the Profile Manager CW tab; meaningless
+    //DH1KLM unless hasProfiles is also true.
+    struct CwProfileControl {};
+    std::optional<CwProfileControl> cwProfileControl;
 
     // Per-slice RX audio and per-pan IQ as separate streams routed to virtual audio
     // devices for external decoders (Flex DAX). UI visibility only; the crash guard

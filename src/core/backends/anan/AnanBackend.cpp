@@ -958,6 +958,10 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         m_pendingParams.adc0AttenuationDb = std::min(total, 31);
         m_pendingParams.alexAttenuationDb = 0;
     }
+    m_pendingParams.speakerAmpMuted =
+        m_pendingParams.protocol == 2
+        && (m_pendingParams.expectedBoardId == 10 || m_pendingParams.expectedBoardId == 20)
+        && request.params.value(QStringLiteral("anan.speakerAmpMuted"), false).toBool();
     // applyRestoredState() seeds both ADC values before this connect.
     m_attenuationDb = m_pendingParams.ddc0AdcIndex == 1
         ? m_pendingParams.adc1AttenuationDb
@@ -2194,6 +2198,9 @@ QVariantMap AnanBackend::hardwareFilterStatus() const
     const auto* descriptor = ananModelInfo(m_pendingParams.model);
     DiscoveryReply physical;
     physical.boardId = m_discoveredBoardId;
+    state.insert(QStringLiteral("speakerAmpMuteAvailable"), m_pendingParams.protocol == 2
+        && (m_discoveredBoardId == 10 || m_discoveredBoardId == 20));
+    state.insert(QStringLiteral("speakerAmpMuted"), m_pendingParams.speakerAmpMuted);
     state.insert(QStringLiteral("ctun"), m_ctun);
     state.insert(QStringLiteral("ctunAvailable"), !m_droopCalibrator.isRunning() && !m_receiveBuilding && primaryVisible());
     state.insert(QStringLiteral("ddcCenterHz"), m_ddcCenterHz);
@@ -2376,6 +2383,24 @@ void AnanBackend::acceptCalibrationSpectrum(const std::vector<float>& bins, qint
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && verb == QLatin1String("frontend.set")) {
+        const QVariantMap fields = arg.toMap();
+        const QVariantMap state = hardwareFilterStatus();
+        if (!state.value(QStringLiteral("speakerAmpMuteAvailable")).toBool()
+            || fields.value(QStringLiteral("speakerAmpMuted")).metaType().id() != QMetaType::Bool
+            || fields.value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))
+            || fields.value(QStringLiteral("modelId")) != state.value(QStringLiteral("modelId"))
+            || fields.value(QStringLiteral("boardId")) != state.value(QStringLiteral("boardId"))) {
+            emit extensionError(requestId, QStringLiteral("Amplifier mute requires the current G2 Protocol 2 session and a boolean value."));
+            return;
+        }
+        m_pendingParams.speakerAmpMuted = fields.value(QStringLiteral("speakerAmpMuted")).toBool();
+        AnanSettings::setSpeakerAmpMuted(m_pendingParams.speakerAmpMuted);
+        QMetaObject::invokeMethod(m_client, "setSpeakerAmpMuted", Qt::QueuedConnection,
+                                  Q_ARG(bool, m_pendingParams.speakerAmpMuted));
+        emit extensionResult(requestId, hardwareFilterStatus());
+        return;
+    }
     if (ns == QLatin1String("anan") && verb.startsWith(QLatin1String("calibration."))) {
         const QVariantMap fields = arg.toMap();
         const QVariantMap state = hardwareFilterStatus();

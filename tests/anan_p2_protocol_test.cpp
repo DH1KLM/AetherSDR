@@ -1324,6 +1324,20 @@ int main()
               "absent ADC1 table preserves old shared-range selection");
     }
 
+    {
+        const std::array<std::uint32_t, 2> words{phaseWord(14'175'000), phaseWord(7'100'000)};
+        const auto normal = buildHighPriority(true, words, false, true, 6, 9, 3, 0, false,
+            ReceiveFilterKind::MkIIBpf, 2, nullptr, 0, nullptr, 1.0, false);
+        const auto muted = buildHighPriority(true, words, false, true, 6, 9, 3, 0, false,
+            ReceiveFilterKind::MkIIBpf, 2, nullptr, 0, nullptr, 1.0, true);
+        bool unchanged = true;
+        for (std::size_t i = 0; i < normal.size(); ++i) {
+            if (i != 1400 && normal[i] != muted[i]) { unchanged = false; }
+        }
+        check(unchanged && normal[1400] == 0 && muted[1400] == 2 && muted[4] == 1,
+              "amplifier mute changes only Thetis HP byte 1400 bit 1, preserving filters, DDCs and RX-only run");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "anan_p2_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

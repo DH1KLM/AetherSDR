@@ -667,8 +667,11 @@ struct Hl2TxGateTestAccess {
 // contract on a seam backend is to ANSWER -- false is fine, silence is not.
 static void testSeamBackendPromoteAlwaysAnswers()
 {
+    //DH1KLM setBackendForTest, as prepareTxFixture does: it opens TX admission as
+    //DH1KLM RadioModel::onConnected() does. connectToRadio() to an address that never
+    //DH1KLM answers leaves admission closed, and requestTxSlice refuses the promotion.
     RadioModel model;
-    model.connectToRadio(hl2Info());
+    model.setBackendForTest(std::make_unique<hl2::Hl2Backend>(), QStringLiteral("hl2"));
 
     QString error;
     if (!model.automationApplySliceFixture(0, QString(), &error)) {

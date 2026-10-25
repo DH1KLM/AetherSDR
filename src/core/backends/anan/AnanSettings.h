@@ -75,6 +75,12 @@ public:
     static bool speakerAudioEnabled();
     static void setSpeakerAudioEnabled(bool on);
 
+    //DH1KLM ---- Live options: the High Priority packet carries them every 100 ms ----
+
+    //DH1KLM Mute the radio's speaker amplifier (High Priority byte 1400 bit 1).
+    static bool speakerAmpMuted();
+    static void setSpeakerAmpMuted(bool on);
+
     // The DDC0 rates a session may start at, for a UI offering the choice.
     //
     // Here rather than read from the protocol header directly, because a setup

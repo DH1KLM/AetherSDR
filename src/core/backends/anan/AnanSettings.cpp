@@ -19,7 +19,8 @@ namespace {
 // Single nested-JSON key holding this backend's config (Principle V).
 // Shape: {"ddc0RateKsps":int, "dither":bool,
 //         "random":bool, "ddc0AdcIndex":int, "bypassAdc0Filters":bool,
-//         "bypassAdc1Filters":bool, "speakerAudioEnabled":bool}
+//DH1KLM         "bypassAdc1Filters":bool, "speakerAudioEnabled":bool,
+//DH1KLM         "speakerAmpMuted":bool}
 const QString kRootKey = QStringLiteral("Anan");
 
 constexpr const char* kFieldDdc0RateKsps      = "ddc0RateKsps";
@@ -30,6 +31,7 @@ constexpr const char* kFieldRxAntenna          = "rxAntenna";
 constexpr const char* kFieldBypassAdc0Filters = "bypassAdc0Filters";
 constexpr const char* kFieldSpeakerAudioEnabled = "speakerAudioEnabled";
 constexpr const char* kFieldBypassAdc1Filters = "bypassAdc1Filters";
+constexpr const char* kFieldSpeakerAmpMuted   = "speakerAmpMuted";
 
 }  // namespace
 
@@ -239,6 +241,19 @@ void AnanSettings::setBypassAdc1Filters(bool on)
 {
     QJsonObject obj = readObj();
     obj[QLatin1String(kFieldBypassAdc1Filters)] = on;
+    writeObj(obj);
+}
+
+bool AnanSettings::speakerAmpMuted()
+{
+    //DH1KLM false on absence: the radio powers up with its amplifier live.
+    return readObj().value(QLatin1String(kFieldSpeakerAmpMuted)).toBool(false);
+}
+
+void AnanSettings::setSpeakerAmpMuted(bool on)
+{
+    QJsonObject obj = readObj();
+    obj[QLatin1String(kFieldSpeakerAmpMuted)] = on;
     writeObj(obj);
 }
 

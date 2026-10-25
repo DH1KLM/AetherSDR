@@ -116,3 +116,8 @@ void AnanClient::setReceiveFilterPlan(const ReceiveFilterPlan& plan)
     else { m_p2->setReceiveFilterPlan(plan); }
 }
 }
+
+void AetherSDR::anan::AnanClient::setSpeakerAmpMuted(bool muted)
+{
+    if (m_protocol == 2) { m_p2->setSpeakerAmpMuted(muted); }
+}

@@ -115,7 +115,6 @@
 #include "AntennaGeniusApplet.h"
 #include "ShackSwitchApplet.h"
 #include "RadioSetupDialog.h"
-#include "ReleaseTagText.h"
 #include "AgcCalibrationDialog.h"
 #include "AudioDeviceChangeDialog.h"
 #include "NetworkDiagnosticsDialog.h"
@@ -224,7 +223,6 @@
 #include <QSplitter>
 #include <QMenuBar>
 #include <QDialog>
-#include <QGridLayout>
 #include <QLineEdit>
 #include <QCheckBox>
 #include <QMenu>
@@ -247,8 +245,6 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include "core/VersionNumber.h"
-#include "core/UpdateChecker.h"
-#include <QDesktopServices>
 #include <QPointer>
 #include <QTextEdit>
 #include <QPlainTextEdit>
@@ -1398,34 +1394,8 @@ MainWindow::MainWindow(QWidget* parent)
     m_kiwiSdrManager = new KiwiSdrManager(this);
     m_kiwiSdrManager->setOperatorCallsign(m_radioModel.callsign());
 
-    // UpdateChecker — must be created before buildMenuBar() which references it
-    m_updateChecker = new UpdateChecker(this);
-    connect(m_updateChecker, &UpdateChecker::updateAvailable, this, [this](const QString& ver) {
-        const QString current = QCoreApplication::applicationVersion();
-        FramelessMessageBox box(this);
-        box.setWindowTitle("AetherSDR Update Available");
-        box.setIcon(QMessageBox::Information);
-        setUpdateAvailableText(box, current, ver);
-        QPushButton* viewBtn = box.addButton("View Latest Release", QMessageBox::ActionRole);
-        viewBtn->setAutoDefault(false);
-        QPushButton* closeBtn = box.addButton(QMessageBox::Close);
-        closeBtn->setAutoDefault(false);
-        // Force minimum width via layout spacer — setMinimumWidth() is ignored by QMessageBox
-        if (auto* grid = qobject_cast<QGridLayout*>(box.layout()))
-            grid->addItem(new QSpacerItem(480, 0, QSizePolicy::Minimum, QSizePolicy::Fixed),
-                          grid->rowCount(), 0, 1, grid->columnCount());
-        box.exec();
-        if (box.clickedButton() == viewBtn)
-            QDesktopServices::openUrl(QUrl(UpdateChecker::kReleasesPageUrl));
-    });
-    connect(m_updateChecker, &UpdateChecker::upToDate, this, [this](const QString& ver) {
-        FramelessMessageBox::information(this, "Check for Updates",
-            QString("AetherSDR is up to date (v%1).").arg(ver));
-    });
-    connect(m_updateChecker, &UpdateChecker::checkFailed, this, [this]() {
-        FramelessMessageBox::warning(this, "Check for Updates",
-            "Could not reach GitHub. Check your connection and try again.");
-    });
+    //DH1KLM Before buildMenuBar(): Help → Check for Updates references the checker.
+    wireUpdateChecker();
 
     buildMenuBar();
     buildUI();
@@ -3584,7 +3554,7 @@ RadioSetupDialog* MainWindow::openRadioSetupPage(const QString& page)
                                          &m_tgxlConn, &m_pgxlConn, &m_antennaGenius,
                                          m_kiwiSdrManager, &m_acomConn, &m_speConn,
                                          &m_vkampConn, &m_lpMeterConn, &m_kpa1500Conn, &m_kpa500Conn,
-                                         this, &m_kat500Model, &m_kxpa100Model);
+                                         this, &m_kat500Model, &m_kxpa100Model, &m_rfkitConn);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         m_radioSetupDialog = dlg;
     }
@@ -4180,6 +4150,10 @@ void MainWindow::closeEvent(QCloseEvent* event)
     // destructor-path unkey somewhere to run while the event loop is still
     // live, rather than during member destruction (#4097).
     m_kpa1500Conn.disconnect();
+    //DH1KLM The RF-KIT likewise has zero radio awareness. Closing it here also aborts
+    //DH1KLM any request still in flight while the event loop is live, rather than
+    //DH1KLM leaving that to member destruction.
+    m_rfkitConn.disconnect();
     // The LP-100A is likewise independent of the radio lifecycle and may be
     // connected through a shared ser2net proxy. Close it explicitly while
     // the event loop is still live instead of relying on member destruction.
@@ -5476,6 +5450,9 @@ void MainWindow::buildUI()
             this, &MainWindow::updatePcAudioTooltip, Qt::QueuedConnection);
     connect(m_titleBar, &TitleBar::multiFlexClicked,
             this, &MainWindow::showMultiFlexDialog);
+    connect(m_titleBar, &TitleBar::updateBadgeClicked,
+            this, &MainWindow::showUpdateAvailableDialog);
+    restoreKnownUpdate();
     connect(m_titleBar, &TitleBar::minimalModeRequested,
             this, &MainWindow::toggleMinimalModeFromAction);
     connect(m_titleBar, &TitleBar::minimalModeWindowedExitRequested, this, [this]() {
@@ -5697,13 +5674,15 @@ void MainWindow::buildUI()
         // AGC (outside KiwiSDR replacement), NB and NR through the SliceModel
         // setters, so they reach every backend, not only a command plane.
         m_radioModel.recallBandStackReceiveDsp(slice, e);
-        // WNB (panadapter-level, not slice)
+        //DH1KLM Stored WNB values are optional replay, not individual control actions.
         if (auto* pan = m_radioModel.activePanadapter()) {
             if (e.wnbOn != pan->wnbActive()) {
-                m_radioModel.requestPanDisplay(pan, {PanDisplayField::Wnb, e.wnbOn});
+                m_radioModel.requestPanDisplay(pan, {PanDisplayField::Wnb, e.wnbOn},
+                    {}, false);
             }
             if (e.wnbLevel != pan->wnbLevel()) {
-                m_radioModel.requestPanDisplay(pan, {PanDisplayField::WnbLevel, e.wnbLevel});
+                m_radioModel.requestPanDisplay(pan, {PanDisplayField::WnbLevel, e.wnbLevel},
+                    {}, false);
             }
         }
     });
@@ -9517,6 +9496,9 @@ void MainWindow::routeCwDecoderOutput()
 
     // Connect to new applet
     if (m_cwDecoderApplet) {
+        //DH1KLM Each pan builds its own range sliders; the decoder's ranges are one
+        //DH1KLM shared setting, so the target shows the saved ones before they are pushed.
+        m_cwDecoderApplet->restoreCwRanges();
         connect(&m_cwDecoder, &CwRxModel::textDecoded,
                 m_cwDecoderApplet, &PanadapterApplet::appendCwText);
         // TX-side decoded text routes to a separate slot so the panel
@@ -11422,11 +11404,13 @@ void MainWindow::restoreBandState(const BandSnapshot& snap)
         // Don't push center or bandwidth — slice tune recenters the pan and
         // the radio determines bandwidth. Pushing stale saved values causes
         // FFT/waterfall misalignment during the transition (#279, #291).
-        // Only restore dBm scale (client-side display preference).
+        //DH1KLM Replay optional display fields without unsupported-control notices.
         m_radioModel.requestPanDisplay(pan,
-            {PanDisplayField::LevelRange, PanLevelRange{snap.minDbm, snap.maxDbm}});
+            {PanDisplayField::LevelRange, PanLevelRange{snap.minDbm, snap.maxDbm}},
+            {}, false);
+        m_radioModel.requestPanDisplay(pan,
+            {PanDisplayField::RfGain, snap.rfGain}, {}, false);
     }
-    m_radioModel.setPanRfGain(snap.rfGain);
     m_radioModel.setPanWnb(snap.wnbOn);
     if (auto* sw = spectrum()) {
         sw->setSpectrumFrac(snap.spectrumFrac);

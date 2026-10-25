@@ -277,7 +277,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
                                                   bool selectReceiveLpf,
                                                   ReceiveFilterKind filterKind,
                                                   int numAdcs, const FilterConfig* filters, int alexAttenuationDb,
-                                                  const ReceiveFilterPlan* filterPlan, double frequencyCorrection) noexcept
+                                                  const ReceiveFilterPlan* filterPlan, double frequencyCorrection,
+                                                  bool muteSpeakerAmp) noexcept
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length
     if (!validFrequencyFactor(frequencyCorrection)) { return pkt; }
@@ -334,6 +335,8 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
         alex0 |= filters ? lowPassFilterBits(*filters, lowHz)
                         : receiveLpfRegisterBits(phaseWord(lowHz));
     }
+    //DH1KLM Thetis network.c CmdHighPriority: only audio amplifier mute occupies bit 1.
+    pkt[1400] = muteSpeakerAmp ? 0x02 : 0x00;
     //DH1KLM: Thetis CmdHighPriority byte 1401: OC1..7 occupy bits 1..7.
     pkt[1401] = run && filters ? static_cast<std::uint8_t>(receiveOcMask(*filters, hz) << 1) : 0;
     //DH1KLM Thetis DB9 pins 1-4 are independent of band OC; stop clears them.
