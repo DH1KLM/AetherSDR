@@ -180,6 +180,9 @@ void AnanRxDsp::installChannel(RebuildResult result)
     // comment. Must land before droopTableForRate() is ever consulted again,
     // which processIqBlock() does on every block once m_channel is swapped
     // below.
+    m_autoAgcFloor.reset();
+    m_autoAgcClock.start();
+    m_lastAutoAgcFrameMs = 0;
     m_config.inputSampleRateHz = result.inputSampleRateHz;
 
     m_iqBuffer.clear();
@@ -278,10 +281,24 @@ void AnanRxDsp::setMode(WdspChannel::Mode mode)
 
 void AnanRxDsp::setFilter(double lowHz, double highHz)
 {
+    if (m_config.filterLowHz != lowHz || m_config.filterHighHz != highHz) { m_autoAgcFloor.reset(); }
     m_config.filterLowHz = lowHz;
     m_config.filterHighHz = highHz;
     if (m_channel && !m_rebuildInFlight)
         m_channel->setFilter(lowHz, highHz);
+}
+
+void AnanRxDsp::setAutoAgc(bool enabled, double offsetDb, quint64 revision)
+{
+    if (!std::isfinite(offsetDb) || offsetDb < -60.0 || offsetDb > 60.0) { return; }
+    if (m_autoAgcEnabled != enabled || m_autoAgcOffset != offsetDb || m_autoAgcRevision != revision) {
+        m_autoAgcFloor.reset();
+        m_autoAgcClock.start();
+        m_lastAutoAgcFrameMs = 0;
+    }
+    m_autoAgcEnabled = enabled;
+    m_autoAgcOffset = offsetDb;
+    m_autoAgcRevision = revision;
 }
 
 void AnanRxDsp::setAgc(int agcMode, double maximumGainDb)
@@ -309,6 +326,7 @@ void AnanRxDsp::setAudioMuted(bool muted)
     // its own.
     if (m_audioMuted && !muted)
         armMeterSettle();
+    if (m_audioMuted != muted) { m_autoAgcFloor.reset(); }
     m_audioMuted = muted;
     // Muted, the channel is clocked with ZEROS. The noise blanker triggers on
     // magnitude against a running average magnitude, so silence would drag
@@ -435,6 +453,7 @@ const DroopCorrectionTable& AnanRxDsp::droopTableForRate(int rateKsps) const noe
 
 void AnanRxDsp::setShift(double shiftHz)
 {
+    if (m_shiftHz != shiftHz) { m_autoAgcFloor.reset(); }
     m_shiftHz = shiftHz;
     if (m_channel && !m_rebuildInFlight)
         m_channel->setShift(shiftHz);
@@ -454,6 +473,7 @@ bool AnanRxDsp::spectrumFrameDue()
 
 void AnanRxDsp::onSequenceGap()
 {
+    m_autoAgcFloor.reset();
     if (!m_analyzer) {
         return;   // between rebuilds; the new analyzer starts empty
     }
@@ -483,6 +503,21 @@ void AnanRxDsp::processIqBlock(const std::vector<std::complex<float>>& iq)
     // -- its FFTs overlap so that one completes per display frame over fresh
     // samples, and none are thrown away. Only TAKING a frame is paced here.
     m_analyzer->feed(iq);
+    if (m_autoAgcEnabled && !m_audioMuted && !m_rebuildInFlight && m_config.agcMode != 0
+        && m_analyzer->takeNoiseFrame(m_autoAgcBins)) {
+        if (!m_autoAgcClock.isValid()) { m_autoAgcClock.start(); }
+        const qint64 now = m_autoAgcClock.elapsed();
+        const auto threshold = m_autoAgcFloor.feed(m_autoAgcBins,
+            static_cast<double>(now - m_lastAutoAgcFrameMs), m_autoAgcOffset);
+        m_lastAutoAgcFrameMs = now;
+        if (threshold) {
+            const auto applied = m_channel->setAutoAgcThreshold(*threshold, AnanAutoAgc::kReferencePoints);
+            if (applied) {
+                m_config.maximumAgcGainDb = *applied;
+                emit autoAgcApplied(m_autoAgcRevision, *applied);
+            }
+        }
+    }
     if (spectrumFrameDue() && m_analyzer->takeFrame(m_bins)) {
         // Real DDC0 roll-off -- the anti-alias FIR's transition band, not CIC
         // sin(x)/x (see AnanDroopCorrection.h). The analyzer's points are

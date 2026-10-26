@@ -268,6 +268,12 @@ bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
                     submitReceiveAudio(r->id, frame);
                 }
             }, Qt::DirectConnection);
+    connect(r->dsp, &AnanRxDsp::autoAgcApplied, this, [this, r, epoch](quint64 revision, double top) {
+        const auto it = m_additionalRx.find(r->id);
+        if (epoch == m_receiveEpoch && r->ready && it != m_additionalRx.end() && it->second == r) {
+            onAutoAgcApplied(r->id, revision, top);
+        }
+    });
     connect(r->dsp, &AnanRxDsp::spectrumReady, this,
             [this, r, epoch](const std::vector<float>& bins) {
                 if (epoch != m_receiveEpoch || !r->ready || !m_additionalRx.contains(r->id))
@@ -417,6 +423,7 @@ void AnanBackend::applyAdditionalRx(int id)
             dsp->setNoiseBlanker(nb, level, fill);
         },
         Qt::QueuedConnection);
+    pushAutoAgc(id);
     publishAdditionalRx(id);
 }
 void AnanBackend::pushAdditionalShifts()
@@ -458,6 +465,7 @@ void AnanBackend::publishAdditionalRx(int id)
                 : r.agc == 4 ? QStringLiteral("fast")
                              : QStringLiteral("med");
     d.agcThreshold = r.threshold;
+    d.agcThresholdMode = r.autoAgc ? AgcThresholdMode::Automatic : AgcThresholdMode::Manual;
     d.agcOffLevel = r.off;
     const auto a = activeReceiveAntenna();
     QStringList ports;

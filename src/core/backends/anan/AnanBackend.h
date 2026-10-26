@@ -77,6 +77,7 @@ public:
     // The AGC-off level, which the base class drops. Mode and threshold edits
     // go to setSliceAgc() as before.
     void requestSliceAgc(int sliceId, const SliceAgcRequest& request) override;
+    ReceiveDispatch requestSliceAgcThresholdMode(int sliceId, AgcThresholdMode mode) override;
     void setSliceNoiseBlanker(int sliceId, AetherSDR::NoiseBlankerKind kind,
                               int level, AetherSDR::NoiseBlankerFill fill) override;
     ReceiveDispatch requestSliceDsp(int sliceId, const SliceDspRequest& request) override;
@@ -226,6 +227,15 @@ public:
 
 private:
     friend struct AnanMultiRxTestAccess;
+    //DH1KLM: Auto AGC-T is opt-in per live slice; revisions fence queued observations.
+    bool m_autoAgcEnabled = false;
+    int m_manualAgcBeforeAuto = kDefaultAgcThreshold;
+    double m_autoAgcOffset = AnanAutoAgc::kDefaultOffsetDb;
+    quint64 m_autoAgcRevision = 0, m_primaryAutoAgcRevision = 0;
+    QVariantMap autoAgcState() const;
+    void pushAutoAgc(int id);
+    void onAutoAgcApplied(int id, quint64 revision, double topDb);
+    bool setAutoAgcOffset(int id, double offsetDb);
     struct AdditionalRx {
         int id = 0;
         QPointer<AnanRxDsp> dsp;
@@ -237,6 +247,9 @@ private:
         int low = 100, high = 2900, agc = 3, threshold = kDefaultAgcThreshold,
             off = kDefaultAgcOffLevel;
         bool mute = false, ready = false;
+        bool autoAgc = false;
+        double autoAgcOffset = AnanAutoAgc::kDefaultOffsetDb;
+        quint64 autoAgcRevision = 0;
         int gain = 100, pan = 50;
         AetherSDR::NoiseBlankerKind nb = AetherSDR::NoiseBlankerKind::Off;
         int nbLevel = 50;
@@ -306,6 +319,7 @@ private:
     void seedDroopCorrectionTables(bool useSaturnDefaults);
     friend class AnanNoiseBlankerTestAccess;
     friend class AnanLinkStatsTestAccess;
+    friend class AnanAutoAgcTestAccess;
     friend class AnanSupplyRailTestAccess;
     void beginDspSetup();
     void finishDspSetup(quint64 generation, bool ok, const QString& error);

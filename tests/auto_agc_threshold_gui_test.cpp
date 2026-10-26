@@ -3,6 +3,7 @@
 // listener, audio device, or transmitter. Optional artifacts describe this
 // synthetic fixture explicitly and do not claim licensed-hardware convergence.
 #include "TestSettingsProfile.h"
+#include "core/backends/anan/AnanBackend.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/QsoRecorder.h"
@@ -72,6 +73,16 @@ struct RadioModelWakeTestAccess
 };
 } // namespace AetherSDR
 
+namespace AetherSDR::anan {
+class AnanAutoAgcTestAccess {
+public:
+    static void prepare(AnanBackend& b) {
+        b.m_connected = true;
+        b.m_receiveLayout.reset(1, 14'100'000, 48);
+    }
+    static void publish(AnanBackend& b) { b.emitPanState(); b.emitSliceState(); }
+};
+}
 using namespace AetherSDR;
 
 namespace {
@@ -292,6 +303,27 @@ class AutoAgcThresholdGuiTest : public QObject
     Q_OBJECT
 
 private slots:
+    void ananHostAutoUsesTheExistingButtonWithoutRadioLicense() {
+        RadioModel radio;
+        auto owned = std::make_unique<anan::AnanBackend>();
+        auto* backend = owned.get();
+        anan::AnanAutoAgcTestAccess::prepare(*backend);
+        radio.setBackendForTest(std::move(owned), QStringLiteral("anan"));
+        anan::AnanAutoAgcTestAccess::publish(*backend);
+        QVERIFY(radio.slice(0));
+        RxApplet rx;
+        rx.setRadioModel(&radio);
+        rx.setSlice(radio.slice(0));
+        auto* button = rx.findChild<QPushButton*>(QStringLiteral("autoAgcT"));
+        QVERIFY(button && button->isEnabled());
+        button->click();
+        QCOMPARE(radio.slice(0)->agcThresholdMode(), std::optional<AgcThresholdMode>(AgcThresholdMode::Automatic));
+        QVERIFY(button->isChecked());
+        button->click();
+        QCOMPARE(radio.slice(0)->agcThresholdMode(), std::optional<AgcThresholdMode>(AgcThresholdMode::Manual));
+        QVERIFY(!button->isChecked());
+    }
+
     void calibrationDialogDiscardsAndRebinds()
     {
         Fixture fixture;

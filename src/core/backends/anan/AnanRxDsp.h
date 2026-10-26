@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/PcmFrame.h"
+#include "AnanAutoAgc.h"
 #include "core/dsp/WdspSMeter.h"
 
 #include <QElapsedTimer>
@@ -152,6 +153,7 @@ public:
     Q_INVOKABLE void setMode(WdspChannel::Mode mode);
     Q_INVOKABLE void setFilter(double lowHz, double highHz);
     Q_INVOKABLE void setAgc(int agcMode, double maximumGainDb);
+    Q_INVOKABLE void setAutoAgc(bool enabled, double offsetDb, quint64 revision);
     // The gain with AGC off, in dB. Deferred like setAgc() while a rebuild is
     // in flight; installChannel() re-applies it at the swap.
     Q_INVOKABLE void setAgcFixedGain(double fixedGainDb);
@@ -311,6 +313,8 @@ signals:
     // demodulated audio -- the AGC holds audio level roughly constant, so an
     // audio-RMS meter would barely move with signal strength.
     void meterUpdate(float dbfs);
+    //DH1KLM: Applied WDSP ceiling, tagged against stale toggles and reconnects.
+    void autoAgcApplied(quint64 revision, double topDb);
 
 private:
     void publishNoiseBlankerState();
@@ -348,6 +352,13 @@ private:
     // Written on the DSP thread in processIqBlock(), read from elsewhere.
     WdspProcessTally m_processTally;
 
+    bool m_autoAgcEnabled = false;
+    double m_autoAgcOffset = AnanAutoAgc::kDefaultOffsetDb;
+    quint64 m_autoAgcRevision = 0;
+    AnanAutoAgc m_autoAgcFloor;
+    QElapsedTimer m_autoAgcClock;
+    qint64 m_lastAutoAgcFrameMs = 0;
+    std::vector<float> m_autoAgcBins;
     bool m_audioMuted = false;
     // The S-meter tap's gate: the settle window after our own silence or a
     // channel install, and the read cadence -- see WdspSMeter.h, and its use

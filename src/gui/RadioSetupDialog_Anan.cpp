@@ -200,6 +200,86 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
     ampMute->setAccessibleDescription(QStringLiteral("Unavailable without a connected G2 Protocol 2 session"));
     ampMute->setEnabled(false);
     operatingLayout->addRow(ampMute);
+    auto* autoGroup = new QGroupBox(QStringLiteral("Auto AGC-T"), infoPage);
+    auto* autoForm = new QFormLayout(autoGroup);
+    auto* autoSlice = new GuardedComboBox(autoGroup);
+    autoSlice->setObjectName(QStringLiteral("ananAutoAgcSlice"));
+    autoSlice->setAccessibleName(QStringLiteral("Auto AGC-T receive slice"));
+    autoForm->addRow(QStringLiteral("Receive slice:"), autoSlice);
+    auto* autoOffset = new QDoubleSpinBox(autoGroup);
+    autoOffset->setObjectName(QStringLiteral("ananAutoAgcOffset"));
+    autoOffset->setAccessibleName(QStringLiteral("Auto AGC-T noise-floor offset"));
+    autoOffset->setAccessibleDescription(QStringLiteral("Noise-floor offset from -60 to +60 dB for this receive slice and session"));
+    autoOffset->setRange(-60.0, 60.0);
+    autoOffset->setDecimals(1);
+    autoOffset->setValue(20.0);
+    autoOffset->setSuffix(QStringLiteral(" dB"));
+    autoSlice->setEnabled(false);
+    autoOffset->setEnabled(false);
+    autoForm->addRow(QStringLiteral("Noise-floor offset:"), autoOffset);
+    auto* autoHint = new QLabel(QStringLiteral("Use A beside AGC in the RX applet to enable automatic threshold tracking. Settings apply to this receive session."), autoGroup);
+    autoHint->setWordWrap(true);
+    autoForm->addRow(autoHint);
+    infoLayout->addWidget(autoGroup);
+    struct AutoView { QVariantList slices; QPointer<IRadioBackend> backend; QString identity; };
+    const auto autoView = std::make_shared<AutoView>();
+    const auto fillAutoOffset = [=] {
+        const QSignalBlocker blocker(autoOffset);
+        for (const QVariant& entry : autoView->slices) {
+            const QVariantMap values = entry.toMap();
+            if (values.value(QStringLiteral("slice")).toInt() == autoSlice->currentData().toInt()) {
+                autoOffset->setValue(values.value(QStringLiteral("offsetDb")).toDouble());
+                break;
+            }
+        }
+    };
+    const auto pollAuto = [=, this] {
+        const bool available = m_model && m_model->isConnected()
+            && m_model->backendDeclaresExtension(QStringLiteral("anan"))
+            && m_model->backendCapabilities().autoAgcThresholdControl.has_value();
+        autoGroup->setEnabled(available);
+        autoGroup->setAccessibleDescription(available ? QStringLiteral("Host Auto AGC-T options for this session")
+            : QStringLiteral("Requires a connected DH1KLM ANAN receiver with Auto AGC-T support"));
+        if (!available || !autoGroup->isVisible()) { return; }
+        const QPointer<IRadioBackend> backend = m_model->backend();
+        auto* guard = new QObject(autoGroup);
+        static quint64 nextAutoId = 0x414147430000ULL;
+        const quint64 id = ++nextAutoId;
+        connect(backend, &IRadioBackend::extensionResult, guard, [=, this](quint64 reply, const QVariant& result) {
+            if (reply != id) { return; }
+            guard->deleteLater();
+            if (!backend || m_model->backend() != backend || !m_model->isConnected()) { return; }
+            autoView->backend = backend;
+            autoView->identity = result.toMap().value(QStringLiteral("identity")).toString();
+            autoView->slices = result.toMap().value(QStringLiteral("slices")).toList();
+            const int selected = autoSlice->currentIndex() >= 0 ? autoSlice->currentData().toInt() : 0;
+            const QSignalBlocker blocker(autoSlice);
+            autoSlice->clear();
+            for (const QVariant& entry : autoView->slices) {
+                const int slice = entry.toMap().value(QStringLiteral("slice")).toInt();
+                autoSlice->addItem(QStringLiteral("RX %1").arg(slice + 1), slice);
+            }
+            const int index = autoSlice->findData(selected);
+            autoSlice->setCurrentIndex(index >= 0 ? index : 0);
+            autoSlice->setEnabled(autoSlice->count() > 0);
+            autoOffset->setEnabled(autoSlice->count() > 0);
+            if (!autoOffset->hasFocus()) { fillAutoOffset(); }
+        });
+        QTimer::singleShot(1000, guard, &QObject::deleteLater);
+        m_model->invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("autoagc.get"), id, {});
+    };
+    connect(autoSlice, QOverload<int>::of(&QComboBox::currentIndexChanged), autoGroup, [=](int) { fillAutoOffset(); });
+    connect(autoOffset, QOverload<double>::of(&QDoubleSpinBox::valueChanged), autoGroup, [=, this](double offset) {
+        if (!m_model || !m_model->isConnected() || autoView->backend != m_model->backend() || autoSlice->currentIndex() < 0) { return; }
+        m_model->invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("autoagc.set"), 0,
+            QVariantMap{{QStringLiteral("identity"), autoView->identity}, {QStringLiteral("slice"), autoSlice->currentData()}, {QStringLiteral("offsetDb"), offset}});
+    });
+    auto* autoTimer = new QTimer(autoGroup);
+    autoTimer->setInterval(500);
+    connect(autoTimer, &QTimer::timeout, autoGroup, pollAuto);
+    connect(m_model, &RadioModel::connectionStateChanged, autoGroup, [=](bool) { pollAuto(); });
+    autoTimer->start();
+    pollAuto();
     infoLayout->addWidget(operatingGroup);
     auto* defaultsPage = buildAnanConnectionDefaults();
     defaultsPage->setParent(tabs);

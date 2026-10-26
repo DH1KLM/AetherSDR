@@ -10388,7 +10388,7 @@ QString RadioModel::autoAgcThresholdUnavailableReason(const SliceModel* source) 
     }
     const auto control = backendCapabilities().autoAgcThresholdControl;
     if (!control) {
-        return tr("Auto AGC-T requires radio firmware 4.3.16 or later with Auto AGC-T support.");
+        return tr("Auto AGC-T is not supported by this receiver.");
     }
     if (!control->requiredLicenseFeature.isEmpty()) {
         const LicenseFeatureState feature = licenseFeature(control->requiredLicenseFeature);

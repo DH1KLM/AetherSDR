@@ -894,6 +894,29 @@ bool WdspChannel::setAgc(int agcMode, double maximumGainDb) noexcept
     return true;
 }
 
+std::optional<double> WdspChannel::setAutoAgcThreshold(double thresholdDbfs, int referencePoints) noexcept
+{
+    if (m_config.direction != Direction::Receive || !std::isfinite(thresholdDbfs)
+        || thresholdDbfs < -200.0 || thresholdDbfs > 20.0 || referencePoints < 16
+        || !beginControlOperation()) { return {}; }
+    std::unique_lock setupLock(g_setupMutex, std::try_to_lock);
+    if (!setupLock.owns_lock()) { endControlOperation(); return {}; }
+    SetRXAAGCThresh(m_channelId, thresholdDbfs, static_cast<double>(referencePoints),
+                   static_cast<double>(m_config.inputSampleRate));
+    double top = 0.0;
+    GetRXAAGCTop(m_channelId, &top);
+    if (!std::isfinite(top)) {
+        SetRXAAGCTop(m_channelId, m_config.maximumAgcGainDb);
+        endControlOperation();
+        return {};
+    }
+    top = std::clamp(top, -20.0, 120.0);
+    SetRXAAGCTop(m_channelId, top);
+    m_config.maximumAgcGainDb = top;
+    endControlOperation();
+    return top;
+}
+
 bool WdspChannel::setAgcFixedGain(double fixedGainDb) noexcept
 {
     if (m_config.direction != Direction::Receive || !std::isfinite(fixedGainDb) ||

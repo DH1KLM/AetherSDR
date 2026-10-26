@@ -99,6 +99,32 @@ int main(int argc, char** argv)
               "Setup implementation choice is persisted for the next connection");
         implementation->setCurrentIndex(0);
     }
+    {
+        RadioModel model;
+        auto owned = std::make_unique<anan::AnanBackend>();
+        auto* backend = owned.get();
+        anan::AnanLinkStatsTestAccess::prepare(*backend, 2, false, 10);
+        model.setBackendForTest(std::move(owned), QStringLiteral("anan"));
+        RadioSetupDialog dialog(&model);
+        dialog.selectTab(QStringLiteral("ANAN Hardware"));
+        dialog.show();
+        auto* offset = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("ananAutoAgcOffset"));
+        QElapsedTimer wait;
+        wait.start();
+        while (offset && !offset->isEnabled() && wait.elapsed() < 2000) {
+            app.processEvents();
+            QThread::msleep(10);
+        }
+        check(offset && offset->isEnabled() && offset->value() == 20.0,
+              "Auto AGC-T setup reads the actual session offset before enabling edits");
+        offset->setValue(30.0);
+        QSignalSpy replies(backend, &IRadioBackend::extensionResult);
+        backend->invokeExtension(QStringLiteral("anan"), QStringLiteral("autoagc.get"), 9987, {});
+        const QVariantList sliceOptions = replies.isEmpty() ? QVariantList{}
+            : replies.last().at(1).toMap().value(QStringLiteral("slices")).toList();
+        check(!sliceOptions.isEmpty() && sliceOptions.first().toMap().value(QStringLiteral("offsetDb")).toDouble() == 30.0,
+              "Auto AGC-T setup writes the selected slice's validated offset");
+    }
     for (const auto [protocol, redPitaya, count] : {std::tuple{2, false, 6}, {1, false, 3}, {1, true, 4}}) {
         RadioModel model;
         auto owned = std::make_unique<anan::AnanBackend>();

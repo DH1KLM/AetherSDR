@@ -359,6 +359,8 @@ public:
     // other mode, so it may be set any time. Receive only; refuses a
     // non-finite value or a racing control operation.
     bool setAgcFixedGain(double fixedGainDb) noexcept;
+    //DH1KLM: Refuses while a planner/control operation is busy, never stalls RX for automatic updates.
+    std::optional<double> setAutoAgcThreshold(double thresholdDbfs, int referencePoints) noexcept;
     // CW audio peaking filter (WDSP SPCW, apfshadow.c): centerHz is audio (the
     // CW pitch), gain is linear. Receive only; refuses a non-positive or
     // non-finite parameter. While it runs both outputs come from I alone

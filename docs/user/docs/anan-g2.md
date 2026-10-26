@@ -66,6 +66,29 @@ The saved implementation is reused by automatic connection and reconnect.
 Original connection options marked **next connect** take effect on the next
 connection; its band-pass-filter and amplifier-mute controls apply live.
 
+## Automatic AGC-T
+
+In the DH1KLM implementation, click **A** beside the AGC controls in the
+**RX applet** to let the host DSP follow the receive noise floor. Slow, Med
+and Fast still select the AGC response speed; automatic threshold tracking
+is a separate choice. Click **A** again to return to manual control. AGC Off
+pauses automatic tracking without changing its fixed-gain setting.
+
+Under **Settings → Radio Setup → ANAN Hardware → Radio Info → Auto AGC-T**,
+select the **Receive slice** and set its **Noise-floor offset** (-60 to +60 dB,
+initially +20 dB). Each slice measures its own receive stream. Automatic mode
+and offsets belong to the current receive session; a new connection starts
+in manual mode. The original **tropo1234** implementation remains unchanged
+and does not offer this feature.
+
+Tracking uses an unaveraged output of the existing FFT, before display droop
+correction or edge fade. Measurements are normalized to a 4096-point reference,
+so resizing the display does not alter the intended gain. Display smoothing
+is independent. After enabling, retuning or a discontinuity, the estimator
+settles for about two seconds. It updates at most every 500 ms when fresh,
+valid data is available; on missing data it keeps the last applied gain.
+No additional audio buffering is introduced.
+
 ## Multiple slices and receive windows
 
 Use the main UI's add-slice control on an existing panadapter for another

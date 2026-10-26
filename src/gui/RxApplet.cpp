@@ -1120,8 +1120,8 @@ void RxApplet::buildUI()
         m_autoAgcTButton->setObjectName(QStringLiteral("autoAgcT"));
         m_autoAgcTButton->setAccessibleName(tr("Auto AGC-T"));
         m_autoAgcTButton->setAccessibleDescription(
-            tr("Let the radio adjust AGC threshold automatically"));
-        m_autoAgcTButton->setToolTip(tr("Radio Auto AGC-T"));
+            tr("Adjust the receiver AGC threshold automatically"));
+        m_autoAgcTButton->setToolTip(tr("Auto AGC-T"));
         m_autoAgcTButton->setEnabled(false);
         connect(m_autoAgcTButton, &QPushButton::clicked, this, [this] {
             if (m_slice && m_radioModel

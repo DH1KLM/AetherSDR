@@ -126,7 +126,7 @@ AnanPanAnalyzer::~AnanPanAnalyzer()
     const Derived d = derive(m_settings);
     int highSideLo = 0;
     auto lock = WdspChannel::fftwSetupLock();   // DestroyAnalyzer destroys FFTW plans
-    SetAnalyzer(m_disp, 1, 1, 1, &highSideLo, d.fftSize, kBlockSize, kWindowKaiser,
+    SetAnalyzer(m_disp, 2, 1, 1, &highSideLo, d.fftSize, kBlockSize, kWindowKaiser,
                 kKaiserPiAlpha, d.overlap, 0, 0.0, 0.0, m_settings.numPoints, 1, 0, 0.0,
                 0.0, d.maxWriteahead);
     DestroyAnalyzer(m_disp);
@@ -142,7 +142,7 @@ void AnanPanAnalyzer::applySettings()
         // first call after create().
         auto lock = WdspChannel::fftwSetupLock();
         SetAnalyzer(m_disp,
-                    1,                  // one pixel output
+                    2,                  //DH1KLM: display plus independent noise-floor output
                     1,                  // one FFT (no spur elimination)
                     1,                  // complex input
                     &highSideLo,
@@ -160,6 +160,9 @@ void AnanPanAnalyzer::applySettings()
                     d.maxWriteahead);
     }
     SetDisplayDetectorMode(m_disp, 0, kDetectorAverage);
+    SetDisplayDetectorMode(m_disp, 1, kDetectorAverage);
+    SetDisplayAverageMode(m_disp, 1, kAverageNone);
+    SetDisplayNormOneHz(m_disp, 1, 1);
     applyAveraging();
     // Normalise to the bandwidth of one output point: tell the analyzer the
     // "sample rate" is the point count, so its one-hertz normalisation lands
@@ -275,6 +278,15 @@ std::size_t AnanPanAnalyzer::dropStagedPartial() noexcept
     const std::size_t dropped = m_stagedCount;
     m_stagedCount = 0;
     return dropped;
+}
+
+bool AnanPanAnalyzer::takeNoiseFrame(std::vector<float>& pointsDb)
+{
+    int flag = 0;
+    GetPixels(m_disp, 1, m_scratch.data(), &flag);
+    if (!flag) { return false; }
+    pointsDb.assign(m_scratch.begin(), m_scratch.end());
+    return true;
 }
 
 bool AnanPanAnalyzer::takeFrame(std::vector<float>& pointsDb)

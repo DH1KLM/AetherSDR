@@ -1361,6 +1361,13 @@ target_include_directories(anan_implementation_test PRIVATE src tests)
 target_link_libraries(anan_implementation_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME anan_implementation_test COMMAND anan_implementation_test)
 
+#DH1KLM: Socket-free automatic threshold scale, WDSP readback and per-slice lifetime guards.
+add_executable(anan_auto_agc_test tests/anan_auto_agc_test.cpp)
+target_include_directories(anan_auto_agc_test PRIVATE src tests)
+target_link_libraries(anan_auto_agc_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME anan_auto_agc_test COMMAND anan_auto_agc_test)
+set_tests_properties(anan_auto_agc_test PROPERTIES TIMEOUT 120)
+
 # Socket-free NB publication/readback: actual backend and DSP, injected model
 # connection receipts and direct bridge dispatch; no transport is started.
 add_executable(anan_noise_blanker_readback_test tests/anan_noise_blanker_readback_test.cpp)
@@ -9938,6 +9945,7 @@ set(AETHER_SETTINGS_CONSUMERS
     hl2_session_memory_test
     anan_backend_test
     anan_implementation_test
+    anan_auto_agc_test
     anan_multi_receive_test
     radio_setup_anan_sample_rate_test
     anan_noise_blanker_readback_test

@@ -197,6 +197,9 @@ AnanBackend::AnanBackend(QObject* parent)
     m_receiveLayout.reset(1, kFirstConnectFrequencyHz, 48);
     m_client = new AnanClient(nullptr);   // nullptr parent: moveToThread requires it
     m_dsp = new AnanRxDsp(nullptr);
+    connect(m_dsp, &AnanRxDsp::autoAgcApplied, this, [this](quint64 revision, double top) {
+        onAutoAgcApplied(0, revision, top);
+    });
 
     // Leading+trailing throttle for setSliceFrequency()'s expensive side
     // effects -- see scheduleTuneApply()'s comment. Lives on this object
@@ -482,6 +485,7 @@ RadioCapabilities AnanBackend::capabilities() const
     span.followsSampleRate = true;
     span.radioWide = false;
     c.panSpanModel = span;
+    c.autoAgcThresholdControl = RadioCapabilities::AutoAgcThresholdControl{};
     c.hasAgcThreshold = true; // Host receiver DSP implements threshold/off gain.
     c.manufacturer = QStringLiteral("Apache Labs");
     //DH1KLM: Discovery identifies a family, not an individual Orion MkII SKU.
@@ -854,6 +858,13 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     }
     if (m_connected)
         disconnectRadio();
+
+    //DH1KLM: A new session never inherits another receiver's automatic gain or offset.
+    if (m_autoAgcEnabled) { m_agcThreshold = m_manualAgcBeforeAuto; }
+    m_autoAgcEnabled = false;
+    m_autoAgcOffset = AnanAutoAgc::kDefaultOffsetDb;
+    m_primaryAutoAgcRevision = ++m_autoAgcRevision;
+    pushAutoAgc(0);
 
     // A fresh connect (possibly to a different host) must not keep reporting
     // a prior radio's discovered identity until its own reply lands -- see
@@ -1361,6 +1372,10 @@ void AnanBackend::setSliceAgc(int sliceId, const QString& mode, int thresholdDb)
 
 void AnanBackend::requestSliceAgc(int sliceId, const SliceAgcRequest& request)
 {
+    if (request.field == SliceAgcRequest::Field::Threshold
+        && request.origin == SliceAgcRequest::Origin::Operator) {
+        requestSliceAgcThresholdMode(sliceId, AgcThresholdMode::Manual);
+    }
     if (m_connected&&!m_receiveLayout.slice(sliceId))return;
     if (sliceId != 0 && request.field == SliceAgcRequest::Field::OffLevel) {
         auto i = m_additionalRx.find(sliceId);
@@ -2384,6 +2399,23 @@ void AnanBackend::acceptCalibrationSpectrum(const std::vector<float>& bins, qint
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && (verb == QLatin1String("autoagc.get") || verb == QLatin1String("autoagc.set"))) {
+        if (!m_connected) { emit extensionError(requestId, QStringLiteral("Connect an ANAN receiver to configure Auto AGC-T.")); return; }
+        if (verb == QLatin1String("autoagc.set")) {
+            const QVariantMap fields = arg.toMap();
+            const QVariant id = fields.value(QStringLiteral("slice")), offset = fields.value(QStringLiteral("offsetDb"));
+            if (fields.value(QStringLiteral("identity")) != autoAgcState().value(QStringLiteral("identity"))
+                || id.metaType().id() != QMetaType::Int
+                || (offset.metaType().id() != QMetaType::Double && offset.metaType().id() != QMetaType::Int)
+                || !setAutoAgcOffset(id.toInt(), offset.toDouble())) {
+                emit extensionError(requestId, QStringLiteral("Select a current slice and an Auto AGC-T offset from -60 to +60 dB."));
+                return;
+            }
+        }
+        emit extensionResult(requestId, autoAgcState());
+        return;
+    }
+
     if (ns == QLatin1String("anan") && verb == QLatin1String("frontend.set")) {
         const QVariantMap fields = arg.toMap();
         const QVariantMap state = hardwareFilterStatus();
@@ -2964,6 +2996,7 @@ void AnanBackend::emitSliceState()
     // backend's values, not SliceModel's defaults.
     d.agcMode = agcModeName(m_agcMode);
     d.agcThreshold = m_agcThreshold;
+    d.agcThresholdMode = m_autoAgcEnabled ? AgcThresholdMode::Automatic : AgcThresholdMode::Manual;
     d.agcOffLevel = m_agcOffLevel;
     // The audio stage as APPLIED. Both are required, not cosmetic: the receive
     // control gate refuses an operation whose observation is absent, so without
