@@ -12,6 +12,7 @@
 #include <future>
 #include <thread>
 #include <random>
+#include <numbers>
 
 using namespace AetherSDR;
 using namespace AetherSDR::anan;
@@ -110,14 +111,26 @@ int main(int argc, char** argv)
             wait.start();
             while (!analyzer->takeNoiseFrame(noise) && wait.elapsed() < 5000) { QThread::msleep(2); }
             check(!noise.empty(), "noise data is available even if no display frame is consumed");
+            const auto measuredFloor = AnanAutoAgc::referenceFloor(noise);
+            check(measuredFloor && std::abs(*measuredFloor - 10.0 * std::log10(2e-6 / 4096.0)) < 1.0,
+                  "known complex white noise has the correct absolute reference level");
             check(analyzer->takeFrame(display), "noise polling does not consume the display output");
             for (auto& sample : iq) { sample *= 10.0f; }
             analyzer->feed(iq);
             wait.restart();
             bool fresh = false;
-            while (!(fresh = analyzer->takeNoiseFrame(noise)) && wait.elapsed() < 5000) { QThread::msleep(2); }
+            std::optional<double> rawFloor;
+            const std::vector<std::complex<float>> highBlock(iq.begin(), iq.begin() + 1024);
+            //DH1KLM: Worker FFTs from the previous feed may still publish after the level change.
+            while (!fresh && wait.elapsed() < 5000) {
+                if (analyzer->takeNoiseFrame(noise)) {
+                    rawFloor = AnanAutoAgc::referenceFloor(noise);
+                    fresh = rawFloor && measuredFloor && *rawFloor > *measuredFloor + 15.0;
+                }
+                if (!fresh) { analyzer->feed(highBlock); QThread::msleep(2); }
+            }
             analyzer->takeFrame(display);
-            const auto rawFloor = AnanAutoAgc::referenceFloor(noise), visibleFloor = AnanAutoAgc::referenceFloor(display);
+            const auto visibleFloor = AnanAutoAgc::referenceFloor(display);
             check(fresh && rawFloor && visibleFloor && *rawFloor > *visibleFloor + 5.0,
                   "long display averaging cannot delay the noise measurement");
         }
@@ -155,6 +168,16 @@ int main(int argc, char** argv)
         check(configured, "production receive DSP configures for automatic tracking");
         if (configured) {
             QSignalSpy applied(&dsp, &AnanRxDsp::autoAgcApplied);
+            double audioPower = 0.0;
+            double audioPeak = 0.0;
+            std::size_t audioCount = 0;
+            QObject::connect(&dsp, &AnanRxDsp::audioReady, &dsp, [&](const std::vector<float>& samples) {
+                for (float sample : samples) {
+                    audioPower += sample * sample;
+                    audioPeak = std::max(audioPeak, std::abs(static_cast<double>(sample)));
+                    ++audioCount;
+                }
+            });
             dsp.setAutoAgc(true, 20.0, 77);
             std::mt19937 random(456);
             std::normal_distribution<float> gaussian(0.0f, 0.001f);
@@ -168,10 +191,39 @@ int main(int argc, char** argv)
             }
             check(!applied.isEmpty() && applied.last().at(0).toULongLong() == 77,
                   "real IQ to FFT to WDSP flow applies and reports an automatic gain");
+            audioPower = 0.0;
+            audioCount = 0;
+            for (int n = 0; n < 100; ++n) {
+                for (auto& sample : iq) { sample = {gaussian(random), gaussian(random)}; }
+                dsp.processIqBlock(iq);
+                QThread::msleep(20);
+            }
+            const double noiseRmsDbfs = audioCount ? 10.0 * std::log10(audioPower / audioCount) : 0.0;
+            std::printf("Noise RMS after automatic tracking: %.3f dBFS\n", noiseRmsDbfs);
+            check(noiseRmsDbfs > -30.0 && noiseRmsDbfs < -23.0,
+                  "20 dB automatic offset leaves audio headroom for known band noise");
             const int before = applied.size();
             dsp.setAutoAgc(false, 20.0, 78);
             for (int n = 0; n < 30; ++n) { dsp.processIqBlock(iq); QThread::msleep(20); }
             check(applied.size() == before, "manual mode stops gain changes in the production DSP lane");
+            for (const bool lowerSideband : {false, true}) {
+                dsp.setMode(lowerSideband ? WdspChannel::Mode::Lsb : WdspChannel::Mode::Usb);
+                dsp.setFilter(lowerSideband ? -3000.0 : 150.0, lowerSideband ? -150.0 : 3000.0);
+                for (int n = 0; n < 80; ++n) {
+                    for (std::size_t k = 0; k < iq.size(); ++k) {
+                        const double phase = 2.0 * std::numbers::pi * 1000.0
+                            * static_cast<double>(n * iq.size() + k) / 48000.0;
+                        iq[k] = {static_cast<float>(0.05 * std::cos(phase)),
+                                 static_cast<float>((lowerSideband ? 0.05 : -0.05) * std::sin(phase))};
+                    }
+                    if (n == 40) { audioPeak = 0.0; audioPower = 0.0; audioCount = 0; }
+                    dsp.processIqBlock(iq);
+                    QThread::msleep(20);
+                }
+                std::printf("%s strong-signal peak: %.3f\n", lowerSideband ? "LSB" : "USB", audioPeak);
+                check(audioCount > 0 && audioPeak > 0.05 && audioPeak < 1.0,
+                      "settled strong SSB audio stays below digital full scale");
+            }
         }
     }
     return failures == 0 ? 0 : 1;

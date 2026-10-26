@@ -81,6 +81,10 @@ and offsets belong to the current receive session; a new connection starts
 in manual mode. The original **tropo1234** implementation remains unchanged
 and does not offer this feature.
 
+Increasing **Noise-floor offset** reduces automatic gain; decreasing it raises
+the noise and weak signals. The DH1KLM receive DSP uses unity output gain before
+the app's audio volume control, for both manual and automatic AGC-T.
+
 Tracking uses an unaveraged output of the existing FFT, before display droop
 correction or edge fade. Measurements are normalized to a 4096-point reference,
 so resizing the display does not alter the intended gain. Display smoothing
