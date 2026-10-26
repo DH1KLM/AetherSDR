@@ -34,6 +34,37 @@ LPFs. The slice and independent-window limits depend on the selected profile and
 Hermes/Hermes-II radio-speaker channels follow Thetis' stereo swap.
 Supply voltage for these additional profiles is not reported until qualified.
 
+## Saturn implementation selection
+
+A Saturn radio discovered on Protocol 2 has two choices:
+
+- **Saturn (ANAN G2) — tropo1234** runs the independent original backend
+  from main commit `c2a67af5`. It supports one receiver and one panadapter
+  on DDC0, with ADC0 or ADC1, the original front-end options, receive
+  band-pass filters, speaker output and amplifier mute.
+- **Saturn (ANAN G2) — DH1KLM** runs the extended model-aware backend,
+  including the multiple-slice and receive-window features described below.
+
+Select the implementation under **Settings → Radio Setup → ANAN Hardware →
+Saturn implementation** while disconnected. This sets the next Saturn
+connection preference. Discovery lists both choices for the same physical
+MAC/IP; selecting a row explicitly chooses that implementation. Under
+**Connect by IP**, choose either name in **Receive profile**, or use
+**Use saved model** to retain the saved implementation. Other hardware,
+including HermesC10 / ANAN-G2E, uses the extended implementation.
+
+The Setup selector shows the active implementation and is locked during a
+connection. Disconnect before switching. Both choices target one physical
+radio; they cannot run simultaneously. Both remain receive-only.
+
+Original and extended connection options, operating-state memory and droop
+calibration are independent. Existing extended settings are retained without
+migration. The original starts with its main defaults in a separate settings
+scope. Nickname, MAC, IP and firmware describe the shared physical radio.
+The saved implementation is reused by automatic connection and reconnect.
+Original connection options marked **next connect** take effect on the next
+connection; its band-pass-filter and amplifier-mute controls apply live.
+
 ## Multiple slices and receive windows
 
 Use the main UI's add-slice control on an existing panadapter for another

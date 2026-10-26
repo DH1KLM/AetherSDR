@@ -1645,7 +1645,8 @@ bool RadioSetupDialog::isCapabilityPageAvailable(const QTreeWidgetItem* item) co
                 .value(QStringLiteral("settingsVersion")).toInt() == 1;
     }
     if (index == m_ananHardwarePageIndex) {
-        return m_model->isConnected() && m_model->backendDeclaresExtension(QStringLiteral("anan"));
+        //DH1KLM: Choose the Saturn implementation before connecting; other active families retain their own pages.
+        return !m_model->isConnected() || m_model->backendDeclaresExtension(QStringLiteral("anan"));
     }
     if (index == m_droopCalibrationPageIndex) {
         return droopCalibrationAvailable(m_model->backend());

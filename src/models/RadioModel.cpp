@@ -19,6 +19,7 @@
 #include "core/backends/hl2/Hl2Backend.h"      // aetherd Gap A — HL2 backend (family "hl2")
 #include "models/ConnectStatePolicy.h"
 #include "core/backends/anan/AnanBackend.h"    // aetherd ANAN P2 Phase 1b (family "anan")
+#include "core/backends/anan/AnanImplementation.h"
 #include "core/backends/anan/AnanSettings.h"   // owned "Anan" settings object (Principle V)
 #include "core/backends/icom/IcomCivBackend.h"  // Icom networked radios (family "icom")
 #include "core/backends/icom/IcomCredentials.h"  // password: keychain, never settings
@@ -788,7 +789,7 @@ static void populateFamilyParams(RadioConnectRequest& req, const QString& family
     // framing and the 1364/556 packet split must scale with the rate first.
 }
 
-std::unique_ptr<IRadioBackend> RadioModel::makeBackend(const QString& family)
+std::unique_ptr<IRadioBackend> RadioModel::makeBackend(const QString& family, const QString& implementation)
 {
     if (family.compare(QLatin1String("hl2"), Qt::CaseInsensitive) == 0)
         return std::make_unique<hl2::Hl2Backend>();
@@ -797,7 +798,7 @@ std::unique_ptr<IRadioBackend> RadioModel::makeBackend(const QString& family)
     // dynamic_cast chain in setupBackend() correctly skips it too. RX-only
     // in this phase (aetherd ANAN P2 Phase 1b); canTransmit is false.
     if (family.compare(QLatin1String("anan"), Qt::CaseInsensitive) == 0)
-        return std::make_unique<anan::AnanBackend>();
+        return anan::AnanImplementation::makeBackend(implementation);
     // Icom networked radios (IC-705, IC-7300MK2, …). Like HL2 this is a pure
     // seam backend — it owns no RadioConnection and no PanadapterStream, so the
     // dynamic_cast chain in setupBackend() correctly skips it and every model
@@ -875,11 +876,10 @@ void RadioModel::setupBackend(const QString& family)
         // construction wiring below is
         // guarded by a dynamic_cast so the Flex path stays byte-identical and a
         // non-Flex backend simply skips it (it owns its own wire objects).
-        m_backend = makeBackend(m_family);
+        m_backend = makeBackend(m_family, m_backendImplementation);
         if (!m_backend) {
             emit connectionError(
-                tr("This build has no RTL-SDR support — librtlsdr or fftw3f "
-                   "was unavailable when AetherSDR was compiled."));
+                tr("The selected radio backend or implementation is unavailable in this build."));
             return;
         }
         connect(m_backend.get(), &IRadioBackend::independentTxStopped, this,
@@ -2741,6 +2741,7 @@ RadioModel::RadioModel(QObject* parent)
                 // initial connect gives a session that authenticates once and
                 // then fails every automatic retry.
                 populateFamilyParams(req, m_family, m_lastInfo.sessionBindAddress);
+                anan::AnanImplementation::populateParams(req, m_lastInfo.implementation);
                 //DH1KLM: Preserve the normalized board and actual wire protocol on reconnect.
                 if (m_family == QLatin1String("anan")) {
                     if (m_lastInfo.boardId >= 0)
@@ -3782,10 +3783,12 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         flushPendingOperatingState();
         m_backend->disconnectRadio();
     }
-    if (wantFamily != m_family || !m_backend) {
+    if (wantFamily != m_family || info.implementation != m_backendImplementation || !m_backend) {
+        //DH1KLM: Flush under the old implementation scope before replacing its backend.
+        flushPendingOperatingState();
         qCInfo(lcProtocol) << "RadioModel: switching backend family" << m_family
                            << "->" << wantFamily << "for" << info.address.toString();
-        rebuildBackendForFamily(wantFamily);
+        rebuildBackendForFamily(wantFamily, info.implementation);
         if (!m_backend) {
             return;
         }
@@ -3893,6 +3896,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         req.serial = info.serial;
         req.serialIdentity = info.serialIdentity;
         populateFamilyParams(req, info.family, info.sessionBindAddress);
+        anan::AnanImplementation::populateParams(req, info.implementation);
         //DH1KLM: Carry the discovery protocol's numeric board ID into the backend;
         //never reconstruct a hardware profile from the display model string.
         if (info.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) == 0) {
@@ -4200,6 +4204,7 @@ bool RadioModel::wakeIcomRadio(int modelId, int address, QString* error)
         request.port = selectedRadio.port;
         request.serial = selectedRadio.serial;
         populateFamilyParams(request, m_family, selectedRadio.sessionBindAddress);
+        anan::AnanImplementation::populateParams(request, selectedRadio.implementation);
         //DH1KLM: Keep ANAN's discovery identity intact if this reconnect path is reused.
         if (m_family == QLatin1String("anan")) {
             if (selectedRadio.boardId >= 0)
@@ -10731,7 +10736,7 @@ void RadioModel::setBackendForTest(std::unique_ptr<IRadioBackend> backend,
     m_txSessionClosing = false;
 }
 
-void RadioModel::rebuildBackendForFamily(const QString& family)
+void RadioModel::rebuildBackendForFamily(const QString& family, const QString& implementation)
 {
     // THE family switch, in one place. connectToRadio() calls it for a real
     // target and rebuildBackendForTest() calls it for a socket-free one, so a
@@ -10743,6 +10748,7 @@ void RadioModel::rebuildBackendForFamily(const QString& family)
     dropAllSessionModelsForFamilySwitch();
     teardownBackend();
     resetGpsState();
+    m_backendImplementation = implementation;
     setupBackend(family);
     emit backendRebuilt();
 }

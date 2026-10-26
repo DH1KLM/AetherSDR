@@ -1355,6 +1355,12 @@ target_include_directories(anan_backend_test PRIVATE src tests)
 target_link_libraries(anan_backend_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME anan_backend_test COMMAND anan_backend_test)
 
+#DH1KLM: Independent factories, persistence, identity and P2-only refusal, without a peer.
+add_executable(anan_implementation_test tests/anan_implementation_test.cpp)
+target_include_directories(anan_implementation_test PRIVATE src tests)
+target_link_libraries(anan_implementation_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME anan_implementation_test COMMAND anan_implementation_test)
+
 # Socket-free NB publication/readback: actual backend and DSP, injected model
 # connection receipts and direct bridge dispatch; no transport is started.
 add_executable(anan_noise_blanker_readback_test tests/anan_noise_blanker_readback_test.cpp)
@@ -3906,6 +3912,7 @@ add_executable(flex_control_visibility_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3934,6 +3941,7 @@ add_executable(radio_setup_no_transient_window_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -3974,6 +3982,7 @@ add_executable(radio_setup_region_field_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4002,6 +4011,7 @@ add_executable(radio_setup_operations_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/TxBandDialog.cpp
     src/gui/CanonWindow.cpp
@@ -4037,6 +4047,7 @@ add_executable(radio_setup_label_theme_token_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4065,6 +4076,7 @@ add_executable(radio_setup_window_size_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4093,6 +4105,7 @@ add_executable(radio_setup_pair_grid_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4127,6 +4140,7 @@ add_executable(radio_setup_max_power_field_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4158,6 +4172,7 @@ add_executable(radio_setup_tx_timing_fields_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4190,6 +4205,7 @@ add_executable(radio_setup_recording_mode_dim_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4223,6 +4239,7 @@ add_executable(radio_setup_headphone_output_gate_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4252,6 +4269,7 @@ add_executable(radio_setup_anan_sample_rate_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4289,6 +4307,7 @@ add_executable(radio_nickname_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
@@ -4358,6 +4377,7 @@ add_executable(radio_setup_show_tx_waterfall_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/ControlAvailabilityRegistry.cpp
@@ -5863,6 +5883,7 @@ add_executable(peripheral_auth_dialog_test
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/CanonWindow.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -9916,6 +9937,7 @@ set(AETHER_SETTINGS_CONSUMERS
     hl2_pan_create_async_test
     hl2_session_memory_test
     anan_backend_test
+    anan_implementation_test
     anan_multi_receive_test
     radio_setup_anan_sample_rate_test
     anan_noise_blanker_readback_test

@@ -13,6 +13,7 @@
 #include "AppletPanel.h"
 #include "ConnectedStationsDialog.h"
 #include "ConnectionPanel.h"
+#include "core/backends/anan/AnanImplementation.h"
 #include "ExperimentalRadioSupport.h"
 #include "FloatingRestorePolicy.h"
 #include "FramelessMessageBox.h"
@@ -211,7 +212,7 @@ void MainWindow::refreshRadioTabs()
     }
 
     const bool connected = m_radioModel.isConnected();
-    const QString activeSerial = connected ? m_radioModel.serial() : QString();
+    const QString activeSerial = connected ? m_radioModel.lastRadioInfo().selectionKey() : QString();
     const RadioInfo activeInfo = m_radioModel.lastRadioInfo();
     const QJsonObject switcher = QJsonDocument::fromJson(AppSettings::instance()
         .value("RadioSwitcher", "{}").toString().toUtf8()).object();
@@ -235,12 +236,12 @@ void MainWindow::refreshRadioTabs()
         // discovery update must not replace the running configuration either.
         const RadioInfo& info = discovered.displayIdentityForSession(
             connected ? &activeInfo : nullptr);
-        if (info.serial.isEmpty() || seen.contains(info.serial)) {
+        if (info.serial.isEmpty() || seen.contains(info.selectionKey())) {
             continue;
         }
-        seen.insert(info.serial);
+        seen.insert(info.selectionKey());
         RadioTabEntry entry;
-        entry.id = info.serial;
+        entry.id = info.selectionKey();
         entry.name = info.displayNickname().isEmpty() ? info.displayModel() : info.displayNickname();
         if (!info.effectiveModel.isEmpty())
             entry.name = m_connPanel->radioDisplayName(info, entry.name);
@@ -251,7 +252,7 @@ void MainWindow::refreshRadioTabs()
         entry.detail = info.callsign;
         entry.transport = info.address.isNull() ? QStringLiteral("LAN")
                                                 : info.address.toString();
-        entry.status = statusFor(info.serial, info.inUse);
+        entry.status = statusFor(info.selectionKey(), info.inUse);
         tabs.append(entry);
     }
 
@@ -570,7 +571,7 @@ void MainWindow::wireDiscovery()
         // operator confirm — the tab is a selector, not a disconnect button.
         connect(m_titleBar, &TitleBar::radioTabActivated, this,
                 [this](const QString& radioId) {
-            if (m_radioModel.isConnected() && m_radioModel.serial() == radioId) {
+            if (m_radioModel.isConnected() && m_radioModel.lastRadioInfo().selectionKey() == radioId) {
                 return;   // already the active session — nothing to do
             }
             showConnectionDialog();
@@ -633,7 +634,7 @@ void MainWindow::wireDiscovery()
                 m_connPanel, &ConnectionPanel::retryDiscoveryRequested);
         connect(m_titleBar->radioTabBar(), &RadioTabBar::radioActionRequested,
                 this, [this](const QString& radioId, const QString& action) {
-            const bool active = m_radioModel.isConnected() && m_radioModel.serial() == radioId;
+            const bool active = m_radioModel.isConnected() && m_radioModel.lastRadioInfo().selectionKey() == radioId;
             if (action == QStringLiteral("disconnect")) {
                 if (active) {
                     emit m_connPanel->disconnectRequested();
@@ -819,8 +820,9 @@ void MainWindow::disconnectFromRadioByUser()
     m_radioModel.disconnectFromRadio();
 }
 
-void MainWindow::maybeAutoConnectToDiscoveredRadio(const RadioInfo& info)
+void MainWindow::maybeAutoConnectToDiscoveredRadio(const RadioInfo& discovered)
 {
+    const RadioInfo info = anan::AnanImplementation::selected(discovered);
     if (m_userDisconnected) return;
     if (m_radioModel.isConnected()) return;
     if (AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() != "True")

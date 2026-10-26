@@ -1463,7 +1463,8 @@ public:
         if (m_family == QLatin1String("rtl") && radioId.isEmpty() && isConnected()) {
             return RadioSettingsScope::anonymousRadio(m_family);
         }
-        return RadioSettingsScope(m_family, radioId);
+        return RadioSettingsScope(m_backendImplementation == QLatin1String("tropo1234")
+            ? QStringLiteral("anan-tropo1234") : m_family, radioId);
     }
 
     // Fire a vendor-extension verb at the connected backend (IRadioBackend
@@ -1720,7 +1721,7 @@ private:
     // supersedes it later. Flex-specific construction wiring (command sinks,
     // RadioConnection/PanadapterStream grabs) stays behind a dynamic_cast adapter
     // in the ctor, so a non-Flex backend simply skips it.
-    static std::unique_ptr<IRadioBackend> makeBackend(const QString& family);
+    static std::unique_ptr<IRadioBackend> makeBackend(const QString& family, const QString& implementation = {});
     void handRestoredStateToBackend();  // RFC #4603
     // Put the remembered "Show TX in Waterfall" back into the transmit model
     // on connect, where the backend declares the client its owner.
@@ -1752,7 +1753,7 @@ private:
     void teardownBackend();
     // The family switch itself: drop session models, tear down, build, announce.
     // One body, called by connectToRadio() and rebuildBackendForTest().
-    void rebuildBackendForFamily(const QString& family);
+    void rebuildBackendForFamily(const QString& family, const QString& implementation = {});
     // Push the backend's RadioCapabilities into the models that own each flag,
     // then emit capabilitiesChanged. Called on every connect/disconnect edge and
     // whenever the backend revises its own capabilities.
@@ -2556,6 +2557,7 @@ private:
     QString m_radioWakeModel;
     void cancelRadioWake();
     void finishRadioWake(const QString& message, bool success);
+    QString m_backendImplementation; //DH1KLM: Immutable for one backend lifetime.
     RadioInfo m_lastInfo;               // stored for auto-reconnect
     bool      m_intentionalDisconnect{false};
     // See isConnectAttemptInFlight(). Set by the connect entry points, cleared

@@ -183,6 +183,7 @@ private:
     // hl2 extension, which refuses anything else.
     QWidget* buildHl2HardwareTab();
     QWidget* buildAnanHardwareTab();
+    QWidget* buildAnanExtendedHardwareTab();
     // Whether the connected backend declares the "hl2" extension namespace —
     // i.e. whether anything will answer the hw.get / hw.set verbs this page is
     // built on. NOT a family-string check: #5554 bars new ones, and the name a

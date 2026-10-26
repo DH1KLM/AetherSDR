@@ -1,6 +1,7 @@
 #include "TestSettingsProfile.h"
 #include "core/backends/anan/AnanBackend.h"
 #include "core/backends/anan/AnanSettings.h"
+#include "core/backends/anan/AnanImplementation.h"
 #include "core/AppSettings.h"
 #include "gui/RadioSetupDialog.h"
 #include "models/RadioModel.h"
@@ -79,6 +80,25 @@ int main(int argc, char** argv)
     TestSettingsProfile profile(QStringLiteral("anan-rate-ui"));
     QApplication app(argc, argv);
     AppSettings::instance().load();
+    {
+        RadioModel model;
+        RadioSetupDialog dialog(&model);
+        dialog.selectTab(QStringLiteral("ANAN Hardware"));
+        auto* implementation = dialog.findChild<QComboBox*>(QStringLiteral("ananImplementation"));
+        check(implementation && implementation->isEnabled() && implementation->count() == 2,
+              "setup exposes both independent Saturn choices while disconnected");
+        implementation->setCurrentIndex(1);
+        auto* rate = dialog.findChild<QComboBox*>(QStringLiteral("saturnOriginalRate"));
+        check(rate && !rate->isHidden(), "original configuration page exists");
+        const int extendedRate = anan::AnanSettings::ddc0RateKsps();
+        rate->setCurrentIndex(rate->findData(384));
+        check(anan::AnanImplementation::originalOptions().value(QStringLiteral("ddc0RateKsps")).toInt() == 384
+              && anan::AnanSettings::ddc0RateKsps() == extendedRate,
+              "original Setup writes only original configuration");
+        check(anan::AnanImplementation::preferred({}) == anan::AnanImplementation::originalId(),
+              "Setup implementation choice is persisted for the next connection");
+        implementation->setCurrentIndex(0);
+    }
     for (const auto [protocol, redPitaya, count] : {std::tuple{2, false, 6}, {1, false, 3}, {1, true, 4}}) {
         RadioModel model;
         auto owned = std::make_unique<anan::AnanBackend>();

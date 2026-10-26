@@ -952,6 +952,16 @@ set(CORE_SOURCES
     src/core/backends/anan/AnanDroopDefaults.cpp   # derived per-gateware droop defaults (generated data)
     src/core/backends/anan/AnanBackend_MultiRx.cpp
     src/core/backends/anan/AnanBackend.cpp   # aetherd ANAN P2 Phase 1b (IRadioBackend impl)
+    src/core/backends/anan_original/AnanBackend.cpp
+    src/core/backends/anan_original/AnanDroopCalibrator.cpp
+    src/core/backends/anan_original/AnanDroopCorrection.cpp
+    src/core/backends/anan_original/AnanDroopDefaults.cpp
+    src/core/backends/anan_original/AnanPanAnalyzer.cpp
+    src/core/backends/anan_original/AnanRxDsp.cpp
+    src/core/backends/anan_original/AnanSettings.cpp
+    src/core/backends/anan_original/P2Client.cpp
+    src/core/backends/anan_original/P2Protocol.cpp
+    src/core/backends/anan/AnanImplementation.cpp
     src/core/backends/anan/AnanSettings.cpp  # owned config object, "Anan" root key (Principle V)
     src/core/backends/icom/IcomProtocol.cpp  # IcomCIV Phase 0 (RS-BA1 UDP transport)
     src/core/backends/icom/CivCodec.cpp      # IcomCIV Phase 1 (CI-V command plane, transport-free)
@@ -1372,6 +1382,7 @@ set(GUI_SOURCES
     src/gui/FirmwareUpdateCard.cpp
     src/gui/CanonPrompt.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/AsioOutputSettingsWidget.cpp

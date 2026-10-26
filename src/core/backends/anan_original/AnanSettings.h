@@ -1,0 +1,83 @@
+#pragma once
+
+#include <QList>
+#include <QString>
+
+class QJsonObject;
+
+namespace AetherSDR::anan_original {
+
+//DH1KLM Owned configuration for the ANAN-G2 backend, per Constitution Principle V:
+//DH1KLM one nested JSON object under a single root key ("Anan"), read and written
+//DH1KLM atomically, with one place to default. Mirrors IcomSettings's shape
+//DH1KLM (02-working-plan.md Step 2: "AnanSettings in params, namespaced anan.*,
+//DH1KLM mirroring IcomSettings") rather than the ad-hoc AppSettings::instance().
+//DH1KLM value() calls ConnectionPanel/RadioModel used before this existed.
+class AnanSettings {
+public:
+    //DH1KLM DDC0 sample rate in ksps -- also the panadapter span. One of the six
+    //DH1KLM rates AnanBackend::capabilities().sampleRatesHz declares. Not
+    //DH1KLM validated here; AnanBackend::nearestDdc0RateKsps() is the actual
+    //DH1KLM snap-to-valid-rate authority, so an out-of-range or hand-edited value
+    //DH1KLM just gets snapped on the next connect/zoom rather than rejected here.
+    static int ddc0RateKsps();
+    static void setDdc0RateKsps(int ksps);
+
+    //DH1KLM ADC options -- all connect-time-only (no live setter anywhere below
+    //DH1KLM the seam; P2Client::Params carries these once, at start()). Spec
+    //DH1KLM citations live on P2Protocol::buildDdcSpecific()/buildHighPriority(),
+    //DH1KLM the actual wire encoders; this class only owns persistence.
+    static bool ditherEnabled();
+    static void setDitherEnabled(bool on);
+    static bool randomEnabled();
+    static void setRandomEnabled(bool on);
+    //DH1KLM 0 = ADC0, behind the switched Ant1/2/3 relay bank; 1 = ADC1, wired
+    //DH1KLM directly to its own RX2 jack (Appendix D block diagram, spec p.90).
+    static int ddc0AdcIndex();
+    static void setDdc0AdcIndex(int index);
+    static bool bypassAdc0Filters();
+    static void setBypassAdc0Filters(bool on);
+    static bool bypassAdc1Filters();
+    static void setBypassAdc1Filters(bool on);
+
+    //DH1KLM Send demodulated RX audio back to the radio so its own codec and speaker
+    //DH1KLM reproduce it. Connect-time, like the ADC options above -- but DEFAULT OFF,
+    //DH1KLM unlike all of them, because it is the only one that makes the host
+    //DH1KLM originate a continuous outbound stream. See P2Client::Params.
+    static bool speakerAudioEnabled();
+    static void setSpeakerAudioEnabled(bool on);
+
+    //DH1KLM ---- Live options: the High Priority packet carries them every 100 ms ----
+
+    //DH1KLM Select the receive band-pass filter for the tuned frequency (true) or
+    //DH1KLM hold the banks to the bypass flags above (false, the default). Off by
+    //DH1KLM default: the bank is in series ahead of the ADC, so a filter that does
+    //DH1KLM not cover the tuned frequency is silence, and the band edges still need
+    //DH1KLM confirming band by band on a radio.
+    static bool bandFiltersEnabled();
+    static void setBandFiltersEnabled(bool on);
+
+    //DH1KLM Mute the radio's speaker amplifier (High Priority byte 1400 bit 1).
+    static bool speakerAmpMuted();
+    static void setSpeakerAmpMuted(bool on);
+
+    //DH1KLM The DDC0 rates a session may start at, for a UI offering the choice.
+    //DH1KLM
+    //DH1KLM Here rather than read from the protocol header directly, because a setup
+    //DH1KLM page is above the radio seam and must not include family protocol code
+    //DH1KLM (the EB3 ratchet in tools/check_engine_boundary.py enforces exactly that).
+    //DH1KLM A CONNECTED consumer should prefer RadioCapabilities::sampleRatesHz, which
+    //DH1KLM AnanBackend publishes from the same list; this exists because the page
+    //DH1KLM that offers the choice is reachable with no radio attached, where there
+    //DH1KLM are no capabilities to read.
+    [[nodiscard]] static QList<int> validDdc0RatesKsps();
+
+    //DH1KLM Restore every field to its default.
+    static void reset();
+
+private:
+    static QJsonObject readObj();
+    static void writeObj(const QJsonObject& obj);
+};
+
+}  // namespace AetherSDR::anan_original

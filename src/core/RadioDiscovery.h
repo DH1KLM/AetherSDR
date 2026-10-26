@@ -57,6 +57,14 @@ struct RadioInfo {
     // (Hermes-Lite 2, from HPSDR discovery / the manual HL2 path). RadioModel
     // routes the connect through the matching backend based on this.
     QString family{QStringLiteral("flex")};
+    //DH1KLM: Backend variant is separate from physical discovery identity.
+    QString implementation;
+    QString selectionKey() const {
+        return implementation.isEmpty() ? serial : serial + QLatin1Char('|') + implementation;
+    }
+    QString settingsFamily() const {
+        return implementation == QLatin1String("tropo1234") ? QStringLiteral("anan-tropo1234") : family;
+    }
     //DH1KLM: Preserve the physical board family in the Thetis/P2 registry;
     // P1 discovery normalizes its different wire IDs. -1 means unreported; do not
     // infer a board profile from the human-readable model string.
@@ -122,6 +130,7 @@ struct RadioInfo {
         // metadata, including an explicit transition back to override OFF.
         return active && !serial.isEmpty() && serial == active->serial
             && family.compare(active->family, Qt::CaseInsensitive) == 0
+            && implementation == active->implementation
             && !active->connectionProfile.isEmpty() ? *active : *this;
     }
     QString displayNickname() const {

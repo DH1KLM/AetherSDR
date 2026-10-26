@@ -7,6 +7,7 @@
 #include "core/backends/icom/IcomSettings.h"
 #include "core/backends/anan/AnanSettings.h"
 #include "gui/ConnectionPanel.h"
+#include "core/backends/anan/AnanImplementation.h"
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -850,6 +851,30 @@ int main(int argc, char** argv)
         }
     }
 
+
+    {
+        ConnectionPanel variants;
+        RadioInfo radio;
+        radio.family = QStringLiteral("anan");
+        radio.serial = QStringLiteral("SATURN-CHOICES");
+        radio.boardId = 10;
+        radio.hpsdrProtocol = 2;
+        radio.address = QHostAddress(QStringLiteral("192.0.2.9"));
+        variants.onRadioDiscovered(radio);
+        variants.onRadioUpdated(radio);
+        const auto rows = variants.automationLocalRadios();
+        report("Saturn discovery retains two independent choices", rows.size() == 2
+            && rows[0].serial == rows[1].serial && rows[0].selectionKey() != rows[1].selectionKey());
+        bool selectedOriginal = false;
+        QObject::connect(&variants, &ConnectionPanel::connectRequested, &variants, [&](const RadioInfo& chosen) {
+            selectedOriginal = chosen.implementation == anan::AnanImplementation::originalId();
+        });
+        QString error;
+        variants.automationConnectLocalSerial(radio.serial + QStringLiteral("|tropo1234"), &error);
+        report("original discovery row routes the original implementation", selectedOriginal);
+        variants.onRadioLost(radio.serial);
+        report("Saturn expiry removes both variants", variants.automationLocalRadios().isEmpty());
+    }
     app.setFont(originalFont);
     checkIcomManualGuidanceIsModelNeutral();
     checkIcomCustomNatPorts();

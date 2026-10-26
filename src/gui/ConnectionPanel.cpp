@@ -2,6 +2,7 @@
 #include "core/AppSettings.h"
 #include "core/backends/ConnectionSharingPolicy.h"  // in-use share gate (#4448), shared with MainWindow_Session
 #include "core/backends/anan/AnanSettings.h"
+#include "core/backends/anan/AnanImplementation.h"
 #include "core/backends/anan/AnanDiscovery.h" // shared nickname + MAC->serial helpers
 #include "core/backends/anan/P2Protocol.h"  // buildDiscovery/parseDiscoveryReply, kRadioPort
 #include "core/backends/hl2/Hl2Discovery.h"   // shared nickname + MAC->serial helpers
@@ -947,9 +948,11 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualAnanProfileCombo->setToolTip(tr("Saved per radio. Automatic keeps the physical-board profile."));
     AetherSDR::applyComboStyle(m_manualAnanProfileCombo, comboExtraRules);
     m_manualAnanProfileCombo->addItem(tr("Use saved model"), -100);
+    m_manualAnanProfileCombo->addItem(anan::AnanImplementation::label(true), -200);
     for (const auto& entry : anan::kAnanModels) {
         m_manualAnanProfileCombo->addItem(
-            QString::fromLatin1(entry.name.data(), entry.name.size()), static_cast<int>(entry.model));
+            entry.model == anan::AnanModel::AnanG2 ? anan::AnanImplementation::label(false)
+                : QString::fromLatin1(entry.name.data(), entry.name.size()), static_cast<int>(entry.model));
         if (entry.model == anan::AnanModel::Hpsdr || entry.model == anan::AnanModel::HermesLite2) {
             const QString reason = entry.model == anan::AnanModel::HermesLite2
                 ? tr("Use the dedicated Hermes-Lite 2 connection type (P1).")
@@ -1582,7 +1585,7 @@ QList<RadioInfo> ConnectionPanel::automationLocalRadios() const
 bool ConnectionPanel::selectRadio(const QString& serial)
 {
     for (int index = 0; index < m_radios.size(); ++index) {
-        if (m_radios[index].serial == serial) {
+        if (m_radios[index].selectionKey() == serial) {
             setCurrentMode(LocalMode);
             m_radioList->setCurrentRow(index);
             return true;
@@ -1606,7 +1609,7 @@ void ConnectionPanel::selectManualConnection()
 bool ConnectionPanel::canRenameRadio(const QString& serial) const
 {
     for (const RadioInfo& radio : m_radios) {
-        if (radio.serial == serial) {
+        if (radio.selectionKey() == serial) {
             return canRenameRadio(radio);
         }
     }
@@ -1635,7 +1638,7 @@ QString ConnectionPanel::radioDisplayName(const RadioInfo& radio, const QString&
 void ConnectionPanel::renameRadio(const QString& serial)
 {
     for (const RadioInfo& radio : m_radios) {
-        if (radio.serial == serial) {
+        if (radio.selectionKey() == serial) {
             renameRadio(radio);
             return;
         }
@@ -1684,7 +1687,7 @@ bool ConnectionPanel::automationConnectLocalSerial(const QString& serial, QStrin
     }
 
     for (int i = 0; i < m_radios.size(); ++i) {
-        if (m_radios[i].serial.compare(wanted, Qt::CaseInsensitive) == 0) {
+        if (m_radios[i].selectionKey().compare(wanted, Qt::CaseInsensitive) == 0) {
             setCurrentMode(LocalMode);
             m_radioList->setCurrentRow(i);
             onLocalConnectClicked();
@@ -1792,6 +1795,10 @@ QString ConnectionPanel::formatLocalRadioLabel(const RadioInfo& radio) const
             .arg(radio.address.toString(), radio.serial, radio.connectionProfile);
     }
 
+    if (anan::AnanImplementation::isSaturn(radio)) {
+        title += QStringLiteral(" — ") + (radio.implementation.isEmpty()
+            ? QStringLiteral("DH1KLM") : QStringLiteral("tropo1234"));
+    }
     return title + QLatin1Char('\n') + detail;
 }
 
@@ -2068,11 +2075,15 @@ void ConnectionPanel::showRadioContextMenu(const QPoint& pos)
 
 void ConnectionPanel::onRadioDiscovered(const RadioInfo& discovered)
 {
+    if (anan::AnanImplementation::isSaturn(discovered) && discovered.implementation.isEmpty()) {
+        const RadioInfo original = anan::AnanImplementation::choices(discovered).last();
+        onRadioDiscovered(original);
+    }
     //DH1KLM: Discovery snapshots can predate Forget; the persisted mapping owns display metadata.
     RadioInfo radio = discovered;
     anan::AnanSettings::applyRadioProfileDisplay(radio);
     for (int i = 0; i < m_radios.size(); ++i) {
-        if (m_radios[i].serial == radio.serial) {
+        if (m_radios[i].selectionKey() == radio.selectionKey()) {
             m_radios[i] = radio;
             if (auto* item = m_radioList->item(i))
                 item->setText(formatLocalRadioLabel(radio));
@@ -2122,11 +2133,15 @@ void ConnectionPanel::moveDemoRadioToBottom()
 
 void ConnectionPanel::onRadioUpdated(const RadioInfo& discovered)
 {
+    if (anan::AnanImplementation::isSaturn(discovered) && discovered.implementation.isEmpty()) {
+        const RadioInfo original = anan::AnanImplementation::choices(discovered).last();
+        onRadioUpdated(original);
+    }
     //DH1KLM: Re-evaluate a cached discovery update against the current saved mapping.
     RadioInfo radio = discovered;
     anan::AnanSettings::applyRadioProfileDisplay(radio);
     for (int i = 0; i < m_radios.size(); ++i) {
-        if (m_radios[i].serial == radio.serial) {
+        if (m_radios[i].selectionKey() == radio.selectionKey()) {
             m_radios[i] = radio;
             if (auto* item = m_radioList->item(i))
                 item->setText(formatLocalRadioLabel(radio));
@@ -2142,7 +2157,7 @@ void ConnectionPanel::onRadioLost(const QString& serial)
         if (m_radios[i].serial == serial) {
             delete m_radioList->takeItem(i);
             m_radios.removeAt(i);
-            break;
+            --i;
         }
     }
 
@@ -2270,6 +2285,11 @@ void ConnectionPanel::onLocalConnectClicked()
         settings.save();
     }
 
+    if (anan::AnanImplementation::isSaturn(info)
+        && !anan::AnanImplementation::setPreferred(info.serial, info.implementation)) {
+        setStatusText(tr("Could not save the selected Saturn implementation."));
+        return;
+    }
     // A staged Icom credential belongs to the attempt it was staged for.
     clearPendingIcomCredentials();
     emit connectRequested(info);
@@ -3600,33 +3620,53 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             info.name     = info.model;
             info.serial   = anan::AnanDiscovery::macToSerial(reply->mac);
             const int modelChoice = m_manualAnanProfileCombo->currentData().toInt();
-            const auto saved = anan::AnanSettings::radioProfile(info.serial);
-            const auto model = modelChoice == -100 ? saved.model : static_cast<anan::AnanModel>(modelChoice);
-            const int desiredProtocol = protocolChoice < 0 ? saved.protocol : protocolChoice;
-            const auto overrideState = m_manualAnanOverrideCheck->checkState();
-            const bool overrideDetection = overrideState == Qt::PartiallyChecked
-                ? saved.overrideDetection : overrideState == Qt::Checked;
-            if (desiredProtocol > 0 && desiredProtocol != reply->wireProtocol) { continue; }
-            if ((!saved.valid && (modelChoice == -100 || protocolChoice < 0
-                                  || overrideState == Qt::PartiallyChecked))
-                || !anan::receiveProfile(info.boardId, model, overrideDetection)) {
-                const QString reason = overrideDetection
-                    ? tr("Board override requires an explicit supported receive profile. Check the saved model and protocol settings.")
-                    : tr("The selected or saved model does not match this radio's board. Enable Override detection only for a deliberate hardware override.");
-                setManualMessage(reason, true);
-                reportStartupProbeFailure(reason);
-                return AnanProbeResult::Answered;
-            }
-            if (modelChoice != -100 || protocolChoice >= 0 || overrideState != Qt::PartiallyChecked) {
-                if (!anan::AnanSettings::setRadioProfile(info.serial, model, desiredProtocol, overrideDetection)) {
-                    setManualMessage(tr("Could not save this radio's receive profile."), true);
-                    reportStartupProbeFailure(tr("Could not save this radio's receive profile."));
+            const bool originalChoice = modelChoice == -200 || (modelChoice == -100
+                && anan::AnanImplementation::isSaturn(info)
+                && anan::AnanImplementation::preferred(info.serial) == anan::AnanImplementation::originalId());
+            if (originalChoice) {
+                if (!anan::AnanImplementation::isSaturn(info)) {
+                    setManualMessage(tr("The original Saturn implementation requires Board 10 and Protocol 2."), true);
                     return AnanProbeResult::Answered;
                 }
-                m_manualAnanProfileCombo->setCurrentIndex(0);
-                m_manualAnanProtocolCombo->setCurrentIndex(0);
-                m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
+                info.implementation = anan::AnanImplementation::originalId();
+            } else {
+                const auto saved = anan::AnanSettings::radioProfile(info.serial);
+                const auto model = modelChoice == -100 ? saved.model : static_cast<anan::AnanModel>(modelChoice);
+                const int desiredProtocol = protocolChoice < 0 ? saved.protocol : protocolChoice;
+                const auto overrideState = m_manualAnanOverrideCheck->checkState();
+                const bool overrideDetection = overrideState == Qt::PartiallyChecked
+                    ? saved.overrideDetection : overrideState == Qt::Checked;
+                if (desiredProtocol > 0 && desiredProtocol != reply->wireProtocol) { continue; }
+                if ((!saved.valid && (modelChoice == -100 || protocolChoice < 0
+                                      || overrideState == Qt::PartiallyChecked))
+                    || !anan::receiveProfile(info.boardId, model, overrideDetection)) {
+                    const QString reason = overrideDetection
+                        ? tr("Board override requires an explicit supported receive profile. Check the saved model and protocol settings.")
+                        : tr("The selected or saved model does not match this radio's board. Enable Override detection only for a deliberate hardware override.");
+                    setManualMessage(reason, true);
+                    reportStartupProbeFailure(reason);
+                    return AnanProbeResult::Answered;
+                }
+                if (modelChoice != -100 || protocolChoice >= 0 || overrideState != Qt::PartiallyChecked) {
+                    if (!anan::AnanSettings::setRadioProfile(info.serial, model, desiredProtocol, overrideDetection)) {
+                        setManualMessage(tr("Could not save this radio's receive profile."), true);
+                        reportStartupProbeFailure(tr("Could not save this radio's receive profile."));
+                        return AnanProbeResult::Answered;
+                    }
+                    m_manualAnanProfileCombo->setCurrentIndex(0);
+                    m_manualAnanProtocolCombo->setCurrentIndex(0);
+                    m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
+                }
             }
+            if (anan::AnanImplementation::isSaturn(info)
+                && !anan::AnanImplementation::setPreferred(info.serial, info.implementation)) {
+                setManualMessage(tr("Could not save the selected Saturn implementation."), true);
+                return AnanProbeResult::Answered;
+            }
+            //DH1KLM: An explicit original choice must not follow the next, unrelated radio address.
+            m_manualAnanProfileCombo->setCurrentIndex(0);
+            m_manualAnanProtocolCombo->setCurrentIndex(0);
+            m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
             anan::AnanSettings::applyRadioProfileDisplay(info);
             info.nickname = anan::AnanDiscovery::effectiveNickname(info.family, info.serial,
                                                                     info.model);

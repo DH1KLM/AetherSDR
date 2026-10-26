@@ -134,7 +134,7 @@ private:
 } // namespace
 
 
-QWidget* RadioSetupDialog::buildAnanHardwareTab()
+QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
 {
     auto* page = new QWidget;
     auto* outer = new QVBoxLayout(page);

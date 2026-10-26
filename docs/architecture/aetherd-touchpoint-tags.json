@@ -1732,5 +1732,11 @@
   "note": "Explicit per-radio amplifier telemetry association; no radio or tuner commands.",
   "split": "",
   "confidence": "high"
+ },
+ "core/backends/anan/AnanImplementation.h": {
+  "tag": "ui-support",
+  "note": "Selection and configuration facade for independent Saturn implementations; no wire types are exposed.",
+  "split": "",
+  "confidence": "high"
  }
 }

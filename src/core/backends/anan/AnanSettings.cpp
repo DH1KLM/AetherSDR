@@ -1,4 +1,5 @@
 #include "core/backends/anan/AnanSettings.h"
+#include "AnanImplementation.h"
 #include "core/backends/anan/AnanCalibrationOptions.h"
 #include "core/backends/anan/P2Protocol.h"
 #include "core/RadioDiscovery.h"
@@ -335,6 +336,12 @@ void AnanSettings::applyRadioProfileDisplay(RadioInfo& radio)
 {
     if (radio.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) != 0)
         return;
+    if (AnanImplementation::isSaturn(radio) && !radio.implementation.isEmpty()) {
+        radio.effectiveModel = AnanImplementation::label(true);
+        radio.connectionProfile = QStringLiteral("Implementation: %1 • P2 • Original main c2a67af5")
+            .arg(AnanImplementation::label(true));
+        return;
+    }
     if (radio.boardId >= 0 && radio.boardId <= 255) {
         DiscoveryReply physical;
         physical.boardId = static_cast<std::uint8_t>(radio.boardId);
@@ -355,12 +362,16 @@ void AnanSettings::applyRadioProfileDisplay(RadioInfo& radio)
         .arg(profile, saved.valid && saved.overrideDetection ? QStringLiteral("ON") : QStringLiteral("OFF"));
     if (radio.hpsdrProtocol == 1 || radio.hpsdrProtocol == 2)
         radio.connectionProfile += QStringLiteral(" • P%1").arg(radio.hpsdrProtocol);
+    if (AnanImplementation::isSaturn(radio)) {
+        radio.effectiveModel = AnanImplementation::label(false);
+        radio.connectionProfile += QStringLiteral(" • DH1KLM");
+    }
 }
 
 bool AnanSettings::hasRadioProfileMapping(const RadioInfo& radio)
 {
     if (radio.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) != 0
-        || radio.serial.trimmed().isEmpty())
+        || radio.serial.trimmed().isEmpty() || !radio.implementation.isEmpty())
         return false;
     int version = 0;
     AppSettings::FeatureReadStatus status;
@@ -376,7 +387,7 @@ bool AnanSettings::hasRadioProfileMapping(const RadioInfo& radio)
 bool AnanSettings::forgetRadioProfileMapping(const RadioInfo& radio)
 {
     if (radio.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) != 0
-        || radio.serial.trimmed().isEmpty())
+        || radio.serial.trimmed().isEmpty() || !radio.implementation.isEmpty())
         return false;
     const RadioSettingsScope scope(QStringLiteral("anan"), radio.serial);
     int version = 0;
