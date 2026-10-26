@@ -501,12 +501,13 @@ This does not detect packets lost on the network or confirm the radio's rate.
 In **Connect by IP**, choose **Radio type → ANAN / OpenHPSDR (P1/P2)**, then:
 
 1. Set **Receive profile** to your exact model. The transceiver choices are
-   ordered as HERMES, HERMES-LITE 2, ANAN-10, ANAN-10E, ANAN-100, ANAN-100B,
+   ordered as HERMES, ANAN-10, ANAN-10E, ANAN-100, ANAN-100B,
    ANAN-100D, ANAN-200D, ANAN-7000DLE, ANAN-8000DLE, ANAN-G2E, ANAN-G2,
    ANVELINA-Pro III and RED-PITAYA. The original Saturn implementation follows
-   as a separate choice. Orion MkII and ANAN-G2 1K are omitted from this picker;
-   existing saved profiles and physical-board detection remain valid.
-   **OpenHPSDR / Atlas / Metis** retains its unavailable status until qualified.
+   as a separate choice. Orion MkII, ANAN-G2 1K, HERMES-LITE 2 and
+   OpenHPSDR / Atlas / Metis are omitted from this picker; existing saved
+   profiles and physical-board detection remain valid. For Hermes-Lite 2,
+   use its dedicated **Radio type**.
 2. Set **Protocol** to **Protocol 1**, **Protocol 2**, or **Automatic** to
    accept a responding protocol. This selects discovery; it does not change
    radio firmware.

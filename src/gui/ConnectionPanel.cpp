@@ -952,9 +952,9 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     //DH1KLM: Picker order and captions are independent of stable model IDs and board detection.
     const std::pair<anan::AnanModel, const char*> receiveProfiles[]{
         {anan::AnanModel::Automatic, "Automatic physical-board profile"},
-        {anan::AnanModel::Hpsdr, "OpenHPSDR / Atlas / Metis"},
+        //DH1KLM: {anan::AnanModel::Hpsdr, "OpenHPSDR / Atlas / Metis"}, omitted from this picker; board recognition remains.
         {anan::AnanModel::Hermes, "HERMES"},
-        {anan::AnanModel::HermesLite2, "HERMES-LITE 2"},
+        //DH1KLM: {anan::AnanModel::HermesLite2, "HERMES-LITE 2"}, use the dedicated radio type; board recognition remains.
         {anan::AnanModel::Anan10, "ANAN-10"},
         {anan::AnanModel::Anan10E, "ANAN-10E"},
         {anan::AnanModel::Anan100, "ANAN-100"},
