@@ -8,7 +8,7 @@
 #include <span>
 #include <vector>
 
-//DH1KLM: Independent, socket-free OpenHPSDR Protocol 1 receive codec.
+// Independent, socket-free OpenHPSDR Protocol 1 receive codec.
 // Wire facts and source revisions: docs/architecture/anan-p1-codec.md.
 // No MOX, transmit frequency, transmit IQ, drive or CW encoder is exposed.
 namespace AetherSDR::anan::p1 {
@@ -63,7 +63,7 @@ struct DiscoveryReply {
 };
 [[nodiscard]] std::optional<DiscoveryReply> parseDiscovery(
     std::span<const std::uint8_t> bytes) noexcept;
-//DH1KLM: P1 wire IDs differ from the common Thetis/P2 registry: 4=Angelia,
+// P1 wire IDs differ from the common Thetis/P2 registry: 4=Angelia,
 // 5=Orion, 10=Orion MkII. Unknown IDs must not inherit a P2 interpretation.
 [[nodiscard]] std::optional<int> normalizedBoardId(int wireBoardId) noexcept;
 

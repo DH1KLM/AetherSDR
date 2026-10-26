@@ -105,12 +105,12 @@ constexpr std::uint32_t phaseWord(double freqHz, std::uint32_t dspClockHz = kDsp
 std::array<std::uint8_t, 60> buildDiscovery() noexcept;
 
 struct DiscoveryReply {
-    //DH1KLM: Normalized identity can originate from either discovery format.
+    // Normalized identity can originate from either discovery format.
     int wireProtocol = 2;
     bool streaming = false;           // byte 4 == 0x03: hardware already has a session
     std::array<std::uint8_t, 6> mac{};// bytes 5-10, MSB first (p.43)
     std::uint8_t boardId = 0;         // byte 11; 10 = SATURN (ANAN-G2)
-    std::uint8_t protoVersionRaw = 0; //DH1KLM: Opaque byte 12, Thetis ProtocolSupported.
+    std::uint8_t protoVersionRaw = 0; // Opaque byte 12, Thetis ProtocolSupported.
                                        // Preserve raw values (e.g. 2 or 43); never gate discovery on a version range.
     std::uint8_t firmwareVer = 0;     // byte 13, an INTEGER gateware/build number, NOT
                                        // tenths despite the spec's worked example implying
@@ -124,7 +124,7 @@ struct DiscoveryReply {
     std::uint8_t p2appBuild = 0;      // byte 23. "Beta version" per spec; p2app overwrites
                                        // it with P2APPVERSION on Saturn
 
-    //DH1KLM: Discovery accepts the complete Thetis HPSDRHW board-ID set.
+    // Discovery accepts the complete Thetis HPSDRHW board-ID set.
     // The numeric values below come from Thetis enums.cs / ChannelMaster/network.h
     // and NereusSDR HpsdrModel.h. Model-specific operation still requires the
     // matching hardware profile; recognizing a board is not proof that its
@@ -148,7 +148,7 @@ struct DiscoveryReply {
         }
     }
 
-    //DH1KLM: Board ID 5 is shared by these Thetis model selections. Discovery
+    // Board ID 5 is shared by these Thetis model selections. Discovery
     // cannot distinguish the logical SKU, so present the documented family and
     // do not silently choose ANAN-7000DLE, ANAN-8000DLE, Anvelina, or Red Pitaya.
     [[nodiscard]] constexpr const char* boardDisplayName() const noexcept
@@ -169,11 +169,11 @@ struct DiscoveryReply {
     }
 };
 
-//DH1KLM: Normalize P1 wire board IDs into the existing Thetis/P2 registry.
+// Normalize P1 wire board IDs into the existing Thetis/P2 registry.
 [[nodiscard]] std::optional<DiscoveryReply> parseOpenHpsdrDiscoveryReply(
     std::span<const std::uint8_t> data) noexcept;
 
-//DH1KLM: The ANAN-7000DLE capture (2026-10-17) answers directed P2
+// The ANAN-7000DLE capture (2026-10-17) answers directed P2
 // discovery from UDP port 0. The caller must still match the requested IP;
 // accept this observed P2 endpoint only after validating the reply bytes.
 [[nodiscard]] inline std::optional<DiscoveryReply> parseDirectedDiscoveryReply(
@@ -186,13 +186,13 @@ struct DiscoveryReply {
     return reply;
 }
 
-//DH1KLM: Physical RX layout from Thetis console.cs UpdateDDCs/GetDDC and
+// Physical RX layout from Thetis console.cs UpdateDDCs/GetDDC and
 // clsHardwareSpecific.cs. Saturn keeps its bench-qualified DDC0 path;
 // Orion MkII (ANAN-7000DLE target) receives on DDC2 without diversity/PS.
-//DH1KLM: Legacy ALEX HPFs and MkII BPFs have different frequency tables.
+// Legacy ALEX HPFs and MkII BPFs have different frequency tables.
 enum class ReceiveFilterKind { MkIIBpf, LegacyHpf };
 
-//DH1KLM: TX-Specific carries microphone wiring at byte 50; CW and TX data remain disabled.
+// TX-Specific carries microphone wiring at byte 50; CW and TX data remain disabled.
 [[nodiscard]] std::array<std::uint8_t, 60> buildMicControl(const MicOptions& options, std::uint32_t sequence = 0) noexcept;
 
 struct ReceiveProfile {
@@ -210,36 +210,36 @@ struct ReceiveProfile {
 [[nodiscard]] constexpr std::optional<ReceiveProfile> receiveProfile(int boardId) noexcept
 {
     switch (boardId) {
-    case 1: //DH1KLM: Thetis Hermes/ANAN-10/100; normal RX1 is DDC0.
+    case 1: // Thetis Hermes/ANAN-10/100; normal RX1 is DDC0.
         return ReceiveProfile{1, 0, 3, true, false, ReceiveFilterKind::LegacyHpf, 4, true, true};
-    case 2: //DH1KLM: Hermes II has only two physical DDC slots.
+    case 2: // Hermes II has only two physical DDC slots.
         return ReceiveProfile{1, 0, 3, true, false, ReceiveFilterKind::LegacyHpf, 2, true, true};
-    case 3: //DH1KLM: Angelia/ANAN-100D uses legacy ALEX with RX1 on DDC2.
-    case 4: //DH1KLM: Orion/ANAN-200D has P2 ID 4, distinct from P1 ID 5.
+    case 3: // Angelia/ANAN-100D uses legacy ALEX with RX1 on DDC2.
+    case 4: // Orion/ANAN-200D has P2 ID 4, distinct from P1 ID 5.
         return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::LegacyHpf, 7, false, true};
     case 5:
         return ReceiveProfile{2, 2, 3, true, false, ReceiveFilterKind::MkIIBpf, 7, false, true};
     case 10:
         return ReceiveProfile{2, 0, 0, false, true, ReceiveFilterKind::MkIIBpf, 7};
-    case 20: //DH1KLM: ANAN-G2E/HermesC10 is single-ADC with MkII filtering.
+    case 20: // ANAN-G2E/HermesC10 is single-ADC with MkII filtering.
         return ReceiveProfile{1, 0, 3, true, false, ReceiveFilterKind::MkIIBpf, 4, false, true};
     default:
         return std::nullopt;
     }
 }
 
-//DH1KLM: A second ADC on legacy ALEX does not imply a MkII Alex-2 filter board.
+// A second ADC on legacy ALEX does not imply a MkII Alex-2 filter board.
 [[nodiscard]] constexpr bool hasAlex2Filters(const ReceiveProfile& profile) noexcept
 {
     return profile.numAdcs > 1 && profile.filterKind == ReceiveFilterKind::MkIIBpf;
 }
 
-//DH1KLM: Keep the physical wire layout separate from the operator's logical
+// Keep the physical wire layout separate from the operator's logical
 // model. Red Pitaya uses the Orion-class DDC/ADC layout even when it reports Hermes.
 [[nodiscard]] constexpr std::optional<ReceiveProfile> receiveProfile(
     int boardId, AnanModel model, bool overrideDetection = false) noexcept
 {
-    //DH1KLM: Zeus-style override changes the entire effective hardware profile.
+    // Zeus-style override changes the entire effective hardware profile.
     // It never grants support to unknown boards or to the dedicated HL2 backend.
     const auto* descriptor = ananModelInfo(model);
     if (!descriptor || !receiveProfile(boardId)
@@ -253,7 +253,7 @@ struct ReceiveProfile {
     return receiveProfile(model == AnanModel::Automatic ? boardId : descriptor->nativeBoardId);
 }
 
-//DH1KLM: Recognition alone never authorizes a session. The physical reply
+// Recognition alone never authorizes a session. The physical reply
 // must have a receive profile and match picker metadata when supplied.
 [[nodiscard]] constexpr bool discoveryMatchesVerifiedAnanProfile(
     std::uint8_t boardId, int expectedBoardId) noexcept
@@ -312,7 +312,7 @@ struct DdcConfig {
     int adcIndex = 0;
 };
 
-//DH1KLM: Enables physical DDC firstDdcIndex..firstDdcIndex+N-1,
+// Enables physical DDC firstDdcIndex..firstDdcIndex+N-1,
 // capped at kMaxDdcs (excess ignored),
 // setting byte-7 enable bits and one 6-byte row per DDC at 17 + 6*n (ADC select,
 // 2-byte rate, CIC1/CIC2 = 0 "for future use", sample size). An EMPTY span
@@ -347,7 +347,7 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0Fre
                                                   int rxAntenna = 1) noexcept;
 
 // Multi-DDC form: one 4-byte frequency/phase word per DDC at 9 + 4*n (p.32),
-//DH1KLM: firstDdcIndex offsets physical tuning rows. selectReceiveLpf
+// firstDdcIndex offsets physical tuning rows. selectReceiveLpf
 // enables Thetis LPF selection for Orion MkII only. Still RX-only (byte 4 bit[0]
 // run only). LPF-enabled profiles also mirror the antenna/LPF relay word into
 // Alex1 bytes 1428-1429, independently of its ADC1 receive-filter low word.

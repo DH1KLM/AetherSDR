@@ -746,9 +746,9 @@ static void populateFamilyParams(RadioConnectRequest& req, const QString& family
                           anan::AnanSettings::bypassAdc1Filters());
         req.params.insert(QStringLiteral("anan.speakerAudioEnabled"),
                           anan::AnanSettings::speakerAudioEnabled());
-        //DH1KLM Live once connected (the "anan"/"frontend.set" verb), and seeded here
-        //DH1KLM so the session's first High Priority packet already carries them: a
-        //DH1KLM muted speaker amplifier would otherwise speak for one keepalive.
+        // Live once connected (the "anan"/"frontend.set" verb), and seeded here
+        // so the session's first High Priority packet already carries them: a
+        // muted speaker amplifier would otherwise speak for one keepalive.
         req.params.insert(QStringLiteral("anan.speakerAmpMuted"),
                           anan::AnanSettings::speakerAmpMuted());
         return;
@@ -1084,7 +1084,7 @@ void RadioModel::setupBackend(const QString& family)
             [this](const QString& panId, int step) {
         if (auto* pan = resolveBackendPan(panId)) pan->setAttenuatorStep(step);
     });
-    //DH1KLM The radio's scope mode: same pass-through shape as the stages above.
+    // The radio's scope mode: same pass-through shape as the stages above.
     connect(m_backend.get(), &IRadioBackend::panScopeModesChanged, this,
             [this](const QString& panId, const QStringList& labels) {
         if (auto* pan = resolveBackendPan(panId)) {
@@ -2085,7 +2085,7 @@ RadioModel::RadioModel(QObject* parent)
                             TxCoordinator::StopReason reason) { stopTxOperation(operation, reason); })
 {
     m_desktopTxActor = m_txCoordinator.registerActor({true, 0});
-    //DH1KLM FlexLib APD.cs matches against the transmit slice, else the active one.
+    // FlexLib APD.cs matches against the transmit slice, else the active one.
     m_transmitModel.setApdTxSliceResolver([this]() -> std::optional<TransmitModel::ApdTxSlice> {
         SliceModel* slice = txSlice();
         for (int i = 0; !slice && i < m_slices.size(); ++i) {
@@ -2742,7 +2742,7 @@ RadioModel::RadioModel(QObject* parent)
                 // then fails every automatic retry.
                 populateFamilyParams(req, m_family, m_lastInfo.sessionBindAddress);
                 anan::AnanImplementation::populateParams(req, m_lastInfo.implementation);
-                //DH1KLM: Preserve the normalized board and actual wire protocol on reconnect.
+                // Preserve the normalized board and actual wire protocol on reconnect.
                 if (m_family == QLatin1String("anan")) {
                     if (m_lastInfo.boardId >= 0)
                         req.params.insert(QStringLiteral("anan.boardId"), m_lastInfo.boardId);
@@ -3784,7 +3784,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         m_backend->disconnectRadio();
     }
     if (wantFamily != m_family || info.implementation != m_backendImplementation || !m_backend) {
-        //DH1KLM: Flush under the old implementation scope before replacing its backend.
+        // Flush under the old implementation scope before replacing its backend.
         flushPendingOperatingState();
         qCInfo(lcProtocol) << "RadioModel: switching backend family" << m_family
                            << "->" << wantFamily << "for" << info.address.toString();
@@ -3897,7 +3897,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         req.serialIdentity = info.serialIdentity;
         populateFamilyParams(req, info.family, info.sessionBindAddress);
         anan::AnanImplementation::populateParams(req, info.implementation);
-        //DH1KLM: Carry the discovery protocol's numeric board ID into the backend;
+        // Carry the discovery protocol's numeric board ID into the backend;
         //never reconstruct a hardware profile from the display model string.
         if (info.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) == 0) {
             if (info.boardId >= 0)
@@ -4205,7 +4205,7 @@ bool RadioModel::wakeIcomRadio(int modelId, int address, QString* error)
         request.serial = selectedRadio.serial;
         populateFamilyParams(request, m_family, selectedRadio.sessionBindAddress);
         anan::AnanImplementation::populateParams(request, selectedRadio.implementation);
-        //DH1KLM: Keep ANAN's discovery identity intact if this reconnect path is reused.
+        // Keep ANAN's discovery identity intact if this reconnect path is reused.
         if (m_family == QLatin1String("anan")) {
             if (selectedRadio.boardId >= 0)
                 request.params.insert(QStringLiteral("anan.boardId"), selectedRadio.boardId);
@@ -6018,8 +6018,8 @@ bool RadioModel::resyncDisplayInventory()
     const auto control = backendCapabilities().panLifecycleControl;
     if (!m_backend || !controlSessionCurrent(session) || !control
         || !control->supports(PanLifecycleAction::RefreshInventory)) { return false; }
-    //DH1KLM A subscription replay confirms observations; it is not a complete snapshot.
-    //DH1KLM Keep the current inventory until authoritative removal status retires it.
+    // A subscription replay confirms observations; it is not a complete snapshot.
+    // Keep the current inventory until authoritative removal status retires it.
     return m_backend->requestPanLifecycle({PanLifecycleAction::RefreshInventory, {}, {}})
         == ReceiveDispatch::Dispatched;
 }
@@ -6613,8 +6613,8 @@ void RadioModel::flushPendingProfileLoadPanWrites()
     const QPointer<RadioModel> alive(this);
     const RadioControlSession session = controlSession();
     QHash<QString, Target> targets;
-    //DH1KLM Snapshot the whole detached batch before any command can reenter and
-    //DH1KLM replace a later target or supersede its queued operator intent.
+    // Snapshot the whole detached batch before any command can reenter and
+    // replace a later target or supersede its queued operator intent.
     for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         if (PanadapterModel* pan = panadapter(it.key())) {
             targets.insert(it.key(), {pan, pan->ownershipRevision(),
@@ -6709,13 +6709,13 @@ void RadioModel::setBinauralRx(bool on)
 
 void RadioModel::setPanWnb(bool on)
 {
-    //DH1KLM Stored-state replay has no individual control action behind it.
+    // Stored-state replay has no individual control action behind it.
     requestPanDisplay(activePanadapter(), {PanDisplayField::Wnb, on}, {}, false);
 }
 
 void RadioModel::setPanWnbLevel(int level)
 {
-    //DH1KLM Stored-state replay has no individual control action behind it.
+    // Stored-state replay has no individual control action behind it.
     requestPanDisplay(activePanadapter(), {PanDisplayField::WnbLevel, level}, {}, false);
 }
 
@@ -9712,7 +9712,7 @@ void RadioModel::handleMessageReceived(const ParsedMessage& msg, quint64 gpsSess
         return;
     }
     if (body.startsWith("profile cw ")) {
-        handleProfileStatusRaw("cw", body.mid(11));  //DH1KLM skip "profile cw "
+        handleProfileStatusRaw("cw", body.mid(11));  // skip "profile cw "
         return;
     }
 
@@ -9850,8 +9850,8 @@ void RadioModel::refreshCwProfilesOnCapabilityChange()
 
 void RadioModel::refreshCwProfilesIfSupported()
 {
-    //DH1KLM A connect-by-IP learns the firmware version after the connect-time
-    //DH1KLM refresh, so the CW capability can engage later in the session (#6668).
+    // A connect-by-IP learns the firmware version after the connect-time
+    // refresh, so the CW capability can engage later in the session (#6668).
     if (backendCapabilities().cwProfileControl.has_value()
         && requestProfile({ProfileRequest::Kind::Cw, ProfileRequest::Action::Refresh, {}})
             == ReceiveDispatch::Dispatched) {
@@ -9890,8 +9890,8 @@ void RadioModel::requestLocalPtt()
 
 void RadioModel::createRxAudioStream()
 {
-    //DH1KLM A pre-connect PC Audio toggle must not leave a request pending when no
-    //DH1KLM registered GUI session can send it. The connect handshake retries it.
+    // A pre-connect PC Audio toggle must not leave a request pending when no
+    // registered GUI session can send it. The connect handshake retries it.
     if (!hasCommandPlane() || !isConnected()
         || m_guiClientRegistrationState.phase() != GuiClientRegistrationState::Phase::Registered) {
         logRemoteAudioRxSummary(hasCommandPlane()
@@ -13102,7 +13102,7 @@ void RadioModel::ensureDefaultSlicePreferringRestoredPan()
     }
 }
 
-//DH1KLM Standalone mode: wait for this session's created pan before adding its slice.
+// Standalone mode: wait for this session's created pan before adding its slice.
 void RadioModel::createDefaultSlice(const QString& freqMhz,
     const QString& mode, const QString& antenna)
 {

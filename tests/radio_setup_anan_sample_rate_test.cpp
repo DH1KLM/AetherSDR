@@ -55,7 +55,7 @@ public:
     static void measurement(AnanBackend& backend, int binOffset, bool alterContext = false)
     {
         if (!backend.m_receiveCalibrationRun) { return; }
-        //DH1KLM Inject recorded raw meter power and FFT frames; no peer or radio traffic.
+        // Inject recorded raw meter power and FFT frames; no peer or radio traffic.
         backend.m_receiveCalibrationRun->meterPower = 10*std::pow(10.0,-90.0/10.0);
         backend.m_receiveCalibrationRun->meterSamples = 10;
         std::vector<float> bins(1024,-120);
@@ -167,7 +167,7 @@ int main(int argc, char** argv)
         const auto swlReply = replies.last().at(1).toMap();
         check(swlReply.value(QStringLiteral("ocSwl")).toList().value(4).toMap()
             .value(QStringLiteral("mask")).toInt() == 64, "SWL pin edit reaches backend through hw.set");
-        //DH1KLM Independent manual pins combine without changing the HF/SWL master.
+        // Independent manual pins combine without changing the HF/SWL master.
         auto* digital1 = dialog.findChild<QCheckBox*>(QStringLiteral("ananUserDigitalPin1"));
         auto* digital4 = dialog.findChild<QCheckBox*>(QStringLiteral("ananUserDigitalPin4"));
         check(digital1 && digital4 && digital1->isEnabled() && digital4->isEnabled(),
@@ -199,7 +199,7 @@ int main(int argc, char** argv)
             timer.start();
             while (timer.elapsed() < 50) { QCoreApplication::processEvents(); QThread::msleep(1); }
         };
-        //DH1KLM Both protocols expose the same fenced RX calibration path and persisted factor.
+        // Both protocols expose the same fenced RX calibration path and persisted factor.
         anan::AnanLinkStatsTestAccess::calibrationMode(*backend);
         auto* freqReference = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("ananFrequencyCalReference"));
         auto* freqStart = dialog.findChild<QPushButton*>(QStringLiteral("ananFrequencyCalStart"));

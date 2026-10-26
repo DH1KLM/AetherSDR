@@ -121,7 +121,7 @@ int main(int argc, char** argv)
             bool fresh = false;
             std::optional<double> rawFloor;
             const std::vector<std::complex<float>> highBlock(iq.begin(), iq.begin() + 1024);
-            //DH1KLM: Worker FFTs from the previous feed may still publish after the level change.
+            // Worker FFTs from the previous feed may still publish after the level change.
             while (!fresh && wait.elapsed() < 5000) {
                 if (analyzer->takeNoiseFrame(noise)) {
                     rawFloor = AnanAutoAgc::referenceFloor(noise);

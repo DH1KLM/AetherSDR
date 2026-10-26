@@ -1977,10 +1977,10 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     // this QRhiWidget whenever a 60 Hz data/preview frame is presented.
     setAttribute(Qt::WA_OpaquePaintEvent);
     setAccessibleName(tr("Panadapter spectrum display"));
-    //DH1KLM Touch pinch-to-zoom on the pan, delivered as QEvent::Gesture and handled
-    //DH1KLM in event() alongside the macOS trackpad ZoomNativeGesture. Both funnel
-    //DH1KLM through applyAnchoredZoom() so a two-finger pinch on the Maestro panel
-    //DH1KLM zooms the spectrum exactly as a trackpad pinch does on a laptop.
+    // Touch pinch-to-zoom on the pan, delivered as QEvent::Gesture and handled
+    // in event() alongside the macOS trackpad ZoomNativeGesture. Both funnel
+    // through applyAnchoredZoom() so a two-finger pinch on the Maestro panel
+    // zooms the spectrum exactly as a trackpad pinch does on a laptop.
     grabGesture(Qt::PinchGesture);
 #ifdef AETHER_GPU_SPECTRUM
     m_rhiFailureForcedForAutomation = rhiFailureForcedForAutomation();
@@ -11561,8 +11561,8 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
                 }
             }
         }
-        //DH1KLM Fall back to the segment's usage note, when the plan carries one.
-        //DH1KLM Segments without `usage` keep the previous behaviour (no tooltip). (#4667)
+        // Fall back to the segment's usage note, when the plan carries one.
+        // Segments without `usage` keep the previous behaviour (no tooltip). (#4667)
         if (m_bandPlanFontSize > 0 && m_bandPlanMgr) {
             const double cursorMhz = xToMhz(mx2);
             for (const auto& seg : m_bandPlanMgr->segments()) {
@@ -12011,24 +12011,24 @@ bool SpectrumWidget::event(QEvent* ev)
             // value < 0 = pinch in  (zoom out = wider BW)
             const double delta = ge->value();
             if (qFuzzyIsNull(delta)) { return true; }
-            //DH1KLM invert: pinch-out (delta > 0) narrows the bandwidth.
+            // invert: pinch-out (delta > 0) narrows the bandwidth.
             return applyAnchoredZoom(1.0 / (1.0 + delta), ge->globalPosition());
         }
     } else if (ev->type() == QEvent::Gesture) {
-        //DH1KLM Touch pinch (grabGesture(Qt::PinchGesture) in the ctor). Delivered on
-        //DH1KLM the Maestro panel and any Qt touchscreen; it funnels through the same
-        //DH1KLM anchored zoom as the macOS trackpad ZoomNativeGesture above.
+        // Touch pinch (grabGesture(Qt::PinchGesture) in the ctor). Delivered on
+        // the Maestro panel and any Qt touchscreen; it funnels through the same
+        // anchored zoom as the macOS trackpad ZoomNativeGesture above.
         auto* gestureEvent = static_cast<QGestureEvent*>(ev);
         if (auto* pinch = static_cast<QPinchGesture*>(
                 gestureEvent->gesture(Qt::PinchGesture))) {
-            //DH1KLM scaleFactor() is the incremental scale since the previous update:
-            //DH1KLM > 1 = fingers apart = zoom in = narrower BW, so the bandwidth
-            //DH1KLM multiplier is its reciprocal. centerPoint() is in global/screen
-            //DH1KLM coordinates, matching frequencyCanvasFractionAtGlobal().
-            //DH1KLM Only act on Started/Updated with a real scale change: Qt's
-            //DH1KLM recognizer re-delivers the last incremental scaleFactor() on the
-            //DH1KLM terminal GestureFinished/Canceled event, which would otherwise
-            //DH1KLM apply the final pinch step a second time on finger-lift.
+            // scaleFactor() is the incremental scale since the previous update:
+            // > 1 = fingers apart = zoom in = narrower BW, so the bandwidth
+            // multiplier is its reciprocal. centerPoint() is in global/screen
+            // coordinates, matching frequencyCanvasFractionAtGlobal().
+            // Only act on Started/Updated with a real scale change: Qt's
+            // recognizer re-delivers the last incremental scaleFactor() on the
+            // terminal GestureFinished/Canceled event, which would otherwise
+            // apply the final pinch step a second time on finger-lift.
             const qreal scale = pinch->scaleFactor();
             if ((pinch->state() == Qt::GestureStarted
                  || pinch->state() == Qt::GestureUpdated)
@@ -12047,16 +12047,16 @@ bool SpectrumWidget::event(QEvent* ev)
 bool SpectrumWidget::applyAnchoredZoom(double bandwidthFactor,
                                        const QPointF& globalPosition)
 {
-    //DH1KLM No-op (and NaN/non-positive) factors are consumed but change nothing.
+    // No-op (and NaN/non-positive) factors are consumed but change nothing.
     if (!(bandwidthFactor > 0.0) || qFuzzyCompare(bandwidthFactor, 1.0)) {
         return true;
     }
     const double newBw = m_bandwidthMhz * bandwidthFactor;
-    if (newBw < m_minBwMhz || newBw > m_maxBwMhz) { return true; }  //DH1KLM at limit
-    //DH1KLM Anchor: keep the frequency under the cursor/pinch-center at the same pixel.
+    if (newBw < m_minBwMhz || newBw > m_maxBwMhz) { return true; }  // at limit
+    // Anchor: keep the frequency under the cursor/pinch-center at the same pixel.
     const double mouseXFrac = frequencyCanvasFractionAtGlobal(globalPosition);
-    //DH1KLM Effective (cropped) bandwidth for the anchor -- see the matching comment
-    //DH1KLM at the bandwidth-drag-start anchor. newBw itself stays on the raw bandwidth.
+    // Effective (cropped) bandwidth for the anchor -- see the matching comment
+    // at the bandwidth-drag-start anchor. newBw itself stays on the raw bandwidth.
     const double anchorMhz = frequencyAtFraction(
         FrequencyFrame{m_centerMhz, effectiveBandwidthMhz()}, mouseXFrac);
     const double newCenter = std::max(

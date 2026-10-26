@@ -47,7 +47,7 @@ void TransmitModel::resetState()
     m_apdEnabled = false;
     m_apdConfigurable = false;
     m_apdEqActive = false;
-    //DH1KLM The next radio may not report a lifecycle at all.
+    // The next radio may not report a lifecycle at all.
     m_apdLifecycle.reset();
     m_apdSamplers.clear();
     m_rfPower = 100;
@@ -287,11 +287,11 @@ void TransmitModel::applyChanges(const TransmitDelta& d)
             m_apdLifecycle = d.apdLifecycle;
             apdChanged = true;
         }
-        //DH1KLM FlexLib APD.cs: an equalizer status describes one TX antenna,
-        //DH1KLM frequency and power, and applies only to a matching transmit slice.
-        //DH1KLM Once the radio reports a lifecycle, equalizer_active is no longer
-        //DH1KLM trusted (any deployed table sets it): a correction is on air only in
-        //DH1KLM ACTIVE or HOLD. A status with no scope is older firmware's global form.
+        // FlexLib APD.cs: an equalizer status describes one TX antenna,
+        // frequency and power, and applies only to a matching transmit slice.
+        // Once the radio reports a lifecycle, equalizer_active is no longer
+        // trusted (any deployed table sets it): a correction is on air only in
+        // ACTIVE or HOLD. A status with no scope is older firmware's global form.
         const bool scoped = d.apdEqAntenna || d.apdEqFrequencyMhz;
         std::optional<bool> eqActive = d.apdEqActive;
         if (m_apdLifecycle) {
@@ -344,12 +344,12 @@ bool TransmitModel::apdStatusMatchesTxSlice(const TransmitDelta& d) const
         || d.apdEqAntenna->compare(slice->txAntenna, Qt::CaseInsensitive) != 0) {
         return false;
     }
-    //DH1KLM The radio reports the frequency to the Hz; the slice may carry sub-Hz.
+    // The radio reports the frequency to the Hz; the slice may carry sub-Hz.
     if (std::llround(*d.apdEqFrequencyMhz * 1e6) != std::llround(slice->frequencyMhz * 1e6)) {
         return false;
     }
-    //DH1KLM Tune power while tuning (SMART-12625). Firmware that omits rfpower is
-    //DH1KLM matched on antenna and frequency alone.
+    // Tune power while tuning (SMART-12625). Firmware that omits rfpower is
+    // matched on antenna and frequency alone.
     return !d.apdEqRfPower || *d.apdEqRfPower == (m_tune ? m_tunePower : m_rfPower);
 }
 

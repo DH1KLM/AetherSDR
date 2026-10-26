@@ -147,9 +147,9 @@ int main(int argc, char** argv)
         CHECK(d.apdEqualizerReset.has_value());   // engaged by presence, value irrelevant
     }
 
-    //DH1KLM ---- APD lifecycle + scope, as a FLEX-8600 on 4.3.16.42034 sends them ----
+    // ---- APD lifecycle + scope, as a FLEX-8600 on 4.3.16.42034 sends them ----
     {
-        //DH1KLM apd ant=ANT1 freq=14.268000 rfpower=100 state=IDLE deployed=0
+        // apd ant=ANT1 freq=14.268000 rfpower=100 state=IDLE deployed=0
         const TransmitDelta d = decode(b, [](FlexBackend& fb){
             fb.decodeApdStatus({{QStringLiteral("ant"), QStringLiteral("ANT1")},
                                 {QStringLiteral("freq"), QStringLiteral("14.268000")},
@@ -164,8 +164,8 @@ int main(int argc, char** argv)
         CHECK(!d.apdEqActive);
     }
     {
-        //DH1KLM apd slice=0 mmx=0 client_handle=0x1D6D44F8 ant=ANT1 freq=14.268000
-        //DH1KLM     rfpower=100 rx_error_mHz=2.105713 equalizer_active=0 configurable=1
+        // apd slice=0 mmx=0 client_handle=0x1D6D44F8 ant=ANT1 freq=14.268000
+        //     rfpower=100 rx_error_mHz=2.105713 equalizer_active=0 configurable=1
         const TransmitDelta d = decode(b, [](FlexBackend& fb){
             fb.decodeApdStatus({{QStringLiteral("slice"), QStringLiteral("0")},
                                 {QStringLiteral("mmx"), QStringLiteral("0")},
@@ -183,7 +183,7 @@ int main(int argc, char** argv)
         CHECK(!d.apdLifecycle);
     }
     {
-        //DH1KLM Every lifecycle token, case-insensitively; anything else stays unset.
+        // Every lifecycle token, case-insensitively; anything else stays unset.
         const QList<QPair<QString, ApdLifecycleState>> tokens{
             {QStringLiteral("off"), ApdLifecycleState::Off},
             {QStringLiteral("IDLE"), ApdLifecycleState::Idle},
@@ -206,7 +206,7 @@ int main(int argc, char** argv)
         }
     }
     {
-        //DH1KLM Pre-scope global form and a malformed frequency carry no scope.
+        // Pre-scope global form and a malformed frequency carry no scope.
         const TransmitDelta d = decode(b, [](FlexBackend& fb){
             fb.decodeApdStatus({{QStringLiteral("equalizer_active"), QStringLiteral("1")},
                                 {QStringLiteral("freq"), QStringLiteral("abc")},

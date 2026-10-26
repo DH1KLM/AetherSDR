@@ -1,4 +1,4 @@
-//DH1KLM Socket-free coverage of the source selection used by LAN start and rebind.
+// Socket-free coverage of the source selection used by LAN start and rebind.
 #include "core/backends/flex/LanBindAddress.h"
 
 #include <QHostAddress>

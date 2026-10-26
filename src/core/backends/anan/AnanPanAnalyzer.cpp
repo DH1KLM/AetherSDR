@@ -142,7 +142,7 @@ void AnanPanAnalyzer::applySettings()
         // first call after create().
         auto lock = WdspChannel::fftwSetupLock();
         SetAnalyzer(m_disp,
-                    2,                  //DH1KLM: display plus independent noise-floor output
+                    2,                  // display plus independent noise-floor output
                     1,                  // one FFT (no spur elimination)
                     1,                  // complex input
                     &highSideLo,

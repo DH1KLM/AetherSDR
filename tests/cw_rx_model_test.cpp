@@ -97,7 +97,7 @@ bool establishEstimates(CwRxModel& decoder, PcmProducer& producer)
 bool retainLockedEstimates()
 {
     CwRxModel decoder;
-    PcmProducer producer;  //DH1KLM the lease must stay current while locking
+    PcmProducer producer;  // the lease must stay current while locking
     if (!establishEstimates(decoder, producer)) { return false; }
     decoder.lockPitch(true);
     decoder.lockSpeed(true);
@@ -133,13 +133,13 @@ bool sameRange(CwDecodeSettings::Range got, int low, int high)
     return got.low == low && got.high == high;
 }
 
-//DH1KLM A saved decoder range reaches the slider and the decoder only as an ordered
-//DH1KLM band inside the slider span; anything else falls back to the default.
+// A saved decoder range reaches the slider and the decoder only as an ordered
+// band inside the slider span; anything else falls back to the default.
 bool savedRangesStayInsideTheSliders()
 {
     auto& s = AppSettings::instance();
     auto store = [&](const char* json) { s.setValue("CwDecoder", QString::fromLatin1(json)); };
-    //DH1KLM CONSTRUCTED blobs: they exercise the read-side validation only.
+    // CONSTRUCTED blobs: they exercise the read-side validation only.
     store(R"({"rx":"True","tx":"False"})");
     if (!require(sameRange(CwDecodeSettings::pitchRange(), 500, 700)
                  && sameRange(CwDecodeSettings::speedRange(), 15, 40),
@@ -167,13 +167,13 @@ bool savedRangesStayInsideTheSliders()
 
 bool unlockAfterStopClearsReadout()
 {
-    //DH1KLM The CW panel shows the last statsUpdated. A stopped decoder keeps its
-    //DH1KLM locked values on screen; unlocking them must publish the cleared
-    //DH1KLM estimate, or a dead reading stays up (#5745).
-    float shownPitch = -1;  //DH1KLM declared before the decoder so they outlive it
+    // The CW panel shows the last statsUpdated. A stopped decoder keeps its
+    // locked values on screen; unlocking them must publish the cleared
+    // estimate, or a dead reading stays up (#5745).
+    float shownPitch = -1;  // declared before the decoder so they outlive it
     float shownSpeed = -1;
     CwRxModel decoder;
-    PcmProducer producer;  //DH1KLM the lease must stay current while locking
+    PcmProducer producer;  // the lease must stay current while locking
     if (!establishEstimates(decoder, producer)) { return false; }
     decoder.lockPitch(true);
     decoder.lockSpeed(true);

@@ -76,8 +76,8 @@ public:
     QString stagedFilePath() const { return m_stagedPath; }
     QString stagedVersion()  const { return m_stagedVersion; }
     bool    isStaged()       const { return !m_stagedPath.isEmpty(); }
-    //DH1KLM True only when the staged installer's MD5 matched FlexRadio's
-    //DH1KLM published hash; false when no hash was available or for a local file.
+    // True only when the staged installer's MD5 matched FlexRadio's
+    // published hash; false when no hash was available or for a local file.
     bool    stagedVerified() const { return m_stagedVerified; }
 
     // Map the FlexLib hardware platform to its installer payload name.

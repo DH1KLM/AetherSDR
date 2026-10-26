@@ -67,14 +67,14 @@ std::optional<Control> receiveControl(std::uint8_t address,
     switch (address) {
     case 0x26:
         if (!c.anvelinaExtraOc) { return std::nullopt; }
-        break; //DH1KLM: Anvelina-only extra OC bank remains all-zero in RX.
+        break; // Anvelina-only extra OC bank remains all-zero in RX.
     case 0x00:
         bytes[1] = c.rateKsps == 48 ? 0 : c.rateKsps == 96 ? 1
             : c.rateKsps == 192 ? 2 : 3;
         bytes[2] = static_cast<std::uint8_t>(c.rxOcMask << 1);
         bytes[3] = static_cast<std::uint8_t>(c.alexAttenuationDb / 10);
         bytes[3] |= (c.dither ? 0x08 : 0) | (c.random ? 0x10 : 0);
-        //DH1KLM: Thetis bank-0 C3[6:5] input, C3[7] RX_OUT, or C3[0]
+        // Thetis bank-0 C3[6:5] input, C3[7] RX_OUT, or C3[0]
         // MkII RX master selection. These relays never set MOX.
         bytes[3] |= static_cast<std::uint8_t>(c.rxOnlyInput << 5);
         if (c.rxOnlyInput != 0) {
@@ -84,15 +84,15 @@ std::optional<Control> receiveControl(std::uint8_t address,
             | ((c.receivers - 1) << 3));
         break;
     case 0x12:
-        //DH1KLM: Manual receive filters, zero drive, and Disable HF PA.
+        // Manual receive filters, zero drive, and Disable HF PA.
         bytes[2] = 0x40;
         bytes[3] = c.receiveFilterBits | 0x80;
         bytes[4] = c.lowPassBits;
         break;
     case 0x14:
-        //DH1KLM: Thetis bank 10 C1[4:6]: ring, bias and inverted microphone-PTT permission.
+        // Thetis bank 10 C1[4:6]: ring, bias and inverted microphone-PTT permission.
         bytes[1] = (c.mic.ring ? 0x10 : 0) | (c.mic.bias ? 0x20 : 0) | (c.mic.ptt ? 0 : 0x40);
-        //DH1KLM Thetis bank 11 C3 carries only the four independent user outputs.
+        // Thetis bank 11 C3 carries only the four independent user outputs.
         bytes[3] = c.userDigitalOutputs;
         bytes[4] = static_cast<std::uint8_t>(0x20 | c.adc0AttenuationDb);
         break;

@@ -1154,13 +1154,13 @@ ScopeEdgeWindow clampScopeEdgeWindow(const ScopeEdgeRange& range, double centreH
     const double maxWidth = std::min(static_cast<double>(kScopeFixedEdgeMaxWidthHz), rangeWidth);
     double width = std::isfinite(widthHz) ? widthHz : maxWidth;
     width = std::clamp(width, static_cast<double>(kScopeFixedEdgeMinWidthHz), maxWidth);
-    //DH1KLM Whole kHz, so the window we remember is the window the radio will echo.
+    // Whole kHz, so the window we remember is the window the radio will echo.
     width = std::max(1000.0, std::round(width / 1000.0) * 1000.0);
 
     double centre = std::isfinite(centreHz) ? centreHz
                                             : (range.lowerHz + range.upperHz) / 2.0;
     double lower = std::round((centre - width / 2.0) / 1000.0) * 1000.0;
-    //DH1KLM SHIFT into the range; the width was already made to fit.
+    // SHIFT into the range; the width was already made to fit.
     lower = std::clamp(lower, static_cast<double>(range.lowerHz),
                        static_cast<double>(range.upperHz) - width);
     ScopeEdgeWindow w;

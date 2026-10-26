@@ -47,7 +47,7 @@ bool asFloat(const QJsonValue& v, float& out)
         return false;
     }
     const double d = v.toDouble();
-    //DH1KLM A float that overflows to infinity would drive a gauge to nonsense.
+    // A float that overflows to infinity would drive a gauge to nonsense.
     if (!std::isfinite(d) || std::fabs(d) > 1.0e9) {
         return false;
     }
@@ -60,8 +60,8 @@ QString stringOr(const QJsonValue& v, const QString& fallback = QString())
     return v.isString() ? v.toString() : fallback;
 }
 
-//DH1KLM {"value": <int>, "unit": "..."}. The value is required; the unit is
-//DH1KLM descriptive and defaults to empty.
+// {"value": <int>, "unit": "..."}. The value is required; the unit is
+// descriptive and defaults to empty.
 std::optional<IntValue> parseIntValue(const QJsonValue& v)
 {
     if (!v.isObject()) {
@@ -90,8 +90,8 @@ std::optional<FloatValue> parseFloatValue(const QJsonValue& v)
     return out;
 }
 
-//DH1KLM max_value is the device's reported limit (not a meter range); absent or
-//DH1KLM unusable means 0, "not reported". The applet uses fixed scales and ignores it.
+// max_value is the device's reported limit (not a meter range); absent or
+// unusable means 0, "not reported". The applet uses fixed scales and ignores it.
 std::optional<IntWithMax> parseIntWithMax(const QJsonValue& v)
 {
     if (!v.isObject()) {
@@ -133,9 +133,9 @@ std::optional<Antenna> antennaFromObject(const QJsonObject& o)
     const QString type = o.value(QLatin1String("type")).toString();
     Antenna antenna;
     if (type == QLatin1String("EXTERNAL")) {
-        //DH1KLM One external selection. Any number on the entry is the external
-        //DH1KLM switch's port (readOnly in the API document), not part of what is
-        //DH1KLM selected; parseAntennas() keeps it separately.
+        // One external selection. Any number on the entry is the external
+        // switch's port (readOnly in the API document), not part of what is
+        // selected; parseAntennas() keeps it separately.
         antenna.type = AntennaType::External;
         antenna.number = kExternalAntennaNumber;
         return antenna;
@@ -160,8 +160,8 @@ bool antennaInRange(const Antenna& a)
 
 TunerMode tunerModeFromValue(const QJsonValue& v)
 {
-    //DH1KLM The API document's enum lists the literal `false` beside the names (a
-    //DH1KLM generator artifact for a YAML "off"); accept it as a boolean or a string.
+    // The API document's enum lists the literal `false` beside the names (a
+    // generator artifact for a YAML "off"); accept it as a boolean or a string.
     if (v.isBool()) {
         return v.toBool() ? TunerMode::Unknown : TunerMode::Off;
     }
@@ -183,9 +183,9 @@ TunerSetup tunerSetupFromString(const QString& s)
     return TunerSetup::Unknown;
 }
 
-}  //DH1KLM namespace
+}  // namespace
 
-//DH1KLM ── Parsers ──────────────────────────────────────────────────────────────
+// ── Parsers ──────────────────────────────────────────────────────────────
 
 std::optional<Info> parseInfo(const QByteArray& body)
 {
@@ -326,8 +326,8 @@ std::optional<QVector<AntennaWithState>> parseAntennas(const QByteArray& body)
     if (error.error != QJsonParseError::NoError) {
         return std::nullopt;
     }
-    //DH1KLM The document describes a bare array, but a real RF2K-S (firmware G200C267)
-    //DH1KLM answers {"antennas":[...]}. Accept both: the list is the same either way.
+    // The document describes a bare array, but a real RF2K-S (firmware G200C267)
+    // answers {"antennas":[...]}. Accept both: the list is the same either way.
     QJsonArray entries;
     if (doc.isArray()) {
         entries = doc.array();
@@ -382,7 +382,7 @@ std::optional<ApiError> parseApiError(const QByteArray& body)
     return error;
 }
 
-//DH1KLM ── Request bodies ───────────────────────────────────────────────────────
+// ── Request bodies ───────────────────────────────────────────────────────
 
 QByteArray buildOperateModeBody(OperateMode mode)
 {
@@ -407,12 +407,12 @@ QByteArray buildAntennaBody(const Antenna& antenna)
     return QJsonDocument(o).toJson(QJsonDocument::Compact);
 }
 
-//DH1KLM ── Presentation helpers ─────────────────────────────────────────────────
+// ── Presentation helpers ─────────────────────────────────────────────────
 
 float temperatureCelsius(const FloatValue& temperature)
 {
-    //DH1KLM "°F", "F" and "degF" all contain an F and never a C; "°C" is the
-    //DH1KLM expected case and passes through unchanged.
+    // "°F", "F" and "degF" all contain an F and never a C; "°C" is the
+    // expected case and passes through unchanged.
     const QString unit = temperature.unit.toUpper();
     if (unit.contains(QLatin1Char('F')) && !unit.contains(QLatin1Char('C'))) {
         return (temperature.value - 32.0f) * 5.0f / 9.0f;
@@ -431,7 +431,7 @@ QString formatFrequency(const IntValue& frequency)
     } else if (unit == QLatin1String("mhz")) {
         mhz = frequency.value;
     } else {
-        //DH1KLM An unrecognized unit is shown as given rather than mis-scaled.
+        // An unrecognized unit is shown as given rather than mis-scaled.
         return frequency.unit.isEmpty()
             ? QString::number(frequency.value)
             : QStringLiteral("%1 %2").arg(frequency.value).arg(frequency.unit);
@@ -489,5 +489,5 @@ QString interfaceLabel(OperationalInterface iface)
     return QStringLiteral("—");
 }
 
-}  //DH1KLM namespace Rfkit
-}  //DH1KLM namespace AetherSDR
+}  // namespace Rfkit
+}  // namespace AetherSDR

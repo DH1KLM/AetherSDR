@@ -78,8 +78,8 @@ public:
     // was already answered. finished() follows.
     void cancel();
     bool isRunning() const { return m_phase != Phase::Idle; }
-    //DH1KLM The last restart request was written but never answered: the device
-    //DH1KLM may still be leaving the bus, though finished() reported a failure.
+    // The last restart request was written but never answered: the device
+    // may still be leaving the bus, though finished() reported a failure.
     bool restartUnanswered() const { return m_restartUnanswered; }
 
 signals:
@@ -108,13 +108,13 @@ private:
     void onPortFailed(const QString& message);
     void onTimeout();
     void sendHello();
-    //DH1KLM False when nothing could be queued (no port, or the payload would not encode).
+    // False when nothing could be queued (no port, or the payload would not encode).
     bool sendExtension(const QByteArray& payload);
     void sendChunks();
     void lookForDevice();
     void fail(const QString& message);
     void succeed(const QString& version);
-    //DH1KLM A restart request done: the device is leaving the bus for its target.
+    // A restart request done: the device is leaving the bus for its target.
     void restarted();
     void armTimeout(int ms);
 
@@ -136,9 +136,9 @@ private:
     qint64 m_sent{0};       // image bytes sent
     qint64 m_stored{0};     // image bytes the device has acknowledged
     int m_inFlight{0};
-    //DH1KLM Reports this port has queued and written, and the queued count once the
-    //DH1KLM restart request was queued: it has reached the device's endpoint when
-    //DH1KLM the written count gets there.
+    // Reports this port has queued and written, and the queued count once the
+    // restart request was queued: it has reached the device's endpoint when
+    // the written count gets there.
     qint64 m_reportsQueued{0};
     qint64 m_reportsWritten{0};
     qint64 m_restartQueuedTo{0};

@@ -100,8 +100,8 @@ void supportedDialog()
 {
     Fixture f(QStringLiteral("4.3.16.42034"));
     TxBandDialog dialog(&f.radio);
-    //DH1KLM The smallest the window can be: a restored rectangle below the minimum
-    //DH1KLM is clamped up to it, so this is the worst case for clipping.
+    // The smallest the window can be: a restored rectangle below the minimum
+    // is clamped up to it, so this is the worst case for clipping.
     dialog.resize(dialog.minimumSize());
     dialog.show();
     QApplication::processEvents();
@@ -120,8 +120,8 @@ void supportedDialog()
                       && label->width() >= label->sizeHint().width()
                       && label->height() >= label->sizeHint().height(),
                   "the window at its minimum size cannot clip the header text");
-            //DH1KLM Measured in the font the sheet gives it, not the default font: a
-            //DH1KLM label measured before polish is sized for different text.
+            // Measured in the font the sheet gives it, not the default font: a
+            // label measured before polish is sized for different text.
             const QMargins margins = label->contentsMargins();
             const int textWidth = label->fontMetrics().horizontalAdvance(label->text())
                 + margins.left() + margins.right();
@@ -206,9 +206,9 @@ void firmwareIdentityAfterReadback()
               && f.commands.isEmpty(),
           "late firmware identity enables the existing table with each earlier confirmed value");
 }
-//DH1KLM A field's standard right-click menu is a child of the field, so the canon
-//DH1KLM body's transparent-everything rule reaches it; the sheet gives popups their
-//DH1KLM panel back. Without that the menu draws no background at all.
+// A field's standard right-click menu is a child of the field, so the canon
+// body's transparent-everything rule reaches it; the sheet gives popups their
+// panel back. Without that the menu draws no background at all.
 void rightClickMenuIsOpaque()
 {
     Fixture f(QStringLiteral("4.3.16.42034"));
@@ -234,9 +234,9 @@ void rightClickMenuIsOpaque()
     check(f.commands.isEmpty(), "opening the menu sends no commands");
 }
 
-//DH1KLM TX Band Settings is a canon workspace (#6239) that restores geometry saved
-//DH1KLM under TxBandDialogGeometry, including the base64 rectangles earlier
-//DH1KLM releases wrote.
+// TX Band Settings is a canon workspace (#6239) that restores geometry saved
+// under TxBandDialogGeometry, including the base64 rectangles earlier
+// releases wrote.
 void canonWorkspace()
 {
     static const QString kKey = QStringLiteral("TxBandDialogGeometry");
@@ -251,9 +251,9 @@ void canonWorkspace()
               "it is a frameless workspace window, not a dialog on its parent");
     }
 
-    //DH1KLM A rectangle saved before the migration: QWidget::saveGeometry() in base64.
-    //DH1KLM Compared by height: the offscreen screen is 800 px wide, narrower than
-    //DH1KLM the table's minimum, so a restored width is clamped to the minimum.
+    // A rectangle saved before the migration: QWidget::saveGeometry() in base64.
+    // Compared by height: the offscreen screen is 800 px wide, narrower than
+    // the table's minimum, so a restored width is clamped to the minimum.
     TxBandDialog restored(&f.radio);
     const QSize chosen(restored.minimumWidth(), restored.minimumHeight() + 110);
     QDialog legacy;
@@ -292,8 +292,8 @@ QLabel* headerTitle(TxBandDialog& dialog)
     return dialog.findChild<QLabel*>(QStringLiteral("canonHeaderTitle"));
 }
 
-//DH1KLM The table belongs to one TX profile: a new profile rebuilds it under a new
-//DH1KLM heading, and band values the radio reports later reach the open table.
+// The table belongs to one TX profile: a new profile rebuilds it under a new
+// heading, and band values the radio reports later reach the open table.
 void followsTheRadio()
 {
     Fixture f(QStringLiteral("4.3.16.42034"));
@@ -356,7 +356,7 @@ void followsTheRadio()
     check(fieldNamed(dialog, QStringLiteral("RF power percent, band 17")) != nullptr,
           "a band whose name arrives later is rebuilt under its name");
 
-    //DH1KLM Esc hides the window; showing it again builds a fresh table.
+    // Esc hides the window; showing it again builds a fresh table.
     QPointer<QLineEdit> beforeHide = fieldNamed(dialog, QStringLiteral("RF power percent, band 40"));
     dialog.hide();
     dialog.show();
@@ -364,7 +364,7 @@ void followsTheRadio()
     check(!beforeHide && fieldNamed(dialog, QStringLiteral("RF power percent, band 40")),
           "reopening a hidden window builds a fresh table");
 
-    //DH1KLM This fixture's backend takes no bandset writes, so every click is refused.
+    // This fixture's backend takes no bandset writes, so every click is refused.
     QCheckBox* inhibit = nullptr;
     for (QCheckBox* box : dialog.findChildren<QCheckBox*>()) {
         if (box->accessibleName() == QStringLiteral("PTT inhibit, band 40")) {

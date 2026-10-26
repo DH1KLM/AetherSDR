@@ -84,7 +84,7 @@ struct IcomCivBackendTestAccess {
         b.m_civTrace.clear();
         (void)b.m_civScheduler.reset();
     }
-    //DH1KLM Clear only the trace: what is in flight and queued stays so.
+    // Clear only the trace: what is in flight and queued stays so.
     static void forgetSent(IcomCivBackend& b) { b.m_civTrace.clear(); }
     // Drain by letting each in-flight transaction time out on a future clock.
     static void settle(IcomCivBackend& b)
@@ -95,14 +95,14 @@ struct IcomCivBackendTestAccess {
             b.pumpCiv(t);
         }
     }
-    //DH1KLM Operator picked SCROLL-F; the startup writes themselves are not under test.
+    // Operator picked SCROLL-F; the startup writes themselves are not under test.
     static void scrollF(IcomCivBackend& b)
     {
         b.m_scopeView = IcomCivBackend::ScopeView::ScrollF;
         b.m_scopeStarted = true;
     }
-    //DH1KLM Run the one-turn deferrals, then flush a throttled edge write now
-    //DH1KLM rather than after its real 200 ms, so the tests never race the clock.
+    // Run the one-turn deferrals, then flush a throttled edge write now
+    // rather than after its real 200 ms, so the tests never race the clock.
     static void settleScope(IcomCivBackend& b)
     {
         QCoreApplication::processEvents();
@@ -112,16 +112,16 @@ struct IcomCivBackendTestAccess {
         }
     }
     static void armThrottle(IcomCivBackend& b) { b.m_scopeLastEdgeWriteMs = b.nowMs(); }
-    //DH1KLM Date the current scope's last sweep in the past, so the other selector
-    //DH1KLM reads as a MAIN/SUB switch rather than Dual-scope interleave.
+    // Date the current scope's last sweep in the past, so the other selector
+    // reads as a MAIN/SUB switch rather than Dual-scope interleave.
     static void ageScopeSelector(IcomCivBackend& b, qint64 ms)
     {
         if (b.m_scopeSelectorSeenAtMs) {
             *b.m_scopeSelectorSeenAtMs -= ms;
         }
     }
-    //DH1KLM Date the newest commanded tune in the past, so a frequency echo that
-    //DH1KLM follows it is unambiguously an answer (the clock can read 0 in a test).
+    // Date the newest commanded tune in the past, so a frequency echo that
+    // follows it is unambiguously an answer (the clock can read 0 in a test).
     static void ageCommandedTune(IcomCivBackend& b, qint64 ms)
     {
         if (!b.m_scopeRecentTunes.empty()) {
@@ -158,7 +158,7 @@ struct IcomCivBackendTestAccess {
     static void forgetIdentity(IcomCivBackend& b) { b.m_civReported = 0; b.m_civModelId = 0; }
     static void publishControls(IcomCivBackend& b) { b.publishModelControls(); }
     static std::uint64_t frequency(const IcomCivBackend& b) { return b.m_frequencyHz; }
-    //DH1KLM No frequency reported yet this session: the next echo is the first report.
+    // No frequency reported yet this session: the next echo is the first report.
     static void awaitFirstReport(IcomCivBackend& b) { b.m_frequencyHz = 0; }
     static int preampStep(const IcomCivBackend& b) { return b.m_preampStep; }
     static void reassertPreamp(IcomCivBackend& b) { b.reassertPanPreampWireStep(b.m_preampStep); }
@@ -1033,7 +1033,7 @@ void testScrollFPanIntents()
           "a zoom costs one edge write, at the new width");
 }
 
-//DH1KLM Gestures inside the 200 ms throttle coalesce into one write of the latest window.
+// Gestures inside the 200 ms throttle coalesce into one write of the latest window.
 void testScrollFEdgeWriteThrottle()
 {
     IcomCivBackend backend;
@@ -1055,7 +1055,7 @@ void testScrollFEdgeWriteThrottle()
           "and then cost one write, of the latest window");
 }
 
-//DH1KLM Entering a new edge range re-selects slot 4: the radio remembers a slot per band.
+// Entering a new edge range re-selects slot 4: the radio remembers a slot per band.
 void testScrollFReselectsSlotOnRangeChange()
 {
     IcomCivBackend backend;
@@ -1073,8 +1073,8 @@ void testScrollFReselectsSlotOnRangeChange()
           "a move from range 06 to range 04 re-selects slot 4 (27 16 00 04)");
 }
 
-//DH1KLM FA to SCROLL-F or slot 4 (old firmware) falls back to Center and says so;
-//DH1KLM FA to a slot READ is not proof of old firmware.
+// FA to SCROLL-F or slot 4 (old firmware) falls back to Center and says so;
+// FA to a slot READ is not proof of old firmware.
 void testScrollFRefusalFallsBackToCenter()
 {
     {
@@ -1101,9 +1101,9 @@ void testScrollFRefusalFallsBackToCenter()
           "and the radio is put back in Center");
 }
 
-//DH1KLM Startup initialises the panadapter from the radio's own mode: it reads
-//DH1KLM 27 14 first, writes SCROLL-F only when the radio is in Center, and keeps a
-//DH1KLM SCROLL-F or Fixed the operator left there. No client-side copy exists.
+// Startup initialises the panadapter from the radio's own mode: it reads
+// 27 14 first, writes SCROLL-F only when the radio is in Center, and keeps a
+// SCROLL-F or Fixed the operator left there. No client-side copy exists.
 void testScopeStartupInitialisesFromRadio()
 {
     const auto modeWrites = [](const std::vector<CivFrame>& frames) {
@@ -1134,7 +1134,7 @@ void testScopeStartupInitialisesFromRadio()
                   && modeWrites(Access::issued(backend)).empty()
                   && slotSelects(Access::issued(backend)).empty(),
               "startup reads the radio's scope mode and edge slot before writing anything");
-        //DH1KLM The radio answers: Center.
+        // The radio answers: Center.
         Access::forget(backend);
         Access::deliver(backend, frame(cmd::kScope, scope::kMode, {0x00, 0x00}));
         auto mode = modeWrites(Access::issued(backend));
@@ -1172,10 +1172,10 @@ void testScopeStartupInitialisesFromRadio()
           "and its Scope row is published as Center-only (dimmed), not hidden");
 }
 
-//DH1KLM The slot the radio is found on at connect decides whose window it is. Fixed
-//DH1KLM on an operator slot (1-3): theirs, gestures refused, nothing written. Fixed
-//DH1KLM on slot 4: ours, a drag writes it. SCROLL-F on an operator slot: the first
-//DH1KLM gesture moves the radio to slot 4 and writes there; their preset is untouched.
+// The slot the radio is found on at connect decides whose window it is. Fixed
+// on an operator slot (1-3): theirs, gestures refused, nothing written. Fixed
+// on slot 4: ours, a drag writes it. SCROLL-F on an operator slot: the first
+// gesture moves the radio to slot 4 and writes there; their preset is untouched.
 void testScopeStartupKeepsTheOperatorsSlot()
 {
     const auto retunes = [](const std::vector<CivFrame>& frames) {
@@ -1216,8 +1216,8 @@ void testScopeStartupKeepsTheOperatorsSlot()
               "found in Fixed on slot 4: the window is ours, a drag writes it (no re-select)");
     }
     {
-        //DH1KLM Slot-4 reply first, then the session's first frequency report: ours
-        //DH1KLM already, so there is nothing to re-select and no edge state to reset.
+        // Slot-4 reply first, then the session's first frequency report: ours
+        // already, so there is nothing to re-select and no edge state to reset.
         IcomCivBackend backend;
         Access::prepare(backend, "IC-7300MK2");
         Access::scopeStartup(backend);
@@ -1233,8 +1233,8 @@ void testScopeStartupKeepsTheOperatorsSlot()
               "found on slot 4, the first frequency report writes no redundant 27 16 and no 27 1E");
     }
     {
-        //DH1KLM The session's first frequency report lands in some range; it is not a
-        //DH1KLM range entry, so nothing is re-selected even once the slot is known.
+        // The session's first frequency report lands in some range; it is not a
+        // range entry, so nothing is re-selected even once the slot is known.
         IcomCivBackend backend;
         Access::prepare(backend, "IC-7300MK2");
         Access::scopeStartup(backend);
@@ -1251,8 +1251,8 @@ void testScopeStartupKeepsTheOperatorsSlot()
               "and a band change on the operator's Fixed slot leaves their slot alone");
     }
     {
-        //DH1KLM On the wire the first mode report is a sweep's mode byte, which can
-        //DH1KLM land before the 27 16 reply: the slot still decides once it arrives.
+        // On the wire the first mode report is a sweep's mode byte, which can
+        // land before the 27 16 reply: the slot still decides once it arrives.
         IcomCivBackend backend;
         Access::prepare(backend, "IC-7300MK2");
         Access::scopeStartup(backend);
@@ -1282,10 +1282,10 @@ void testScopeStartupKeepsTheOperatorsSlot()
     }
 }
 
-//DH1KLM A tune outside the span queues its window write behind the 05 (a CAT/TCI
-//DH1KLM AllowRecenter tune, or the GUI's Range reveal). If the radio refuses the 05,
-//DH1KLM that write is dropped before the next pump, or the refused destination's
-//DH1KLM window would land on the radio while the VFO stays where it was.
+// A tune outside the span queues its window write behind the 05 (a CAT/TCI
+// AllowRecenter tune, or the GUI's Range reveal). If the radio refuses the 05,
+// that write is dropped before the next pump, or the refused destination's
+// window would land on the radio while the VFO stays where it was.
 void testRefusedTuneDropsItsQueuedWindow()
 {
     IcomCivBackend backend;
@@ -1299,7 +1299,7 @@ void testRefusedTuneDropsItsQueuedWindow()
     backend.setPanCenter(QStringLiteral("0"), 14'200'000.0,
                          IRadioBackend::PanCenterIntent::Range);
     Access::settleScope(backend);
-    //DH1KLM issued() lists what went out AND what is still queued behind the 05.
+    // issued() lists what went out AND what is still queued behind the 05.
     const auto tuneOut = any(Access::issued(backend), [](const CivFrame& f) {
         return f.cmd == cmd::kSetFreq && !f.data.empty();
     });
@@ -1307,8 +1307,8 @@ void testRefusedTuneDropsItsQueuedWindow()
     check(tuneOut && queued.size() == 1 && queued.front().lowerHz <= 14'200'000
               && queued.front().upperHz >= 14'200'000,
           "the 05 is in flight and the window write for 14.200 is queued behind it");
-    //DH1KLM The radio refuses the tune (FA). Only the trace is cleared: the queue
-    //DH1KLM and the in-flight 05 are exactly what the refusal must act on.
+    // The radio refuses the tune (FA). Only the trace is cleared: the queue
+    // and the in-flight 05 are exactly what the refusal must act on.
     Access::forgetSent(backend);
     Access::deliver(backend, frame(kCivNg, std::nullopt, {}));
     Access::settleScope(backend);
@@ -1317,8 +1317,8 @@ void testRefusedTuneDropsItsQueuedWindow()
     check(Access::frequency(backend) == 14'050'000, "and the VFO is still where the radio says");
 }
 
-//DH1KLM The slot select that rides with a refused tune's window (radio on an
-//DH1KLM operator slot) is dropped with it, and the slot re-read from the radio.
+// The slot select that rides with a refused tune's window (radio on an
+// operator slot) is dropped with it, and the slot re-read from the radio.
 void testRefusedTuneDropsItsSlotSelect()
 {
     IcomCivBackend backend;
@@ -1344,8 +1344,8 @@ void testRefusedTuneDropsItsSlotSelect()
           "and the slot is re-read from the radio");
 }
 
-//DH1KLM SCROLL-C follows the VFO like Center and uses no edge slot: a band change
-//DH1KLM there re-selects nothing.
+// SCROLL-C follows the VFO like Center and uses no edge slot: a band change
+// there re-selects nothing.
 void testScrollCUsesNoEdgeSlot()
 {
     IcomCivBackend backend;
@@ -1354,7 +1354,7 @@ void testScrollCUsesNoEdgeSlot()
     Access::deliver(backend, frame(cmd::kScope, scope::kEdgeNumber, {0x00, 0x04}));
     Access::deliver(backend, frequencyEcho(14'050'000));
     Access::deliver(backend, *scopeEdgeSweep(14'000'000, 14'100'000));
-    //DH1KLM The front panel switches to SCROLL-C.
+    // The front panel switches to SCROLL-C.
     Access::deliver(backend, *scopeEdgeSweep(14'000'000, 14'100'000, 0xB6, 0x02));
     Access::forget(backend);
     Access::deliver(backend, frequencyEcho(7'074'000));
@@ -1362,8 +1362,8 @@ void testScrollCUsesNoEdgeSlot()
           "in SCROLL-C a band change leaves the radio's per-band slot alone");
 }
 
-//DH1KLM An FA to the slot select (old firmware) must not let the SCROLL-F write
-//DH1KLM queued behind it reach the radio after the fallback's Center.
+// An FA to the slot select (old firmware) must not let the SCROLL-F write
+// queued behind it reach the radio after the fallback's Center.
 void testScopeFallbackCancelsQueuedScrollF()
 {
     const auto scrollFWrites = [](const std::vector<CivFrame>& frames) {
@@ -1387,8 +1387,8 @@ void testScopeFallbackCancelsQueuedScrollF()
           "the fallback to Center drops the queued SCROLL-F write");
 }
 
-//DH1KLM Fixed with the VFO dragged off screen, then Scroll-F: the seeded window must
-//DH1KLM hold the VFO, or the radio pages the moment SCROLL-F lands.
+// Fixed with the VFO dragged off screen, then Scroll-F: the seeded window must
+// hold the VFO, or the radio pages the moment SCROLL-F lands.
 void testScrollFSeedHoldsTheVfo()
 {
     IcomCivBackend backend;
@@ -1538,8 +1538,8 @@ void testFixedClickReclaimsSlotFour()
 }
 
 // Fixed chosen here, but the radio shows one of the operator's slots (picked on
-//DH1KLM its front panel): the window is theirs, a retune would not move it, so a
-//DH1KLM drag or a zoom is refused rather than falling through to Center's retune.
+// its front panel): the window is theirs, a retune would not move it, so a
+// drag or a zoom is refused rather than falling through to Center's retune.
 void testFixedOnOperatorSlotRefusesGestures()
 {
     IcomCivBackend backend;

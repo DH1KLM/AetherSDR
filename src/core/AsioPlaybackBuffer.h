@@ -13,13 +13,13 @@
 
 namespace AetherSDR {
 
-//DH1KLM: One AudioEngine producer and one ASIO callback consumer; no DSP or locks in the callback.
+// One AudioEngine producer and one ASIO callback consumer; no DSP or locks in the callback.
 class AsioPlaybackBuffer {
 public:
     explicit AsioPlaybackBuffer(std::size_t frames, std::size_t prefill = 0, std::size_t ramp = 0)
         : m_frames(std::max<std::size_t>(frames, 1)), m_prefill(std::min(prefill, m_frames.size())),
           m_ramp(ramp), m_gain(prefill == 0 ? 1.0f : 0.0f) {}
-    //DH1KLM: Prefill covers 50 ms of owner-thread scheduling plus one complete ASIO callback burst.
+    // Prefill covers 50 ms of owner-thread scheduling plus one complete ASIO callback burst.
     static std::size_t playbackCapacity(int rate, int callbackFrames)
     {
         return static_cast<std::size_t>(std::max(4 * callbackFrames, rate / 10 + 2 * callbackFrames));
@@ -65,7 +65,7 @@ public:
         return frame;
     }
     std::uint64_t underruns() const { return m_underruns.load(std::memory_order_relaxed); }
-    //DH1KLM: Reset is legal only after the driver has stopped all callbacks.
+    // Reset is legal only after the driver has stopped all callbacks.
     void reset()
     {
         m_read.store(0); m_write.store(0);
@@ -74,7 +74,7 @@ public:
         m_previous = {}; m_fadeFrom = {}; m_fadeRemaining = 0;
     }
 
-    //DH1KLM: Steinberg ASIOSampleType values; aligned Int32 samples are right-justified.
+    // Steinberg ASIOSampleType values; aligned Int32 samples are right-justified.
     static int sampleBytes(int type)
     {
         switch (type) {
@@ -106,7 +106,7 @@ public:
         }
     }
 private:
-    //DH1KLM: A dry run fades once and waits for a complete prefill instead of alternating PCM and zeros.
+    // A dry run fades once and waits for a complete prefill instead of alternating PCM and zeros.
     std::array<float, 2> fadeOut()
     {
         if (m_fadeRemaining == 0 || m_ramp == 0) { return {}; }

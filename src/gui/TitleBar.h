@@ -81,8 +81,8 @@ public:
     // status visible for the whole connected session, independent of whether
     // the operator dismissed the explanatory notice.
     void setExperimentalRadioFamily(const QString& familyName);
-    //DH1KLM A newer AetherSDR release, or empty to clear. Non-empty shows the
-    //DH1KLM UPDATE pill after the wordmark; clicking it emits updateBadgeClicked().
+    // A newer AetherSDR release, or empty to clear. Non-empty shows the
+    // UPDATE pill after the wordmark; clicking it emits updateBadgeClicked().
     void setUpdateAvailable(const QString& latestVersion);
 
     // Status-bar transmit timer (left of the PC Audio button). Driven by

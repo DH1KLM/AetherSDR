@@ -212,9 +212,9 @@ public:
     // simultaneously-present pieces of hardware, not alternatives.
     void setKpa1500Visible(bool visible);
 
-    //DH1KLM Show/hide the RFKIT button and applet based on a direct RF-KIT
-    //DH1KLM amplifier connection. Independent of every other amplifier applet for
-    //DH1KLM the same reason setKpa1500Visible is.
+    // Show/hide the RFKIT button and applet based on a direct RF-KIT
+    // amplifier connection. Independent of every other amplifier applet for
+    // the same reason setKpa1500Visible is.
     void setRfkitVisible(bool visible);
 
     // Show/hide the LP100 button and applet from the direct LP-100A connection,

@@ -26,7 +26,7 @@ namespace AetherSDR {
 
 namespace {
 
-//DH1KLM The order chapter dots take the category colors in.
+// The order chapter dots take the category colors in.
 const char* const kCategoryTokens[] = {
     "color.canon.category.cyan",  "color.canon.category.aqua", "color.canon.category.blue",
     "color.canon.category.amber", "color.canon.category.violet", "color.canon.category.rose",
@@ -34,27 +34,27 @@ const char* const kCategoryTokens[] = {
 };
 constexpr int kCategoryCount = sizeof(kCategoryTokens) / sizeof(kCategoryTokens[0]);
 
-//DH1KLM The big version numerals: the brand gradient for a new release, canon ink
-//DH1KLM otherwise. Painted, so the gradient can fill the glyphs; the accessible
-//DH1KLM name carries the same text.
+// The big version numerals: the brand gradient for a new release, canon ink
+// otherwise. Painted, so the gradient can fill the glyphs; the accessible
+// name carries the same text.
 class VersionNumerals final : public QWidget {
 public:
     explicit VersionNumerals(QWidget* parent) : QWidget(parent)
     {
-        //DH1KLM Its own font: a window-wide stylesheet font would otherwise win.
+        // Its own font: a window-wide stylesheet font would otherwise win.
         m_font = font();
         m_font.setPixelSize(60);
         m_font.setWeight(QFont::ExtraBold);
         m_font.setLetterSpacing(QFont::PercentageSpacing, 96);
-        //DH1KLM The "v" is set a little smaller, on the numerals' baseline.
+        // The "v" is set a little smaller, on the numerals' baseline.
         m_prefixFont = m_font;
         m_prefixFont.setPixelSize(48);
         setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
         setAttribute(Qt::WA_TransparentForMouseEvents);
         setAttribute(Qt::WA_TranslucentBackground);
     }
-    //DH1KLM The label the numerals sit beside: their baseline is drawn level with
-    //DH1KLM its baseline when both are bottom-aligned in a row.
+    // The label the numerals sit beside: their baseline is drawn level with
+    // its baseline when both are bottom-aligned in a row.
     void setBaselinePartner(const QLabel* partner) { m_partner = partner; }
     void setVersion(const QString& version, bool gradient)
     {
@@ -77,8 +77,8 @@ protected:
         p.setRenderHint(QPainter::Antialiasing);
         QPainterPath path;
         const QFontMetrics fm(m_font);
-        //DH1KLM Winding, not the default odd-even: tight letter spacing overlaps
-        //DH1KLM glyphs, and odd-even would cut a hole where they meet.
+        // Winding, not the default odd-even: tight letter spacing overlaps
+        // glyphs, and odd-even would cut a hole where they meet.
         path.setFillRule(Qt::WindingFill);
         if (!m_text.isEmpty()) {
             path.addText(0, fm.ascent(), m_prefixFont, kPrefix);
@@ -98,7 +98,7 @@ private:
         return m_text.isEmpty() ? 0 : QFontMetrics(m_prefixFont).horizontalAdvance(kPrefix);
     }
 
-    //DH1KLM How far the partner's baseline sits above its bottom edge.
+    // How far the partner's baseline sits above its bottom edge.
     int belowBaseline() const
     {
         if (!m_partner) {
@@ -118,7 +118,7 @@ private:
 QLabel* plainLabel(const QString& role, QWidget* parent = nullptr)
 {
     auto* l = new QLabel(parent);
-    l->setTextFormat(Qt::PlainText);   //DH1KLM release text is network text
+    l->setTextFormat(Qt::PlainText);   // release text is network text
     l->setProperty("role", role);
     return l;
 }
@@ -127,7 +127,7 @@ QString sheet()
 {
     return QStringLiteral(
                "QLabel { background: transparent; color: {{color.canon.inkSoft}}; }"
-               //DH1KLM Plain containers stay see-through over the canon ground.
+               // Plain containers stay see-through over the canon ground.
                "QWidget#updatesHeader, QWidget#updatesVersion, QWidget#updatesChapters,"
                " QWidget#updatesContent, QScrollArea#updatesScroll,"
                " QScrollArea#updatesScroll > QWidget > QWidget { background: transparent; border: none; }"
@@ -159,8 +159,8 @@ QString sheet()
                "QPushButton#updatesGhost:hover { color: {{color.canon.inkSoft}}; }"
                "QPushButton#updatesGhost:focus { color: {{color.canon.ink}}; }"
                "QPushButton:disabled { color: {{color.canon.muted}}; }"
-               //DH1KLM An ID rule outranks the bare :disabled one, so each styled
-               //DH1KLM button states its own dimmed look.
+               // An ID rule outranks the bare :disabled one, so each styled
+               // button states its own dimmed look.
                "QPushButton#updatesSecondary:disabled { color: {{color.canon.muted}};"
                " background: {{color.canon.nested}}; border-color: {{color.canon.line}}; }"
                "QPushButton#updatesGet:disabled { color: {{color.canon.muted}};"
@@ -207,7 +207,7 @@ QString sheet()
         + canonIndicatorRules();
 }
 
-} //DH1KLM namespace
+} // namespace
 
 UpdatesWindow::UpdatesWindow(UpdateChecker* checker, RadioModel* radio, QWidget* parent)
     : CanonWindow(tr("Updates"), parent, Kind::Workspace)
@@ -215,14 +215,14 @@ UpdatesWindow::UpdatesWindow(UpdateChecker* checker, RadioModel* radio, QWidget*
 {
     setObjectName(QStringLiteral("updatesWindow"));
     setGeometryKey(QStringLiteral("UpdatesWindowGeometry"));
-    setLaunchSize(QSize(760, 780));   //DH1KLM room for YOUR RADIO under the release
+    setLaunchSize(QSize(760, 780));   // room for YOUR RADIO under the release
     applyCanonSheet(bodyWidget(), sheet);
 
     auto* root = new QVBoxLayout(bodyWidget());
     root->setContentsMargins(0, 0, 0, 22);
     root->setSpacing(0);
 
-    //DH1KLM The header: what the window is about and the release's name.
+    // The header: what the window is about and the release's name.
     m_header = new QWidget(bodyWidget());
     m_header->setObjectName(QStringLiteral("updatesHeader"));
     auto* over = new QVBoxLayout(m_header);
@@ -249,8 +249,8 @@ UpdatesWindow::UpdatesWindow(UpdateChecker* checker, RadioModel* radio, QWidget*
     over->addWidget(m_tagline);
     root->addWidget(m_header);
 
-    //DH1KLM Everything under the header scrolls, so a long release never makes the
-    //DH1KLM window taller than the screen.
+    // Everything under the header scrolls, so a long release never makes the
+    // window taller than the screen.
     auto* scroll = new QScrollArea;
     m_scroll = scroll;
     scroll->setObjectName(QStringLiteral("updatesScroll"));
@@ -355,7 +355,7 @@ UpdatesWindow::UpdatesWindow(UpdateChecker* checker, RadioModel* radio, QWidget*
     connect(m_autoCheck, &QCheckBox::toggled, this, &UpdatesWindow::automaticCheckToggled);
 
     if (m_checker) {
-        //DH1KLM A check started anywhere (the daily check, Help) shows at once.
+        // A check started anywhere (the daily check, Help) shows at once.
         connect(m_checker, &UpdateChecker::checkStarted, this, &UpdatesWindow::refresh);
         connect(m_checker, &UpdateChecker::releaseInfoChanged, this, [this] {
             m_failed = false;
@@ -365,8 +365,8 @@ UpdatesWindow::UpdatesWindow(UpdateChecker* checker, RadioModel* radio, QWidget*
             m_failed = true;
             refresh();
         });
-        //DH1KLM Nothing known, or only a version saved by an earlier answer: fetch
-        //DH1KLM the release's details.
+        // Nothing known, or only a version saved by an earlier answer: fetch
+        // the release's details.
         if ((!m_checker->latestRelease().isValid() || m_checker->latestRelease().fromSettings)
             && !m_checker->isChecking()) {
             m_checker->checkNow(UpdateChecker::Trigger::Manual);
@@ -402,10 +402,10 @@ UpdatesWindow::View UpdatesWindow::currentView() const
         return pending();
     }
     if (UpdateChecker::isNewer(release.version, QCoreApplication::applicationVersion())) {
-        return View::Available;   //DH1KLM a saved newer release stays actionable offline
+        return View::Available;   // a saved newer release stays actionable offline
     }
-    //DH1KLM A saved version that is not newer says nothing about GitHub now: only a
-    //DH1KLM real answer may report "up to date".
+    // A saved version that is not newer says nothing about GitHub now: only a
+    // real answer may report "up to date".
     return release.fromSettings ? pending() : View::Current;
 }
 
@@ -419,9 +419,9 @@ void UpdatesWindow::refresh()
     const ReleaseInfo& release = known ? m_checker->latestRelease() : kNone;
     auto* numerals = static_cast<VersionNumerals*>(m_version);
 
-    //DH1KLM A version saved by an earlier answer carries no details: build only
-    //DH1KLM from a real answer. Keyed on the chapters, not the version, so release
-    //DH1KLM notes edited after publication are rebuilt too.
+    // A version saved by an earlier answer carries no details: build only
+    // from a real answer. Keyed on the chapters, not the version, so release
+    // notes edited after publication are rebuilt too.
     if (known && !release.fromSettings && m_builtChapters != release.chapters) {
         rebuildRelease();
     }
@@ -494,8 +494,8 @@ void UpdatesWindow::refresh()
                                         ? tr("Downloads %1 in your browser.").arg(asset.name)
                                         : tr("Opens the release page to choose a download."));
     m_notes->setVisible(known);
-    //DH1KLM Offered whenever there is something to retry: always outside a new
-    //DH1KLM release, and inside one whose details did not arrive.
+    // Offered whenever there is something to retry: always outside a new
+    // release, and inside one whose details did not arrive.
     m_checkNow->setVisible(view != View::Available || (m_failed && release.fromSettings));
     const bool checking = m_checker && m_checker->isChecking();
     m_checkNow->setEnabled(!checking && !m_firmwareBusy);
@@ -504,7 +504,7 @@ void UpdatesWindow::refresh()
     const bool skipped = UpdateChecker::isSkipped(release.version);
     m_skip->setEnabled(!skipped && !m_firmwareBusy);
     m_skip->setText(skipped ? tr("Skipped") : tr("Skip this version"));
-    //DH1KLM One job at a time: nothing else starts while radio firmware is going in.
+    // One job at a time: nothing else starts while radio firmware is going in.
     const QString waiting = tr("Waits until the radio firmware install finishes.");
     for (QWidget* w : {static_cast<QWidget*>(m_get), static_cast<QWidget*>(m_checkNow),
                        static_cast<QWidget*>(m_autoCheck)}) {
@@ -527,8 +527,8 @@ void UpdatesWindow::refresh()
                                 ? tr("Downloads %1, the file built for this computer.").arg(asset.name)
                                 : tr("Opens the release page, where you choose the download for this computer."));
     } else if (view == View::Current) {
-        //DH1KLM When GitHub last answered, not the last attempt: a failed daily
-        //DH1KLM check also starts the daily wait.
+        // When GitHub last answered, not the last attempt: a failed daily
+        // check also starts the daily wait.
         const QDateTime answered = release.answered;
         m_footnote->setText(answered.isValid()
                                 ? tr("GitHub answered %1.").arg(QLocale().toString(answered.toLocalTime(),
@@ -551,8 +551,8 @@ void UpdatesWindow::showFirmware()
     }
 }
 
-//DH1KLM Every close path (the corner button, Escape, ⌘W, reject(), accept()) ends
-//DH1KLM here: QDialog's own closeEvent goes through reject().
+// Every close path (the corner button, Escape, ⌘W, reject(), accept()) ends
+// here: QDialog's own closeEvent goes through reject().
 void UpdatesWindow::done(int result)
 {
     if (!m_firmware || m_firmware->confirmStop(this)) {
@@ -599,8 +599,8 @@ void UpdatesWindow::openDownload()
     }
     const ReleaseInfo& release = m_checker->latestRelease();
     const ReleaseAsset asset = UpdateChecker::assetForThisComputer(release);
-    //DH1KLM assetForThisComputer() only returns URLs that passed the allowlist.
+    // assetForThisComputer() only returns URLs that passed the allowlist.
     QDesktopServices::openUrl(asset.url.isValid() ? asset.url : UpdateChecker::releasePageUrl(release.version));
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

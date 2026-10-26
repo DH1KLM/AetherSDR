@@ -23,9 +23,9 @@ namespace AetherSDR {
 
 namespace {
 const QString kHelper = QStringLiteral("AetherSDRUpdater.exe");
-using updater::kProtocol;   //DH1KLM one number for the app and the helper
+using updater::kProtocol;   // one number for the app and the helper
 
-//DH1KLM The outcomes UpdateSwap writes, by its own names.
+// The outcomes UpdateSwap writes, by its own names.
 bool knownOutcome(const QString& o)
 {
     using updater::Outcome;
@@ -38,13 +38,13 @@ bool knownOutcome(const QString& o)
     return false;
 }
 #ifdef Q_OS_WIN
-//DH1KLM Elevated past a UAC boundary: the split token's full half. With UAC off,
-//DH1KLM or as the built-in Administrator, there is no lower level to escape from.
+// Elevated past a UAC boundary: the split token's full half. With UAC off,
+// or as the built-in Administrator, there is no lower level to escape from.
 bool processElevated()
 {
     HANDLE token = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
-        return true;   //DH1KLM unknown: never assume it is safe
+        return true;   // unknown: never assume it is safe
     }
     TOKEN_ELEVATION_TYPE type = TokenElevationTypeDefault;
     DWORD size = 0;
@@ -53,7 +53,7 @@ bool processElevated()
     return !ok || type == TokenElevationTypeFull;
 }
 #endif
-} //DH1KLM namespace
+} // namespace
 
 QString UpdateInstaller::stateDir()
 {
@@ -81,9 +81,9 @@ bool UpdateInstaller::launchHelper(const QString& stagedDir, const QString& vers
                                    QString* problem)
 {
 #ifdef Q_OS_WIN
-    //DH1KLM In place is per-user only. Elevated, the helper would run from a
-    //DH1KLM user-writable folder at the elevated level, and a swapped-in tree
-    //DH1KLM would keep that folder's permissions inside Program Files.
+    // In place is per-user only. Elevated, the helper would run from a
+    // user-writable folder at the elevated level, and a swapped-in tree
+    // would keep that folder's permissions inside Program Files.
     if (processElevated()) {
         *problem = QStringLiteral("AetherSDR is running as administrator. "
                                   "Run the installer to update a system-wide install.");
@@ -127,8 +127,8 @@ UpdateInstaller::SwapResult UpdateInstaller::takeSwapResult(const QString& state
     const QStringList parts = QString::fromUtf8(f.readAll()).trimmed().split(QLatin1Char(' '));
     f.close();
     QFile::remove(path);
-    //DH1KLM Checked before anything of it is logged or kept: the file is outside
-    //DH1KLM the install, and only the helper's own words are believed.
+    // Checked before anything of it is logged or kept: the file is outside
+    // the install, and only the helper's own words are believed.
     static const QRegularExpression version(QStringLiteral("^[0-9]{1,4}(\\.[0-9]{1,6}){2,3}$"));
     if (parts.size() != 2 || !knownOutcome(parts[0]) || !version.match(parts[1]).hasMatch()) {
         qCWarning(lcUpdater) << "ignoring an unreadable swap result";
@@ -152,4 +152,4 @@ bool UpdateInstaller::writeSelfTestMarker(const QString& marker, const QString& 
     return f.commit();
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

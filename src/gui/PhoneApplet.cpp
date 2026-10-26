@@ -169,10 +169,10 @@ void PhoneApplet::buildUI()
             if (!m_updatingFromModel && m_model) m_model->setVoxEnable(on);
         });
         // The automation bridge may switch VOX off and never on: the scoped
-        //DH1KLM action exists for a disarm only. Disarming lowers TX risk and does
-        //DH1KLM not require bridge TX permission.
-        //DH1KLM Arming verbs and pointer input have no action and require permission,
-        //DH1KLM so they stay refused.
+        // action exists for a disarm only. Disarming lowers TX risk and does
+        // not require bridge TX permission.
+        // Arming verbs and pointer input have no action and require permission,
+        // so they stay refused.
         const auto isDisarm = [](const QString& action, const QString& value) {
             const QString v = value.trimmed().toLower();
             return action == QLatin1String("setChecked")

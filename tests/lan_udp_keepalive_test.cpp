@@ -1,6 +1,6 @@
-//DH1KLM Socket-free: inject the terminal LAN bind and write, then drive the production
-//DH1KLM start(), rebindToEphemeralPort(), receive path and keepalive timer. No firmware
-//DH1KLM peer or radio. 4993 is the radio's measured LAN VITA source port (fw 4.3.16).
+// Socket-free: inject the terminal LAN bind and write, then drive the production
+// start(), rebindToEphemeralPort(), receive path and keepalive timer. No firmware
+// peer or radio. 4993 is the radio's measured LAN VITA source port (fw 4.3.16).
 #include "core/backends/flex/PanadapterStream.h"
 #include "core/backends/flex/RadioConnection.h"
 #include "TestSettingsProfile.h"
@@ -65,7 +65,7 @@ struct Datagram {
     QHostAddress destination;
     quint16 port;
 };
-//DH1KLM Keepalives only; the 4992 registration prime shares the injected write.
+// Keepalives only; the 4992 registration prime shares the injected write.
 std::vector<Datagram> keepalives(const std::vector<Datagram>& recorded)
 {
     std::vector<Datagram> out;
@@ -88,7 +88,7 @@ int main(int argc, char** argv)
     const QByteArray ping(1, '\x00');
     const QByteArray vita(PanadapterStream::VITA49_HEADER_BYTES, '\x00');
     std::vector<Datagram> recorded;
-    qint64 writeResult = 0;  //DH1KLM 0 = echo the payload size
+    qint64 writeResult = 0;  // 0 = echo the payload size
     PanadapterStream stream;
     LanUdpKeepaliveTestAccess::inject(stream,
         [&](const QByteArray& payload, const QHostAddress& destination, quint16 port) -> qint64 {

@@ -76,10 +76,10 @@ struct Device {
     bool hasOtherFirmware{true};   // SWITCH has somewhere to go
     bool hasBootloaderOp{true};    // firmware that answers BOOTLOADER
     QString restartedInto;         // "other" or "bootloader" after a restart request
-    std::uint8_t restartStatusOp{0}; //DH1KLM not 0: the op its restart STATUS names instead
-    bool restartsSilently{false};  //DH1KLM leaves for a restart without answering it
-    bool ignoresRestart{false};    //DH1KLM takes a restart request, answers nothing, stays
-    bool failsFirmwareWrite{false}; //DH1KLM the write of a FIRMWARE message fails (EIO)
+    std::uint8_t restartStatusOp{0}; // not 0: the op its restart STATUS names instead
+    bool restartsSilently{false};  // leaves for a restart without answering it
+    bool ignoresRestart{false};    // takes a restart request, answers nothing, stays
+    bool failsFirmwareWrite{false}; // the write of a FIRMWARE message fails (EIO)
     int dropsOnOpen{0};            // this open (1 = the first) fails before it negotiates
 };
 
@@ -128,8 +128,8 @@ public:
         if (!m_open) {
             return;
         }
-        //DH1KLM As the USB worker does: a write that fails closes the port before
-        //DH1KLM the device sees the reports, and nothing is counted as sent.
+        // As the USB worker does: a write that fails closes the port before
+        // the device sees the reports, and nothing is counted as sent.
         const bool firmware = std::any_of(reports.begin(), reports.end(), [](const Report& r) {
             return r.data()[0] == 0xFF && r.data()[3] == std::uint8_t(MessageType::Firmware);
         });
@@ -145,7 +145,7 @@ public:
                 onReport(r.data());
             }
         }
-        //DH1KLM Written reports are acknowledged before anything that follows.
+        // Written reports are acknowledged before anything that follows.
         const int count = int(reports.size());
         QPointer<SimPort> self(this);
         QTimer::singleShot(0, this, [self, count] {
@@ -615,8 +615,8 @@ void testRestartRequests()
     check(!run.ok && alone.restartedInto.isEmpty(), "SWITCH with no other firmware fails");
     check(alone.closes == 1, "and the session is closed");
 
-    //DH1KLM Lynovation's v1.02.00 betas named the op as a character ('5', 0x35)
-    //DH1KLM and left the bus two seconds later.
+    // Lynovation's v1.02.00 betas named the op as a character ('5', 0x35)
+    // and left the bus two seconds later.
     Device misnamed;
     misnamed.restartStatusOp = 0x30 | CTR2_FW_SWITCH;
     run = restart(misnamed, R::OtherFirmware);
@@ -630,7 +630,7 @@ void testRestartRequests()
     check(run.ok && run.message.contains(QStringLiteral("download mode")),
           "a device that leaves for download mode without answering has restarted");
 
-    //DH1KLM A port that fails writing the request has not sent it: no restart.
+    // A port that fails writing the request has not sent it: no restart.
     Device unwritten;
     unwritten.failsFirmwareWrite = true;
     run = restart(unwritten, R::OtherFirmware);
@@ -679,11 +679,11 @@ void testDestroyedMidUpdate()
 // restarts it into AetherCTR2 on request, as AetherCTR2 itself, with no
 // download mode and no buttons. Firmware without the commands still waits
 // for the buttons.
-//DH1KLM A restart on request is answered before the device leaves the bus
-//DH1KLM (Lynovation's firmware waits about two seconds), so it is still listed for
-//DH1KLM a moment. Auto-start must not open it then: it would catch the device on
-//DH1KLM its way off the bus and leave the relay in Error. It starts once the device
-//DH1KLM has gone and come back.
+// A restart on request is answered before the device leaves the bus
+// (Lynovation's firmware waits about two seconds), so it is still listed for
+// a moment. Auto-start must not open it then: it would catch the device on
+// its way off the bus and leave the relay in Error. It starts once the device
+// has gone and come back.
 void testAutoStartWaitsForRestart()
 {
     Ctr2HidPort::DeviceInfo info;
@@ -710,7 +710,7 @@ void testAutoStartWaitsForRestart()
     relay.setTransport(Ctr2ProxyModel::Transport::Usb);
     relay.setUsbDevicePath(info.path);
     relay.firmwareUpdater()->setTiming(fastTiming());
-    waitUntil([&dev] { return dev.opens > 0; });   //DH1KLM the version probe
+    waitUntil([&dev] { return dev.opens > 0; });   // the version probe
     waitUntil([] { return false; }, 100);
 
     QString problem;
@@ -719,7 +719,7 @@ void testAutoStartWaitsForRestart()
     check(waitUntil([&] { return !dev.restartedInto.isEmpty() && !relay.firmwareUpdateRunning(); }),
           "and is answered");
 
-    //DH1KLM Still listed: it has not left the bus yet.
+    // Still listed: it has not left the bus yet.
     relay.setAetherRadio(QHostAddress(QStringLiteral("192.0.2.10")), 4992, QStringLiteral("FLEX"),
                          {});
     relay.setAutoStart(true);
@@ -727,17 +727,17 @@ void testAutoStartWaitsForRestart()
     check(relayOpens == 0, "auto-start leaves a device restarting on request alone while it is listed");
 
     listed->clear();
-    relay.refreshDevices();   //DH1KLM gone
+    relay.refreshDevices();   // gone
     listed->append(info);
-    relay.refreshDevices();   //DH1KLM back
+    relay.refreshDevices();   // back
     check(waitUntil([&] { return relayOpens > 0; }, Ctr2ProxyModel::kAutoStartRetryMs + 2000),
           "and opens it once it has left the bus and come back");
     relay.setAutoStart(false);
 }
 
-//DH1KLM A firmware switch keeps the hidraw path on Linux, and the idle probe can
-//DH1KLM run while the new firmware is still starting and reads no offer. Read
-//DH1KLM again, the offer is there: a stale "no commands" must not stick.
+// A firmware switch keeps the hidraw path on Linux, and the idle probe can
+// run while the new firmware is still starting and reads no offer. Read
+// again, the offer is there: a stale "no commands" must not stick.
 void testReprobeReadsTheOfferAgain()
 {
     Ctr2HidPort::DeviceInfo info;
@@ -747,7 +747,7 @@ void testReprobeReadsTheOfferAgain()
     info.product = QStringLiteral("ESP32S3_DEV");
     Device dev;
     dev.reportsVersion = false;
-    dev.offersFirmware = false;   //DH1KLM still starting: no offer yet
+    dev.offersFirmware = false;   // still starting: no offer yet
     Ctr2ProxyModel relay;
     relay.setUsbBackend(
         [info] { return QList<Ctr2HidPort::DeviceInfo>{info}; },
@@ -761,7 +761,7 @@ void testReprobeReadsTheOfferAgain()
     waitUntil([] { return false; }, 100);
     check(!relay.usbFirmwareCommands(), "and finds no offer while the firmware starts");
 
-    dev.offersFirmware = true;   //DH1KLM started
+    dev.offersFirmware = true;   // started
     const int opens = dev.opens;
     relay.refreshDevices();
     waitUntil([] { return false; }, 100);
@@ -772,11 +772,11 @@ void testReprobeReadsTheOfferAgain()
           "reading it again finds the restart commands");
 }
 
-//DH1KLM The hold covers the restarted controller only: another controller, or
-//DH1KLM Wi-Fi, auto-starts as usual, and the restarted one is still held if it is
-//DH1KLM selected again before it is back. A restart written but never answered
-//DH1KLM keeps its hold (the device may still be leaving); a firmware switch that
-//DH1KLM comes back at the same path between two scans counts as back.
+// The hold covers the restarted controller only: another controller, or
+// Wi-Fi, auto-starts as usual, and the restarted one is still held if it is
+// selected again before it is back. A restart written but never answered
+// keeps its hold (the device may still be leaving); a firmware switch that
+// comes back at the same path between two scans counts as back.
 void testRestartHoldScope()
 {
     const auto aether = [](const QString& path, const QString& serial) {
@@ -794,7 +794,7 @@ void testRestartHoldScope()
     struct Rig {
         std::shared_ptr<QList<Ctr2HidPort::DeviceInfo>> listed;
         Device dev;
-        QStringList opened;   //DH1KLM relay opens, by path
+        QStringList opened;   // relay opens, by path
         Ctr2ProxyModel relay;
     };
     const auto rig = [&](Rig& r, QList<Ctr2HidPort::DeviceInfo> devices) {
@@ -823,7 +823,7 @@ void testRestartHoldScope()
     };
     const int retry = Ctr2ProxyModel::kAutoStartRetryMs + 2000;
 
-    {   //DH1KLM Another controller is not held; A is, selected again.
+    {   // Another controller is not held; A is, selected again.
         Rig r;
         rig(r, {a, b});
         check(restart(r) && !r.dev.restartedInto.isEmpty(), "A restarts into download mode");
@@ -841,7 +841,7 @@ void testRestartHoldScope()
         check(!r.opened.contains(a.path), "and still holds A, selected again before it is back");
         r.relay.setAutoStart(false);
     }
-    {   //DH1KLM Written, never answered: still held.
+    {   // Written, never answered: still held.
         Rig r;
         r.dev.ignoresRestart = true;
         rig(r, {a});
@@ -853,7 +853,7 @@ void testRestartHoldScope()
         check(r.opened.isEmpty(), "and keeps its hold: the device may still be leaving");
         r.relay.setAutoStart(false);
     }
-    {   //DH1KLM Another firmware at the same path: back.
+    {   // Another firmware at the same path: back.
         Rig r;
         rig(r, {a});
         check(restart(r), "a restart into the other firmware is answered");
@@ -862,7 +862,7 @@ void testRestartHoldScope()
         stock.serial.clear();
         *r.listed = {stock};
         r.relay.refreshDevices();
-        *r.listed = {a};   //DH1KLM and back as AetherCTR2 at the same path, unseen in between
+        *r.listed = {a};   // and back as AetherCTR2 at the same path, unseen in between
         r.relay.refreshDevices();
         r.relay.setAetherRadio(radio, 4992, QStringLiteral("FLEX"), {});
         r.relay.setAutoStart(true);
@@ -1016,7 +1016,7 @@ void testStockFirmwareCommands()
 
 int main(int argc, char** argv)
 {
-    //DH1KLM Before the app: the relay model reads and saves its setup.
+    // Before the app: the relay model reads and saves its setup.
     TestSettingsProfile profile(QStringLiteral("ctr2_firmware_updater_test"));
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();

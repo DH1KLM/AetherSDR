@@ -18,13 +18,13 @@ namespace AetherSDR {
 
 namespace {
 
-//DH1KLM Fixed gauge full scales, the same as the amplifier's own display (Forward
-//DH1KLM 0-1600 W, Reflected 0-200 W), so the bars read identically on both screens
-//DH1KLM and never rescale. The device's max_value is deliberately not used: it
-//DH1KLM reports the present power limit, not the meter range.
+// Fixed gauge full scales, the same as the amplifier's own display (Forward
+// 0-1600 W, Reflected 0-200 W), so the bars read identically on both screens
+// and never rescale. The device's max_value is deliberately not used: it
+// reports the present power limit, not the meter range.
 constexpr int kForwardMaxWatts = 1600;
 constexpr int kReflectedMaxWatts = 200;
-//DH1KLM Where the forward gauge turns red, as a fraction of its full scale.
+// Where the forward gauge turns red, as a fraction of its full scale.
 constexpr float kRedZoneFraction = 0.85f;
 
 QVector<HGauge::Tick> evenTicks(float max)
@@ -37,17 +37,17 @@ QVector<HGauge::Tick> evenTicks(float max)
     return ticks;
 }
 
-//DH1KLM The amplifier's own SWR meter is not linear: 1, 1.5, 2, 3, 5, infinity sit at
-//DH1KLM equal spacing, so detail is kept at the low end and a very bad match still
-//DH1KLM moves the needle. The gauge here runs over those six positions (0..5) and
-//DH1KLM every SWR is mapped onto it, so the applet reads like the amplifier's screen.
+// The amplifier's own SWR meter is not linear: 1, 1.5, 2, 3, 5, infinity sit at
+// equal spacing, so detail is kept at the low end and a very bad match still
+// moves the needle. The gauge here runs over those six positions (0..5) and
+// every SWR is mapped onto it, so the applet reads like the amplifier's screen.
 constexpr float kSwrGaugeMax = 5.0f;
-constexpr float kSwrGaugeYellow = 1.0f;  //DH1KLM SWR 1.5
-constexpr float kSwrGaugeRed = 2.0f;     //DH1KLM SWR 2
+constexpr float kSwrGaugeYellow = 1.0f;  // SWR 1.5
+constexpr float kSwrGaugeRed = 2.0f;     // SWR 2
 
-//DH1KLM Reflected power that corresponds to a given SWR at a given forward power:
-//DH1KLM reflection coefficient (S-1)/(S+1), power ratio its square. So 1.5:1 is 4% of
-//DH1KLM forward power and 2:1 is about 11%, whatever the power level.
+// Reflected power that corresponds to a given SWR at a given forward power:
+// reflection coefficient (S-1)/(S+1), power ratio its square. So 1.5:1 is 4% of
+// forward power and 2:1 is about 11%, whatever the power level.
 float reflectedWattsAtSwr(float forwardWatts, float swr)
 {
     const float gamma = (swr - 1.0f) / (swr + 1.0f);
@@ -56,19 +56,19 @@ float reflectedWattsAtSwr(float forwardWatts, float swr)
 
 float swrGaugePosition(float swr)
 {
-    if (!(swr > 1.0f)) { return 0.0f; }              //DH1KLM also catches NaN
+    if (!(swr > 1.0f)) { return 0.0f; }              // also catches NaN
     if (swr <= 1.5f) { return (swr - 1.0f) / 0.5f; }
     if (swr <= 2.0f) { return 1.0f + (swr - 1.5f) / 0.5f; }
     if (swr <= 3.0f) { return 2.0f + (swr - 2.0f); }
     if (swr <= 5.0f) { return 3.0f + (swr - 3.0f) / 2.0f; }
-    return 4.0f + (1.0f - 5.0f / swr);               //DH1KLM approaches 5 at infinity
+    return 4.0f + (1.0f - 5.0f / swr);               // approaches 5 at infinity
 }
 
 QLabel* makeValueLabel(QWidget* parent)
 {
     auto* lbl = new QLabel(parent);
-    //DH1KLM 72px: a kilowatt-class amp needs 4-digit readouts, the same width
-    //DH1KLM AmpApplet and the other amplifier applets use.
+    // 72px: a kilowatt-class amp needs 4-digit readouts, the same width
+    // AmpApplet and the other amplifier applets use.
     lbl->setFixedWidth(72);
     lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     AetherSDR::ThemeManager::instance().applyStyleSheet(lbl,
@@ -76,12 +76,12 @@ QLabel* makeValueLabel(QWidget* parent)
     return lbl;
 }
 
-//DH1KLM One named [rkState="..."] QSS variant, combined with neutralBtnStyle() into
-//DH1KLM a single template applied ONCE per button — state changes then just toggle
-//DH1KLM the dynamic property and repolish, instead of re-running applyStyleSheet()
-//DH1KLM on every transition. Same pattern as VkampApplet/Kpa1500Applet. `widget` is
-//DH1KLM the QSS type selector: the read-only indicators are QLabels styled to match
-//DH1KLM the buttons beside them.
+// One named [rkState="..."] QSS variant, combined with neutralBtnStyle() into
+// a single template applied ONCE per button — state changes then just toggle
+// the dynamic property and repolish, instead of re-running applyStyleSheet()
+// on every transition. Same pattern as VkampApplet/Kpa1500Applet. `widget` is
+// the QSS type selector: the read-only indicators are QLabels styled to match
+// the buttons beside them.
 QString activeStateStyle(const QString& state, const QString& bg,
                          const QString& border, const QString& fg,
                          const QString& widget = QStringLiteral("QPushButton"))
@@ -129,9 +129,9 @@ QPushButton* makeSmallButton(const QString& text, QWidget* parent)
     return btn;
 }
 
-//DH1KLM A read-only indicator (tuner, external antenna): a QLabel, so an AT reads it
-//DH1KLM as text rather than offering a press that does nothing. It takes the height of
-//DH1KLM the button row it sits in, so it matches the buttons beside it.
+// A read-only indicator (tuner, external antenna): a QLabel, so an AT reads it
+// as text rather than offering a press that does nothing. It takes the height of
+// the button row it sits in, so it matches the buttons beside it.
 QLabel* makeIndicator(const QString& text, QWidget* parent)
 {
     auto* lbl = new QLabel(text, parent);
@@ -141,8 +141,8 @@ QLabel* makeIndicator(const QString& text, QWidget* parent)
     return lbl;
 }
 
-//DH1KLM Set an accessible name and announce it, only when it actually changed: the
-//DH1KLM callers run on every status update, and docs/a11y.md asks for settled values.
+// Set an accessible name and announce it, only when it actually changed: the
+// callers run on every status update, and docs/a11y.md asks for settled values.
 void setAnnouncedName(QWidget* widget, const QString& name)
 {
     if (widget->accessibleName() == name) {
@@ -162,7 +162,7 @@ const QString& telemetryLabelStyle()
     return kStyle;
 }
 
-}  //DH1KLM namespace
+}  // namespace
 
 RfkitApplet::RfkitApplet(QWidget* parent)
     : QWidget(parent)
@@ -174,14 +174,14 @@ RfkitApplet::RfkitApplet(QWidget* parent)
 
     auto& theme = AetherSDR::ThemeManager::instance();
 
-    //DH1KLM ── Header: device name + status pill ────────────────────────────────
+    // ── Header: device name + status pill ────────────────────────────────
     m_nameLabel = new QLabel(this);
     m_nameLabel->setAccessibleName(tr("Amplifier name"));
     theme.applyStyleSheet(m_nameLabel,
         "QLabel { color: {{color.text.label}}; font-size: 10px; font-weight: bold; }");
     m_statusPill = new QLabel(QStringLiteral("—"), this);
-    //DH1KLM A status badge — without a name an AT announces the bare em-dash
-    //DH1KLM placeholder and nothing else (docs/a11y.md §1).
+    // A status badge — without a name an AT announces the bare em-dash
+    // placeholder and nothing else (docs/a11y.md §1).
     m_statusPill->setAccessibleName(tr("Amplifier connection status"));
     theme.applyStyleSheet(m_statusPill,
         "QLabel { background: {{color.background.1}}; color: {{color.text.label}}; "
@@ -193,7 +193,7 @@ RfkitApplet::RfkitApplet(QWidget* parent)
     headerRow->addWidget(m_statusPill);
     vbox->addLayout(headerRow);
 
-    //DH1KLM ── PWR / REF / SWR gauges ───────────────────────────────────────────
+    // ── PWR / REF / SWR gauges ───────────────────────────────────────────
     m_pwrLabel = makeValueLabel(this);
     m_pwrLabel->setText(QStringLiteral("PWR"));
     m_pwrGauge = new HGauge(0.0f, static_cast<float>(kForwardMaxWatts),
@@ -228,8 +228,8 @@ RfkitApplet::RfkitApplet(QWidget* parent)
                             this, kSwrGaugeYellow);
     m_swrGauge->setAccessibleName(tr("SWR"));
     m_swrGauge->setCautionColor(theme.color(this, QStringLiteral("color.accent.warning")));
-    //DH1KLM The caution colour is a paint-code colour, so the theme does not repaint it
-    //DH1KLM for us: follow a theme change, or a custom theme would go stale until restart.
+    // The caution colour is a paint-code colour, so the theme does not repaint it
+    // for us: follow a theme change, or a custom theme would go stale until restart.
     connect(&AetherSDR::ThemeManager::instance(), &AetherSDR::ThemeManager::themeChanged, this, [this]() {
         const QColor caution = AetherSDR::ThemeManager::instance().color(
             this, QStringLiteral("color.accent.warning"));
@@ -244,7 +244,7 @@ RfkitApplet::RfkitApplet(QWidget* parent)
 
     vbox->addSpacing(4);
 
-    //DH1KLM ── Info grid: temp / supply / current, band / frequency / interface ──
+    // ── Info grid: temp / supply / current, band / frequency / interface ──
     auto makeInfo = [this, &theme](const QString& text) {
         auto* lbl = new QLabel(text, this);
         theme.applyStyleSheet(lbl, telemetryLabelStyle());
@@ -268,13 +268,13 @@ RfkitApplet::RfkitApplet(QWidget* parent)
     infoGrid->addWidget(m_ifaceLabel,   1, 2);
     vbox->addLayout(infoGrid);
 
-    //DH1KLM Tuner status line: read-only (the API has no tuner control).
+    // Tuner status line: read-only (the API has no tuner control).
     m_tunerLabel = makeInfo(QStringLiteral("TUNER  —"));
     m_tunerLabel->setWordWrap(true);
     m_tunerLabel->setAccessibleName(tr("Tuner status"));
     vbox->addWidget(m_tunerLabel);
 
-    //DH1KLM The device's own free-text status, as it reports it.
+    // The device's own free-text status, as it reports it.
     m_deviceStatusLabel = makeInfo(QString());
     m_deviceStatusLabel->setWordWrap(true);
     m_deviceStatusLabel->setAccessibleName(tr("Amplifier status text"));
@@ -283,7 +283,7 @@ RfkitApplet::RfkitApplet(QWidget* parent)
 
     vbox->addSpacing(4);
 
-    //DH1KLM ── Fault banner (own row, only shown when the device reports an error) ─
+    // ── Fault banner (own row, only shown when the device reports an error) ─
     m_faultLabel = new QLabel(this);
     m_faultLabel->setWordWrap(true);
     theme.applyStyleSheet(m_faultLabel,
@@ -291,7 +291,7 @@ RfkitApplet::RfkitApplet(QWidget* parent)
     m_faultLabel->hide();
     vbox->addWidget(m_faultLabel);
 
-    //DH1KLM ── OPERATE / RESET ERR row ──────────────────────────────────────────
+    // ── OPERATE / RESET ERR row ──────────────────────────────────────────
     m_operateBtn = makeSmallButton(QStringLiteral("STANDBY"), this);
     m_operateBtn->setAccessibleDescription(
         tr("Switches the amplifier between operate and standby. The label shows the current "
@@ -302,15 +302,15 @@ RfkitApplet::RfkitApplet(QWidget* parent)
                          QStringLiteral("{{color.accent.success}}")),
     }));
     connect(m_operateBtn, &QPushButton::clicked, this, [this]() {
-        //DH1KLM Asks; the label only moves when the device's own readback confirms
-        //DH1KLM it (Principle II — no optimistic latch).
+        // Asks; the label only moves when the device's own readback confirms
+        // it (Principle II — no optimistic latch).
         const bool operate = m_status.operate
             && *m_status.operate == Rfkit::OperateMode::Operate;
         emit operateToggled(!operate);
     });
 
-    //DH1KLM Read-only indicator: the API has no tuner control, so this shows the
-    //DH1KLM device's reported tuner mode and cannot be pressed.
+    // Read-only indicator: the API has no tuner control, so this shows the
+    // device's reported tuner mode and cannot be pressed.
     const QString indicator = QStringLiteral("QLabel");
     m_tunerIndicator = makeIndicator(QStringLiteral("TUNER —"), this);
     m_tunerIndicator->setAccessibleName(tr("Tuner state unknown"));
@@ -332,9 +332,9 @@ RfkitApplet::RfkitApplet(QWidget* parent)
         tr("Asks the amplifier to clear its error state. Confirms first."));
     theme.applyStyleSheet(m_resetErrorBtn, neutralBtnStyle());
     connect(m_resetErrorBtn, &QPushButton::clicked, this, [this]() {
-        //DH1KLM An error latch exists to protect the hardware; make the operator
-        //DH1KLM confirm the cause is dealt with rather than clearing it on a stray
-        //DH1KLM click. Same pattern as VkampApplet's reset confirm.
+        // An error latch exists to protect the hardware; make the operator
+        // confirm the cause is dealt with rather than clearing it on a stray
+        // click. Same pattern as VkampApplet's reset confirm.
         const auto reply = QMessageBox::question(this, tr("Reset Amplifier Error"),
             tr("Clear the RF-KIT's error state? Make sure the cause of the error has been "
                "resolved first."),
@@ -352,7 +352,7 @@ RfkitApplet::RfkitApplet(QWidget* parent)
     ctrlRow->addWidget(m_resetErrorBtn);
     vbox->addLayout(ctrlRow);
 
-    //DH1KLM ── Antenna row ──────────────────────────────────────────────────────
+    // ── Antenna row ──────────────────────────────────────────────────────
     auto* antLabel = new QLabel(QStringLiteral("ANT"), this);
     theme.applyStyleSheet(antLabel, telemetryLabelStyle());
     const QString antBtnStyle = makeStateBtnStyle({
@@ -370,21 +370,21 @@ RfkitApplet::RfkitApplet(QWidget* parent)
     antRow->addWidget(antLabel);
     for (int n = Rfkit::kMinInternalAntenna; n <= Rfkit::kMaxInternalAntenna; ++n) {
         auto* btn = makeSmallButton(QString::number(n), this);
-        //DH1KLM Bare digits carry no meaning to an AT reading a button out of its row
-        //DH1KLM context (docs/a11y.md §1).
+        // Bare digits carry no meaning to an AT reading a button out of its row
+        // context (docs/a11y.md §1).
         btn->setAccessibleName(tr("Antenna %1").arg(n));
         theme.applyStyleSheet(btn, antBtnStyle);
-        //DH1KLM Read-only display, not an optimistic latch: clicking just asks, and
-        //DH1KLM the highlight only moves once the device's list confirms it.
+        // Read-only display, not an optimistic latch: clicking just asks, and
+        // the highlight only moves once the device's list confirms it.
         connect(btn, &QPushButton::clicked, this, [this, n]() {
             emit antennaSelected(Rfkit::Antenna{Rfkit::AntennaType::Internal, n});
         });
         m_antBtns.append(btn);
         antRow->addWidget(btn);
     }
-    //DH1KLM The external antenna is shown, not selectable: nobody has yet seen what
-    //DH1KLM the amplifier does with a request to switch to it, and it moves the RF
-    //DH1KLM path. Same treatment as the tuner and the operational interface.
+    // The external antenna is shown, not selectable: nobody has yet seen what
+    // the amplifier does with a request to switch to it, and it moves the RF
+    // path. Same treatment as the tuner and the operational interface.
     m_extIndicator = makeIndicator(QStringLiteral("EXT"), this);
     m_extIndicator->setAccessibleName(tr("External antenna"));
     m_extIndicator->setAccessibleDescription(extIndicatorDescription());
@@ -395,7 +395,7 @@ RfkitApplet::RfkitApplet(QWidget* parent)
 
     m_labelTimer.setInterval(kMeterReadoutUpdateMs);
     connect(&m_labelTimer, &QTimer::timeout, this, &RfkitApplet::updateValueLabels);
-    //DH1KLM Started by setConnected(true): with no amplifier there is nothing to show.
+    // Started by setConnected(true): with no amplifier there is nothing to show.
 
     setConnected(false);
 }
@@ -403,8 +403,8 @@ RfkitApplet::RfkitApplet(QWidget* parent)
 void RfkitApplet::updateReflectedZones(float forwardWatts)
 {
     const float refMax = static_cast<float>(kReflectedMaxWatts);
-    //DH1KLM Rounded to 0.1 W so a wobbling forward power does not rebuild the gauge
-    //DH1KLM on every reply.
+    // Rounded to 0.1 W so a wobbling forward power does not rebuild the gauge
+    // on every reply.
     const float red = std::min(refMax, std::round(reflectedWattsAtSwr(forwardWatts, 2.0f) * 10.0f) / 10.0f);
     const float yellow = std::min(red, std::round(reflectedWattsAtSwr(forwardWatts, 1.5f) * 10.0f) / 10.0f);
     if (red == m_refRedW && yellow == m_refYellowW) {
@@ -426,9 +426,9 @@ void RfkitApplet::setStatus(const Rfkit::Status& status)
             updateReflectedZones(fwd);
         }
         m_pwrGauge->setValue(fwd);
-        //DH1KLM Reflected power and SWR only mean anything alongside forward drive —
-        //DH1KLM hold both at baseline below 1W, the same gate the other amplifier
-        //DH1KLM applets use, so an idle amp does not paint a meaningless SWR.
+        // Reflected power and SWR only mean anything alongside forward drive —
+        // hold both at baseline below 1W, the same gate the other amplifier
+        // applets use, so an idle amp does not paint a meaningless SWR.
         m_refGauge->setValue(fwd >= 1.0f ? static_cast<float>(status.power->reflected.value) : 0.0f);
         m_swrGauge->setValue(fwd >= 1.0f
                              ? swrGaugePosition(static_cast<float>(status.power->swr.value)) : 0.0f);
@@ -451,20 +451,20 @@ void RfkitApplet::refreshControls()
 {
     const bool known = m_status.operate.has_value();
     const bool operate = known && *m_status.operate == Rfkit::OperateMode::Operate;
-    //DH1KLM Until /operate-mode has answered the state is unknown: show "—" and keep
-    //DH1KLM the button off, so a click cannot send OPERATE on a guess.
+    // Until /operate-mode has answered the state is unknown: show "—" and keep
+    // the button off, so a click cannot send OPERATE on a guess.
     m_operateBtn->setText(!known ? QStringLiteral("—")
                           : operate ? QStringLiteral("OPERATE") : QStringLiteral("STANDBY"));
     m_operateBtn->setEnabled(m_connected && known);
-    //DH1KLM The label is a STATE, not an action, so spell that out for an AT rather
-    //DH1KLM than leaving it to infer a verb (docs/a11y.md §1). Announce a change
-    //DH1KLM only when the name actually changed: this runs on every status update.
+    // The label is a STATE, not an action, so spell that out for an AT rather
+    // than leaving it to infer a verb (docs/a11y.md §1). Announce a change
+    // only when the name actually changed: this runs on every status update.
     setAnnouncedName(m_operateBtn, !known ? tr("Amplifier state unknown")
                                    : operate ? tr("Amplifier in operate") : tr("Amplifier in standby"));
-    //DH1KLM The m_connected guard is load-bearing, not cosmetic: a [rkState] rule and
-    //DH1KLM QPushButton:disabled are equal CSS2 specificity and the variant is
-    //DH1KLM appended last, so source order would paint a DISCONNECTED amp in
-    //DH1KLM full-brightness "OPERATE" green. Same trap VkampApplet documents.
+    // The m_connected guard is load-bearing, not cosmetic: a [rkState] rule and
+    // QPushButton:disabled are equal CSS2 specificity and the variant is
+    // appended last, so source order would paint a DISCONNECTED amp in
+    // full-brightness "OPERATE" green. Same trap VkampApplet documents.
     setBtnState(m_operateBtn, operate && m_connected ? QStringLiteral("operate") : QString());
 }
 
@@ -478,7 +478,7 @@ void RfkitApplet::refreshAntennas()
 {
     const bool listKnown = m_status.antennas.has_value();
     const QVector<Rfkit::AntennaWithState> list = m_status.antennas.value_or(QVector<Rfkit::AntennaWithState>());
-    //DH1KLM Why a port is dimmed, on hover; empty when it is not dimmed.
+    // Why a port is dimmed, on hover; empty when it is not dimmed.
     const auto dimReason = [this, listKnown](bool listed, bool disabled) -> QString {
         if (!m_connected) { return tr("Not connected"); }
         if (!listKnown) { return tr("Waiting for the amplifier's antenna list"); }
@@ -500,23 +500,23 @@ void RfkitApplet::refreshAntennas()
         QPushButton* btn = m_antBtns.at(i);
         const int number = Rfkit::kMinInternalAntenna + i;
         const auto* item = find(Rfkit::AntennaType::Internal, number);
-        //DH1KLM Every button stays visible; one the amplifier does not list (or that
-        //DH1KLM it has not listed yet) is dimmed, with the reason on hover.
+        // Every button stays visible; one the amplifier does not list (or that
+        // it has not listed yet) is dimmed, with the reason on hover.
         const bool disabled = item && item->state == Rfkit::AntennaState::Disabled;
         btn->setEnabled(m_connected && item && !disabled);
-        //DH1KLM The reason goes on the accessible channel too: an AT never sees a tooltip.
+        // The reason goes on the accessible channel too: an AT never sees a tooltip.
         const QString reason = dimReason(item != nullptr, disabled);
         btn->setToolTip(reason);
         btn->setAccessibleDescription(reason);
         const bool active = m_connected && item && item->state == Rfkit::AntennaState::Active;
         setBtnState(btn, active ? QStringLiteral("active") : QString());
-        //DH1KLM The highlight is colour only; say it for an AT too.
+        // The highlight is colour only; say it for an AT too.
         setAnnouncedName(btn, active ? tr("Antenna %1, in use").arg(number) : tr("Antenna %1").arg(number));
     }
 
-    //DH1KLM Read-only external indicator: listed by the amplifier, lit while it
-    //DH1KLM reports the external antenna active, with the switch port when it gives
-    //DH1KLM one ("EXT 16").
+    // Read-only external indicator: listed by the amplifier, lit while it
+    // reports the external antenna active, with the switch port when it gives
+    // one ("EXT 16").
     const Rfkit::AntennaWithState* ext = nullptr;
     for (const auto& item : list) {
         if (item.antenna.type == Rfkit::AntennaType::External) {
@@ -525,7 +525,7 @@ void RfkitApplet::refreshAntennas()
         }
     }
     const bool extActive = m_connected && ext && ext->state == Rfkit::AntennaState::Active;
-    //DH1KLM Always shown; dimmed with a reason when the amplifier does not list it.
+    // Always shown; dimmed with a reason when the amplifier does not list it.
     m_extIndicator->setEnabled(m_connected && ext != nullptr);
     const QString extReason = dimReason(ext != nullptr, false);
     m_extIndicator->setToolTip(extReason);
@@ -563,9 +563,9 @@ void RfkitApplet::setConnected(bool connected)
           "font-weight: bold; padding: 2px 6px; }");
 
     if (!connected) {
-        //DH1KLM Drop every remembered reading. An unset optional renders as "—", so
-        //DH1KLM a disconnected amp reads as "no data" rather than as a confident
-        //DH1KLM zero that happens to be the last thing it said.
+        // Drop every remembered reading. An unset optional renders as "—", so
+        // a disconnected amp reads as "no data" rather than as a confident
+        // zero that happens to be the last thing it said.
         m_status = {};
         m_faultLabel->hide();
         m_faultLabel->clear();
@@ -573,8 +573,8 @@ void RfkitApplet::setConnected(bool connected)
         m_pwrGauge->clearPeak();
         m_refGauge->setValueImmediate(0.0f);
         m_swrGauge->setValueImmediate(0.0f);
-        //DH1KLM Force the repaint so the placeholders replace the last readings now
-        //DH1KLM rather than on the next tick.
+        // Force the repaint so the placeholders replace the last readings now
+        // rather than on the next tick.
         m_valuesDirty = true;
     }
     refreshControls();
@@ -647,8 +647,8 @@ void RfkitApplet::updateValueLabels()
         }
         m_tunerLabel->setText(text);
 
-        //DH1KLM Enabled = the tuner is in the signal path (manual, auto or mid-tune);
-        //DH1KLM disabled = the amplifier reports it off or bypassed.
+        // Enabled = the tuner is in the signal path (manual, auto or mid-tune);
+        // disabled = the amplifier reports it off or bypassed.
         const bool known = t.mode != Rfkit::TunerMode::Unknown;
         const bool enabled = t.mode == Rfkit::TunerMode::Manual
             || t.mode == Rfkit::TunerMode::Auto
@@ -667,4 +667,4 @@ void RfkitApplet::updateValueLabels()
     }
 }
 
-}  //DH1KLM namespace AetherSDR
+}  // namespace AetherSDR

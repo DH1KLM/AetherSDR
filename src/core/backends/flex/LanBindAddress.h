@@ -6,8 +6,8 @@
 
 namespace AetherSDR {
 
-//DH1KLM Match Qt's socket family rather than address equivalence: mapped IPv6
-//DH1KLM literals remain IPv6 endpoints, and scoped addresses keep their interface.
+// Match Qt's socket family rather than address equivalence: mapped IPv6
+// literals remain IPv6 endpoints, and scoped addresses keep their interface.
 inline bool matchesLanAddressFamily(const QHostAddress& radioAddress,
                                     const QHostAddress& localAddress)
 {
@@ -39,4 +39,4 @@ inline LanBindAddress selectLanBindAddress(const QHostAddress& radioAddress,
                             ? QHostAddress::AnyIPv6 : QHostAddress::AnyIPv4), {}};
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

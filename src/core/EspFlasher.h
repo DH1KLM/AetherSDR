@@ -33,7 +33,7 @@ public:
     ~EspFlasher() override;
 
     // Opens portName, connects to the ROM bootloader and starts the stub.
-    //DH1KLM accessDenied (optional) is set when the OS refused to open the port.
+    // accessDenied (optional) is set when the OS refused to open the port.
     bool open(const QString& portName, QString* error, bool* accessDenied = nullptr);
     void close();
     bool isOpen() const;

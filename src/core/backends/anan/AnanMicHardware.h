@@ -1,7 +1,7 @@
 #pragma once
 
 namespace AetherSDR::anan {
-//DH1KLM: Radio microphone wiring; this configuration never asserts MOX or supplies TX IQ.
+// Radio microphone wiring; this configuration never asserts MOX or supplies TX IQ.
 struct MicOptions {
     bool ring = false;
     bool bias = false;

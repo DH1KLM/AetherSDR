@@ -157,7 +157,7 @@ std::vector<std::uint8_t> streamGrant(std::uint32_t sent, std::uint32_t rcvd,
 const RadioId kSelectedRadio{0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
                              0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F};
 
-//DH1KLM RS-BA1 connection-usage notification: reply 03/type 00, not a stream request.
+// RS-BA1 connection-usage notification: reply 03/type 00, not a stream request.
 std::vector<std::uint8_t> connectionUsage(std::uint32_t busy = 0)
 {
     std::vector<std::uint8_t> packet(kLenConnInfo, 0);
@@ -166,7 +166,7 @@ std::vector<std::uint8_t> connectionUsage(std::uint32_t busy = 0)
     header.sentId = kRemote;
     header.rcvdId = kLocal;
     writeHeader(packet, header);
-    packet[0x13] = 0x80; //DH1KLM 128-byte inner payload, big-endian.
+    packet[0x13] = 0x80; // 128-byte inner payload, big-endian.
     packet[0x14] = 0x03;
     std::copy(kLoginId.begin(), kLoginId.end(), packet.begin() + 0x1a);
     std::copy(kSelectedRadio.begin(), kSelectedRadio.end(), packet.begin() + 0x20);
@@ -415,7 +415,7 @@ void testConnectedConnectionUsage()
     QSignalSpy dropped(&session, &IcomSession::disconnected);
     Access::control(session, connectionUsage());
     Access::control(session, connectionUsage());
-    //DH1KLM One readyRead can deliver these before fail()'s deferred stop runs.
+    // One readyRead can deliver these before fail()'s deferred stop runs.
     Access::control(session, streamGrant(kRemote, kLocal, kRotatedId));
     Access::control(session, tokenReply(9, kRotatedId, 0));
     Access::control(session, tokenReply(10, kLoginId, 0));

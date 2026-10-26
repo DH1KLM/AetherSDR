@@ -11,11 +11,11 @@
 namespace AetherSDR::anan_original {
 namespace {
 
-//DH1KLM Single nested-JSON key holding this backend's config (Principle V).
-//DH1KLM Shape: {"ddc0RateKsps":int, "dither":bool,
-//DH1KLM         "random":bool, "ddc0AdcIndex":int, "bypassAdc0Filters":bool,
-//DH1KLM         "bypassAdc1Filters":bool, "speakerAudioEnabled":bool,
-//DH1KLM         "bandFilters":bool, "speakerAmpMuted":bool}
+// Single nested-JSON key holding this backend's config (Principle V).
+// Shape: {"ddc0RateKsps":int, "dither":bool,
+//         "random":bool, "ddc0AdcIndex":int, "bypassAdc0Filters":bool,
+//         "bypassAdc1Filters":bool, "speakerAudioEnabled":bool,
+//         "bandFilters":bool, "speakerAmpMuted":bool}
 const QString kRootKey = QStringLiteral("AnanTropo1234");
 
 constexpr const char* kFieldDdc0RateKsps      = "ddc0RateKsps";
@@ -43,9 +43,9 @@ void AnanSettings::writeObj(const QJsonObject& obj)
     auto& s = AppSettings::instance();
     s.setValue(kRootKey,
                QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
-    //DH1KLM COMMIT -- setValue() only marks the row dirty; save() runs the
-    //DH1KLM transaction and there is no autosave timer. See IcomSettings::
-    //DH1KLM writeObj(), the sibling this is modelled on, for the same note.
+    // COMMIT -- setValue() only marks the row dirty; save() runs the
+    // transaction and there is no autosave timer. See IcomSettings::
+    // writeObj(), the sibling this is modelled on, for the same note.
     s.save();
 }
 
@@ -113,10 +113,10 @@ void AnanSettings::setBypassAdc0Filters(bool on)
 
 bool AnanSettings::speakerAudioEnabled()
 {
-    //DH1KLM false, not true: an absent key must mean "off" here. Every other option in
-    //DH1KLM this file defaults true because absence means "the shipped hardware
-    //DH1KLM default"; this one's absence means the operator has never asked for an
-    //DH1KLM outbound stream, and starting one anyway is the wrong way to be wrong.
+    // false, not true: an absent key must mean "off" here. Every other option in
+    // this file defaults true because absence means "the shipped hardware
+    // default"; this one's absence means the operator has never asked for an
+    // outbound stream, and starting one anyway is the wrong way to be wrong.
     return readObj().value(QLatin1String(kFieldSpeakerAudioEnabled)).toBool(false);
 }
 
@@ -141,8 +141,8 @@ void AnanSettings::setBypassAdc1Filters(bool on)
 
 bool AnanSettings::bandFiltersEnabled()
 {
-    //DH1KLM false on absence: an operator who never chose it has not asked for
-    //DH1KLM relays in the signal path.
+    // false on absence: an operator who never chose it has not asked for
+    // relays in the signal path.
     return readObj().value(QLatin1String(kFieldBandFilters)).toBool(false);
 }
 
@@ -155,7 +155,7 @@ void AnanSettings::setBandFiltersEnabled(bool on)
 
 bool AnanSettings::speakerAmpMuted()
 {
-    //DH1KLM false on absence: the radio powers up with its amplifier live.
+    // false on absence: the radio powers up with its amplifier live.
     return readObj().value(QLatin1String(kFieldSpeakerAmpMuted)).toBool(false);
 }
 

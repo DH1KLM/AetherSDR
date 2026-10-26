@@ -99,10 +99,10 @@ public:
         write(o);
     }
 
-    //DH1KLM Decoder pitch (Hz) and speed (WPM) search ranges, shared by every pan
-    //DH1KLM and kept across restarts.  Reads clamp to the panel sliders' spans and
-    //DH1KLM fall back to the default when a value is missing, non-numeric or
-    //DH1KLM inverted, so a stale or hand-edited blob never reaches the decoder.
+    // Decoder pitch (Hz) and speed (WPM) search ranges, shared by every pan
+    // and kept across restarts.  Reads clamp to the panel sliders' spans and
+    // fall back to the default when a value is missing, non-numeric or
+    // inverted, so a stale or hand-edited blob never reaches the decoder.
     struct Range { int low; int high; };
     static constexpr Range kPitchSpan{300, 1200};
     static constexpr Range kPitchDefault{500, 700};

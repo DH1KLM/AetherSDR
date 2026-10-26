@@ -1,9 +1,9 @@
 #pragma once
 
-//DH1KLM The canon scroll bar (style guide, RFC #6226): a 12 px transparent track,
-//DH1KLM a color.canon.lineHi handle with rounded ends, and no step arrows, both
-//DH1KLM orientations. Template text for ThemeManager::applyStyleSheet() or
-//DH1KLM applyCanonSheet(); a canon window appends it to its sheet.
+// The canon scroll bar (style guide, RFC #6226): a 12 px transparent track,
+// a color.canon.lineHi handle with rounded ends, and no step arrows, both
+// orientations. Template text for ThemeManager::applyStyleSheet() or
+// applyCanonSheet(); a canon window appends it to its sheet.
 
 #include <QString>
 
@@ -45,4 +45,4 @@ QScrollBar::sub-line:horizontal {
 )");
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

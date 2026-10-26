@@ -40,7 +40,7 @@ public:
     void setExtendedMode(bool on) { m_extended = on; }
     bool extendedMode() const     { return m_extended; }
 
-    //DH1KLM Filter edges for a rigctld passband width in the slice's mode.
+    // Filter edges for a rigctld passband width in the slice's mode.
     static std::pair<int, int> passbandEdges(const QString& mode, int passband);
 
 private:

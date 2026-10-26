@@ -1,6 +1,6 @@
-//DH1KLM SmartSDR 4.3 Noise Floor Range (#6656): validation, Flex capability, encode,
-//DH1KLM pan status decode, RadioModel admission and the Display-menu control.
-//DH1KLM Recording command sinks and injected status only: no sockets, radio or TX.
+// SmartSDR 4.3 Noise Floor Range (#6656): validation, Flex capability, encode,
+// pan status decode, RadioModel admission and the Display-menu control.
+// Recording command sinks and injected status only: no sockets, radio or TX.
 #include "TestSettingsProfile.h"
 #include "RadioSetupControlFixture.h"
 #include "gui/SpectrumOverlayMenu.h"
@@ -214,7 +214,7 @@ void displayMenu(RadioModel& radio, RadioSetupTestBackend* backend, PanadapterMo
     license(radio, QStringLiteral("0"));
     check(!slider->isEnabled(), "losing the license dims it again");
 }
-} //DH1KLM namespace
+} // namespace
 
 int main(int argc, char** argv)
 {

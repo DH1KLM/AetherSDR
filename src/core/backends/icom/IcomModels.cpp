@@ -567,7 +567,7 @@ const IcomModelProfile& profileFor(const IcomModel& model) noexcept
         .powerOn = PowerOnProfile{0, kControllerAddress, 1000},
         .memory = MemoryProfile{MemoryDialect::Ic705, 0, 99, 0, 99, true, "Group"},
         .preampLabels = kHfPreampLabels,
-        //DH1KLM IC-705 receiver range transition: stage 2 ends at 74.800 MHz (#6497).
+        // IC-705 receiver range transition: stage 2 ends at 74.800 MHz (#6497).
         .preampTwoStageUpperExclusiveHz = 74'800'000,
         .attenuatorSteps = kHfAttenuatorSteps,
         .modes = kIc705Modes,

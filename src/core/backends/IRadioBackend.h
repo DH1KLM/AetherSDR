@@ -494,9 +494,9 @@ public:
         Q_UNUSED(panId);
         Q_UNUSED(step);
     }
-    //DH1KLM How the radio's own scope window follows the VFO. `index` addresses the
-    //DH1KLM label list published on panScopeModesChanged; the control is enabled only
-    //DH1KLM for two or more labels, so only a backend with a real choice receives this.
+    // How the radio's own scope window follows the VFO. `index` addresses the
+    // label list published on panScopeModesChanged; the control is enabled only
+    // for two or more labels, so only a backend with a real choice receives this.
     virtual void setPanScopeMode(const QString& panId, int index)
     {
         Q_UNUSED(panId);
@@ -1324,10 +1324,10 @@ signals:
     void panAttenuatorInfoChanged(const QString& panId, const QStringList& labels);
     void panAttenuatorChanged(const QString& panId, int step);
 
-    //DH1KLM The radio's scope mode, for a backend whose panadapter is the radio's own
-    //DH1KLM scope (Icom: Center / Scroll-F / Fixed). Fewer than two labels = no choice,
-    //DH1KLM shown unavailable; index -1 means a mode outside the list (e.g. SCROLL-C
-    //DH1KLM picked on the front panel), so the UI lights none.
+    // The radio's scope mode, for a backend whose panadapter is the radio's own
+    // scope (Icom: Center / Scroll-F / Fixed). Fewer than two labels = no choice,
+    // shown unavailable; index -1 means a mode outside the list (e.g. SCROLL-C
+    // picked on the front panel), so the UI lights none.
     void panScopeModesChanged(const QString& panId, const QStringList& labels);
     void panScopeModeChanged(const QString& panId, int index);
 

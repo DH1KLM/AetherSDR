@@ -58,7 +58,7 @@ void updateFilterLed(QLabel* led, bool selected, const QString& name)
     QAccessible::updateAccessibility(&event);
 }
 
-//DH1KLM: Keep both banks visible without imposing their combined width on
+// Keep both banks visible without imposing their combined width on
 // the setup viewport. The surrounding scroll area handles vertical overflow.
 class FilterTables : public QWidget {
 public:
@@ -93,7 +93,7 @@ protected:
             m_box->setDirection(direction);
             updateGeometry();
         }
-        //DH1KLM: SetNoConstraint allows width reflow, but must not let an
+        // SetNoConstraint allows width reflow, but must not let an
         // enclosing tab squeeze away the final filter row or its controls.
         setMinimumHeight(heightForWidth(event->size().width()));
         QWidget::resizeEvent(event);
@@ -726,7 +726,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
         QStringLiteral("61m"), QStringLiteral("49m"), QStringLiteral("41m"), QStringLiteral("31m"),
         QStringLiteral("25m"), QStringLiteral("22m"), QStringLiteral("19m"), QStringLiteral("16m"),
         QStringLiteral("14m"), QStringLiteral("13m"), QStringLiteral("11m")};
-    //DH1KLM Thetis non-extended SWL defaults, integer Hz with disjoint inclusive endpoints.
+    // Thetis non-extended SWL defaults, integer Hz with disjoint inclusive endpoints.
     const std::array<std::pair<int,int>,14> swlRanges{{{200000,1799999},{2300000,2999999},
         {3000000,3499999},{4100000,5059999},{5060000,7199999},{7200000,8999999},
         {9000000,9989999},{11600000,13569999},{13570000,13869999},{15100000,16999999},
@@ -1255,7 +1255,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
         rxAntennas->setAccessibleDescription(bandAntennaReason);
         bandAntennasEnabled->setAccessibleDescription(bandAntennaReason);
         antennaCombo->setEnabled(!bandRouting);
-        //DH1KLM: The ADC0 relay bank is distinct from the active receiver's ADC route.
+        // The ADC0 relay bank is distinct from the active receiver's ADC route.
         const bool activeAdc1 = data.value(QStringLiteral("adcIndex")).toInt() == 1;
         const QStringList inputNames = data.value(QStringLiteral("rxInputNames")).toStringList();
         const int input = data.value(bandRouting ? QStringLiteral("activeRxOnlyInput") : QStringLiteral("rxOnlyInput")).toInt();
@@ -1356,7 +1356,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
             .arg(lpEnabled ? selected(lpNames, data.value(QStringLiteral("lpfActive")).toInt()) : QStringLiteral("Not driven by this profile")));
         const QString policy = data.value(QStringLiteral("filterPolicyText")).toString();
         if (!policy.isEmpty()) { active->setText(active->text() + QStringLiteral("\n") + policy); }
-        //DH1KLM: LEDs follow commanded state on every poll, even while a table edit is pending.
+        // LEDs follow commanded state on every poll, even while a table edit is pending.
         const auto lightRows = [](FilterGrid* table, const QStringList& names, int activeRow,
                                   const QVariantList& activeRows = QVariantList{}) {
             for (int row = 0; row < table->rowCount(); ++row) {
@@ -1770,7 +1770,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
                 const int mask = band.value(QStringLiteral("mask")).toInt();
                 band.insert(QStringLiteral("mask"), value ? mask | (1 << pin) : mask & ~(1 << pin));
                 bands[row] = band;
-                //DH1KLM Seed all regional HF ranges so unassigned amateur bands also suppress SWL.
+                // Seed all regional HF ranges so unassigned amateur bands also suppress SWL.
                 auto hfBands = workingOptions().value(QStringLiteral("ocReceive")).toList();
                 if (hfBands.size() != 11) { return; }
                 for (int n = 0; n < 11; ++n) {

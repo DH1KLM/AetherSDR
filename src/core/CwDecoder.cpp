@@ -103,8 +103,8 @@ void CwDecoder::lockPitch(bool lock)
         std::lock_guard guard(m_parametersMutex);
         const float pitch = m_pitchLocked || !m_typedSource || m_source.current()
             ? m_pitch.load() : 0.0f;
-        //DH1KLM Only a lock keeps a value across a stop; unlocking a stopped
-        //DH1KLM decoder leaves no estimate for Zero Beat to act on (#5745).
+        // Only a lock keeps a value across a stop; unlocking a stopped
+        // decoder leaves no estimate for Zero Beat to act on (#5745).
         m_pitch = lock || m_running ? pitch : 0.0f;
         m_pitchLocked = lock;
         m_pendingParameters.pitchHz = lock ? pitch : -1.0f;

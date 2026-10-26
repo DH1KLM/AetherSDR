@@ -1,7 +1,7 @@
-//DH1KLM Socket-free: unbound native UDP descriptors only (no bind, send or connect).
-//DH1KLM The marker must set the option that marks the socket's own family: IP_TOS on
-//DH1KLM IPv4, IPV6_TCLASS on IPv6, where IP_TOS reads back as set but leaves native
-//DH1KLM IPv6 packets unmarked.
+// Socket-free: unbound native UDP descriptors only (no bind, send or connect).
+// The marker must set the option that marks the socket's own family: IP_TOS on
+// IPv4, IPV6_TCLASS on IPv6, where IP_TOS reads back as set but leaves native
+// IPv6 packets unmarked.
 #include "core/backends/flex/VitaDscpMarker.h"
 #include "core/backends/flex/VitaDscpFlow.h"
 
@@ -51,8 +51,8 @@ int main()
     ::close(v6);
 
 #if defined(Q_OS_LINUX)
-    //DH1KLM A dual-stack IPv6 socket sending to an IPv4 radio emits IPv4-mapped
-    //DH1KLM packets, which take IP_TOS. (macOS refuses IP_TOS on an IPv6 socket.)
+    // A dual-stack IPv6 socket sending to an IPv4 radio emits IPv4-mapped
+    // packets, which take IP_TOS. (macOS refuses IP_TOS on an IPv6 socket.)
     const int dual = ::socket(AF_INET6, SOCK_DGRAM, 0);
     result = marker.apply(dual, QHostAddress(QStringLiteral("192.168.50.254")), {4991});
     check(result.applied && option(dual, IPPROTO_IP, IP_TOS) == kVitaIpTosEf

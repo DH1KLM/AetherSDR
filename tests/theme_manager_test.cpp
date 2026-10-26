@@ -1448,8 +1448,8 @@ int main(int argc, char** argv)
                 {"inkSoft", "nested", 4.5},   // build-card values
                 {"muted", "ground", 4.5},     // version line, close button
                 {"sparkGold", "control", 3.0},  // Logbook button focus ring
-                //DH1KLM Updates window: chapter dots and highlight-card edges are
-                //DH1KLM non-text marks on the ground and the raised card (3:1).
+                // Updates window: chapter dots and highlight-card edges are
+                // non-text marks on the ground and the raised card (3:1).
                 {"category.cyan", "ground", 3.0},   {"category.cyan", "raised", 3.0},
                 {"category.aqua", "ground", 3.0},   {"category.aqua", "raised", 3.0},
                 {"category.blue", "ground", 3.0},   {"category.blue", "raised", 3.0},

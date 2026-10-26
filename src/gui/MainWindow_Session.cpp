@@ -231,7 +231,7 @@ void MainWindow::refreshRadioTabs()
     // LAN radios — the picker's own list, so the strip and the picker can never
     // disagree about what is on the network.
     for (const RadioInfo& discovered : m_connPanel->automationLocalRadios()) {
-        //DH1KLM: A directed connect can resolve an override after this LAN
+        // A directed connect can resolve an override after this LAN
         // row was cached. The live session owns its effective model; a later
         // discovery update must not replace the running configuration either.
         const RadioInfo& info = discovered.displayIdentityForSession(
@@ -443,7 +443,7 @@ void MainWindow::wireDiscovery()
                     m_autoConnectSerial.clear();
             });
     connect(m_connPanel, &ConnectionPanel::retryDiscoveryRequested, this, [this] {
-        //DH1KLM: The panel's scan row owns progress/completion text; do not
+        // The panel's scan row owns progress/completion text; do not
         // overwrite connection errors or leave the footer saying Searching.
         if (m_titleBar) m_titleBar->setDiscovering(true);
         QTimer::singleShot(2000, this, [this] {
@@ -451,7 +451,7 @@ void MainWindow::wireDiscovery()
         });
         m_discovery.stopListening();
         m_discovery.startListening();
-        //DH1KLM: Retry/Scan must also send the active OpenHPSDR probes now,
+        // Retry/Scan must also send the active OpenHPSDR probes now,
         // rather than only restarting Flex's passive listener.
         m_hl2Discovery.sweepNow();
         m_ananDiscovery.sweepNow();
@@ -534,7 +534,7 @@ void MainWindow::wireDiscovery()
     }
     connect(&m_hl2Discovery, &hl2::Hl2Discovery::radioLost, this,
             [this](const QString&) { scheduleRadioTabRefresh(); });
-    //DH1KLM: Mapping edits change ANAN display metadata independently of
+    // Mapping edits change ANAN display metadata independently of
     // connection state; keep the tabs/popover synchronized with the picker.
     for (auto signal : {&anan::AnanDiscovery::radioDiscovered,
                         &anan::AnanDiscovery::radioUpdated}) {
@@ -1241,7 +1241,7 @@ void MainWindow::wireRadioModel()
     // txSliceChanged edge, so the span control's owner is re-derived (#5750).
     connect(&m_radioModel, &RadioModel::slotOccupancyChanged,
             this, [this](int) { syncPanSpanControlPlacement(); });
-    //DH1KLM A late capability republish can change whether the span is fixed.
+    // A late capability republish can change whether the span is fixed.
     connect(&m_radioModel, &RadioModel::capabilitiesChanged,
             this, [this](bool, const RadioCapabilities&) { syncPanSpanControlPlacement(); });
     // ...and CWX/DVK availability follows the TX slice for the same reason. The
@@ -2285,7 +2285,7 @@ void MainWindow::wirePanLifecycle()
                 this, [this, panId = pan->panId()](int step) {
             m_radioModel.setPanAttenuatorFor(panId, step);
         });
-        //DH1KLM The radio's scope mode: same model -> menu / menu -> model shape.
+        // The radio's scope mode: same model -> menu / menu -> model shape.
         connect(pan, &PanadapterModel::scopeModeLabelsChanged,
                 applet->spectrumWidget()->overlayMenu(),
                 &SpectrumOverlayMenu::setScopeModeLabels);
@@ -3437,9 +3437,9 @@ void MainWindow::applyFirmwareCurrencyToVersionLabel()
 }
 
 // The version row's action (click, Return/Enter, or the accessible Press):
-//DH1KLM open the Updates window at the radio's firmware, but ONLY while it shows an
-//DH1KLM out-of-date version, which is the state the tooltip invites a click in.
-//DH1KLM Otherwise it does nothing.
+// open the Updates window at the radio's firmware, but ONLY while it shows an
+// out-of-date version, which is the state the tooltip invites a click in.
+// Otherwise it does nothing.
 void MainWindow::openFirmwareUpdate()
 {
     if (m_radioFirmwareCurrency != AetherSDR::FirmwareCurrency::Status::Outdated)

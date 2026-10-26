@@ -58,8 +58,8 @@ public:
     void feedFixed24(const DecoderPcmBlock& block);
     bool isRunning() const { return m_backend->isRunning(); }
     bool supportsTuning() const { return m_backend->supportsTuning(); }
-    //DH1KLM A stopped decoder shows its locked values; unlocking clears them, so
-    //DH1KLM republish or the panel keeps a dead reading (#5745).
+    // A stopped decoder shows its locked values; unlocking clears them, so
+    // republish or the panel keeps a dead reading (#5745).
     void lockPitch(bool on) { m_backend->lockPitch(on); if (!on && !isRunning()) { queueState(); } }
     void lockSpeed(bool on) { m_backend->lockSpeed(on); if (!on && !isRunning()) { queueState(); } }
     void setPitchRange(int low, int high) { m_backend->setPitchRange(low, high); }

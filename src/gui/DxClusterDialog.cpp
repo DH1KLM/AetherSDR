@@ -479,7 +479,7 @@ QPlainTextEdit {
 }
 )";
 
-//DH1KLM SpotHub's sizes and selection ink, after the shared canon table rules.
+// SpotHub's sizes and selection ink, after the shared canon table rules.
 static constexpr const char* kSpotHubTableStyle = R"(
 QTableView {
     font-size: 11px;

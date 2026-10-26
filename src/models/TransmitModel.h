@@ -215,12 +215,12 @@ public:
     bool    apdEnabled()        const { return m_apdEnabled; }
     bool    apdConfigurable()   const { return m_apdConfigurable; }
     bool    apdEqualizerActive()const { return m_apdEqActive; }
-    //DH1KLM Unset until the radio reports a lifecycle state (SmartSDR 4.3+).
+    // Unset until the radio reports a lifecycle state (SmartSDR 4.3+).
     std::optional<ApdLifecycleState> apdLifecycleState() const { return m_apdLifecycle; }
     static QString apdLifecycleStateName(ApdLifecycleState state);
 
-    //DH1KLM The transmit slice an equalizer status is matched against. RadioModel
-    //DH1KLM supplies it; without one, scoped equalizer statuses never apply.
+    // The transmit slice an equalizer status is matched against. RadioModel
+    // supplies it; without one, scoped equalizer statuses never apply.
     struct ApdTxSlice {
         QString txAntenna;
         double  frequencyMhz{0.0};
@@ -528,9 +528,9 @@ signals:
     void profileListChanged();
     void micStateChanged();
     void micProfileListChanged();
-    //DH1KLM CW profile list or active name changed.
+    // CW profile list or active name changed.
     void cwProfilesChanged();
-    //DH1KLM The radio's unsaved-changes flag for the active CW profile changed.
+    // The radio's unsaved-changes flag for the active CW profile changed.
     void cwProfileUnsavedChanged(bool unsaved);
     void micInputListChanged();
     void phoneStateChanged();       // VOX or CW property changed
@@ -765,7 +765,7 @@ private:
     QString     m_activeMicProfile;
     QStringList m_micInputList;
 
-    //DH1KLM CW profiles (SmartSDR 4.3.16+)
+    // CW profiles (SmartSDR 4.3.16+)
     QStringList m_cwProfileList;
     QString     m_activeCwProfile;
     bool        m_cwProfileUnsaved{false};

@@ -57,7 +57,7 @@ struct RadioInfo {
     // (Hermes-Lite 2, from HPSDR discovery / the manual HL2 path). RadioModel
     // routes the connect through the matching backend based on this.
     QString family{QStringLiteral("flex")};
-    //DH1KLM: Backend variant is separate from physical discovery identity.
+    // Backend variant is separate from physical discovery identity.
     QString implementation;
     QString selectionKey() const {
         return implementation.isEmpty() ? serial : serial + QLatin1Char('|') + implementation;
@@ -65,19 +65,19 @@ struct RadioInfo {
     QString settingsFamily() const {
         return implementation == QLatin1String("tropo1234") ? QStringLiteral("anan-tropo1234") : family;
     }
-    //DH1KLM: Preserve the physical board family in the Thetis/P2 registry;
+    // Preserve the physical board family in the Thetis/P2 registry;
     // P1 discovery normalizes its different wire IDs. -1 means unreported; do not
     // infer a board profile from the human-readable model string.
     int boardId{-1};
-    //DH1KLM: Actual discovery wire protocol, separate from the normalized
+    // Actual discovery wire protocol, separate from the normalized
     // board family. 0 is unspecified, 1/2 are OpenHPSDR P1/P2.
     int hpsdrProtocol{0};
     QString name;           // e.g. "FLEX-6600"
     QString model;
-    //DH1KLM: Display-only effective profile, separate from reported identity.
+    // Display-only effective profile, separate from reported identity.
     // Captured for the session so later settings edits cannot relabel live hardware.
     QString connectionProfile;
-    //DH1KLM: Optional operator-facing model for an explicit hardware override.
+    // Optional operator-facing model for an explicit hardware override.
     // model/boardId retain the reported identity for discovery and validation.
     QString effectiveModel;
     QString serial;
@@ -126,7 +126,7 @@ struct RadioInfo {
         return effectiveModel.isEmpty() ? model : effectiveModel;
     }
     const RadioInfo& displayIdentityForSession(const RadioInfo* active) const {
-        //DH1KLM: Prefer the connected profile snapshot over stale discovery
+        // Prefer the connected profile snapshot over stale discovery
         // metadata, including an explicit transition back to override OFF.
         return active && !serial.isEmpty() && serial == active->serial
             && family.compare(active->family, Qt::CaseInsensitive) == 0
@@ -134,7 +134,7 @@ struct RadioInfo {
             && !active->connectionProfile.isEmpty() ? *active : *this;
     }
     QString displayNickname() const {
-        //DH1KLM: A discovery fallback is not a custom station nickname. Replace
+        // A discovery fallback is not a custom station nickname. Replace
         // that fallback with the effective model, but retain an operator's name.
         return !effectiveModel.isEmpty()
             && (nickname.trimmed().isEmpty()

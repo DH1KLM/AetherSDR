@@ -7,11 +7,11 @@ class QPushButton;
 
 namespace AetherSDR {
 
-//DH1KLM A canon confirmation: the CanonWindow ground with a warning eyebrow, the
-//DH1KLM question, and Cancel beside a confirm button named for the action. Cancel
-//DH1KLM is the default, so Return, Escape and the corner button all decline; exec()
-//DH1KLM returns Accepted only for the confirm button. The text can change while it
-//DH1KLM is open (an upload advancing under a close prompt).
+// A canon confirmation: the CanonWindow ground with a warning eyebrow, the
+// question, and Cancel beside a confirm button named for the action. Cancel
+// is the default, so Return, Escape and the corner button all decline; exec()
+// returns Accepted only for the confirm button. The text can change while it
+// is open (an upload advancing under a close prompt).
 class CanonPrompt : public CanonWindow {
     Q_OBJECT
 
@@ -31,4 +31,4 @@ private:
     QPushButton* m_cancel{nullptr};
 };
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

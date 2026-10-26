@@ -69,8 +69,8 @@ public:
 
     // Opens the device on a port; by default an EspFlasher (tests: a flash
     // in memory). Called on the job's thread.
-    //DH1KLM accessDenied: set when the OS refused to open the port (Linux: no
-    //DH1KLM access to the serial device), as opposed to any other failure.
+    // accessDenied: set when the OS refused to open the port (Linux: no
+    // access to the serial device), as opposed to any other failure.
     using TargetOpener = std::function<std::unique_ptr<EspFlashTarget>(
         const QString& portName, QString* problem, bool* accessDenied)>;
     void setTargetOpener(TargetOpener opener) { m_opener = std::move(opener); }
@@ -78,7 +78,7 @@ public:
     // stopped part way leaves its region incomplete.
     void cancel();
     bool isRunning() const { return m_thread != nullptr; }
-    //DH1KLM The last job failed because the OS refused to open the port.
+    // The last job failed because the OS refused to open the port.
     bool accessDenied() const { return m_accessDenied; }
 
 signals:

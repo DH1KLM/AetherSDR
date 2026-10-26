@@ -41,4 +41,4 @@ inline std::optional<ReceiveCalibration> parseCalibrationOptions(const QVariantM
     }
     return validReceiveCalibration(value) ? std::optional<ReceiveCalibration>(value) : std::nullopt;
 }
-} //DH1KLM namespace AetherSDR::anan
+} // namespace AetherSDR::anan

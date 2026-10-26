@@ -1,5 +1,5 @@
-//DH1KLM The "Outdated Version" prompt shows a GitHub release tag in rich text
-//DH1KLM (#6405); the tag is escaped. No network, no sockets: the tag is passed in.
+// The "Outdated Version" prompt shows a GitHub release tag in rich text
+// (#6405); the tag is escaped. No network, no sockets: the tag is passed in.
 
 #include "core/VersionNumber.h"
 #include "gui/ReleaseTagText.h"

@@ -313,7 +313,7 @@ signals:
     // demodulated audio -- the AGC holds audio level roughly constant, so an
     // audio-RMS meter would barely move with signal strength.
     void meterUpdate(float dbfs);
-    //DH1KLM: Applied WDSP ceiling, tagged against stale toggles and reconnects.
+    // Applied WDSP ceiling, tagged against stale toggles and reconnects.
     void autoAgcApplied(quint64 revision, double topDb);
 
 private:

@@ -458,8 +458,8 @@ int main(int argc, char** argv)
                   .isEmpty(),
               "per-pan answers 'every pane', not the TX pane");
 
-        //DH1KLM A span the backend cannot change dims every pane's pair, except a
-        //DH1KLM pane showing KiwiSDR, whose -/+ zoom the Kiwi view.
+        // A span the backend cannot change dims every pane's pair, except a
+        // pane showing KiwiSDR, whose -/+ zoom the Kiwi view.
         check(spanFixedOnPan(true, true, false, false),
               "declared display controls without bandwidth: the pair is dimmed");
         check(!spanFixedOnPan(true, true, true, false),
@@ -559,8 +559,8 @@ int main(int argc, char** argv)
                   && kiwiSyncAll.contains("syncPanSpanControlPlacement();"),
               "a Kiwi display-source change re-derives the span pair, once per walk");
 
-        //DH1KLM Every zoom route, not only the -/+ pair, leaves a fixed span alone
-        //DH1KLM without announcing a refusal; a center move still goes through.
+        // Every zoom route, not only the -/+ pair, leaves a fixed span alone
+        // without announcing a refusal; a center move still goes through.
         const QByteArray range = functionBody(readSource("src/gui/MainWindow.cpp"),
             "void MainWindow::applyPanRangeRequest(");
         check(range.contains("panSpanFixedByBackend()")

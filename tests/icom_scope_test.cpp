@@ -156,8 +156,8 @@ static void testZoomEscapesTheSnap()
 
 static void testScrollModesAndNegativeEdge()
 {
-    //DH1KLM 0x27 0x14 modes 00-03 (IC-7300MK2; IC-705 >= 1.20; IC-9700 >= 1.30). The
-    //DH1KLM scroll modes report lower and upper edges directly, like Fixed.
+    // 0x27 0x14 modes 00-03 (IC-7300MK2; IC-705 >= 1.20; IC-9700 >= 1.30). The
+    // scroll modes report lower and upper edges directly, like Fixed.
     std::vector<std::uint8_t> wave(kScopePointsIc705, 60);
     ScopeDecoder d;
 
@@ -308,46 +308,46 @@ static void testDbmMapping()
     check(clamped[0] < -59.9f && clamped[0] > -60.1f, "values above 160 clamp to the ceiling");
 }
 
-//DH1KLM SCROLL-F: while an edge write is in flight the view already shows the new
-//DH1KLM window; the old sweep has to land at the frequencies it was measured at.
+// SCROLL-F: while an edge write is in flight the view already shows the new
+// window; the old sweep has to land at the frequencies it was measured at.
 static void testRemapToWindow()
 {
-    //DH1KLM 10 bins over 7.000-7.010 MHz, each bin's value its own index.
+    // 10 bins over 7.000-7.010 MHz, each bin's value its own index.
     std::vector<float> src(10);
     std::iota(src.begin(), src.end(), 0.0f);
 
-    //DH1KLM Same window: identity.
+    // Same window: identity.
     auto same = remapToWindow(src, 7'000'000, 7'010'000, 7'000'000, 7'010'000, -999.0f);
     check(same == src, "remap onto the same window is the identity");
 
-    //DH1KLM Scrolled up by 3 kHz: the first 7 bins are the source's last 7, the
-    //DH1KLM last 3 are uncovered and take the fill.
+    // Scrolled up by 3 kHz: the first 7 bins are the source's last 7, the
+    // last 3 are uncovered and take the fill.
     auto up = remapToWindow(src, 7'000'000, 7'010'000, 7'003'000, 7'013'000, -999.0f);
     check(up[0] == 3.0f && up[6] == 9.0f, "a scroll up shifts the measured bins down");
     check(up[7] == -999.0f && up[9] == -999.0f, "and the uncovered bins take the fill");
 
-    //DH1KLM Scrolled down by 2 kHz: the first 2 bins are uncovered.
+    // Scrolled down by 2 kHz: the first 2 bins are uncovered.
     auto down = remapToWindow(src, 7'000'000, 7'010'000, 6'998'000, 7'008'000, -999.0f);
     check(down[0] == -999.0f && down[1] == -999.0f && down[2] == 0.0f,
           "a scroll down leaves the low bins empty");
 
-    //DH1KLM Zoomed out 2x about the same centre: the source fills the middle half.
+    // Zoomed out 2x about the same centre: the source fills the middle half.
     auto wide = remapToWindow(src, 7'000'000, 7'010'000, 6'995'000, 7'015'000, -999.0f);
     check(wide[0] == -999.0f && wide[9] == -999.0f, "a zoom out leaves both flanks empty");
-    //DH1KLM Bin centres 7.002 and 7.008 MHz are source bins 2 and 8.
+    // Bin centres 7.002 and 7.008 MHz are source bins 2 and 8.
     check(wide[3] == 2.0f && wide[6] == 8.0f, "and compresses the source into the middle");
 
-    //DH1KLM Disjoint window: everything is fill, nothing is invented.
+    // Disjoint window: everything is fill, nothing is invented.
     auto away = remapToWindow(src, 7'000'000, 7'010'000, 7'100'000, 7'110'000, -999.0f);
     check(std::all_of(away.begin(), away.end(), [](float v) { return v == -999.0f; }),
           "a window the sweep does not cover is all fill");
 }
 
-//DH1KLM Fixed / SCROLL-F placement: follow a VFO the operator did not tune here,
-//DH1KLM and never let a window drop the VFO (SCROLL-F pages away from it).
+// Fixed / SCROLL-F placement: follow a VFO the operator did not tune here,
+// and never let a window drop the VFO (SCROLL-F pages away from it).
 static void testScopeWindowPlacement()
 {
-    //DH1KLM 14.000-14.100, zone 10 %, inset 25 %.
+    // 14.000-14.100, zone 10 %, inset 25 %.
     const auto inside = scopeFollowCentre(14'000'000, 14'100'000, 14'050'000, 14'060'000, 0.1, 0.25);
     check(!inside, "a VFO well inside the window leaves it alone");
     const auto right = scopeFollowCentre(14'000'000, 14'100'000, 14'089'000, 14'092'000, 0.1, 0.25);

@@ -1,6 +1,6 @@
-//DH1KLM CanonMessageBox (RFC #6226): the canon window's question box. The caller
-//DH1KLM acts on clickedButton(), so it must name the button the operator clicked
-//DH1KLM (or Return clicked for them), and be null when the box is closed instead.
+// CanonMessageBox (RFC #6226): the canon window's question box. The caller
+// acts on clickedButton(), so it must name the button the operator clicked
+// (or Return clicked for them), and be null when the box is closed instead.
 
 #include "TestSettingsProfile.h"
 #include "core/AppSettings.h"
@@ -38,7 +38,7 @@ struct Box {
 
     Box() { box.setDefaultButton(install); }
 
-    //DH1KLM Runs the box modally, doing `act` once it is showing.
+    // Runs the box modally, doing `act` once it is showing.
     int run(std::function<void(CanonMessageBox&)> act)
     {
         QTimer::singleShot(0, &box, [this, act] {
@@ -55,7 +55,7 @@ void pressKey(CanonMessageBox& box, Qt::Key key)
     QTest::keyClick(target, key);
 }
 
-} //DH1KLM namespace
+} // namespace
 
 int main(int argc, char** argv)
 {
@@ -71,7 +71,7 @@ int main(int argc, char** argv)
     AppSettings::instance().load();
     ThemeManager::instance();
 
-    //DH1KLM ---- a click on an accepting button names it ----
+    // ---- a click on an accepting button names it ----
     {
         Box b;
         const int result = b.run([&b](CanonMessageBox&) { b.install->click(); });
@@ -79,7 +79,7 @@ int main(int argc, char** argv)
         EXPECT_TRUE(b.box.clickedButton() == b.install);
     }
 
-    //DH1KLM ---- a click on a rejecting button names it, and rejects ----
+    // ---- a click on a rejecting button names it, and rejects ----
     {
         Box b;
         const int result = b.run([&b](CanonMessageBox&) { b.cancel->click(); });
@@ -87,7 +87,7 @@ int main(int argc, char** argv)
         EXPECT_TRUE(b.box.clickedButton() == b.cancel);
     }
 
-    //DH1KLM ---- Escape closes it with no button clicked ----
+    // ---- Escape closes it with no button clicked ----
     {
         Box b;
         const int result = b.run([](CanonMessageBox& box) { pressKey(box, Qt::Key_Escape); });
@@ -95,11 +95,11 @@ int main(int argc, char** argv)
         EXPECT_TRUE(b.box.clickedButton() == nullptr);
     }
 
-    //DH1KLM ---- the corner close button closes it with no button clicked ----
+    // ---- the corner close button closes it with no button clicked ----
     {
         Box b;
         const int result = b.run([](CanonMessageBox& box) {
-            //DH1KLM The corner button is the window's only QToolButton.
+            // The corner button is the window's only QToolButton.
             if (auto* close = box.findChild<QToolButton*>())
                 close->click();
             else
@@ -109,7 +109,7 @@ int main(int argc, char** argv)
         EXPECT_TRUE(b.box.clickedButton() == nullptr);
     }
 
-    //DH1KLM ---- Return clicks the default button, which opens with the focus ----
+    // ---- Return clicks the default button, which opens with the focus ----
     {
         Box b;
         bool focused = false;
@@ -123,7 +123,7 @@ int main(int argc, char** argv)
         EXPECT_TRUE(b.install->isDefault() && !b.cancel->isDefault());
     }
 
-    //DH1KLM ---- a box shown again forgets the previous answer ----
+    // ---- a box shown again forgets the previous answer ----
     {
         Box b;
         b.run([&b](CanonMessageBox&) { b.install->click(); });
@@ -132,7 +132,7 @@ int main(int argc, char** argv)
         EXPECT_TRUE(b.box.clickedButton() == nullptr);
     }
 
-    //DH1KLM ---- markup in a manifest string is shown as text, never rendered ----
+    // ---- markup in a manifest string is shown as text, never rendered ----
     {
         CanonMessageBox box(QStringLiteral("Install <b>X</b>?"),
                             QStringLiteral("Install <i>X</i> 1.0?"));
@@ -142,13 +142,13 @@ int main(int argc, char** argv)
             if (l->text().contains(QLatin1Char('<')))
                 plain += l->textFormat() == Qt::PlainText ? 1 : -100;
         }
-        EXPECT_TRUE(plain == 3);   //DH1KLM title, text and further text
+        EXPECT_TRUE(plain == 3);   // title, text and further text
     }
 
-    //DH1KLM ---- Return on a focused button clicks that button, not the default ----
-    //DH1KLM Buttons are auto-default for this. A platform theme whose button-press
-    //DH1KLM keys include Return (as here, offscreen) gives the same result without
-    //DH1KLM it; one that leaves Return out would click the default instead.
+    // ---- Return on a focused button clicks that button, not the default ----
+    // Buttons are auto-default for this. A platform theme whose button-press
+    // keys include Return (as here, offscreen) gives the same result without
+    // it; one that leaves Return out would click the default instead.
     {
         Box b;
         bool cancelFocused = false;
@@ -162,8 +162,8 @@ int main(int argc, char** argv)
         EXPECT_TRUE(b.box.clickedButton() == b.cancel);
     }
 
-    //DH1KLM ---- the further text shows only when there is some; a destructive
-    //DH1KLM      button accepts and is marked for the warning color ----
+    // ---- the further text shows only when there is some; a destructive
+    //      button accepts and is marked for the warning color ----
     {
         CanonMessageBox box(QStringLiteral("Restore the backup?"), QStringLiteral("Restore it?"));
         auto* info = box.findChild<QLabel*>(QStringLiteral("canonMessageInfo"));
@@ -171,7 +171,7 @@ int main(int argc, char** argv)
         EXPECT_TRUE(box.accessibleDescription() == QStringLiteral("Restore it?"));
         box.setInformativeText(QStringLiteral("Only onto the CTR2-Max it came from."));
         EXPECT_TRUE(info && !info->isHidden());
-        //DH1KLM A screen reader reads both texts when the box opens.
+        // A screen reader reads both texts when the box opens.
         EXPECT_TRUE(box.accessibleDescription()
                     == QStringLiteral("Restore it?\nOnly onto the CTR2-Max it came from."));
         QPushButton* restore =

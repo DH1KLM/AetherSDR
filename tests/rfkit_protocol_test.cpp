@@ -1,16 +1,16 @@
-//DH1KLM Pure-codec tests for the RF-KIT REST/JSON protocol layer.
-//DH1KLM
-//DH1KLM Two things matter here:
-//DH1KLM
-//DH1KLM  1. The documents are asserted against the shapes in the vendor's "RFKIT API
-//DH1KLM     and SDK Documentation" (OpenAPI 0.9.0), not against this codec's own
-//DH1KLM     output (constitution Principle I/IV).
-//DH1KLM
-//DH1KLM  2. These bytes come straight off a LAN peer (Principle VII): oversized
-//DH1KLM     bodies, non-JSON, wrong shapes, out-of-range antennas and control enums
-//DH1KLM     the codec cannot interpret must all yield nullopt rather than a
-//DH1KLM     half-filled struct, and the request builders must refuse out-of-range
-//DH1KLM     antennas so they never reach the wire.
+// Pure-codec tests for the RF-KIT REST/JSON protocol layer.
+//
+// Two things matter here:
+//
+//  1. The documents are asserted against the shapes in the vendor's "RFKIT API
+//     and SDK Documentation" (OpenAPI 0.9.0), not against this codec's own
+//     output (constitution Principle I/IV).
+//
+//  2. These bytes come straight off a LAN peer (Principle VII): oversized
+//     bodies, non-JSON, wrong shapes, out-of-range antennas and control enums
+//     the codec cannot interpret must all yield nullopt rather than a
+//     half-filled struct, and the request builders must refuse out-of-range
+//     antennas so they never reach the wire.
 
 #include "core/RfkitProtocol.h"
 
@@ -46,11 +46,11 @@ const QByteArray kPowerJson =
     R"("reflected":{"value":30,"max_value":300,"unit":"W"},)"
     R"("swr":{"value":1.4,"max_value":10.0,"unit":""}})";
 
-}  //DH1KLM namespace
+}  // namespace
 
 int main()
 {
-    //DH1KLM ── /power ────────────────────────────────────────────────────────────
+    // ── /power ────────────────────────────────────────────────────────────
     {
         const auto p = parsePower(kPowerJson);
         report("parsePower decodes a well-formed document", p.has_value());
@@ -66,7 +66,7 @@ int main()
         }
     }
     {
-        //DH1KLM max_value is descriptive: absent means "not reported" (0), not a failure.
+        // max_value is descriptive: absent means "not reported" (0), not a failure.
         const auto p = parsePower(
             R"({"temperature":{"value":30,"unit":"C"},"voltage":{"value":50,"unit":"V"},)"
             R"("current":{"value":1,"unit":"A"},"forward":{"value":0,"unit":"W"},)"
@@ -85,14 +85,14 @@ int main()
     report("parsePower rejects an empty body", !parsePower(QByteArray()).has_value());
     report("parsePower rejects a JSON array", !parsePower("[1,2,3]").has_value());
     {
-        //DH1KLM Principle VII: a body larger than any endpoint can legitimately send
-        //DH1KLM is dropped without parsing.
+        // Principle VII: a body larger than any endpoint can legitimately send
+        // is dropped without parsing.
         QByteArray huge = kPowerJson;
         huge.append(QByteArray(kMaxBodyBytes, ' '));
         report("an oversized body is rejected", !parsePower(huge).has_value());
     }
 
-    //DH1KLM ── /data ─────────────────────────────────────────────────────────────
+    // ── /data ─────────────────────────────────────────────────────────────
     {
         const auto d = parseData(
             R"({"band":{"value":20,"unit":"m"},"frequency":{"value":14200,"unit":"kHz"},"status":"OK"})");
@@ -103,7 +103,7 @@ int main()
     report("parseData rejects a document without a frequency",
            !parseData(R"({"band":{"value":20,"unit":"m"},"status":"OK"})").has_value());
 
-    //DH1KLM ── /info ─────────────────────────────────────────────────────────────
+    // ── /info ─────────────────────────────────────────────────────────────
     {
         const auto i = parseInfo(
             R"({"device":"RFKIT","software_version":{"GUI":12,"controller":34},"custom_device_name":"Shack amp"})");
@@ -114,7 +114,7 @@ int main()
     report("parseInfo rejects a document with no device name",
            !parseInfo(R"({"software_version":{"GUI":1,"controller":2}})").has_value());
 
-    //DH1KLM ── /tuner ────────────────────────────────────────────────────────────
+    // ── /tuner ────────────────────────────────────────────────────────────
     {
         const auto t = parseTuner(
             R"({"mode":"AUTO","setup":"CL","L":{"value":12,"unit":"nH"},"C":{"value":340,"unit":"pF"},)"
@@ -130,7 +130,7 @@ int main()
                    && !t->l && !t->c);
     }
     {
-        //DH1KLM The OpenAPI enum lists the literal false beside the names.
+        // The OpenAPI enum lists the literal false beside the names.
         const auto asBool = parseTuner(R"({"mode":false})");
         const auto asString = parseTuner(R"({"mode":"false"})");
         report("the document's literal false decodes as tuner OFF (boolean and string)",
@@ -140,17 +140,17 @@ int main()
            parseTuner(R"({"mode":"WARP"})")->mode == TunerMode::Unknown);
     report("parseTuner rejects a document with no mode", !parseTuner(R"({"setup":"CL"})").has_value());
 
-    //DH1KLM ── /operate-mode ─────────────────────────────────────────────────────
+    // ── /operate-mode ─────────────────────────────────────────────────────
     report("OPERATE decodes", parseOperateMode(R"({"operate_mode":"OPERATE"})") == OperateMode::Operate);
     report("STANDBY decodes", parseOperateMode(R"({"operate_mode":"STANDBY"})") == OperateMode::Standby);
-    //DH1KLM A control state this codec cannot interpret is refused, never guessed.
+    // A control state this codec cannot interpret is refused, never guessed.
     report("an unknown operate mode is rejected, not guessed to a default",
            !parseOperateMode(R"({"operate_mode":"BOOST"})").has_value());
     report("a lower-case operate mode is rejected (the enum is exact)",
            !parseOperateMode(R"({"operate_mode":"operate"})").has_value());
     report("a missing operate_mode is rejected", !parseOperateMode("{}").has_value());
 
-    //DH1KLM ── /operational-interface ────────────────────────────────────────────
+    // ── /operational-interface ────────────────────────────────────────────
     {
         const auto s = parseInterface(R"({"operational_interface":"TCI","error":"link lost"})");
         report("parseInterface decodes the interface and the read-only error",
@@ -163,20 +163,20 @@ int main()
     report("an unknown interface is rejected",
            !parseInterface(R"({"operational_interface":"RS232"})").has_value());
 
-    //DH1KLM ── Antennas ──────────────────────────────────────────────────────────
+    // ── Antennas ──────────────────────────────────────────────────────────
     {
         const auto a = parseAntenna(R"({"type":"INTERNAL","number":3})");
         report("an internal antenna decodes",
                a.has_value() && a->type == AntennaType::Internal && a->number == 3);
     }
     {
-        //DH1KLM A real RF2K-S lists the external entry with no number while it is
-        //DH1KLM not active...
+        // A real RF2K-S lists the external entry with no number while it is
+        // not active...
         const auto a = parseAntenna(R"({"type":"EXTERNAL"})");
         report("the un-numbered external antenna decodes",
                a.has_value() && a->type == AntennaType::External && a->number == 0);
-        //DH1KLM ...and the API document gives it a number (the external switch port,
-        //DH1KLM readOnly) otherwise. The selection itself carries none.
+        // ...and the API document gives it a number (the external switch port,
+        // readOnly) otherwise. The selection itself carries none.
         const auto b = parseAntenna(R"({"type":"EXTERNAL","number":16})");
         report("a number on the external antenna is not part of the selection",
                b.has_value() && b->type == AntennaType::External && b->number == 0);
@@ -202,7 +202,7 @@ int main()
                    && list->at(2).antenna.type == AntennaType::External);
     }
     {
-        //DH1KLM One bad entry costs only itself.
+        // One bad entry costs only itself.
         const auto list = parseAntennas(
             R"([{"type":"INTERNAL","number":9,"state":"ACTIVE"},)"
             R"({"type":"INTERNAL","number":2,"state":"WARM"},)"
@@ -211,7 +211,7 @@ int main()
                list.has_value() && list->size() == 1 && list->at(0).antenna.number == 4);
     }
     {
-        //DH1KLM The shape a real RF2K-S sends: the list wrapped in {"antennas":[...]}.
+        // The shape a real RF2K-S sends: the list wrapped in {"antennas":[...]}.
         const auto list = parseAntennas(
             R"({"antennas":[{"type":"INTERNAL","number":1,"state":"ACTIVE"},)"
             R"({"type":"INTERNAL","number":2,"state":"AVAILABLE"},)"
@@ -228,8 +228,8 @@ int main()
                    && list->at(4).state == AntennaState::Available);
     }
     {
-        //DH1KLM The vendor's example for an active external antenna: the entry
-        //DH1KLM carries the external switch port (1-16).
+        // The vendor's example for an active external antenna: the entry
+        // carries the external switch port (1-16).
         const auto list = parseAntennas(
             R"([{"type":"INTERNAL","number":1,"state":"AVAILABLE"},)"
             R"({"type":"EXTERNAL","number":16,"state":"ACTIVE"}])");
@@ -251,7 +251,7 @@ int main()
     report("an empty antenna array is a valid, empty list",
            parseAntennas("[]").has_value() && parseAntennas("[]")->isEmpty());
 
-    //DH1KLM ── Error body ────────────────────────────────────────────────────────
+    // ── Error body ────────────────────────────────────────────────────────
     {
         const auto e = parseApiError(R"({"status":"error","reason":"Function currently disabled"})");
         report("parseApiError decodes status and reason",
@@ -259,7 +259,7 @@ int main()
     }
     report("parseApiError rejects non-JSON", !parseApiError("Conflict").has_value());
 
-    //DH1KLM ── Request builders ──────────────────────────────────────────────────
+    // ── Request builders ──────────────────────────────────────────────────
     {
         const QJsonObject o = QJsonDocument::fromJson(buildOperateModeBody(OperateMode::Operate)).object();
         report("OPERATE body", o.value("operate_mode").toString() == "OPERATE" && o.size() == 1);
@@ -267,8 +267,8 @@ int main()
         report("STANDBY body", s.value("operate_mode").toString() == "STANDBY");
     }
     {
-        //DH1KLM The API document marks ExternalAntenna.number readOnly, so the request
-        //DH1KLM carries none. (Not observed on a unit: nobody has tried it.)
+        // The API document marks ExternalAntenna.number readOnly, so the request
+        // carries none. (Not observed on a unit: nobody has tried it.)
         report("external antenna body carries no number",
                buildAntennaBody({AntennaType::External, 0}) == QByteArray(R"({"type":"EXTERNAL"})"));
     }
@@ -285,13 +285,13 @@ int main()
            buildAntennaBody({AntennaType::External, 1}).isEmpty()
                && buildAntennaBody({AntennaType::External, -1}).isEmpty());
     {
-        //DH1KLM A built body must round-trip through the parser the device's reply uses.
+        // A built body must round-trip through the parser the device's reply uses.
         const auto round = parseAntenna(buildAntennaBody({AntennaType::External, 0}));
         report("a built antenna body parses back to the same antenna",
                round.has_value() && *round == Antenna{AntennaType::External, 0});
     }
 
-    //DH1KLM ── Presentation helpers ──────────────────────────────────────────────
+    // ── Presentation helpers ──────────────────────────────────────────────
     report("temperature in °C passes through", nearlyEqual(temperatureCelsius({40.0f, "°C"}), 40.0f));
     report("temperature in °F is converted", nearlyEqual(temperatureCelsius({104.0f, "°F"}), 40.0f));
     report("frequency in kHz formats as MHz", formatFrequency({14200, "kHz"}) == "14.200 MHz");

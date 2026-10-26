@@ -54,7 +54,7 @@ struct FakeDevice {
     std::atomic<int> writeDelayMs{0};
     std::atomic<int> writesBegun{0};
     std::atomic<bool> failWrites{false};
-    std::atomic<int> failWritesAfter{-1}; //DH1KLM not -1: writes after this many fail
+    std::atomic<int> failWritesAfter{-1}; // not -1: writes after this many fail
     std::atomic<bool> closed{false};
     std::function<void()> onWritten;   // after a write completes, on the I/O thread
     QByteArray featureReply;           // Get Feature 0x02 answer, ID first; empty = stall
@@ -229,8 +229,8 @@ void testReadsAndFailures()
     port2->shutdown({});
     waitUntil([] { return false; }, 100);
 
-    //DH1KLM Writes that went out before a failing one in the same tick are counted,
-    //DH1KLM and reported before the failure: the firmware updater relies on it.
+    // Writes that went out before a failing one in the same tick are counted,
+    // and reported before the failure: the firmware updater relies on it.
     auto dev3 = std::make_shared<FakeDevice>();
     dev3->failWritesAfter = 2;
     auto* port3 = new Ctr2HidThreadPort(dev3->io(), QStringLiteral("fake"));
@@ -387,8 +387,8 @@ void testNegotiation()
     }
 }
 
-//DH1KLM Wide reports: once accepted, reports go out and come in bundled in report
-//DH1KLM 0x04, up to seven at a time; report 0x01 padded by Windows still reads.
+// Wide reports: once accepted, reports go out and come in bundled in report
+// 0x04, up to seven at a time; report 0x01 padded by Windows still reads.
 void testWideReports()
 {
     auto dev = std::make_shared<FakeDevice>();
@@ -446,19 +446,19 @@ void testWideReports()
     }
     check(waitUntil([&] { return got.size() == 24; }) && got == "ABCDEFGHIJKLMNOPQRSTUVWX",
           "bundled reports, and a report 0x01 padded to 64 bytes, arrive in order");
-    //DH1KLM A short read carrying report 0x04 is not an 8-byte report with its ID
-    //DH1KLM stripped. A DATA message left open mid-way: the read's first byte, 0x04,
-    //DH1KLM is a valid counter for its next report, so only the port can refuse it.
+    // A short read carrying report 0x04 is not an 8-byte report with its ID
+    // stripped. A DATA message left open mid-way: the read's first byte, 0x04,
+    // is a valid counter for its next report, so only the port can refuse it.
     {
         std::vector<Report> open, skipped;
         FrameEncoder enc;
         for (int i = 0; i < 3; ++i) {
-            enc.encodeControl(MessageType::Closed, &skipped);   //DH1KLM counters 0..2
+            enc.encodeControl(MessageType::Closed, &skipped);   // counters 0..2
         }
-        enc.encodeControl(MessageType::Ready, &open);           //DH1KLM counter 3
+        enc.encodeControl(MessageType::Ready, &open);           // counter 3
         check(enc.counter() == 4, "the DATA message gets counter 4, the stray read's first byte");
-        enc.encodeData(QByteArray(7, 'x'), &open);   //DH1KLM header and one data report
-        open.pop_back();                              //DH1KLM the data report never comes
+        enc.encodeData(QByteArray(7, 'x'), &open);   // header and one data report
+        open.pop_back();                              // the data report never comes
         QByteArray two(1 + kWideReportBytes, '\0');
         two[0] = char(kWideReportId);
         two[1] = 2;
@@ -489,7 +489,7 @@ void testWideReports()
     port->shutdown({});
     waitUntil([&] { return dev->closed.load(); });
 
-    //DH1KLM A bundle claiming no reports fails the port too.
+    // A bundle claiming no reports fails the port too.
     dev = std::make_shared<FakeDevice>();
     dev->featureReply = featureReport(capabilities::encode(kWideReportsBit));
     port = new Ctr2HidThreadPort(dev->io(), QStringLiteral("fake"));
@@ -506,7 +506,7 @@ void testWideReports()
     port->shutdown({});
     waitUntil([&] { return dev->closed.load(); });
 
-    //DH1KLM Final reports at shutdown are bundled too.
+    // Final reports at shutdown are bundled too.
     auto dev2 = std::make_shared<FakeDevice>();
     dev2->featureReply = featureReport(capabilities::encode(kWideReportsBit));
     QPointer<Ctr2HidThreadPort> port2 = new Ctr2HidThreadPort(dev2->io(), QStringLiteral("fake"));
@@ -520,7 +520,7 @@ void testWideReports()
               "the final reports go in one bundle");
     }
 
-    //DH1KLM Without wide reports, report 0x04 is not part of the link.
+    // Without wide reports, report 0x04 is not part of the link.
     auto dev3 = std::make_shared<FakeDevice>();
     auto* port3 = new Ctr2HidThreadPort(dev3->io(), QStringLiteral("fake"));
     QString failure3;
@@ -529,7 +529,7 @@ void testWideReports()
     QObject::connect(port3, &Ctr2HidPort::reportsReceived, port3, [&](const QByteArray& r) { got3 += r; });
     {
         std::lock_guard<std::mutex> g(dev3->lock);
-        dev3->reads.push_back(padded);     //DH1KLM Windows: a device with report 0x04 declared
+        dev3->reads.push_back(padded);     // Windows: a device with report 0x04 declared
     }
     check(waitUntil([&] { return got3 == "QRSTUVWX"; }), "a padded report 0x01 reads without wide reports");
     {

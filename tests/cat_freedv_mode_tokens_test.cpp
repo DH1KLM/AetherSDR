@@ -1,11 +1,11 @@
-//DH1KLM SmartSDR 4.3 FreeDV mode tokens over CAT (#6653). FlexLib v4.3.16 replaced
-//DH1KLM the bare FDV token with FDVU/FDVL and treats FDVL as lower sideband
-//DH1KLM (Slice.cs:799,825). SmartCAT and rigctld must report both, accept them back
-//DH1KLM without leaving FreeDV, and place an FDVL passband on the lower side; legacy
-//DH1KLM FDV keeps its old answers.
-//DH1KLM
-//DH1KLM Socket-free: an injected stub backend that records slice intents, and the
-//DH1KLM protocol objects driven by command text. Nothing is keyed.
+// SmartSDR 4.3 FreeDV mode tokens over CAT (#6653). FlexLib v4.3.16 replaced
+// the bare FDV token with FDVU/FDVL and treats FDVL as lower sideband
+// (Slice.cs:799,825). SmartCAT and rigctld must report both, accept them back
+// without leaving FreeDV, and place an FDVL passband on the lower side; legacy
+// FDV keeps its old answers.
+//
+// Socket-free: an injected stub backend that records slice intents, and the
+// protocol objects driven by command text. Nothing is keyed.
 
 #include "TestSettingsProfile.h"
 #include "core/RigctlProtocol.h"
@@ -170,8 +170,8 @@ void testRigctlReportsAndKeepsFreeDv()
               && u.backend->filters.back().hi == 2400,
           "rigctld M PKTUSB 2400 on FDVU: passband on the upper side (95..2400)");
 
-    //DH1KLM The model also mirrors positive lower-sideband edges on the non-Flex
-    //DH1KLM path, so pin the edges rigctld itself computes.
+    // The model also mirrors positive lower-sideband edges on the non-Flex
+    // path, so pin the edges rigctld itself computes.
     using Edges = std::pair<int, int>;
     check(RigctlProtocol::passbandEdges("FDVL", 2400) == Edges(-2400, -95),
           "rigctld passband: FDVL edges are lower-sideband");
@@ -188,7 +188,7 @@ void testRigctlReportsAndKeepsFreeDv()
     check(d.backend->modes == QStringList{"DIGL"}, "rigctld M PKTLSB on DIGU: still sets DIGL");
 }
 
-} //DH1KLM namespace
+} // namespace
 
 int main(int argc, char** argv)
 {

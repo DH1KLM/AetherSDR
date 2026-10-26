@@ -42,14 +42,14 @@ public:
 
     struct Params {
         QString host;
-        //DH1KLM: -1 means a manual/unidentified target; otherwise require the
+        // -1 means a manual/unidentified target; otherwise require the
         //Discovery reply to match the exact P2 board ID selected by discovery.
         int expectedBoardId = -1;
-        //DH1KLM: Explicit per-radio P1 model override; ignored by P2 transport.
+        // Explicit per-radio P1 model override; ignored by P2 transport.
         bool redPitayaP1 = false;
         AnanModel model = AnanModel::Automatic;
-        bool overrideDetection = false; //DH1KLM: Explicit effective-board override.
-        //DH1KLM: Valid rates: 48/96/192/384/768/1536 (spec p.24).
+        bool overrideDetection = false; // Explicit effective-board override.
+        // Valid rates: 48/96/192/384/768/1536 (spec p.24).
         // Discovery validates the initial DDC list against the resolved board;
         // live rate changes use the same allow-list before updating that list.
         int ddc0RateKsps = 48;
@@ -57,9 +57,9 @@ public:
         bool ditherEnabled = true;
         bool randomEnabled = true;
         int ddc0AdcIndex = 0;          // 0 = ADC0, 1 = ADC1/RX2
-        //DH1KLM: Physical ADC count is a board-profile property; Saturn remains 2.
+        // Physical ADC count is a board-profile property; Saturn remains 2.
         int numAdcs = 2;
-        bool bypassAdc0Filters = false; //DH1KLM: use Thetis Saturn BPF1 by default
+        bool bypassAdc0Filters = false; // use Thetis Saturn BPF1 by default
         bool bypassAdc1Filters = true;
         std::optional<FilterConfig> filters;
         double frequencyCorrection = 1.0;
@@ -69,7 +69,7 @@ public:
         int alexAttenuationDb = 0;
         int adc0AttenuationDb = 0;
         int adc1AttenuationDb = 0;
-        //DH1KLM: RX antenna number 1..3 maps to Thetis Alex0 bits 24..26.
+        // RX antenna number 1..3 maps to Thetis Alex0 bits 24..26.
         int rxAntenna = 1;
 
         // Send demodulated RX audio to the radio's own speaker (DDC Audio,
@@ -81,7 +81,7 @@ public:
 
         // Multi-DDC session. EMPTY (default) = single DDC0 built from ddc0RateKsps/
         // ddc0AdcIndex. Non-empty is authoritative and those two fields are ignored;
-        //DH1KLM: Entry n configures logical RX n at the selected profile's
+        // Entry n configures logical RX n at the selected profile's
         // physical DDC offset. The validated range must fit within kMaxDdcs.
         std::vector<DdcConfig> activeDdcs;
     };
@@ -93,7 +93,7 @@ public:
     Q_INVOKABLE bool start(const Params& params, int connectTimeoutMs = kConnectTimeoutMs);
     Q_INVOKABLE void stop();
 
-    //DH1KLM: Retune logical RX0 (physical DDC0 Saturn, DDC2 Orion MkII).
+    // Retune logical RX0 (physical DDC0 Saturn, DDC2 Orion MkII).
     // No frequency is set by start() itself (see the class
     // comment on connectRadio()/setSliceFrequency() being separate seam
     // calls) -- a caller retunes immediately after a successful start if it
@@ -114,7 +114,7 @@ public:
     // tick. An out-of-range adcIndex is ignored.
     Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     Q_INVOKABLE void setStepAttenuationDb(int adcIndex, int db);
-    //DH1KLM: Change the selected Saturn RX antenna without restarting P2.
+    // Change the selected Saturn RX antenna without restarting P2.
     Q_INVOKABLE void setRxAntenna(int antenna);
     void setReceiveFilterPlan(const ReceiveFilterPlan& plan) { m_receiveFilterPlan = plan; }
     Q_INVOKABLE void setHardwareFilters(const QVariantMap& options);
@@ -188,7 +188,7 @@ signals:
     // Mic Data / Status traffic, which onReadyRead() rejects and does not
     // count as a connection).
     void connectionError(const QString& reason);
-    //DH1KLM: Logical RX0's decoded IQ (physical DDC2 on Orion MkII).
+    // Logical RX0's decoded IQ (physical DDC2 on Orion MkII).
     // RX0 is the receiver every session has, and it is what linkUp()/the connect
     // timeout are keyed on. Emitted for ddcIndex 0 only; ddcIqReady() below
     // fires for the same block as well.
@@ -240,7 +240,7 @@ private:
                             std::span<const std::uint8_t> bytes, quint16 senderPort);
     void handleDatagram(std::span<const std::uint8_t> bytes, quint16 senderPort);
     void noteSpeakerFifoStatus(const HighPriorityStatus& status);
-    //DH1KLM: Retry the validated General configuration independently of IQ
+    // Retry the validated General configuration independently of IQ
     // arrival; an accepted UDP send is not an acknowledgement from the radio.
     std::optional<std::array<std::uint8_t, 60>> takeGeneralRefresh(qint64 nowMs);
     std::optional<std::array<std::uint8_t, 60>> m_generalPacket;
@@ -291,13 +291,13 @@ private:
     // (unlikely, but this parses unauthenticated UDP) must not re-fire it
     // repeatedly for the life of the session.
     bool m_discoveryInfoSent = false;
-    //DH1KLM: No profile packets are sent until this session's reply
+    // No profile packets are sent until this session's reply
     // identifies an implemented RX profile and matches any selected board ID.
     bool m_discoveryValidated = false;
     int m_expectedBoardId = -1;
     AnanModel m_model = AnanModel::Automatic;
     bool m_overrideDetection = false;
-    //DH1KLM: Stream indices stay logical; packet rows/ports use this RX offset.
+    // Stream indices stay logical; packet rows/ports use this RX offset.
     int m_firstDdcIndex = 0;
     double m_frequencyCorrection = 1.0;
     bool m_selectReceiveLpf = false;
@@ -311,7 +311,7 @@ private:
     // the rest of this session (the keepalive tick included) carries these
     // same values, since there is no live setter for either (see Params'
     // own comment on why these are connect-time-only).
-    bool m_bypassAdc0Filters = false; //DH1KLM: use Thetis Saturn BPF1 by default
+    bool m_bypassAdc0Filters = false; // use Thetis Saturn BPF1 by default
     bool m_bypassAdc1Filters = true;
     // Step attenuation per ADC, seeded from Params at start() and changed
     // live by setStepAttenuationDb(); every buildHighPriority() carries it.
@@ -319,9 +319,9 @@ private:
     int m_adc0AttenuationDb = 0;
     int m_adc1AttenuationDb = 0;
     int m_rxAntenna = 1;
-    int m_numAdcs = 2; //DH1KLM: board profile; defaults to the currently supported Saturn family.
+    int m_numAdcs = 2; // board profile; defaults to the currently supported Saturn family.
 
-    //DH1KLM: Candidate preparation never changes live state before a send succeeds.
+    // Candidate preparation never changes live state before a send succeeds.
     std::optional<std::array<std::uint8_t, 1444>> prepareDdcRateChange(int ddcIndex, int rateKsps) const;
     // Private transport injection for live-rate failure tests; production uses UDP.
     std::function<qint64(std::span<const std::uint8_t>)> m_ddcRateSendOverride;

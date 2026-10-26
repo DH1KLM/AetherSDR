@@ -75,7 +75,7 @@ QVariantMap AnanImplementation::originalOptions()
 void AnanImplementation::populateParams(RadioConnectRequest& request, const QString& implementation)
 {
     if (implementation != originalId()) { return; }
-    //DH1KLM: Replace, never inherit model overrides or extended front-end options.
+    // Replace, never inherit model overrides or extended front-end options.
     for (auto it = request.params.begin(); it != request.params.end();) {
         if (it.key().startsWith(QLatin1String("anan."))) { it = request.params.erase(it); }
         else { ++it; }

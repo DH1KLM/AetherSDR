@@ -8,7 +8,7 @@
 
 namespace AetherSDR {
 
-//DH1KLM The APD correction lifecycle a radio reports (SmartSDR 4.3+ `apd state=`).
+// The APD correction lifecycle a radio reports (SmartSDR 4.3+ `apd state=`).
 enum class ApdLifecycleState { Off, Idle, Training, Active, Hold, Fault };
 
 // Normalized transmit-status delta (aetherd RFC 2.3), present-only like SliceDelta.
@@ -92,11 +92,11 @@ struct TransmitDelta {
     // Bare `equalizer_reset` flag: model clears apdEqActive + emits the reset
     // signal. Engaged (regardless of value) iff the wire carried the flag.
     std::optional<bool>    apdEqualizerReset;
-    //DH1KLM Engaged only for a recognized lifecycle token.
+    // Engaged only for a recognized lifecycle token.
     std::optional<ApdLifecycleState> apdLifecycle;
-    //DH1KLM The TX antenna, frequency and RF power an equalizer status describes. A
-    //DH1KLM status carrying either of the first two is scoped: the model applies it
-    //DH1KLM only when it matches the transmit slice.
+    // The TX antenna, frequency and RF power an equalizer status describes. A
+    // status carrying either of the first two is scoped: the model applies it
+    // only when it matches the transmit slice.
     std::optional<QString> apdEqAntenna;
     std::optional<double>  apdEqFrequencyMhz;
     std::optional<int>     apdEqRfPower;

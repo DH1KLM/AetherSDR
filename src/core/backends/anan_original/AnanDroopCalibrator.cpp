@@ -39,15 +39,15 @@ AnanDroopCalibrator::AnanDroopCalibrator(Hooks hooks, QObject* parent)
     connect(&m_pollTimer, &QTimer::timeout, this, &AnanDroopCalibrator::advance);
 }
 
-//DH1KLM ---- pure math --------------------------------------------------------
+// ---- pure math --------------------------------------------------------
 
 AnanDroopCalibrator::Curve AnanDroopCalibrator::medianPowerCurve(const QVector<Curve>& captures)
 {
     Curve result{};
     if (captures.isEmpty())
         return result;
-    //DH1KLM Guards log10(0) only: real edge-droop bins reach -160..-180 dBm (1e-16..1e-18
-    //DH1KLM linear), so the floor must sit far below that (-300 dB).
+    // Guards log10(0) only: real edge-droop bins reach -160..-180 dBm (1e-16..1e-18
+    // linear), so the floor must sit far below that (-300 dB).
     static constexpr float kLog10Floor = 1.0e-30f;
     std::vector<float> powers(static_cast<std::size_t>(captures.size()));
     for (std::size_t k = 0; k < result.size(); ++k) {
@@ -78,7 +78,7 @@ anan_original::DroopCorrectionTable AnanDroopCalibrator::computeCorrection(
     return table;
 }
 
-//DH1KLM ---- persistence --------------------------------------------------------
+// ---- persistence --------------------------------------------------------
 
 QMap<int, anan_original::DroopCorrectionTable> AnanDroopCalibrator::loadTables(
     const RadioSettingsScope& scope)
@@ -90,9 +90,9 @@ QMap<int, anan_original::DroopCorrectionTable> AnanDroopCalibrator::loadTables(
     int storedSchema = 0;
     const QJsonObject doc = scope.feature(QLatin1String(kFeature), &storedSchema);
     if (storedSchema > kSchemaVersion) {
-        //DH1KLM Same refusal as saveTables(): a newer schema's numbers need not mean what
-        //DH1KLM v1's do, and a wrong correction is silent. Uncorrected (the per-rate
-        //DH1KLM kDroopCorrectionZero fallback) beats wrongly corrected.
+        // Same refusal as saveTables(): a newer schema's numbers need not mean what
+        // v1's do, and a wrong correction is silent. Uncorrected (the per-rate
+        // kDroopCorrectionZero fallback) beats wrongly corrected.
         qCWarning(lcOriginalAnanDroopCal)
             << "stored droop calibration is schema v" << storedSchema
             << "-- newer than this build understands (v" << kSchemaVersion
@@ -122,8 +122,8 @@ QString AnanDroopCalibrator::saveTables(const RadioSettingsScope& scope,
         return QStringLiteral("no settings scope for this radio");
 
     int storedSchema = 0;
-    //DH1KLM featureExact(), not feature(): a writer must not fold the family-wide
-    //DH1KLM fallback into this radio's own row. An absent row reads as schema 0.
+    // featureExact(), not feature(): a writer must not fold the family-wide
+    // fallback into this radio's own row. An absent row reads as schema 0.
     QJsonObject doc = scope.featureExact(QLatin1String(kFeature), &storedSchema);
     if (storedSchema > kSchemaVersion) {
         return QStringLiteral("stored calibration is schema v%1, newer than this "
@@ -139,17 +139,17 @@ QString AnanDroopCalibrator::saveTables(const RadioSettingsScope& scope,
         doc.insert(QString::number(it.key()), arr);
     }
 
-    //DH1KLM setFeature() refuses while the store is not ReadyToSave. Reporting that
-    //DH1KLM as success is the #4621 failure shape -- nothing reads a correction
-    //DH1KLM table back off the radio, so the operator would only discover it on the
-    //DH1KLM next connect, as a droop that quietly returned.
+    // setFeature() refuses while the store is not ReadyToSave. Reporting that
+    // as success is the #4621 failure shape -- nothing reads a correction
+    // table back off the radio, so the operator would only discover it on the
+    // next connect, as a droop that quietly returned.
     if (!scope.setFeature(QLatin1String(kFeature), kSchemaVersion, doc))
         return QStringLiteral("the settings store refused the write");
     AppSettings::instance().save();
     return {};
 }
 
-//DH1KLM ---- sweep control --------------------------------------------------------
+// ---- sweep control --------------------------------------------------------
 
 void AnanDroopCalibrator::start()
 {
@@ -165,8 +165,8 @@ void AnanDroopCalibrator::start()
     m_haveLatestFrame = false;
     m_rateIdx = 0;
 
-    //DH1KLM Before the first rate is requested:
-    //DH1KLM every frame this sweep ever sees must be uncorrected.
+    // Before the first rate is requested:
+    // every frame this sweep ever sees must be uncorrected.
     setDspBypass(true);
 
     m_clock.start();
@@ -188,9 +188,9 @@ void AnanDroopCalibrator::stop(bool restoreRate)
 
 void AnanDroopCalibrator::applyResult()
 {
-    //DH1KLM The backend relays every refusal to both the UI and automation.
+    // The backend relays every refusal to both the UI and automation.
     if (isRunning()) {
-        //DH1KLM Refusing Apply must not end a sweep that is still running.
+        // Refusing Apply must not end a sweep that is still running.
         emit error(QStringLiteral("a sweep is still running -- stop it before applying "
                                   "the measured correction"));
         return;
@@ -222,7 +222,7 @@ void AnanDroopCalibrator::clear()
     m_pendingCaptures.clear();
 }
 
-//DH1KLM ---- phase state machine --------------------------------------------------
+// ---- phase state machine --------------------------------------------------
 
 void AnanDroopCalibrator::setDspBypass(bool bypassed)
 {
@@ -248,11 +248,11 @@ int AnanDroopCalibrator::currentTargetRateKsps() const
 void AnanDroopCalibrator::finishSweep(bool applied, bool restoreRate)
 {
     m_pollTimer.stop();
-    //DH1KLM Every exit from a sweep comes through here -- completion, stop(), and
-    //DH1KLM abortSweep() alike -- so the correction is restored on all of them.
-    //DH1KLM Non-destructive by construction: the tables were hidden, never
-    //DH1KLM overwritten, so there is nothing to restore FROM and no window in which
-    //DH1KLM a crash could lose them.
+    // Every exit from a sweep comes through here -- completion, stop(), and
+    // abortSweep() alike -- so the correction is restored on all of them.
+    // Non-destructive by construction: the tables were hidden, never
+    // overwritten, so there is nothing to restore FROM and no window in which
+    // a crash could lose them.
     setDspBypass(false);
     if (restoreRate && m_hooks.requestRate && m_originalRateKsps > 0) {
         m_hooks.requestRate(m_originalRateKsps);
@@ -300,19 +300,19 @@ void AnanDroopCalibrator::advance()
             m_phase = Phase::Sampling;
             m_phaseStartedAtMs = now;   // also the stall deadline -- see Sampling
             m_lastSampleAtMs = 0;       // capture immediately on the first Sampling tick
-            //DH1KLM Drop whatever frame is in hand. It may predate the settle
-            //DH1KLM window, or even the rate change -- frames for the PREVIOUS rate
-            //DH1KLM are still in flight when this phase begins, and one of those
-            //DH1KLM measured into this rate's table is the cross-rate corruption
-            //DH1KLM the whole per-rate keying exists to prevent.
+            // Drop whatever frame is in hand. It may predate the settle
+            // window, or even the rate change -- frames for the PREVIOUS rate
+            // are still in flight when this phase begins, and one of those
+            // measured into this rate's table is the cross-rate corruption
+            // the whole per-rate keying exists to prevent.
             m_haveLatestFrame = false;
         }
         break;
 
     case Phase::Sampling: {
-        //DH1KLM The rate changed mid-Sampling (wheel zoom, `zoom`/`panbw` bridge call):
-        //DH1KLM continuing would file another rate's frames under this key. The sweep owns the
-        //DH1KLM rate, so abort and keep the rates already measured.
+        // The rate changed mid-Sampling (wheel zoom, `zoom`/`panbw` bridge call):
+        // continuing would file another rate's frames under this key. The sweep owns the
+        // rate, so abort and keep the rates already measured.
         if (m_landedRateKsps != currentTargetRateKsps()) {
             abortSweep(QStringLiteral("the panadapter rate changed to %1 ksps while "
                                       "measuring %2 ksps -- nothing else may drive the "
@@ -335,10 +335,10 @@ void AnanDroopCalibrator::advance()
         m_lastSampleAtMs = now;
         m_phaseStartedAtMs = now;   // progress resets the stall deadline
         m_pendingCaptures.push_back(m_latestFrame);
-        //DH1KLM Require a genuinely NEW frame for the next capture. Without this the
-        //DH1KLM 8-sample median can be eight copies of one frame whenever the
-        //DH1KLM spectrum FPS is below 1000/kSampleSpacingMs, which defeats the
-        //DH1KLM outlier rejection medianPowerCurve() exists to provide.
+        // Require a genuinely NEW frame for the next capture. Without this the
+        // 8-sample median can be eight copies of one frame whenever the
+        // spectrum FPS is below 1000/kSampleSpacingMs, which defeats the
+        // outlier rejection medianPowerCurve() exists to provide.
         m_haveLatestFrame = false;
         emit rateSampled(currentTargetRateKsps(), m_pendingCaptures.size());
 
@@ -373,9 +373,9 @@ void AnanDroopCalibrator::onSpectrumFrame(const std::vector<float>& binsDbm)
 {
     if (m_phase == Phase::Idle)
         return;
-    //DH1KLM The panadapter's point count follows the panel width; the tables are
-    //DH1KLM stored on the fixed kDroopCorrectionFftSize grid, so read each frame
-    //DH1KLM onto that grid. At exactly that count this is a straight copy.
+    // The panadapter's point count follows the panel width; the tables are
+    // stored on the fixed kDroopCorrectionFftSize grid, so read each frame
+    // onto that grid. At exactly that count this is a straight copy.
     if (!anan_original::resampleToDroopGrid(binsDbm, m_latestFrame))
         return;
     m_haveLatestFrame = true;

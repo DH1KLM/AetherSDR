@@ -1,6 +1,6 @@
-//DH1KLM UpdateChecker's release reading: the GitHub release JSON into ReleaseInfo,
-//DH1KLM the installer for this computer, and the URL allowlist. Kept apart from the
-//DH1KLM request lifecycle in UpdateChecker.cpp; every input here is network text.
+// UpdateChecker's release reading: the GitHub release JSON into ReleaseInfo,
+// the installer for this computer, and the URL allowlist. Kept apart from the
+// request lifecycle in UpdateChecker.cpp; every input here is network text.
 
 #include "UpdateChecker.h"
 #include "VersionNumber.h"
@@ -24,15 +24,15 @@ constexpr int kMaxAssets = 64;
 
 const QString kDownloadPathPrefix = QStringLiteral("/aethersdr/AetherSDR/releases/download/");
 
-//DH1KLM Release-prep boilerplate, not a chapter of what changed.
+// Release-prep boilerplate, not a chapter of what changed.
 bool isBoilerplateHeading(const QString& heading)
 {
     return heading.compare(QLatin1String("Contributors"), Qt::CaseInsensitive) == 0
         || heading.compare(QLatin1String("Downloads"), Qt::CaseInsensitive) == 0;
 }
 
-//DH1KLM Markdown emphasis, code spans and links become their plain text; control
-//DH1KLM characters go. The result is shown with Qt::PlainText, never as markup.
+// Markdown emphasis, code spans and links become their plain text; control
+// characters go. The result is shown with Qt::PlainText, never as markup.
 QString plainText(QString text, int maxChars)
 {
     static const QRegularExpression link(QStringLiteral(R"(\[([^\]]*)\]\([^)]*\))"));
@@ -51,7 +51,7 @@ QString plainText(QString text, int maxChars)
     return out;
 }
 
-} //DH1KLM namespace
+} // namespace
 
 ReleaseInfo UpdateChecker::parseRelease(const QByteArray& json)
 {
@@ -63,7 +63,7 @@ ReleaseInfo UpdateChecker::parseRelease(const QByteArray& json)
     }
     info.version = version.toString();
 
-    //DH1KLM "AetherSDR v26.10.3 — SmartSDR 4.3 firmware support and …"
+    // "AetherSDR v26.10.3 — SmartSDR 4.3 firmware support and …"
     const QString name = root.value(QLatin1String("name")).toString();
     const qsizetype dash = name.indexOf(QChar(0x2014));
     if (dash >= 0) {
@@ -116,7 +116,7 @@ bool UpdateChecker::isTrustedDownloadUrl(const QUrl& url)
     if (!path.startsWith(kDownloadPathPrefix) || path.contains(QLatin1String(".."))) {
         return false;
     }
-    //DH1KLM .../download/<tag>/<file>: exactly two segments after the prefix.
+    // .../download/<tag>/<file>: exactly two segments after the prefix.
     const QStringList rest = path.mid(kDownloadPathPrefix.size()).split(QLatin1Char('/'));
     return rest.size() == 2 && !rest[0].isEmpty() && !rest[1].isEmpty();
 }
@@ -155,8 +155,8 @@ ReleaseAsset UpdateChecker::assetForThisComputer(const ReleaseInfo& release)
     }
 #if defined(Q_OS_WIN)
     const QString os = QStringLiteral("windows");
-    //DH1KLM The installer leaves its uninstaller beside the executable; the
-    //DH1KLM portable zip has none.
+    // The installer leaves its uninstaller beside the executable; the
+    // portable zip has none.
     const bool portable = !QFile::exists(QCoreApplication::applicationDirPath()
                                          + QStringLiteral("/unins000.exe"));
 #elif defined(Q_OS_MACOS)
@@ -170,8 +170,8 @@ ReleaseAsset UpdateChecker::assetForThisComputer(const ReleaseInfo& release)
     const bool portable = false;
 #endif
     const int i = pickAsset(release.assets, os,
-                            //DH1KLM The build's architecture, not the host's: an x64 build
-                            //DH1KLM emulated on ARM is replaced by the x64 installer.
+                            // The build's architecture, not the host's: an x64 build
+                            // emulated on ARM is replaced by the x64 installer.
                             QSysInfo::buildCpuArchitecture(), portable);
     return i >= 0 ? release.assets[i] : ReleaseAsset{};
 }
@@ -186,4 +186,4 @@ QUrl UpdateChecker::releasePageUrl(const QString& version)
                 + parsed.toString());
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

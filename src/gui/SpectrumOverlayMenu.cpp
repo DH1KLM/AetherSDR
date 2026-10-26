@@ -257,7 +257,7 @@ static void applyPanelStyle(QWidget* panel, const QString& objectName)
 // (label+control rows, the Display scroll area/viewport/content). Scoped
 // because an unscoped "QWidget { … }" cascades onto children and their tooltip
 // labels. QWidget# even for the QScrollArea: the name already pins one widget.
-//DH1KLM `childRules` styles the row's children through this one call (already scoped).
+// `childRules` styles the row's children through this one call (already scoped).
 static void applyTransparentStyle(QWidget* widget, const QString& objectName,
                                   const QString& childRules = {})
 {
@@ -1265,7 +1265,7 @@ void SpectrumOverlayMenu::requestNoiseFloorRange()
     }
     if (m_radioModel->requestPanControl(m_panadapter, {PanControlField::NoiseFloorRange, db})
         != ReceiveDispatch::Dispatched) {
-        syncNoiseFloorRange();   //DH1KLM refused: show the radio's value again
+        syncNoiseFloorRange();   // refused: show the radio's value again
     }
 }
 
@@ -1886,14 +1886,14 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         });
     }
 
-    //DH1KLM Scope mode, for a radio whose panadapter is its own scope (Icom). First in
-    //DH1KLM the group because it changes what every spectrum gesture does. An
-    //DH1KLM Icom-only cluster: built for that family alone (setRadioFamily), and
-    //DH1KLM dimmed with a reason on an Icom whose model or firmware has no choice.
+    // Scope mode, for a radio whose panadapter is its own scope (Icom). First in
+    // the group because it changes what every spectrum gesture does. An
+    // Icom-only cluster: built for that family alone (setRadioFamily), and
+    // dimmed with a reason on an Icom whose model or firmware has no choice.
     {
         m_scopeModeRow = new QWidget;
-        //DH1KLM The label and the buttons rebuilt per radio share the row's one
-        //DH1KLM stylesheet, scoped to it, with the panel's label and button looks.
+        // The label and the buttons rebuilt per radio share the row's one
+        // stylesheet, scoped to it, with the panel's label and button looks.
         const QString scoped = QStringLiteral("QWidget#displayScopeModeRow ");
         applyTransparentStyle(m_scopeModeRow, QStringLiteral("displayScopeModeRow"),
                               QString(labelStyle).replace(QStringLiteral("QLabel"),
@@ -2098,7 +2098,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         emit noiseFloorPositionChanged(v);
     });
 
-    //DH1KLM Radio-owned: the slider shows what the pan reported and sends a request.
+    // Radio-owned: the slider shows what the pan reported and sends a request.
     const int rangeSteps = qRound(kNoiseFloorRangeMaximumDb / kNoiseFloorRangeStepDb);
     makeRow("NF Range:", 0, rangeSteps, 3, m_floorRangeSlider, m_floorRangeLabel);
     m_floorRangeSlider->setObjectName("displayNoiseFloorRangeSlider");
@@ -3390,8 +3390,8 @@ void SpectrumOverlayMenu::refreshFrontEndButtons()
           QStringLiteral("attenuator"));
 }
 
-//DH1KLM The buttons do not own their state: a click emits the request and they
-//DH1KLM repaint from the index the backend reports.
+// The buttons do not own their state: a click emits the request and they
+// repaint from the index the backend reports.
 void SpectrumOverlayMenu::setScopeModeLabels(const QStringList& labels)
 {
     if (labels == m_scopeModeLabels && m_scopeModeBtns.size() == labels.size()) {
@@ -3423,8 +3423,8 @@ void SpectrumOverlayMenu::rebuildScopeModeButtons()
     }
     qDeleteAll(m_scopeModeBtns);
     m_scopeModeBtns.clear();
-    //DH1KLM A radio with no choice publishes the one mode it has; show that mode
-    //DH1KLM dimmed, not three buttons it does not offer.
+    // A radio with no choice publishes the one mode it has; show that mode
+    // dimmed, not three buttons it does not offer.
     const QStringList labels = !m_scopeModeLabels.isEmpty()
         ? m_scopeModeLabels : QStringList{tr("Center"), tr("Scroll-F"), tr("Fixed")};
     for (int i = 0; i < labels.size(); ++i) {
@@ -3439,7 +3439,7 @@ void SpectrumOverlayMenu::rebuildScopeModeButtons()
         m_scopeModeLayout->addWidget(btn, 1);
         m_scopeModeBtns.append(btn);
         connect(btn, &QPushButton::clicked, this, [this, i] {
-            //DH1KLM Undo the checked state Qt gave the click; the backend's answer lights it.
+            // Undo the checked state Qt gave the click; the backend's answer lights it.
             refreshScopeModeButtons();
             if (i != m_scopeModeIndex) {
                 emit scopeModeChanged(i);
@@ -3454,10 +3454,10 @@ void SpectrumOverlayMenu::refreshScopeModeButtons()
     if (!m_scopeModeRow) {
         return;
     }
-    //DH1KLM Shown for the Icom family only (a maintainer-ruled exception to
-    //DH1KLM dim-never-hide); within it the backend's label list decides: fewer than
-    //DH1KLM two = an Icom whose model or firmware has no choice, dimmed with the
-    //DH1KLM reason; two or more = the choice.
+    // Shown for the Icom family only (a maintainer-ruled exception to
+    // dim-never-hide); within it the backend's label list decides: fewer than
+    // two = an Icom whose model or firmware has no choice, dimmed with the
+    // reason; two or more = the choice.
     m_scopeModeRow->setVisible(m_radioFamily.compare(QLatin1String("icom"),
                                                      Qt::CaseInsensitive) == 0);
     const bool available = m_scopeModeLabels.size() > 1;

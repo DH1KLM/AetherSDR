@@ -61,7 +61,7 @@ ReceiveDispatch FlexBackend::requestPanControl(const QString& panId, const PanCo
     case PanControlField::ReceiveAntenna:
         field = QStringLiteral("rxant"); value = std::get<QString>(request.value); break;
     case PanControlField::NoiseFloorRange:
-        //DH1KLM QString::number ignores the locale: the radio needs a '.' decimal.
+        // QString::number ignores the locale: the radio needs a '.' decimal.
         field = QStringLiteral("noise_floor_range");
         value = QString::number(std::get<double>(request.value), 'f', 1);
         break;

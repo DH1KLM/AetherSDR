@@ -7,10 +7,10 @@
 #include <optional>
 
 namespace AetherSDR::anan {
-//DH1KLM: Thetis RX filter rows, in integer Hz. No TX relay or keying state.
+// Thetis RX filter rows, in integer Hz. No TX relay or keying state.
 struct FilterBand { std::uint32_t lowHz; std::uint32_t highHz; };
 struct OcReceiveBand { std::uint32_t lowHz = 0; std::uint32_t highHz = 0; std::uint8_t mask = 0; };
-//DH1KLM Stable row order: 160m..6m, 2m, GEN, WWV, XVTR. ANT and RX-only are independent.
+// Stable row order: 160m..6m, 2m, GEN, WWV, XVTR. ANT and RX-only are independent.
 struct ReceiveAntennaBand {
     int antenna = 1;
     int rxOnly = 0;
@@ -29,15 +29,15 @@ struct FilterConfig {
     std::array<bool, 6> receiveBypass{};
     bool disable6mLnaOnRx = false;
     bool lpfBypassOnRx = false;
-    //DH1KLM: Thetis RX-only selector: 0=ANT bank, 1/2=external, 3=XVTR.
+    // Thetis RX-only selector: 0=ANT bank, 1/2=external, 3=XVTR.
     int rxOnlyInput = 0;
-    //DH1KLM: Old documents inherit ADC0 ranges until ADC1 is configured.
+    // Old documents inherit ADC0 ranges until ADC1 is configured.
     std::optional<std::array<FilterBand, 6>> receiveAdc1{};
-    //DH1KLM Absent in legacy documents; seed from the saved manual path before enabling.
+    // Absent in legacy documents; seed from the saved manual path before enabling.
     std::optional<ReceiveAntennaBands> antennaBands{};
-    //DH1KLM Independent SWL masks; HF ranges take precedence, including unassigned HF pins.
+    // Independent SWL masks; HF ranges take precedence, including unassigned HF pins.
     std::array<OcReceiveBand, 14> ocSwl{};
-    //DH1KLM Independent manual DB9 outputs; only the four user bits are permitted.
+    // Independent manual DB9 outputs; only the four user bits are permitted.
     std::uint8_t userDigitalOutputs = 0;
 };
 inline constexpr FilterConfig defaultFilterConfig(bool mkII) noexcept
@@ -71,7 +71,7 @@ inline int selectedFilterBand(const std::array<FilterBand, N>& rows, double hz) 
     }
     return -1;
 }
-//DH1KLM: RX OC routing is explicit operator configuration, never a model default.
+// RX OC routing is explicit operator configuration, never a model default.
 inline std::uint8_t receiveOcMask(const FilterConfig& config, double hz) noexcept
 {
     if (!config.ocEnabled || !std::isfinite(hz)) { return 0; }

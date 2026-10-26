@@ -13,7 +13,7 @@ namespace {
 // Single nested-JSON key holding this backend's config (Principle V).
 // Shape: {"username":string, "lastHost":string, "controlPort":int,
 //         "serialPort":int, "audioPort":int, "civAddress":int,
-//DH1KLM         "civSelection":"auto"|"model"|"custom", "wakeOnConnect":bool}
+//         "civSelection":"auto"|"model"|"custom", "wakeOnConnect":bool}
 //
 // Deliberately NO password field. See the header.
 const QString kRootKey = QStringLiteral("Icom");

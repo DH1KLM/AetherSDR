@@ -40,12 +40,12 @@ const char* const UpdateStager::kManifestUrl = "https://updates.aethersdr.com/la
 
 namespace {
 
-//DH1KLM Every URL a manifest may name: a download of the release it describes, on
-//DH1KLM the one repository the app trusts (UpdateChecker::isTrustedDownloadUrl).
+// Every URL a manifest may name: a download of the release it describes, on
+// the one repository the app trusts (UpdateChecker::isTrustedDownloadUrl).
 const QString kDownloadBase = QStringLiteral("https://github.com/aethersdr/AetherSDR/releases/download/");
 
-//DH1KLM packaging/update-signing.pub's raw Ed25519 key (key_id 788fb6e31f7ecba4).
-//DH1KLM update_stager_test checks it against that file.
+// packaging/update-signing.pub's raw Ed25519 key (key_id 788fb6e31f7ecba4).
+// update_stager_test checks it against that file.
 const unsigned char kUpdateSigningKey[32] = {
     0xe2, 0x73, 0x23, 0x65, 0xae, 0x0a, 0xb4, 0x35, 0x4a, 0x54, 0x05, 0x55, 0x3b, 0x86, 0x93, 0x5e,
     0xc3, 0xc0, 0x82, 0xdd, 0x76, 0xfe, 0x24, 0x8a, 0xc2, 0x3b, 0x19, 0x2d, 0x56, 0xe8, 0x83, 0x84,
@@ -76,8 +76,8 @@ const QRegularExpression& hexSha()
     return re;
 }
 
-//DH1KLM A release version, "26.10.3" or "26.10.3.1": the tag without its "v", the
-//DH1KLM name of a staged tree, and the stem of its records.
+// A release version, "26.10.3" or "26.10.3.1": the tag without its "v", the
+// name of a staged tree, and the stem of its records.
 const QRegularExpression& releaseVersion()
 {
     static const QRegularExpression re(QStringLiteral("^[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?$"));
@@ -90,8 +90,8 @@ const QRegularExpression& memberName()
     return re;
 }
 
-//DH1KLM Relative, '/'-separated, inside the tree: no root, drive, backslash, '.',
-//DH1KLM '..' or empty segment.
+// Relative, '/'-separated, inside the tree: no root, drive, backslash, '.',
+// '..' or empty segment.
 bool safePath(const QString& path)
 {
     if (path.isEmpty() || path.size() > 1024 || path.startsWith(QLatin1Char('/'))
@@ -108,8 +108,8 @@ bool safePath(const QString& path)
     return true;
 }
 
-//DH1KLM A link the manifest may carry: relative and resolving, lexically from the
-//DH1KLM link's own directory, inside the tree.
+// A link the manifest may carry: relative and resolving, lexically from the
+// link's own directory, inside the tree.
 bool linkStaysInside(const QString& path, const QString& target)
 {
     if (target.isEmpty() || target.startsWith(QLatin1Char('/')) || target.contains(QLatin1Char('\\'))
@@ -164,8 +164,8 @@ fs::path toPath(const QString& s)
     return fs::path(s.toStdU16String());
 }
 
-//DH1KLM No component between root and the entry may be a symlink: a write is
-//DH1KLM never routed through a link.
+// No component between root and the entry may be a symlink: a write is
+// never routed through a link.
 bool noLinkOnTheWay(const fs::path& root, const QString& rel)
 {
     fs::path at = root;
@@ -192,9 +192,9 @@ void setExecutable(const fs::path& p, bool executable)
 #endif
 }
 
-//DH1KLM One zstd frame into outPath, against prefix when given (--patch-from),
-//DH1KLM with the window limited to windowLog and the output to exactly size bytes
-//DH1KLM hashing to sha256.
+// One zstd frame into outPath, against prefix when given (--patch-from),
+// with the window limited to windowLog and the output to exactly size bytes
+// hashing to sha256.
 bool decode(const QByteArray& frame, const uchar* prefix, size_t prefixSize, int windowLog,
             qint64 size, const QString& sha256, QFileDevice& out, QString* problem)
 {
@@ -250,9 +250,9 @@ bool decode(const QByteArray& frame, const uchar* prefix, size_t prefixSize, int
     return true;
 }
 
-//DH1KLM After the removals, the folders they left empty go, deepest first, each
-//DH1KLM parent after its children. A folder that was already empty in the install
-//DH1KLM is not the removals' and is left alone.
+// After the removals, the folders they left empty go, deepest first, each
+// parent after its children. A folder that was already empty in the install
+// is not the removals' and is left alone.
 void pruneEmptiedDirs(const fs::path& root, std::vector<fs::path> touched)
 {
     std::sort(touched.begin(), touched.end(), [](const fs::path& a, const fs::path& b) {
@@ -260,7 +260,7 @@ void pruneEmptiedDirs(const fs::path& root, std::vector<fs::path> touched)
     });
     std::error_code ec;
     for (fs::path d : touched) {
-        //DH1KLM Walk up from each removed entry's folder while the folders empty.
+        // Walk up from each removed entry's folder while the folders empty.
         while (d != root && d.has_relative_path() && fs::is_directory(fs::symlink_status(d, ec))
                && fs::is_empty(d, ec)) {
             fs::remove(d, ec);
@@ -315,9 +315,9 @@ bool applyOps(const fs::path& stage, const QHash<QString, QByteArray>& members,
             return false;
         }
         const QByteArray& frame = *member;
-        //DH1KLM The new bytes go to a file created here, exclusively and under a
-        //DH1KLM random name, never to a predictable one: an unlisted link copied
-        //DH1KLM from the install could otherwise be followed out of staging.
+        // The new bytes go to a file created here, exclusively and under a
+        // random name, never to a predictable one: an unlisted link copied
+        // from the install could otherwise be followed out of staging.
         QTemporaryFile out(native(target.parent_path()) + QStringLiteral("/.update-XXXXXX"));
         if (!out.open()) {
             *problem = QStringLiteral("%1: cannot write the new file").arg(op.path);
@@ -356,7 +356,7 @@ bool applyOps(const fs::path& stage, const QHash<QString, QByteArray>& members,
         if (fs::is_symlink(fs::symlink_status(target, ec))) {
             fs::remove(target, ec);
         }
-        //DH1KLM: Qt must release its temporary-file handle when replacing the staged file on Windows.
+        // Qt must release its temporary-file handle when replacing the staged file on Windows.
         if (!out.renameOverwrite(native(target))) {
             *problem = QStringLiteral("%1: cannot be replaced").arg(op.path);
             return false;
@@ -365,7 +365,7 @@ bool applyOps(const fs::path& stage, const QHash<QString, QByteArray>& members,
         setExecutable(target, op.executable);
     }
     if (!pruned) {
-        pruneEmptiedDirs(stage, emptied);   //DH1KLM a patch of removals only
+        pruneEmptiedDirs(stage, emptied);   // a patch of removals only
     }
     return true;
 }
@@ -375,9 +375,9 @@ QString recordPath(const QString& stagingRoot, const QString& version, const QSt
     return QDir(stagingRoot).filePath(version + suffix);
 }
 
-//DH1KLM The install exists, and it and the staging folder do not overlap: staging
-//DH1KLM inside the install would copy into itself; the install inside staging
-//DH1KLM would be wiped by a failure.
+// The install exists, and it and the staging folder do not overlap: staging
+// inside the install would copy into itself; the install inside staging
+// would be wiped by a failure.
 bool checkRoots(const QString& installRoot, const QString& stagingDir, fs::path* install,
                 fs::path* stage, QString* problem)
 {
@@ -432,9 +432,9 @@ bool checkTree(const fs::path& stage, const QList<UpdateManifest::File>& files, 
     return true;
 }
 
-} //DH1KLM namespace
+} // namespace
 
-//DH1KLM ── Manifest ────────────────────────────────────────────────────────────────
+// ── Manifest ────────────────────────────────────────────────────────────────
 
 bool UpdateManifest::parse(const QByteArray& json, UpdateManifest* out, QString* problem)
 {
@@ -566,7 +566,7 @@ bool UpdateManifest::parse(const QByteArray& json, UpdateManifest* out, QString*
     return true;
 }
 
-//DH1KLM ── Stager ──────────────────────────────────────────────────────────────────
+// ── Stager ──────────────────────────────────────────────────────────────────
 
 UpdateStager::UpdateStager(QObject* parent)
     : QObject(parent)
@@ -574,8 +574,8 @@ UpdateStager::UpdateStager(QObject* parent)
 {
     connect(m_download, &CappedDownload::finished, this, &UpdateStager::onDownloaded);
     connect(m_download, &CappedDownload::failed, this, [this](const QString& reason) {
-        //DH1KLM The manifest was trusted; only a release file could not be had
-        //DH1KLM (gone, stalled, larger than signed). The full release may still work.
+        // The manifest was trusted; only a release file could not be had
+        // (gone, stalled, larger than signed). The full release may still work.
         if (m_stage == Stage::Bundle && m_payload) {
             qCWarning(lcUpdater).noquote() << "update bundle not downloaded:" << reason;
             fallBack(reason);
@@ -715,7 +715,7 @@ bool UpdateStager::readBundle(const QByteArray& bundle, QHash<QString, QByteArra
         if (!ok || size < 0 || size > bundle.size() - at) {
             return broken(QStringLiteral("cut short"));
         }
-        //DH1KLM A view into the bundle, not a copy: the bundle outlives the apply.
+        // A view into the bundle, not a copy: the bundle outlives the apply.
         members->insert(name, QByteArray::fromRawData(bundle.constData() + at, static_cast<qsizetype>(size)));
         at += (size + kTarBlock - 1) / kTarBlock * kTarBlock;
     }
@@ -779,11 +779,11 @@ bool UpdateStager::applyFull(const QString& installRoot, const QByteArray& zip,
         fs::remove_all(stage, ignore);
         return false;
     };
-    //DH1KLM The zip may hold exactly the release's files: no more, no fewer, and
-    //DH1KLM nothing larger in all than the manifest says.
+    // The zip may hold exactly the release's files: no more, no fewer, and
+    // nothing larger in all than the manifest says.
     QHash<QString, const UpdateManifest::File*> wanted;
     ZipReadLimits limits;
-    limits.maxEntries = 2 * files.size() + 16;   //DH1KLM and the folders' own entries
+    limits.maxEntries = 2 * files.size() + 16;   // and the folders' own entries
     limits.maxEntryUncompressedBytes = 0;
     limits.maxTotalUncompressedBytes = 0;
     for (const UpdateManifest::File& f : files) {
@@ -803,7 +803,7 @@ bool UpdateStager::applyFull(const QString& installRoot, const QByteArray& zip,
     }
     QHash<QString, QByteArray> contents;
     for (auto it = entries.cbegin(); it != entries.cend(); ++it) {
-        //DH1KLM Compress-Archive writes '\'.
+        // Compress-Archive writes '\'.
         QString name = it.key();
         name.replace(QLatin1Char('\\'), QLatin1Char('/'));
         if (name.endsWith(QLatin1Char('/'))) {
@@ -811,7 +811,7 @@ bool UpdateStager::applyFull(const QString& installRoot, const QByteArray& zip,
             if (!safePath(name) || !it.value().isEmpty()) {
                 return fail(QStringLiteral("The full release has an unexpected entry %1.").arg(it.key()));
             }
-            continue;   //DH1KLM a folder; its files create it
+            continue;   // a folder; its files create it
         }
         if (!wanted.contains(name) || contents.contains(name)) {
             *problem = QStringLiteral("The full release has an unexpected file %1.").arg(it.key());
@@ -845,10 +845,10 @@ bool UpdateStager::applyFull(const QString& installRoot, const QByteArray& zip,
         out.close();
         setExecutable(target, wanted.value(it.key())->executable);
     }
-    //DH1KLM setup.exe's uninstaller and its record stay with the install: the
-    //DH1KLM release's own files never include them.
-    //DH1KLM A release file of that name, in any case on Windows, where the
-    //DH1KLM install's unins000.dat and the release's Unins000.dat are one file.
+    // setup.exe's uninstaller and its record stay with the install: the
+    // release's own files never include them.
+    // A release file of that name, in any case on Windows, where the
+    // install's unins000.dat and the release's Unins000.dat are one file.
     const auto isReleaseFile = [&wanted](const QString& name) {
 #ifdef Q_OS_WIN
         for (auto w = wanted.cbegin(); w != wanted.cend(); ++w) {
@@ -861,8 +861,8 @@ bool UpdateStager::applyFull(const QString& installRoot, const QByteArray& zip,
         return wanted.contains(name);
 #endif
     };
-    //DH1KLM Every step takes an error code: this runs on a worker, where a
-    //DH1KLM throwing increment would end the app.
+    // Every step takes an error code: this runs on a worker, where a
+    // throwing increment would end the app.
     fs::directory_iterator it(install, ec);
     for (const fs::directory_iterator end; !ec && it != end; it.increment(ec)) {
         const fs::path entry = it->path();
@@ -872,7 +872,7 @@ bool UpdateStager::applyFull(const QString& installRoot, const QByteArray& zip,
         }
         std::error_code probe;
         if (!fs::is_regular_file(fs::symlink_status(entry, probe))) {
-            continue;   //DH1KLM a link or a folder is not the installer's file
+            continue;   // a link or a folder is not the installer's file
         }
         fs::copy_file(entry, stage / entry.filename(), ec);
         if (ec) {
@@ -890,7 +890,7 @@ bool UpdateStager::applyFull(const QString& installRoot, const QByteArray& zip,
 
 namespace {
 
-//DH1KLM An empty path is no install, never the working directory.
+// An empty path is no install, never the working directory.
 bool sameInstall(const QString& a, const QString& b)
 {
     if (a.isEmpty() || b.isEmpty()) {
@@ -904,7 +904,7 @@ bool sameInstall(const QString& a, const QString& b)
     return QDir::cleanPath(QDir(a).absolutePath()).compare(QDir::cleanPath(QDir(b).absolutePath()), cs) == 0;
 }
 
-} //DH1KLM namespace
+} // namespace
 
 UpdateStager::StagedRelease UpdateStager::stagedRelease(const QString& stagingRoot,
                                                         const QString& runningVersion,
@@ -933,9 +933,9 @@ UpdateStager::StagedRelease UpdateStager::stagedRelease(const QString& stagingRo
                             && VersionNumber::parse(version) > running
                             && r.value(QLatin1String("from")).toString() == runningVersion
                             && sameInstall(r.value(QLatin1String("install")).toString(), installRoot)
-                            //DH1KLM The tag is the version's own: the record keeps none of
-                            //DH1KLM its own to edit, and revalidate() binds the version to
-                            //DH1KLM the signed manifest.
+                            // The tag is the version's own: the record keeps none of
+                            // its own to edit, and revalidate() binds the version to
+                            // the signed manifest.
                             && (githubLatestTag.isEmpty() || githubLatestTag == QLatin1Char('v') + version)
                             && version != rolledBackVersion && QFileInfo(root.filePath(version)).isDir()
                             && QFileInfo::exists(root.filePath(version + QLatin1String(".manifest.json")))
@@ -944,10 +944,10 @@ UpdateStager::StagedRelease UpdateStager::stagedRelease(const QString& stagingRo
             chosen = {version, root.filePath(version), runningVersion};
         }
     }
-    //DH1KLM Everything else staging wrote is stale: other versions, half-written
-    //DH1KLM records, work folders a crashed run left. The folder is shared with
-    //DH1KLM the swap helper (UpdateInstaller::stateDir()): its journal, result,
-    //DH1KLM repair plan, log and copy are never staging's to remove.
+    // Everything else staging wrote is stale: other versions, half-written
+    // records, work folders a crashed run left. The folder is shared with
+    // the swap helper (UpdateInstaller::stateDir()): its journal, result,
+    // repair plan, log and copy are never staging's to remove.
     std::error_code ec;
     const QStringList keep = chosen.version.isEmpty()
                                  ? QStringList()
@@ -955,8 +955,8 @@ UpdateStager::StagedRelease UpdateStager::stagedRelease(const QString& stagingRo
                                                chosen.version + QLatin1String(".manifest.json"),
                                                chosen.version + QLatin1String(".manifest.json.sig")};
     const QDir::Filters all = QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot;
-    //DH1KLM A tree, a record, or a record QSaveFile left half written
-    //DH1KLM ("<record>.XXXXXX", where it uses a named temporary file).
+    // A tree, a record, or a record QSaveFile left half written
+    // ("<record>.XXXXXX", where it uses a named temporary file).
     static const QRegularExpression record(
         QStringLiteral("^(.+?)\\.(json|manifest\\.json|manifest\\.json\\.sig)(\\.[A-Za-z0-9]{6})?$"));
     const auto owned = [](const QString& name) {
@@ -1027,7 +1027,7 @@ void UpdateStager::cancel()
 {
     m_download->cancel();
     if (m_cancelled) {
-        m_cancelled->store(true);   //DH1KLM a running worker stops at its next step
+        m_cancelled->store(true);   // a running worker stops at its next step
     }
     ++m_generation;
     m_stage = Stage::Idle;
@@ -1055,9 +1055,9 @@ void UpdateStager::stage(const Request& request)
 
 namespace {
 
-//DH1KLM Where a signed release file is fetched from: its signed URL, unless a test
-//DH1KLM (or a dev-overrides build) serves "<base>/<tag>/<asset>" instead. The URL
-//DH1KLM the manifest names is still checked as signed.
+// Where a signed release file is fetched from: its signed URL, unless a test
+// (or a dev-overrides build) serves "<base>/<tag>/<asset>" instead. The URL
+// the manifest names is still checked as signed.
 QUrl fetchUrl(const UpdateManifest::Asset& asset, const QString& tag)
 {
     QUrl base = testDownloadBase();
@@ -1081,7 +1081,7 @@ QUrl fetchUrl(const UpdateManifest::Asset& asset, const QString& tag)
     return QUrl(b + QLatin1Char('/') + tag + QLatin1Char('/') + asset.name);
 }
 
-} //DH1KLM namespace
+} // namespace
 
 void UpdateStager::fallBack(const QString& reason)
 {
@@ -1100,9 +1100,9 @@ void UpdateStager::fallBack(const QString& reason)
 void UpdateStager::runWorker(std::function<QString(const QString& work)> apply)
 {
     emit progress(tr("Applying the update"), 0, 0);
-    //DH1KLM Each request applies into a folder of its own, so a worker that is
-    //DH1KLM still finishing after a cancel never shares files with the next; only
-    //DH1KLM the current request's result becomes <stagingRoot>/<version>.
+    // Each request applies into a folder of its own, so a worker that is
+    // still finishing after a cancel never shares files with the next; only
+    // the current request's result becomes <stagingRoot>/<version>.
     const QString root = m_request.stagingRoot;
     const QString work = QDir(root).filePath(
         QStringLiteral(".work-") + QUuid::createUuid().toString(QUuid::WithoutBraces));
@@ -1115,7 +1115,7 @@ void UpdateStager::runWorker(std::function<QString(const QString& work)> apply)
         watcher->deleteLater();
         std::error_code ec;
         if (generation != m_generation) {
-            fs::remove_all(toPath(work), ec);   //DH1KLM a cancelled request's result
+            fs::remove_all(toPath(work), ec);   // a cancelled request's result
             return;
         }
         const QString version = m_manifest.version;
@@ -1138,8 +1138,8 @@ void UpdateStager::runWorker(std::function<QString(const QString& work)> apply)
             }
             return;
         }
-        //DH1KLM The record beside the tree, never in it: what it was staged for,
-        //DH1KLM and the signed manifest that vouches for every file.
+        // The record beside the tree, never in it: what it was staged for,
+        // and the signed manifest that vouches for every file.
         QJsonObject record{{QStringLiteral("version"), version},
                            {QStringLiteral("from"), m_request.runningVersion},
                            {QStringLiteral("install"), QDir(m_request.installRoot).absolutePath()}};
@@ -1178,7 +1178,7 @@ void UpdateStager::onDownloaded(const QUrl&, const QByteArray& body)
         return;
     }
     case Stage::Signature: {
-        //DH1KLM The signature before a byte of the manifest is read.
+        // The signature before a byte of the manifest is read.
         if (!verify(m_manifestBytes, body)) {
             fail(tr("The update manifest is not signed by AetherSDR's update key."));
             return;
@@ -1265,4 +1265,4 @@ void UpdateStager::fail(const QString& reason)
     emit failed(reason);
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

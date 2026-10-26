@@ -137,7 +137,7 @@ static void checkDeclaredOwner(const RadioCapabilities& caps, const char* family
 
 int main(int argc, char** argv)
 {
-    //DH1KLM The child keeps the parent's isolated store to verify a real disk reload.
+    // The child keeps the parent's isolated store to verify a real disk reload.
     const bool restoreAnan = argc == 2 && QByteArray(argv[1]) == "--restore-anan";
     std::unique_ptr<TestSettingsProfile> profile;
     if (!restoreAnan) {
@@ -202,8 +202,8 @@ int main(int argc, char** argv)
     check(unknown.featureExact(feature).isEmpty(),
           "an unknown identity never writes the family default");
 
-    //DH1KLM Read display ownership from real backends: HL2 and ANAN own all three.
-    //DH1KLM Every backend with no radio-side display engine owns the waterfall rate; Flex owns none.
+    // Read display ownership from real backends: HL2 and ANAN own all three.
+    // Every backend with no radio-side display engine owns the waterfall rate; Flex owns none.
     {
         hl2::Hl2Backend hl2Backend;
         checkDeclaredOwner(hl2Backend.capabilities(), "hl2", true, true, true);
@@ -213,7 +213,7 @@ int main(int argc, char** argv)
         anan::AnanBackend ananBackend;
         const RadioCapabilities ananCaps = ananBackend.capabilities();
         checkDeclaredOwner(ananCaps, "anan", true, true, true);
-        //DH1KLM Use the backend's actual ownership flag to exercise averaging recall.
+        // Use the backend's actual ownership flag to exercise averaging recall.
         const bool ownsAverage = ananCaps.backendPanAveraging
             && ananCaps.backendPanAveraging->clientPersistsAveraging;
         check(ownsAverage, "ANAN declares persistence for FFT AVG and weighted averaging");

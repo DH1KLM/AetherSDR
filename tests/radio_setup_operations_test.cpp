@@ -244,7 +244,7 @@ private slots:
             {{QStringLiteral("hwalc_enabled"), QStringLiteral("1")}});
         TxBandDialog dialog(&radio);
         dialog.show();
-        //DH1KLM A confirmed-on value is shown without being written back.
+        // A confirmed-on value is shown without being written back.
         QVERIFY(backend->commands.isEmpty());
         QVERIFY(dialog.findChildren<QCheckBox*>().at(7)->isChecked());
         const QList<QLineEdit*> editors = dialog.findChildren<QLineEdit*>();
@@ -268,14 +268,14 @@ private slots:
         emit editors[0]->editingFinished();
         QCOMPARE(editors[0]->text(), QStringLiteral("37"));
         QVERIFY(backend->commands.isEmpty());
-        //DH1KLM Eight bandset toggles, then the row's RCA-suppression toggle (#6524).
+        // Eight bandset toggles, then the row's RCA-suppression toggle (#6524).
         const QList<QCheckBox*> toggles = dialog.findChildren<QCheckBox*>();
         QCOMPARE(toggles.size(), 9);
         toggles[0]->setChecked(true);
         QCOMPARE(backend->commands, QStringList{"transmit bandset 9 inhibit=1"});
-        //DH1KLM A report that doesn't carry the clicked value leaves the click in
-        //DH1KLM place until the radio echoes it; the radio's own later report moves
-        //DH1KLM the box without writing it back.
+        // A report that doesn't carry the clicked value leaves the click in
+        // place until the radio echoes it; the radio's own later report moves
+        // the box without writing it back.
         backend->commands.clear();
         radio.handleStatusForTest(QStringLiteral("transmit band 9"),
             {{QStringLiteral("rfpower"), QStringLiteral("37")}});
@@ -290,7 +290,7 @@ private slots:
         QCoreApplication::processEvents();
         QVERIFY(!toggles[0]->isChecked());
         QVERIFY(backend->commands.isEmpty());
-        //DH1KLM A change the radio refuses after it was sent shows the radio's value.
+        // A change the radio refuses after it was sent shows the radio's value.
         toggles[1]->setChecked(true);
         QCOMPARE(backend->commands, QStringList{"interlock bandset 9 acc_tx_enabled=1"});
         backend->replyLast({RadioSetupReply::Kind::Failed, 0x50000015, QStringLiteral("refused")});
@@ -311,7 +311,7 @@ private slots:
         emit editors[0]->editingFinished();
         QVERIFY(backend->commands.isEmpty());
         QVERIFY(dropped.isEmpty());
-        //DH1KLM The open table is rebuilt for the new session, and its fields write.
+        // The open table is rebuilt for the new session, and its fields write.
         QCoreApplication::processEvents();
         QVERIFY(!stale);
         const QList<QLineEdit*> fresh = dialog.findChildren<QLineEdit*>();
@@ -319,7 +319,7 @@ private slots:
         fresh[0]->setText(QStringLiteral("55"));
         emit fresh[0]->editingFinished();
         QCOMPARE(backend->commands, QStringList{"transmit bandset 9 rfpower=55"});
-        //DH1KLM Text being typed when the table is rebuilt is dropped, not written.
+        // Text being typed when the table is rebuilt is dropped, not written.
         backend->commands.clear();
         const QList<QLineEdit*> typing = dialog.findChildren<QLineEdit*>();
         dialog.activateWindow();
@@ -330,7 +330,7 @@ private slots:
         radio.transmitModel().setActiveProfile(QStringLiteral("Contest"));
         QCoreApplication::processEvents();
         QVERIFY(backend->commands.isEmpty());
-        //DH1KLM Focus returns to the same field in the new table.
+        // Focus returns to the same field in the new table.
         QTRY_VERIFY(dialog.findChildren<QLineEdit*>().value(0)
                     && dialog.findChildren<QLineEdit*>().value(0)->hasFocus());
     }

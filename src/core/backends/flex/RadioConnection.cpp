@@ -268,9 +268,9 @@ void RadioConnection::connectToHost(const QHostAddress& address,
         qCWarning(lcConnection) << "RadioConnection:" << msg;
         setState(ConnectionState::Error);
         emit errorOccurred(msg);
-        //DH1KLM The selected source remains mandatory, but the attempt can be retried
-        //DH1KLM once it is corrected -- so leave the session Disconnected, not wedged
-        //DH1KLM in Error (connectToHost early-returns unless state is Disconnected).
+        // The selected source remains mandatory, but the attempt can be retried
+        // once it is corrected -- so leave the session Disconnected, not wedged
+        // in Error (connectToHost early-returns unless state is Disconnected).
         setState(ConnectionState::Disconnected);
         return;
     }

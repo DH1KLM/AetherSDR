@@ -30,6 +30,6 @@ struct PanLifecycleReply {
 };
 using PanLifecycleCompletion = std::function<void(const PanLifecycleReply&)>;
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR
 
 Q_DECLARE_METATYPE(AetherSDR::PanLifecycleRequest)

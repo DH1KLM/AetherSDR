@@ -280,9 +280,9 @@ private:
         const QHostAddress& radio = m_owner->m_radioAddress;
         while (m_udp && m_udp->hasPendingDatagrams()) {
             const QNetworkDatagram d = m_udp->receiveDatagram(ctr2hid::kMaxDatagramBytes + 1);
-            //DH1KLM Address only: the radio sends UDP from its own ports (LAN VITA
-            //DH1KLM from 4993, not the TCP port m_radioPort), and the CTR2 receives
-            //DH1KLM that source port as the datagram's label.
+            // Address only: the radio sends UDP from its own ports (LAN VITA
+            // from 4993, not the TCP port m_radioPort), and the CTR2 receives
+            // that source port as the datagram's label.
             if (usableUnicastAddress(d.senderAddress()) != radio || m_ended) {
                 continue;  // only the radio's own datagrams are relayed
             }

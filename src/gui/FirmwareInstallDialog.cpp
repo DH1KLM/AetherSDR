@@ -85,16 +85,16 @@ FirmwareInstallModel::Target afterAlert(FirmwareInstallModel& fw,
                : target;
 }
 
-//DH1KLM The selected unit, for a press that waits (on the access question or a
-//DH1KLM fresh read of its offer) before acting: a change of selection drops it.
+// The selected unit, for a press that waits (on the access question or a
+// fresh read of its offer) before acting: a change of selection drops it.
 QString unitKey(const FirmwareInstallModel::Target& target)
 {
     return target.hidPath + QLatin1Char('|') + target.mac.toUpper();
 }
 
-//DH1KLM For a run after an access grant: the unit as it is now, if it is the one
-//DH1KLM the operator chose (same MAC, or the only one in download mode when the
-//DH1KLM choice had none); else false with the reason.
+// For a run after an access grant: the unit as it is now, if it is the one
+// the operator chose (same MAC, or the only one in download mode when the
+// choice had none); else false with the reason.
 bool retarget(FirmwareInstallModel& fw, const FirmwareInstallModel::Target& chosen,
               FirmwareInstallModel::Target* now, QString* problem)
 {
@@ -379,7 +379,7 @@ FirmwareInstallDialog::FirmwareInstallDialog(Ctr2ProxyModel* model, QWidget* par
             [this] { restartInto(int(FirmwareInstallModel::Firmware::Bootloader)); });
     connect(m_cancel, &QPushButton::clicked, this, [this] {
         // Before cancel(): a wait ends at once, and says so.
-        m_actions.invalidate();   //DH1KLM no access retry resumes what was stopped
+        m_actions.invalidate();   // no access retry resumes what was stopped
         m_step->setText(tr("Stopping…"));
         m_fw->cancel();
     });
@@ -708,13 +708,13 @@ bool FirmwareInstallDialog::offerAccessFirst(std::function<void()> again)
     const QByteArray path = target.hidPath.toLocal8Bit();
     if (::access(path.constData(), R_OK | W_OK) == 0 || errno != EACCES)
         return false;
-    //DH1KLM A ticket for this press: another action or Cancel meanwhile drops it.
+    // A ticket for this press: another action or Cancel meanwhile drops it.
     const Ctr2ActionRetry::Ticket ticket = m_actions.mark(unitKey(target));
-    //DH1KLM Declined, or no install could start: the action goes ahead as before.
+    // Declined, or no install could start: the action goes ahead as before.
     return m_relay->offerAccessRule(Ctr2ProxyPanel::RuleUse::Firmware, [this, ticket, again] {
-        //DH1KLM What the action can do (restart on request, or the buttons) depends
-        //DH1KLM on the firmware's version and commands, which the relay reads once
-        //DH1KLM it can open the device: rescan, and wait for them (up to ~5 s).
+        // What the action can do (restart on request, or the buttons) depends
+        // on the firmware's version and commands, which the relay reads once
+        // it can open the device: rescan, and wait for them (up to ~5 s).
         if (m_model)
             m_model->refreshDevices();
         waitForFirmwareInfo(20, ticket, again);
@@ -729,7 +729,7 @@ bool FirmwareInstallDialog::refreshOfferFirst(std::function<void()> again)
 {
     using Device = FirmwareInstallModel::Device;
     if (std::exchange(m_offerRefreshed, false))
-        return false;   //DH1KLM the repeat after the read
+        return false;   // the repeat after the read
     const FirmwareInstallModel::Target target = m_fw->target();
     if (!m_model || m_model->isRunning()
         || (target.device != Device::LinkFirmware && target.device != Device::Stock)
@@ -749,14 +749,14 @@ bool FirmwareInstallDialog::refreshOfferFirst(std::function<void()> again)
 void FirmwareInstallDialog::waitForFirmwareInfo(int tries, Ctr2ActionRetry::Ticket ticket,
                                                 std::function<void()> again)
 {
-    //DH1KLM Another action, Cancel, or another unit selected meanwhile: drop it.
+    // Another action, Cancel, or another unit selected meanwhile: drop it.
     if (!m_actions.current(ticket, unitKey(m_fw->target()))) {
         m_step->clear();
         return;
     }
-    //DH1KLM Known once the relay has read the device: a version (AetherCTR2), or
-    //DH1KLM the restart commands (stock firmware that offers them). Stock firmware
-    //DH1KLM without them stays unknown, and gets the buttons after the wait.
+    // Known once the relay has read the device: a version (AetherCTR2), or
+    // the restart commands (stock firmware that offers them). Stock firmware
+    // without them stays unknown, and gets the buttons after the wait.
     if (tries > 0 && m_fw->linkVersion().isEmpty() && !m_fw->takesCommands(m_fw->target())) {
         QTimer::singleShot(250, this, [this, tries, ticket, again] {
             waitForFirmwareInfo(tries - 1, ticket, again);
@@ -822,7 +822,7 @@ void FirmwareInstallDialog::confirmRestore(const QString& path)
     ask.get()->setInformativeText(
         tr("A backup goes back only onto the CTR2-Max it came from, and only if the file is "
            "unchanged since it was made."));
-    //DH1KLM Return keeps what is on the device; restoring takes a click.
+    // Return keeps what is on the device; restoring takes a click.
     ask.get()->setDefaultButton(ask.get()->addButton(tr("Cancel"), CanonMessageBox::Role::Reject));
     QPushButton* go = ask.get()->addButton(tr("Restore"), CanonMessageBox::Role::Destructive);
     ask.get()->exec();
@@ -1031,12 +1031,12 @@ void FirmwareInstallDialog::onFinished(bool ok, const QString& message)
     m_step->setText(text);
     syncLists();   // a new backup, or one fewer
 #ifdef Q_OS_LINUX
-    //DH1KLM The download-mode port is closed to this login: offer the access rule,
-    //DH1KLM then run the same action again. Queued, so the question does not open
-    //DH1KLM inside the job's own finished signal.
+    // The download-mode port is closed to this login: offer the access rule,
+    // then run the same action again. Queued, so the question does not open
+    // inside the job's own finished signal.
     if (!ok && m_fw->lastFailureAccessDenied() && m_actions.hasJob() && m_relay) {
-        //DH1KLM The action that failed, and only while it is still the operator's
-        //DH1KLM latest: another action or Cancel in the meantime drops the retry.
+        // The action that failed, and only while it is still the operator's
+        // latest: another action or Cancel in the meantime drops the retry.
         const Ctr2ActionRetry::Ticket ticket = m_actions.ticket();
         const auto again = [this, ticket] {
             if (!m_actions.current(ticket) || m_fw->busy())
@@ -1044,8 +1044,8 @@ void FirmwareInstallDialog::onFinished(bool ok, const QString& message)
             m_step->setText(tr("Access granted. Trying again…"));
             runJob(ticket.doneText, ticket.job, true);
         };
-        //DH1KLM With the rule in place, a port that has only just appeared may not
-        //DH1KLM have its ACL yet: try once more before saying anything.
+        // With the rule in place, a port that has only just appeared may not
+        // have its ACL yet: try once more before saying anything.
         if (Ctr2ProxyPanel::accessRuleInstalled() && !m_actions.retried()) {
             QTimer::singleShot(1000, this, [this, ticket] {
                 if (!m_actions.current(ticket) || m_fw->busy())

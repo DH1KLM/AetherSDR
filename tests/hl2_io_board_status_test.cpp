@@ -1,12 +1,12 @@
-//DH1KLM `hl2` / `ioboard.status`: the IO board status read, from the verb through the
-//DH1KLM backend's own MetisClient and back. Socket-free: the client is told it is
-//DH1KLM streaming, its request bank is "sent" by hand, and the radio's reply is fed
-//DH1KLM to its response path, all on the client's own thread.
-//DH1KLM
-//DH1KLM The wire encoding is hl2_metis_protocol_test's; the client's request rules
-//DH1KLM are hl2_rqst_ack_client_test's. This pins the wiring between them: one
-//DH1KLM answer per call, the registers decoded, and a refusal or an empty bus
-//DH1KLM reported as an error.
+// `hl2` / `ioboard.status`: the IO board status read, from the verb through the
+// backend's own MetisClient and back. Socket-free: the client is told it is
+// streaming, its request bank is "sent" by hand, and the radio's reply is fed
+// to its response path, all on the client's own thread.
+//
+// The wire encoding is hl2_metis_protocol_test's; the client's request rules
+// are hl2_rqst_ack_client_test's. This pins the wiring between them: one
+// answer per call, the registers decoded, and a refusal or an empty bus
+// reported as an error.
 
 #include "core/backends/IRadioBackend.h"
 #include "core/backends/hl2/Hl2Backend.h"
@@ -28,7 +28,7 @@
 namespace AetherSDR::hl2 {
 struct MetisClientTestAccess {
     static void setStreaming(MetisClient& c) { c.m_running = true; c.m_linkUp = true; }
-    //DH1KLM Put whatever is queued on the "wire", then deliver `reply` as the radio would.
+    // Put whatever is queued on the "wire", then deliver `reply` as the radio would.
     static void answer(MetisClient& c, const Ep6Response& reply)
     {
         for (int i = 0; i < 16 && c.controlRequest().state() == Hl2ControlRequest::State::Queued;
@@ -44,7 +44,7 @@ struct Hl2IoBoardStatusTestAccess {
     static void setConnected(Hl2Backend& b) { b.m_connected = true; }
     static MetisClient* metis(Hl2Backend& b) { return b.m_metis; }
 };
-}  //DH1KLM namespace AetherSDR::hl2
+}  // namespace AetherSDR::hl2
 
 using namespace AetherSDR::hl2;
 
@@ -76,8 +76,8 @@ static void watch(Hl2Backend& backend, Replies& r)
     });
 }
 
-//DH1KLM Run `fn` on the client's thread and wait, then deliver whatever it queued
-//DH1KLM back to the backend, which lives on this thread with no event loop running.
+// Run `fn` on the client's thread and wait, then deliver whatever it queued
+// back to the backend, which lives on this thread with no event loop running.
 template <typename Fn>
 static void onClientThread(Hl2Backend& backend, Fn fn)
 {
@@ -122,7 +122,7 @@ static void testAnsweredWithTheRegistersDecoded()
     backend.invokeExtension(QStringLiteral("hl2"), QStringLiteral("ioboard.status"), 12, {});
     check(r.errors == 1 && r.lastId == 12, "a second read while one is pending is refused");
 
-    //DH1KLM Receiving, In1/In3/In5 high, the ATU asking for RF, no fault, firmware 7.
+    // Receiving, In1/In3/In5 high, the ATU asking for RF, no fault, firmware 7.
     onClientThread(backend, [](MetisClient& c) {
         MetisClientTestAccess::answer(c, ack(kC0I2c2 >> 1, 0x07'00'EE'2Bu));
     });
@@ -156,8 +156,8 @@ static void testAnsweredWithTheRegistersDecoded()
 
 static void testAnEmptyBusIsNotAReading()
 {
-    //DH1KLM With no board fitted the read is expected to complete as 0xFF bytes
-    //DH1KLM (docs/HERMES.md). Passed through, that would read as an ATU failure code.
+    // With no board fitted the read is expected to complete as 0xFF bytes
+    // (docs/HERMES.md). Passed through, that would read as an ATU failure code.
     Hl2Backend backend;
     Replies r;
     watch(backend, r);
@@ -178,7 +178,7 @@ static void testAnEmptyBusIsNotAReading()
     });
     check(r.results == 1 && r.lastId == 22, "and the next read is answered");
 
-    //DH1KLM An all-zeros bus reads as firmware 0, which no board reports.
+    // An all-zeros bus reads as firmware 0, which no board reports.
     backend.invokeExtension(QStringLiteral("hl2"), QStringLiteral("ioboard.status"), 23, {});
     onClientThread(backend, [](MetisClient& c) {
         MetisClientTestAccess::answer(c, ack(kC0I2c2 >> 1, 0x00'00'00'00u));

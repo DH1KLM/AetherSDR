@@ -1,5 +1,5 @@
-//DH1KLM Shipped IARU Region 1 and SSA (Sweden) band-plan rows match their charts,
-//DH1KLM including the optional per-segment `usage` annotation. (#4667)
+// Shipped IARU Region 1 and SSA (Sweden) band-plan rows match their charts,
+// including the optional per-segment `usage` annotation. (#4667)
 
 #include "TestSettingsProfile.h"
 #include "models/BandPlanManager.h"
@@ -50,7 +50,7 @@ const char* const kR1Unattended =
 const char* const kSsaDigiAuto =
     "Digimoder och automatiska obevakade digimoder";
 
-//DH1KLM IARU R1 HF chart, effective 16 Oct 2020.
+// IARU R1 HF chart, effective 16 Oct 2020.
 const Expected kRegion1[] = {
     {1.840,  1.843,  "ALL",  "#ff8000", "Digimodes"},
     {3.600,  3.620,  "ALL",  "#ff8000", kR1Unattended},
@@ -64,7 +64,7 @@ const Expected kRegion1[] = {
     {29.200, 29.300, "ALL",  "#ff8000", kR1Unattended},
 };
 
-//DH1KLM SSA Bandplan Kortvåg v2.61 — only rows where it agrees with the R1 chart.
+// SSA Bandplan Kortvåg v2.61 — only rows where it agrees with the R1 chart.
 const Expected kSweden[] = {
     {1.840,  1.843,  "ALLA", "#ff8000", "Digimoder"},
     {3.600,  3.620,  "ALLA", "#ff8000", "Digimoder, automatiska obevakade digimoder"},
@@ -104,8 +104,8 @@ void checkPlan(BandPlanManager& mgr, const QString& planName,
                s->usage == QString::fromUtf8(e.usage));
     }
 
-    //DH1KLM The defect shape itself: a red `DIGI` row in these plans must be the
-    //DH1KLM 21.110 exception, which carries its restriction in `usage`.
+    // The defect shape itself: a red `DIGI` row in these plans must be the
+    // 21.110 exception, which carries its restriction in `usage`.
     for (const auto& s : segs) {
         if (s.label != QStringLiteral("DIGI")) {
             continue;
@@ -118,12 +118,12 @@ void checkPlan(BandPlanManager& mgr, const QString& planName,
     }
 }
 
-} //DH1KLM namespace
+} // namespace
 
 int main(int argc, char** argv)
 {
-    //DH1KLM loadPlans() reads the saved plan name from AppSettings. Keep that off
-    //DH1KLM the developer's real profile.
+    // loadPlans() reads the saved plan name from AppSettings. Keep that off
+    // the developer's real profile.
     TestSettingsProfile profile(QStringLiteral("bandplan-usage-resource"));
     if (!profile.isValid()) {
         std::printf("[FAIL] cannot create a private settings dir\n");
@@ -137,7 +137,7 @@ int main(int argc, char** argv)
     checkPlan(mgr, QStringLiteral("IARU Region 1"), kRegion1);
     checkPlan(mgr, QStringLiteral("SSA (Sweden)"), kSweden);
 
-    //DH1KLM `usage` is optional: a plan that never sets it parses to empty usage.
+    // `usage` is optional: a plan that never sets it parses to empty usage.
     mgr.setActivePlan(QStringLiteral("ARRL (US)"));
     bool anyUsage = false;
     for (const auto& s : mgr.segments()) {

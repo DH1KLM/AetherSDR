@@ -59,26 +59,26 @@ private:
     // out of this one).
     void restartInto(int which);
     void onFinished(bool ok, const QString& message);
-    //DH1KLM Starts an action on the device (job returns false with the reason when
-    //DH1KLM it cannot start), keeping it so it can run again once Linux grants
-    //DH1KLM access to the download-mode port.
-    //DH1KLM retarget: the run follows an access grant (see Ctr2ActionRetry::Job);
-    //DH1KLM retryUsed: it is the one quiet retry after a permission failure.
+    // Starts an action on the device (job returns false with the reason when
+    // it cannot start), keeping it so it can run again once Linux grants
+    // access to the download-mode port.
+    // retarget: the run follows an access grant (see Ctr2ActionRetry::Job);
+    // retryUsed: it is the one quiet retry after a permission failure.
     void runJob(const QString& doneText, Ctr2ActionRetry::Job job, bool retarget = false,
                 bool retryUsed = false);
-    //DH1KLM Linux: when the CTR2 running its firmware is closed to this login, offers
-    //DH1KLM the access rule and returns true; `again` repeats the action once it is
-    //DH1KLM installed. The firmware's version and commands are read over that
-    //DH1KLM device, so nothing else can be decided until then.
+    // Linux: when the CTR2 running its firmware is closed to this login, offers
+    // the access rule and returns true; `again` repeats the action once it is
+    // installed. The firmware's version and commands are read over that
+    // device, so nothing else can be decided until then.
     bool offerAccessFirst(std::function<void()> again);
-    //DH1KLM When the CTR2 running its firmware seems not to take the restart
-    //DH1KLM commands, reads its offer again first (a probe taken while it was
-    //DH1KLM starting can read nothing) and returns true; `again` repeats the action
-    //DH1KLM once the offer is in, or after about 2 s.
+    // When the CTR2 running its firmware seems not to take the restart
+    // commands, reads its offer again first (a probe taken while it was
+    // starting can read nothing) and returns true; `again` repeats the action
+    // once the offer is in, or after about 2 s.
     bool refreshOfferFirst(std::function<void()> again);
-    //DH1KLM After the rule is installed: waits (up to tries × 250 ms) for the
-    //DH1KLM relay to read the firmware's version, then runs `again` if `ticket` is
-    //DH1KLM still the current action.
+    // After the rule is installed: waits (up to tries × 250 ms) for the
+    // relay to read the firmware's version, then runs `again` if `ticket` is
+    // still the current action.
     void waitForFirmwareInfo(int tries, Ctr2ActionRetry::Ticket ticket, std::function<void()> again);
     // Starting an action: its result, or the reason it did not start.
     void started(bool ok, const QString& problem, const QString& doneText);
@@ -114,7 +114,7 @@ private:
 
     QString m_jobDone;       // the success message for the running action
     Ctr2ActionRetry m_actions;
-    bool m_offerRefreshed{false};   //DH1KLM this press already read the offer again   // the last action started, for a retry after access is granted
+    bool m_offerRefreshed{false};   // this press already read the offer again   // the last action started, for a retry after access is granted
 };
 
 } // namespace AetherSDR

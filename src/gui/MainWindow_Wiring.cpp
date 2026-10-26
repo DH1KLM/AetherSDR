@@ -2937,8 +2937,8 @@ void MainWindow::sendPanDimensionsToRadio(const QString& panId,
     const int ypix = panYpixelsFor(sw);
     const RadioControlSession dimensionSession = m_radioModel.controlSession();
     const quint64 ownershipRevision = pan->ownershipRevision();
-    //DH1KLM The backend declares radio pixels, local analyzer points, or fixed
-    //DH1KLM geometry. Fixed geometry still needs the renderer rescale below.
+    // The backend declares radio pixels, local analyzer points, or fixed
+    // geometry. Fixed geometry still needs the renderer rescale below.
     m_radioModel.requestPanDimensions(pan, xpix, ypix, panLocalSpectrumPointsFor(sw));
     if (!pan || m_radioModel.panadapter(panId) != pan
         || !m_radioModel.controlSessionCurrent(dimensionSession)
@@ -7448,16 +7448,16 @@ void MainWindow::wireMeters()
             m_kpa1500Conn.connectNetwork(ip, static_cast<quint16>(port));
     }
 
-    //DH1KLM ── RF-KIT amplifier — REST/JSON over HTTP, no FlexRadio relay ────────
-    //DH1KLM See docs/architecture/rfkit-amplifier-design.md. Same structure and the
-    //DH1KLM same ordering rule as the ACOM/SPE/VKAMP/KPA1500 blocks above: ALL
-    //DH1KLM signal wiring first, the auto-connect trigger LAST, so nothing misses
-    //DH1KLM the first connected().
-    //DH1KLM
-    //DH1KLM Deliberately absent from this block: any transmit-path wiring (the API
-    //DH1KLM has no keying endpoint), and any control of the operational interface or
-    //DH1KLM the tuner (the former can cut the amp off from its radio; the latter is
-    //DH1KLM read-only in the API).
+    // ── RF-KIT amplifier — REST/JSON over HTTP, no FlexRadio relay ────────
+    // See docs/architecture/rfkit-amplifier-design.md. Same structure and the
+    // same ordering rule as the ACOM/SPE/VKAMP/KPA1500 blocks above: ALL
+    // signal wiring first, the auto-connect trigger LAST, so nothing misses
+    // the first connected().
+    //
+    // Deliberately absent from this block: any transmit-path wiring (the API
+    // has no keying endpoint), and any control of the operational interface or
+    // the tuner (the former can cut the amp off from its radio; the latter is
+    // read-only in the API).
     connect(&m_rfkitConn, &RfkitConnection::connected, this, [this]() {
         m_appletPanel->rfkitApplet()->setConnected(true);
         m_appletPanel->setRfkitVisible(true);
@@ -7482,9 +7482,9 @@ void MainWindow::wireMeters()
         m_rfkitConn.resetError();
     });
 
-    //DH1KLM Startup auto-connect from saved Peripherals settings — same reasoning as
-    //DH1KLM the other direct amplifiers: the Flex radio has no idea this amplifier
-    //DH1KLM exists, so the saved setting is the only trigger there will ever be.
+    // Startup auto-connect from saved Peripherals settings — same reasoning as
+    // the other direct amplifiers: the Flex radio has no idea this amplifier
+    // exists, so the saved setting is the only trigger there will ever be.
     {
         const QString ip = PeripheralSettings::deviceString("Rfkit", "ManualIp");
         const int port = PeripheralSettings::deviceInt(

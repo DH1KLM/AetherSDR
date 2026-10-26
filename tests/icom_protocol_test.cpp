@@ -280,7 +280,7 @@ static void testConnectionUsage()
     std::copy(authId.begin(), authId.end(), available.begin() + 0x1a);
     std::copy(radioId.begin(), radioId.end(), available.begin() + 0x20);
 
-    //DH1KLM Connection status uses reply 03/type 00, with busy LE32 at 0x60.
+    // Connection status uses reply 03/type 00, with busy LE32 at 0x60.
     const ConnectionUsage release = parseConnectionUsage(available);
     check(release.kind == ConnectionUsageKind::Available,
           "a complete available notification reports released media");

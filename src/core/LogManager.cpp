@@ -28,8 +28,8 @@ Q_LOGGING_CATEGORY(lcDax,        "aether.dax",         QtWarningMsg)
 Q_LOGGING_CATEGORY(lcMeters,     "aether.meters",      QtWarningMsg)
 Q_LOGGING_CATEGORY(lcTransmit,   "aether.transmit",    QtWarningMsg)
 Q_LOGGING_CATEGORY(lcFirmware,   "aether.firmware",    QtInfoMsg)
-//DH1KLM Info by default: a few lines per launch, and the only record of what an
-//DH1KLM automatic update check decided.
+// Info by default: a few lines per launch, and the only record of what an
+// automatic update check decided.
 Q_LOGGING_CATEGORY(lcUpdater,    "aether.updater",     QtInfoMsg)
 Q_LOGGING_CATEGORY(lcTuner,      "aether.tuner",       QtWarningMsg)
 Q_LOGGING_CATEGORY(lcGui,        "aether.gui",         QtWarningMsg)

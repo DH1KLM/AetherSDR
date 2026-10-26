@@ -10,7 +10,7 @@
 #include <vector>
 
 namespace AetherSDR::anan {
-//DH1KLM: Logical model IDs are Thetis HPSDRModel values, not discovery IDs.
+// Logical model IDs are Thetis HPSDRModel values, not discovery IDs.
 // Sources and qualification limits: docs/architecture/anan-model-profiles.md.
 enum class AnanModel : int {
     Automatic = -1, Hpsdr = 0, Hermes = 1, Anan10 = 2, Anan10E = 3,
@@ -180,7 +180,7 @@ inline constexpr std::array<AnanModelInfo, 18> kAnanModels{{
     }
     return info->nativeBoardId == board;
 }
-//DH1KLM: Thetis clsHardwareSpecific.hasAudioAmpEnable limits HP byte 1400 bit 1
+// Thetis clsHardwareSpecific.hasAudioAmpEnable limits HP byte 1400 bit 1
 // to these P2 models. Board 5 alone cannot identify the installed amplifier.
 [[nodiscard]] constexpr bool hasSpeakerAmpMute(int protocol, AnanModel model, int board,
                                               bool overrideDetection) noexcept
@@ -193,7 +193,7 @@ inline constexpr std::array<AnanModelInfo, 18> kAnanModels{{
         || model == AnanModel::AnvelinaPro3 || model == AnanModel::RedPitaya
         || model == AnanModel::AnanG2 || model == AnanModel::AnanG21K;
 }
-//DH1KLM: Thetis setup.cs RXAntChk1Name/RXAntChk2Name. Generic Orion MkII
+// Thetis setup.cs RXAntChk1Name/RXAntChk2Name. Generic Orion MkII
 // uses SetAntBits' EXT wire names; an explicit DIY mapping uses its model.
 [[nodiscard]] constexpr std::array<std::string_view, 4> receiveInputNames(AnanModel model, int board) noexcept
 {
@@ -220,7 +220,7 @@ struct ReceiveAntennaSelection {
     std::size_t count = 0;
     std::string_view current{};
 };
-//DH1KLM: Generic RX antenna controls represent the active source, not an inactive ADC0 bank.
+// Generic RX antenna controls represent the active source, not an inactive ADC0 bank.
 [[nodiscard]] constexpr ReceiveAntennaSelection receiveAntennaSelection(
     int numAdcs, int adc, int input, int antenna, const std::array<std::string_view, 4>& names) noexcept
 {

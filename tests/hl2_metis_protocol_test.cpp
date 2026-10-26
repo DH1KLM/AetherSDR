@@ -1193,11 +1193,11 @@ int main()
               "all 40 bits reach the wire");
     }
 
-    //DH1KLM ---- IO board status read (REG_INPUT_PINS..REG_FIRMWARE_MAJOR) ----
+    // ---- IO board status read (REG_INPUT_PINS..REG_FIRMWARE_MAJOR) ----
     {
-        //DH1KLM The DATA word is what i2c_bus2.v decodes at 0x3d: cmd_data[31:25] ==
-        //DH1KLM 7'h03 with cmd_data[24] set selects STATE_READ_CMDADDR, [22:16] is the
-        //DH1KLM chip and [15:8] the register the read starts from.
+        // The DATA word is what i2c_bus2.v decodes at 0x3d: cmd_data[31:25] ==
+        // 7'h03 with cmd_data[24] set selects STATE_READ_CMDADDR, [22:16] is the
+        // chip and [15:8] the register the read starts from.
         const std::uint32_t d = kIoBoardStatusReadData;
         check(((d >> 25) & 0x7F) == 0x03, "status read carries the I2C cookie 7'h03");
         check(((d >> 24) & 0x01) == 1, "and cmd_data[24], which makes it a READ");
@@ -1207,8 +1207,8 @@ int main()
         check((d & 0xFF) == 0, "C4 carries no data byte: a read writes only the pointer");
         check(kIoBoardRegInputPins == 6, "REG_INPUT_PINS is register 6 (i2c_registers.h)");
 
-        //DH1KLM The reply: four bytes read from register 6 upwards, the FIRST into
-        //DH1KLM resp_data[7:0] (STATE_READ_DATA1), the last into [31:24].
+        // The reply: four bytes read from register 6 upwards, the FIRST into
+        // resp_data[7:0] (STATE_READ_DATA1), the last into [31:24].
         const IoBoardStatus s = decodeIoBoardStatus(0x07'00'EE'2Bu);
         check(s.inputPins == 0x2B, "DATA[7:0] is REG_INPUT_PINS");
         check(s.antennaTuner == 0xEE, "DATA[15:8] is REG_ANTENNA_TUNER");
@@ -1222,8 +1222,8 @@ int main()
         check(!decodeIoBoardStatus(0x07'00'00'2Au).receiving(),
               "EXTTR low is transmit");
 
-        //DH1KLM A reply read from a real board on firmware 2.11. Its bytes are not
-        //DH1KLM symmetric, so it pins the order the synthetic vector above assumes.
+        // A reply read from a real board on firmware 2.11. Its bytes are not
+        // symmetric, so it pins the order the synthetic vector above assumes.
         const IoBoardStatus board = decodeIoBoardStatus(0x02'00'00'01u);
         check(board.inputPins == 0x01 && board.receiving(), "a board's EXTTR is in DATA[7:0]");
         check(board.firmwareMajor == 2, "and its firmware major in DATA[31:24]");

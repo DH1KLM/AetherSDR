@@ -8,7 +8,7 @@
 
 namespace AetherSDR::anan {
 
-//DH1KLM: P1 RX transport on the existing ANAN IO thread. P2 and HL2 keep
+// P1 RX transport on the existing ANAN IO thread. P2 and HL2 keep
 // their own wire clients; this class exposes no transmit operation.
 class P1Client : public QObject {
     Q_OBJECT

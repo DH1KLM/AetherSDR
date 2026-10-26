@@ -3,7 +3,7 @@
 #include "core/backends/anan/P1Client.h"
 
 namespace AetherSDR::anan {
-//DH1KLM: Backend-private protocol dispatch. Both child clients follow this
+// Backend-private protocol dispatch. Both child clients follow this
 // object's affinity onto the existing ANAN IO thread; no extra thread exists.
 class AnanClient : public QObject {
     Q_OBJECT

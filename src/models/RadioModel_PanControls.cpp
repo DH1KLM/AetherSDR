@@ -38,8 +38,8 @@ void RadioModel::settlePanCreations()
     const auto pending = m_pendingPanCreations;
     for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         const std::shared_ptr<PendingPanCreation> request = it.value();
-        //DH1KLM Native receivers may publish only after asynchronous DSP planning.
-        //DH1KLM One native reservation at a time keeps the new identity unambiguous.
+        // Native receivers may publish only after asynchronous DSP planning.
+        // One native reservation at a time keeps the new identity unambiguous.
         if (request->native && request->id.isEmpty()) {
             for (PanadapterModel* candidate : panadapters()) {
                 if (!request->existing.contains(candidate->panId())
@@ -67,8 +67,8 @@ void RadioModel::settlePanCreations()
                 }
                 if (!alive) { return; }
             }
-            //DH1KLM Unanswered/uncertain creation still consumes a reservation. Losing
-            //DH1KLM a requester or its history does not cancel a firmware allocation.
+            // Unanswered/uncertain creation still consumes a reservation. Losing
+            // a requester or its history does not cancel a firmware allocation.
             continue;
         }
         if (!ended && !published) { continue; }
@@ -251,8 +251,8 @@ ReceiveDispatch RadioModel::requestPanDimensions(PanadapterModel* pan, int width
     if (control->supports(PanDisplayField::SpectrumPoints)) {
         return requestPanDisplay(pan, {PanDisplayField::SpectrumPoints, localPoints}, {}, false);
     }
-    //DH1KLM Fixed native geometry needs no radio resize. The caller still updates
-    //DH1KLM its local renderer scale; this is not evidence of a backend write.
+    // Fixed native geometry needs no radio resize. The caller still updates
+    // its local renderer scale; this is not evidence of a backend write.
     return ReceiveDispatch::LocalOnly;
 }
 
@@ -276,4 +276,4 @@ void RadioModel::requestPanRfGainInfo(PanadapterModel* pan)
         }, current);
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

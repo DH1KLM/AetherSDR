@@ -57,7 +57,7 @@ void AnanBackend::onAutoAgcApplied(int id, quint64 revision, double topDb)
 {
     if (!m_connected || !m_receiveLayout.slice(id) || !std::isfinite(topDb)
         || topDb < -20.0 || topDb > 120.0) { return; }
-    //DH1KLM: Existing AGC-T presentation maps 0..100 to the WDSP ceiling -20..120 dB.
+    // Existing AGC-T presentation maps 0..100 to the WDSP ceiling -20..120 dB.
     const int knob = std::clamp(static_cast<int>(std::lround((topDb + 20.0) / 1.4)), 0, 100);
     if (id == 0) {
         if (!m_autoAgcEnabled || revision != m_primaryAutoAgcRevision) { return; }

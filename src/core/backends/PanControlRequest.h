@@ -9,8 +9,8 @@
 namespace AetherSDR {
 
 enum class PanControlField { BandZoom, SegmentZoom, ReceiveAntenna, NoiseFloorRange, Count };
-//DH1KLM How far the measured noise floor may move, in dB, before a radio scaling the
-//DH1KLM pan to its noise floor repositions it (SmartSDR 4.3.16 release notes).
+// How far the measured noise floor may move, in dB, before a radio scaling the
+// pan to its noise floor repositions it (SmartSDR 4.3.16 release notes).
 inline constexpr double kNoiseFloorRangeMaximumDb = 10.0;
 inline constexpr double kNoiseFloorRangeStepDb = 0.5;
 struct PanControl {

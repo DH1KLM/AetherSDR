@@ -22,13 +22,13 @@
 #include <algorithm>
 #include <filesystem>
 
-//DH1KLM UpdateStager against tests/fixtures/update: a v26.10.2 install and the
-//DH1KLM v26.10.3 manifest and patch bundle that tools/build_update_manifest.py
-//DH1KLM built from it. The bundle is the CI tool's real output, so applying it here
-//DH1KLM proves the app's zstd decoder reads `zstd --patch-from` as written. Every
-//DH1KLM case from docs/architecture/update-manifest.md's negative list is here.
-//DH1KLM Signatures use a test key made at runtime; no private key is in the tree.
-//DH1KLM No sockets: downloads are file:// URLs.
+// UpdateStager against tests/fixtures/update: a v26.10.2 install and the
+// v26.10.3 manifest and patch bundle that tools/build_update_manifest.py
+// built from it. The bundle is the CI tool's real output, so applying it here
+// proves the app's zstd decoder reads `zstd --patch-from` as written. Every
+// case from docs/architecture/update-manifest.md's negative list is here.
+// Signatures use a test key made at runtime; no private key is in the tree.
+// No sockets: downloads are file:// URLs.
 
 using namespace AetherSDR;
 namespace fs = std::filesystem;
@@ -92,7 +92,7 @@ UpdateStager::Request request(const QString& running = QStringLiteral("26.10.2")
     return r;
 }
 
-//DH1KLM A copy of the fixture install that a test may modify.
+// A copy of the fixture install that a test may modify.
 QString copyInstall(const QTemporaryDir& tmp, const QString& name = QStringLiteral("install"))
 {
     const QString dst = tmp.filePath(name);
@@ -108,8 +108,8 @@ QByteArray bundleBytes()
                     + QStringLiteral("/release/AetherSDR-v26.10.3-Windows-x64-from-v26.10.2.update.tar"));
 }
 
-//DH1KLM The v26.10.3 release tree, made by applying the fixture's patch: what the
-//DH1KLM release's portable zip holds.
+// The v26.10.3 release tree, made by applying the fixture's patch: what the
+// release's portable zip holds.
 QHash<QString, QByteArray> releaseTree(const QTemporaryDir& tmp)
 {
     const QString install = copyInstall(tmp, QStringLiteral("for-zip"));
@@ -126,10 +126,10 @@ QHash<QString, QByteArray> releaseTree(const QTemporaryDir& tmp)
     return files;
 }
 
-//DH1KLM A portable zip the way Compress-Archive writes one: '\' separators and
-//DH1KLM folder entries. extra adds (or, with an empty value, drops) entries.
-//DH1KLM reversed: the same files in the other order, so the same size and other
-//DH1KLM bytes.
+// A portable zip the way Compress-Archive writes one: '\' separators and
+// folder entries. extra adds (or, with an empty value, drops) entries.
+// reversed: the same files in the other order, so the same size and other
+// bytes.
 QByteArray portableZip(const QHash<QString, QByteArray>& tree, const QList<ZipEntryData>& extra = {},
                        const QStringList& drop = {}, bool reversed = false)
 {
@@ -153,7 +153,7 @@ QString sha256Hex(const QByteArray& b)
     return QString::fromLatin1(QCryptographicHash::hash(b, QCryptographicHash::Sha256).toHex());
 }
 
-} //DH1KLM namespace
+} // namespace
 
 class UpdateStagerTest : public QObject {
     Q_OBJECT
@@ -187,12 +187,12 @@ private slots:
         UpdateStager::setTrustedKeysForTesting({m_key.publicKey()});
     }
 
-    //DH1KLM ── The trust anchor ────────────────────────────────────────────────
+    // ── The trust anchor ────────────────────────────────────────────────
 
     void embeddedKeyIsTheCommittedPublicKey()
     {
-        //DH1KLM The app's built-in key and packaging/update-signing.pub must be
-        //DH1KLM the same key, or every real manifest would be refused.
+        // The app's built-in key and packaging/update-signing.pub must be
+        // the same key, or every real manifest would be refused.
         const QByteArray pem = readFile(QStringLiteral(UPDATE_SIGNING_PUB));
         QByteArray b64;
         for (const QByteArray& line : pem.split('\n')) {
@@ -201,17 +201,17 @@ private slots:
             }
         }
         const QByteArray der = QByteArray::fromBase64(b64);
-        QCOMPARE(der.size(), 44);   //DH1KLM SPKI: a 12-byte Ed25519 prefix and the raw key
+        QCOMPARE(der.size(), 44);   // SPKI: a 12-byte Ed25519 prefix and the raw key
         QCOMPARE(der.left(12).toHex(), QByteArray("302a300506032b6570032100"));
         QCOMPARE(UpdateStager::builtInKey(), der.right(32));
     }
 
     void thePublishedManifestVerifiesWithTheBuiltInKey()
     {
-        //DH1KLM The v26.10.3 manifest and signature exactly as the release
-        //DH1KLM workflow published them on updates.aethersdr.com (2026-10-24):
-        //DH1KLM CI's signing key is the one the app trusts, and a real manifest
-        //DH1KLM parses and offers v26.10.2 its patch.
+        // The v26.10.3 manifest and signature exactly as the release
+        // workflow published them on updates.aethersdr.com (2026-10-24):
+        // CI's signing key is the one the app trusts, and a real manifest
+        // parses and offers v26.10.2 its patch.
         const QString dir = kFixture + QStringLiteral("/v26.10.3-published/");
         const QByteArray json = readFile(dir + QStringLiteral("manifest.json"));
         const QByteArray sig = readFile(dir + QStringLiteral("manifest.json.sig"));
@@ -240,7 +240,7 @@ private slots:
         }
     }
 
-    //DH1KLM ── Signature ───────────────────────────────────────────────────────
+    // ── Signature ───────────────────────────────────────────────────────
 
     void signatureIsCheckedOnExactBytes()
     {
@@ -250,12 +250,12 @@ private slots:
         tampered[tampered.size() / 2] = tampered[tampered.size() / 2] ^ 1;
         QVERIFY(!UpdateStager::verify(tampered, m_key.sign(m)));
         QVERIFY(!UpdateStager::verify(m, QByteArray(64, '\0')));
-        QVERIFY(!UpdateStager::verify(m, m_key.sign(m).toBase64()));   //DH1KLM raw 64 bytes only
+        QVERIFY(!UpdateStager::verify(m, m_key.sign(m).toBase64()));   // raw 64 bytes only
         QVERIFY(!UpdateStager::verify(m, m_key.sign(m).left(63)));
-        QVERIFY(!UpdateStager::verify(m, m_key.sign(m) + "x"));   //DH1KLM a valid signature plus trailing bytes
+        QVERIFY(!UpdateStager::verify(m, m_key.sign(m) + "x"));   // a valid signature plus trailing bytes
     }
 
-    //DH1KLM ── Parse ───────────────────────────────────────────────────────────
+    // ── Parse ───────────────────────────────────────────────────────────
 
     void fixtureParses()
     {
@@ -311,7 +311,7 @@ private slots:
                     "https://github.com/aethersdr/AetherSDR/releases/download/v26.10.2/AetherSDR.zip");
                 p[QStringLiteral("full")] = f;
             });
-        })));   //DH1KLM another release's download
+        })));   // another release's download
         QVERIFY(!parses(with([&](QJsonObject& o) {
             payload0(o, [](QJsonObject& p) {
                 QJsonObject f = p[QStringLiteral("full")].toObject();
@@ -319,14 +319,14 @@ private slots:
                     "https://github.com/aethersdr/AetherSDR/releases/download/v26.10.3/..%2F..%2Fx.zip");
                 p[QStringLiteral("full")] = f;
             });
-        })));   //DH1KLM an encoded traversal: refused by the app's one download allowlist
+        })));   // an encoded traversal: refused by the app's one download allowlist
         QVERIFY(!parses(with([&](QJsonObject& o) { op(o, 2, "window_log", 32); })));
         QVERIFY(!parses(with([&](QJsonObject& o) { op(o, 2, "path", QStringLiteral("../AetherSDR.exe")); })));
         QVERIFY(!parses(with([&](QJsonObject& o) { op(o, 2, "path", QStringLiteral("/etc/passwd")); })));
         QVERIFY(!parses(with([&](QJsonObject& o) { op(o, 2, "path", QStringLiteral("C:/x.dll")); })));
         QVERIFY(!parses(with([&](QJsonObject& o) { op(o, 2, "member", QStringLiteral("../x")); })));
         QVERIFY(!parses(with([&](QJsonObject& o) { op(o, 3, "member", QStringLiteral("000002.zst")); })));
-        QVERIFY(!parses(with([&](QJsonObject& o) {   //DH1KLM a removal after a write
+        QVERIFY(!parses(with([&](QJsonObject& o) {   // a removal after a write
             op(o, 2, "op", QStringLiteral("remove"));
             op(o, 1, "op", QStringLiteral("symlink"));
             op(o, 1, "target", QStringLiteral("AetherSDR.exe"));
@@ -342,7 +342,7 @@ private slots:
         QVERIFY(!parses(with([](QJsonObject& o) { o[QStringLiteral("payloads")] = QJsonArray(); })));
     }
 
-    //DH1KLM ── Choose ──────────────────────────────────────────────────────────
+    // ── Choose ──────────────────────────────────────────────────────────
 
     void chooseRefusesReplayFreezeAndOldReleases()
     {
@@ -366,7 +366,7 @@ private slots:
         QCOMPARE(UpdateStager::choose(m, request(QStringLiteral("26.10.2.0")), {}, &p, &q), D::Patch);
     }
 
-    //DH1KLM ── Apply ───────────────────────────────────────────────────────────
+    // ── Apply ───────────────────────────────────────────────────────────
 
     void appliesTheToolsBundleExactly()
     {
@@ -385,10 +385,10 @@ private slots:
                      f.sha256);
         }
         QVERIFY(!QFile::exists(stage + QStringLiteral("/gone.dll")));
-        QVERIFY(QFileInfo(stage + QStringLiteral("/plugins/old")).isFile());   //DH1KLM a folder became a file
+        QVERIFY(QFileInfo(stage + QStringLiteral("/plugins/old")).isFile());   // a folder became a file
         QCOMPARE(readFile(stage + QStringLiteral("/unins000.dat")), QByteArray("installer's own"));
         QCOMPARE(readFile(install + QStringLiteral("/gone.dll")),
-                 readFile(kFixture + QStringLiteral("/install-v26.10.2/gone.dll")));   //DH1KLM install untouched
+                 readFile(kFixture + QStringLiteral("/install-v26.10.2/gone.dll")));   // install untouched
     }
 
     void aDriftedInstallIsAHardFail()
@@ -402,7 +402,7 @@ private slots:
         QVERIFY(!UpdateStager::applyPatch(install, bundleBytes(), m.payloads[0].patches[0],
                                           m.payloads[0].files, stage, &problem));
         QVERIFY(problem.contains(QLatin1String("starts from")));
-        QVERIFY(!QFileInfo::exists(stage));   //DH1KLM staging removed on failure
+        QVERIFY(!QFileInfo::exists(stage));   // staging removed on failure
     }
 
     void aCorruptBundleIsAHardFail()
@@ -411,12 +411,12 @@ private slots:
         const QString install = copyInstall(tmp);
         const UpdateManifest m = parsed(fixtureManifest());
         QByteArray bundle = bundleBytes();
-        bundle[512 + 40] = bundle[512 + 40] ^ 0x5a;   //DH1KLM inside 000000.zst (67 bytes at 512): the delta
+        bundle[512 + 40] = bundle[512 + 40] ^ 0x5a;   // inside 000000.zst (67 bytes at 512): the delta
         QString problem;
         QVERIFY(!UpdateStager::applyPatch(install, bundle, m.payloads[0].patches[0], m.payloads[0].files,
                                           tmp.filePath(QStringLiteral("s")), &problem));
         QByteArray header = bundleBytes();
-        header[10] = 'Z';   //DH1KLM a member header
+        header[10] = 'Z';   // a member header
         QVERIFY(!UpdateStager::applyPatch(install, header, m.payloads[0].patches[0], m.payloads[0].files,
                                           tmp.filePath(QStringLiteral("s")), &problem));
     }
@@ -432,16 +432,16 @@ private slots:
         QVERIFY(!UpdateStager::applyPatch(install, bundleBytes(), patch, m.payloads[0].files,
                                           tmp.filePath(QStringLiteral("s1")), &problem));
         patch = m.payloads[0].patches[0];
-        patch.ops[2].size -= 1;   //DH1KLM the output would exceed what was signed
+        patch.ops[2].size -= 1;   // the output would exceed what was signed
         QVERIFY(!UpdateStager::applyPatch(install, bundleBytes(), patch, m.payloads[0].files,
                                           tmp.filePath(QStringLiteral("s2")), &problem));
         QVERIFY(problem.contains(QLatin1String("exceeds")));
         patch = m.payloads[0].patches[0];
-        patch.ops[3].size += 1;   //DH1KLM the output stops short of what was signed
+        patch.ops[3].size += 1;   // the output stops short of what was signed
         QVERIFY(!UpdateStager::applyPatch(install, bundleBytes(), patch, m.payloads[0].files,
                                           tmp.filePath(QStringLiteral("s3")), &problem));
         patch = m.payloads[0].patches[0];
-        patch.ops.removeAt(3);   //DH1KLM a file the release has is never written
+        patch.ops.removeAt(3);   // a file the release has is never written
         QVERIFY(!UpdateStager::applyPatch(install, bundleBytes(), patch, m.payloads[0].files,
                                           tmp.filePath(QStringLiteral("s4")), &problem));
         QVERIFY(problem.contains(QLatin1String("plugins/new.dll")));
@@ -454,13 +454,13 @@ private slots:
         const QString install = copyInstall(tmp);
         const QString outside = tmp.filePath(QStringLiteral("outside"));
         QDir().mkpath(outside);
-        //DH1KLM The install's plugins folder is a link to somewhere else.
+        // The install's plugins folder is a link to somewhere else.
         fs::remove_all(fs::path(install.toStdString() + "/plugins"));
         fs::create_directory_symlink(fs::path(outside.toStdString()),
                                      fs::path(install.toStdString() + "/plugins"));
         const UpdateManifest m = parsed(fixtureManifest());
         UpdateManifest::Patch patch;
-        patch.ops = {m.payloads[0].patches[0].ops[3]};   //DH1KLM add plugins/new.dll
+        patch.ops = {m.payloads[0].patches[0].ops[3]};   // add plugins/new.dll
         QString problem;
         QVERIFY(!UpdateStager::applyPatch(install, bundleBytes(), patch, {}, tmp.filePath(QStringLiteral("s")),
                                           &problem));
@@ -473,7 +473,7 @@ private slots:
     {
         QTemporaryDir tmp;
         const QString install = copyInstall(tmp);
-        QDir().mkpath(install + QStringLiteral("/logs"));   //DH1KLM empty in the install, not the update's
+        QDir().mkpath(install + QStringLiteral("/logs"));   // empty in the install, not the update's
         const UpdateManifest m = parsed(fixtureManifest());
         const QString stage = tmp.filePath(QStringLiteral("s1"));
         QString problem;
@@ -482,9 +482,9 @@ private slots:
                  qPrintable(problem));
         QVERIFY(QFileInfo(stage + QStringLiteral("/logs")).isDir());
 
-        //DH1KLM A patch of removals only still prunes what it emptied.
+        // A patch of removals only still prunes what it emptied.
         UpdateManifest::Patch removals;
-        removals.ops = {m.payloads[0].patches[0].ops[1]};   //DH1KLM remove plugins/old/x.dll
+        removals.ops = {m.payloads[0].patches[0].ops[1]};   // remove plugins/old/x.dll
         const QString stage2 = tmp.filePath(QStringLiteral("s2"));
         QVERIFY2(UpdateStager::applyPatch(install, bundleBytes(), removals, {}, stage2, &problem),
                  qPrintable(problem));
@@ -501,7 +501,7 @@ private slots:
         UpdateManifest m = parsed(fixtureManifest());
         for (UpdateManifest::File& f : m.payloads[0].files) {
             if (f.path == QLatin1String("Qt6Core.dll")) {
-                f.executable = true;   //DH1KLM untouched by the patch, so only the copy can carry it
+                f.executable = true;   // untouched by the patch, so only the copy can carry it
             }
         }
         QString problem;
@@ -513,8 +513,8 @@ private slots:
 
     void aMissingBundleOffersTheFullDownload()
     {
-        //DH1KLM The manifest is trusted; only its bundle cannot be fetched. That is
-        //DH1KLM not "the update failed": the full download may still work.
+        // The manifest is trusted; only its bundle cannot be fetched. That is
+        // not "the update failed": the full download may still work.
         QTemporaryDir tmp;
         const QString install = copyInstall(tmp);
         const QByteArray manifest = readFile(kFixture + QStringLiteral("/release/manifest.json"));
@@ -540,10 +540,10 @@ private slots:
     void aLinkInTheInstallIsNeverFollowedByANewFile()
     {
 #ifndef Q_OS_WIN
-        //DH1KLM Review of #6747: a link left in the install at the name a new
-        //DH1KLM file is first written under used to be followed out of staging
-        //DH1KLM and overwrite the install. New files are now created
-        //DH1KLM exclusively under random names.
+        // Review of #6747: a link left in the install at the name a new
+        // file is first written under used to be followed out of staging
+        // and overwrite the install. New files are now created
+        // exclusively under random names.
         QTemporaryDir tmp;
         const QString install = copyInstall(tmp);
         const QByteArray before = readFile(install + QStringLiteral("/Qt6Core.dll"));
@@ -565,8 +565,8 @@ private slots:
 
     void aCancelledWorkerNeverReportsForTheNextRequest()
     {
-        //DH1KLM Review of #6747: cancel A while its apply is queued, start B; only
-        //DH1KLM B's result may come back, and A's work must not be left behind.
+        // Review of #6747: cancel A while its apply is queued, start B; only
+        // B's result may come back, and A's work must not be left behind.
         QTemporaryDir tmp;
         const QString install = copyInstall(tmp);
         const QByteArray manifest = readFile(kFixture + QStringLiteral("/release/manifest.json"));
@@ -579,7 +579,7 @@ private slots:
         UpdateStager::setDownloadBaseForTesting(QUrl::fromLocalFile(tmp.filePath(QStringLiteral("dl"))));
         UpdateSettings::setAcceptedManifestUtc({});
 
-        //DH1KLM Hold the pool so both applies queue behind one blocker.
+        // Hold the pool so both applies queue behind one blocker.
         QThreadPool* pool = QThreadPool::globalInstance();
         const int threads = pool->maxThreadCount();
         pool->setMaxThreadCount(1);
@@ -610,7 +610,7 @@ private slots:
         release.release();
         blocker.waitForFinished();
         QTRY_COMPARE_WITH_TIMEOUT(staged.size(), 1, 20000);
-        QTest::qWait(200);   //DH1KLM A's worker has finished too; nothing more arrives
+        QTest::qWait(200);   // A's worker has finished too; nothing more arrives
         pool->setMaxThreadCount(threads);
         QCOMPARE(staged.size(), 1);
         QCOMPARE(staged.first().first().toString(), tmp.filePath(QStringLiteral("second/26.10.3")));
@@ -636,7 +636,7 @@ private slots:
                                           m.payloads[0].files, tmp.filePath(QStringLiteral("s")), &problem));
     }
 
-    //DH1KLM ── The full release (no patch applies) ─────────────────────────────
+    // ── The full release (no patch applies) ─────────────────────────────
 
     void theFullReleaseUnpacksExactlyItsFilesAndKeepsTheUninstaller()
     {
@@ -657,7 +657,7 @@ private slots:
         QVERIFY(!QFile::exists(staging + QStringLiteral("/settings.ini")));
         QVERIFY(!QFile::exists(staging + QStringLiteral("/gone.dll")));
         QCOMPARE(QDir(staging).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).size(), 5);
-        QVERIFY(QFile::exists(install + QStringLiteral("/gone.dll")));   //DH1KLM the install untouched
+        QVERIFY(QFile::exists(install + QStringLiteral("/gone.dll")));   // the install untouched
     }
 
     void aFullReleaseThatIsNotExactlyTheManifestIsRefused()
@@ -677,7 +677,7 @@ private slots:
         QVERIFY(refused(portableZip(tree, {{QStringLiteral("..\\evil.dll"), "x"}})));
         QVERIFY(refused(portableZip(tree, {{QStringLiteral("../plugins\\"), {}}})));
         QVERIFY(refused(portableZip(tree, {}, {QStringLiteral("plugins/new.dll")})));
-        //DH1KLM One file swapped for one outside the tree: nothing is written there.
+        // One file swapped for one outside the tree: nothing is written there.
         QVERIFY(refused(portableZip(tree, {{QStringLiteral("..\\evil.dll"), "x"}}, {QStringLiteral("plugins/old")})));
         QVERIFY(!QFileInfo::exists(tmp.filePath(QStringLiteral("evil.dll"))));
         QHash<QString, QByteArray> changed = tree;
@@ -687,7 +687,7 @@ private slots:
         changed[QStringLiteral("plugins/old")] += "longer than signed";
         QVERIFY(refused(portableZip(changed)));
         QVERIFY(refused(QByteArray("not a zip")));
-        //DH1KLM A link cannot come from a zip.
+        // A link cannot come from a zip.
         UpdateManifest::File link;
         link.path = QStringLiteral("lib.so");
         link.symlink = true;
@@ -695,7 +695,7 @@ private slots:
         QString problem;
         QVERIFY(!UpdateStager::applyFull(install, portableZip(tree), m.payloads[0].files + QList{link}, staging,
                                          &problem));
-        //DH1KLM Overlapping folders, and a cancel.
+        // Overlapping folders, and a cancel.
         QVERIFY(!UpdateStager::applyFull(install, portableZip(tree), m.payloads[0].files,
                                          install + QStringLiteral("/staging"), &problem));
         std::atomic_bool cancelled{true};
@@ -704,9 +704,9 @@ private slots:
         QVERIFY(!QFileInfo::exists(staging));
     }
 
-    //DH1KLM The fixture manifest with a full download that is the zip in dl/, and
-    //DH1KLM (unless keepPatch) no patch, signed by the test key and published in
-    //DH1KLM site/latest/.
+    // The fixture manifest with a full download that is the zip in dl/, and
+    // (unless keepPatch) no patch, signed by the test key and published in
+    // site/latest/.
     QString publishFull(const QTemporaryDir& tmp, const QByteArray& zip, bool keepPatch,
                         const QByteArray& bundle = bundleBytes())
     {
@@ -749,7 +749,7 @@ private slots:
         QSignalSpy full(&stager, &UpdateStager::fullDownloadNeeded);
         QSignalSpy failed(&stager, &UpdateStager::failed);
 
-        stager.stage(r);   //DH1KLM fullFallback off: the old answer
+        stager.stage(r);   // fullFallback off: the old answer
         QTRY_COMPARE_WITH_TIMEOUT(full.size() + staged.size() + failed.size(), 1, 20000);
         QCOMPARE(full.size(), 1);
         QVERIFY(!QFileInfo::exists(r.stagingRoot + QStringLiteral("/26.10.3")));
@@ -792,7 +792,7 @@ private slots:
         QTemporaryDir tmp;
         const QString install = copyInstall(tmp);
         QByteArray bundle = bundleBytes();
-        bundle[bundle.size() / 2] = bundle[bundle.size() / 2] ^ 1;   //DH1KLM fails its signed hash
+        bundle[bundle.size() / 2] = bundle[bundle.size() / 2] ^ 1;   // fails its signed hash
         const QString manifest = publishFull(tmp, portableZip(releaseTree(tmp)), true, bundle);
         UpdateStager::Request r = request();
         r.installRoot = install;
@@ -807,8 +807,8 @@ private slots:
         QCOMPARE(staged.size(), 1);
         QVERIFY(!QFile::exists(staged.first().at(0).toString() + QStringLiteral("/gone.dll")));
 
-        //DH1KLM A full release that fails its hash too, though it is a good zip of
-        //DH1KLM the same files: the browser, once.
+        // A full release that fails its hash too, though it is a good zip of
+        // the same files: the browser, once.
         const QHash<QString, QByteArray> tree = releaseTree(tmp);
         const QByteArray other = portableZip(tree, {}, {}, true);
         QCOMPARE(other.size(), portableZip(tree).size());
@@ -819,12 +819,12 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(full.size(), 1, 20000);
         QTest::qWait(100);
         QCOMPARE(staged.size(), 1);
-        QCOMPARE(full.size(), 1);   //DH1KLM once, not at least once
+        QCOMPARE(full.size(), 1);   // once, not at least once
         QCOMPARE(full.first().first().toString(), QStringLiteral("The downloaded update does not match its signed hash."));
         QVERIFY(!stager.isBusy());
     }
 
-    //DH1KLM ── What stays staged between runs ──────────────────────────────────
+    // ── What stays staged between runs ──────────────────────────────────
 
     void aStagedReleaseIsRecordedAndRevalidated()
     {
@@ -846,20 +846,20 @@ private slots:
                  (QStringList{QStringLiteral("26.10.3"), QStringLiteral("26.10.3.json"),
                               QStringLiteral("26.10.3.manifest.json"), QStringLiteral("26.10.3.manifest.json.sig")}));
 
-        //DH1KLM The next run finds it, for this install and version only.
+        // The next run finds it, for this install and version only.
         UpdateStager::StagedRelease s =
             UpdateStager::stagedRelease(root, QStringLiteral("26.10.2"), install, QStringLiteral("v26.10.3"), {});
         QCOMPARE(s.version, QStringLiteral("26.10.3"));
         QCOMPARE(s.dir, root + QStringLiteral("/26.10.3"));
         QCOMPARE(s.from, QStringLiteral("26.10.2"));
         QCOMPARE(UpdateStager::stagedRelease(root, QStringLiteral("26.10.2"), install, QString(), {}).version,
-                 QStringLiteral("26.10.3"));   //DH1KLM latest not known yet
+                 QStringLiteral("26.10.3"));   // latest not known yet
         QString problem;
         QVERIFY2(UpdateStager::revalidate(root, s, QStringLiteral("windows"), QStringLiteral("x86_64"), &problem),
                  qPrintable(problem));
         QVERIFY(!UpdateStager::revalidate(root, s, QStringLiteral("linux"), QStringLiteral("x86_64"), &problem));
 
-        //DH1KLM A file changed after staging, or the stored manifest, fails it.
+        // A file changed after staging, or the stored manifest, fails it.
         writeFile(s.dir + QStringLiteral("/plugins/old"), "tampered!!!!");
         QVERIFY(!UpdateStager::revalidate(root, s, QStringLiteral("windows"), QStringLiteral("x86_64"), &problem));
         QVERIFY(problem.contains(QLatin1String("plugins/old")));
@@ -895,19 +895,19 @@ private slots:
             return s.version.isEmpty() && QDir(root).isEmpty();
         };
         QVERIFY(stageOnce());
-        QVERIFY(discarded(QStringLiteral("26.10.3"), install, QStringLiteral("v26.10.3"), {}));   //DH1KLM updated already
+        QVERIFY(discarded(QStringLiteral("26.10.3"), install, QStringLiteral("v26.10.3"), {}));   // updated already
         QVERIFY(stageOnce());
-        QVERIFY(discarded(QStringLiteral("26.10.1"), install, QStringLiteral("v26.10.3"), {}));   //DH1KLM staged for another
+        QVERIFY(discarded(QStringLiteral("26.10.1"), install, QStringLiteral("v26.10.3"), {}));   // staged for another
         QVERIFY(stageOnce());
         QVERIFY(discarded(QStringLiteral("26.10.2"), tmp.filePath(QStringLiteral("other")), QStringLiteral("v26.10.3"), {}));
         QVERIFY(stageOnce());
-        QVERIFY(discarded(QStringLiteral("26.10.2"), install, QStringLiteral("v26.10.4"), {}));   //DH1KLM superseded
+        QVERIFY(discarded(QStringLiteral("26.10.2"), install, QStringLiteral("v26.10.4"), {}));   // superseded
         QVERIFY(stageOnce());
         QVERIFY(discarded(QStringLiteral("26.10.2"), install, QStringLiteral("v26.10.3"), QStringLiteral("26.10.3")));
         QVERIFY(stageOnce());
-        //DH1KLM Review of #6771: the record is unsigned and keeps no tag; one
-        //DH1KLM written into it (a "v26.10.4" naming the new latest) is never read,
-        //DH1KLM so a superseded (but signed) release cannot pass for it.
+        // Review of #6771: the record is unsigned and keeps no tag; one
+        // written into it (a "v26.10.4" naming the new latest) is never read,
+        // so a superseded (but signed) release cannot pass for it.
         {
             const QString rec = root + QStringLiteral("/26.10.3.json");
             QJsonObject o = QJsonDocument::fromJson(readFile(rec)).object();
@@ -917,7 +917,7 @@ private slots:
         }
         QVERIFY(discarded(QStringLiteral("26.10.2"), install, QStringLiteral("v26.10.4"), {}));
         QVERIFY(stageOnce());
-        //DH1KLM An empty install in the record is no install, never the working directory.
+        // An empty install in the record is no install, never the working directory.
         {
             const QString rec = root + QStringLiteral("/26.10.3.json");
             QJsonObject o = QJsonDocument::fromJson(readFile(rec)).object();
@@ -926,7 +926,7 @@ private slots:
         }
         bool emptyDiscarded = false;
         {
-            //DH1KLM The working directory is the process's: always put back.
+            // The working directory is the process's: always put back.
             struct Cwd {
                 QString was = QDir::currentPath();
                 ~Cwd() { QDir::setCurrent(was); }
@@ -936,10 +936,10 @@ private slots:
         }
         QVERIFY(emptyDiscarded);
         QVERIFY(stageOnce());
-        QFile::remove(root + QStringLiteral("/26.10.3.manifest.json.sig"));   //DH1KLM a record half written
+        QFile::remove(root + QStringLiteral("/26.10.3.manifest.json.sig"));   // a record half written
         QVERIFY(discarded(QStringLiteral("26.10.2"), install, QStringLiteral("v26.10.3"), {}));
 
-        //DH1KLM What a crashed run left goes; the staged release stays.
+        // What a crashed run left goes; the staged release stays.
         QVERIFY(stageOnce());
         QDir().mkpath(root + QStringLiteral("/.work-crashed/plugins"));
         QDir().mkpath(root + QStringLiteral("/26.10.1"));
@@ -948,16 +948,16 @@ private slots:
             UpdateStager::stagedRelease(root, QStringLiteral("26.10.2"), install, QStringLiteral("v26.10.3"), {});
         QCOMPARE(s.version, QStringLiteral("26.10.3"));
         QCOMPARE(QDir(root).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden).size(), 4);
-        //DH1KLM Review of #6771: the folder is the helper's state folder too; the
-        //DH1KLM sweep removes only what staging wrote.
+        // Review of #6771: the folder is the helper's state folder too; the
+        // sweep removes only what staging wrote.
         writeFile(root + QStringLiteral("/swap-journal.txt"), "selftest 26.10.3");
         writeFile(root + QStringLiteral("/swap-result.txt"), "RolledBack 26.10.3\n");
         writeFile(root + QStringLiteral("/repair-plan.txt"), "C:/AetherSDR\n26.10.3\n");
         writeFile(root + QStringLiteral("/updater.log"), "log");
         writeFile(root + QStringLiteral("/AetherSDRUpdater.exe"), "helper");
         writeFile(root + QStringLiteral("/selftest-26.10.3.txt"), "26.10.3");
-        //DH1KLM Staging's own leftovers beside them do go: a crashed work folder
-        //DH1KLM and records QSaveFile left half written.
+        // Staging's own leftovers beside them do go: a crashed work folder
+        // and records QSaveFile left half written.
         QDir().mkpath(root + QStringLiteral("/.work-crashed"));
         writeFile(root + QStringLiteral("/26.10.3.json.a1B2c3"), "{");
         writeFile(root + QStringLiteral("/26.10.3.manifest.json.sig.Zz9Yy8"), "x");
@@ -969,7 +969,7 @@ private slots:
                                  "AetherSDRUpdater.exe", "selftest-26.10.3.txt"}) {
             QVERIFY2(QFile::exists(root + QLatin1Char('/') + QLatin1String(name)), name);
         }
-        QVERIFY(!QFileInfo::exists(root + QStringLiteral("/26.10.3")));   //DH1KLM staging's own, discarded
+        QVERIFY(!QFileInfo::exists(root + QStringLiteral("/26.10.3")));   // staging's own, discarded
         QVERIFY(!QFileInfo::exists(root + QStringLiteral("/26.10.3.json")));
 
         QVERIFY(UpdateStager::stagedRelease(tmp.filePath(QStringLiteral("none")), QStringLiteral("26.10.2"), install,
@@ -977,7 +977,7 @@ private slots:
                     .version.isEmpty());
     }
 
-    //DH1KLM ── The whole stage(), over file:// URLs ────────────────────────────
+    // ── The whole stage(), over file:// URLs ────────────────────────────
 
     void stagesEndToEndAndRefusesAForgedManifest()
     {
@@ -1007,7 +1007,7 @@ private slots:
         QVERIFY(QFileInfo(staged.first().at(0).toString() + QStringLiteral("/plugins/new.dll")).isFile());
         QVERIFY(UpdateSettings::acceptedManifestUtc().isValid());
 
-        //DH1KLM The same manifest signed by another key is refused before parsing.
+        // The same manifest signed by another key is refused before parsing.
         TestKey other;
         uint8_t seed[32] = {1};
         crypto_ed25519_key_pair(other.secret, other.pub, seed);

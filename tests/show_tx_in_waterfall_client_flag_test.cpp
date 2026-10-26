@@ -334,8 +334,8 @@ int main(int argc, char** argv)
                   && !radio.transmitModel().showTxInWaterfall(),
               "txwaterfall off: the model reads false");
     }
-    //DH1KLM Neither backend has a live session: the session gate refuses before
-    //DH1KLM capability admission, and the model carries the drop notice.
+    // Neither backend has a live session: the session gate refuses before
+    // capability admission, and the model carries the drop notice.
     for (const QString& family : {QStringLiteral("flex"), QStringLiteral("sim")}) {
         const QByteArray tag = family.toLatin1();
         const auto named = [&tag](const char* what) -> QByteArray {
@@ -359,7 +359,7 @@ int main(int argc, char** argv)
               named("the model is unchanged").constData());
     }
 
-    //DH1KLM A dispatched request acknowledges delivery, then waits for radio status.
+    // A dispatched request acknowledges delivery, then waits for radio status.
     {
         RadioModel radio;
         RadioSetupTestBackend* backend = installRadioSetupBackend(radio);

@@ -245,7 +245,7 @@ void IcomSession::onControlReady()
 
 void IcomSession::onControlPayload(const QByteArray& packet)
 {
-    //DH1KLM Failure is terminal even while its deferred stream teardown is pending.
+    // Failure is terminal even while its deferred stream teardown is pending.
     if (m_failing) {
         return;
     }

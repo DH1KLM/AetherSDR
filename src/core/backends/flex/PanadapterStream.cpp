@@ -29,9 +29,9 @@ constexpr int kOpusFramesPerPacket = 240;
 constexpr int kWanRegisterIntervalMs = 50;
 constexpr int kWanKeepaliveIntervalMs = 5000;
 constexpr int kLanKeepaliveIntervalMs = 5000;
-//DH1KLM The radio sends LAN VITA from this port (measured, fw 4.3.16: FLEX-8600 IPv4 and
-//DH1KLM IPv6, FLEX-8400 with concurrent multiFLEX clients). Sending to it keeps a
-//DH1KLM stateful host firewall's return path open.
+// The radio sends LAN VITA from this port (measured, fw 4.3.16: FLEX-8600 IPv4 and
+// IPv6, FLEX-8400 with concurrent multiFLEX clients). Sending to it keeps a
+// stateful host firewall's return path open.
 constexpr quint16 kLanVitaSourcePort = 4993;
 
 QString streamCategoryName(PanadapterStream::StreamCategory cat)
@@ -245,7 +245,7 @@ bool PanadapterStream::start(RadioConnection* conn)
     }
 
     if (!m_lanBindForTest) {
-        applyReceiveBufferSize();   //DH1KLM #3810 — absorb VITA-49 bursts so they don't drop
+        applyReceiveBufferSize();   // #3810 — absorb VITA-49 bursts so they don't drop
         applyDscpEf(conn ? conn->radioAddress() : QHostAddress(), {4991, 4992});
     }
     m_localAddress = m_socket->localAddress();
@@ -253,7 +253,7 @@ bool PanadapterStream::start(RadioConnection* conn)
     qCDebug(lcVita49) << "PanadapterStream: local UDP endpoint"
                       << m_localAddress.toString() << ":" << m_localPort;
 
-    //DH1KLM Send a one-byte UDP registration datagram to the radio's command port (4992).
+    // Send a one-byte UDP registration datagram to the radio's command port (4992).
     // The radio learns our IP:port from the source address of this datagram.
     // This is required on firmware v1.4.0.0 where the TCP "client udpport"
     // command may return 0x50001000 ("command not supported").
@@ -332,7 +332,7 @@ bool PanadapterStream::rebindToEphemeralPort(RadioConnection* conn)
     }
 
     if (!m_lanBindForTest) {
-        applyReceiveBufferSize();   //DH1KLM #3810 — absorb VITA-49 bursts so they don't drop
+        applyReceiveBufferSize();   // #3810 — absorb VITA-49 bursts so they don't drop
         applyDscpEf(conn ? conn->radioAddress() : QHostAddress(), {4991, 4992});
     }
     m_localAddress = m_socket->localAddress();
@@ -387,8 +387,8 @@ void PanadapterStream::startLanKeepalive()
     m_lanKeepaliveTimer->start();
 }
 
-//DH1KLM Without this, a host firewall that drops unsolicited UDP (UFW, firewalld)
-//DH1KLM sees radio VITA as a new inbound flow and drops it while TCP stays up.
+// Without this, a host firewall that drops unsolicited UDP (UFW, firewalld)
+// sees radio VITA as a new inbound flow and drops it while TCP stays up.
 void PanadapterStream::sendLanKeepalive()
 {
     if (m_isWanMode || m_radioAddress.isNull())

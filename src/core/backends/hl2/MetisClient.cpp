@@ -41,12 +41,12 @@ namespace AetherSDR::hl2 {
 
 namespace {
 
-//DH1KLM requestIoBoardStatus()'s answer for every way bus 2 can be busy.
+// requestIoBoardStatus()'s answer for every way bus 2 can be busy.
 const QString kIoBoardBusBusy = QStringLiteral("the radio's I2C bus was busy");
 
-//DH1KLM The config bank's bits that start a bus-2 write when they change
-//DH1KLM (i2c_bus2.v, address 0x00): filter select DATA[23:17], RX antenna DATA[13] and,
-//DH1KLM on AK4951 builds, the speaker bit DATA[11].
+// The config bank's bits that start a bus-2 write when they change
+// (i2c_bus2.v, address 0x00): filter select DATA[23:17], RX antenna DATA[13] and,
+// on AK4951 builds, the speaker bit DATA[11].
 std::uint32_t configBus2Bits(const Cc& config) noexcept
 {
     return (std::uint32_t(config[2] & 0xFE) << 8) | std::uint32_t(config[3] & 0x28);
@@ -308,7 +308,7 @@ bool MetisClient::start(const Params& params)
     m_port = params.port;
     m_ccConfig = ccConfig(m_params.sampleRate, effectiveNumRx(), m_params.ocFilterByte,
                           m_params.ditherBit, m_params.randomBit);
-    //DH1KLM A new session's first config bank may move the radio's filter relays.
+    // A new session's first config bank may move the radio's filter relays.
     m_lastConfigBus2Sent = kConfigBus2Unknown;
     m_ccGain = ccRxGain(m_params.lnaGainDb);
     // Every receiver starts on RX1's frequency; Hl2Backend moves the rest as it
@@ -1191,7 +1191,7 @@ bool MetisClient::requestRegister(int addr, quint32 data, bool subsystemRead)
 
 void MetisClient::requestIoBoardStatus()
 {
-    //DH1KLM Same stream gate as requestRegister(): the reply can only ride EP6.
+    // Same stream gate as requestRegister(): the reply can only ride EP6.
     if (!m_running || !m_linkUp) {
         emit ioBoardStatusFailed(QStringLiteral("the radio is not streaming"));
         return;
@@ -1215,10 +1215,10 @@ void MetisClient::publishControlVerdict()
         publishControlFailure(reply->addr,
                               reply->outcome == Hl2ControlRequest::Outcome::Refused);
     } else if (reply->addr == (kC0I2c2 >> 1)) {
-        //DH1KLM i2c_bus2.v ignores a command that arrives during a write, and control.v
-        //DH1KLM then returns the request's own DATA as the reply (docs/HERMES.md, "The
-        //DH1KLM IO board status read"). A real reading of those bytes would need EXTTR
-        //DH1KLM low and an undefined fault code, so this costs nothing real.
+        // i2c_bus2.v ignores a command that arrives during a write, and control.v
+        // then returns the request's own DATA as the reply (docs/HERMES.md, "The
+        // IO board status read"). A real reading of those bytes would need EXTTR
+        // low and an undefined fault code, so this costs nothing real.
         if (reply->data == kIoBoardStatusReadData) {
             emit ioBoardStatusFailed(kIoBoardBusBusy);
         } else {
@@ -1231,7 +1231,7 @@ void MetisClient::publishControlVerdict()
 
 void MetisClient::publishControlFailure(int addr, bool refused)
 {
-    //DH1KLM Only requestIoBoardStatus() arms 0x3d; requestRegister() refuses it.
+    // Only requestIoBoardStatus() arms 0x3d; requestRegister() refuses it.
     if (addr == (kC0I2c2 >> 1)) {
         emit ioBoardStatusFailed(refused ? kIoBoardBusBusy
                                          : QStringLiteral("the radio did not answer"));
@@ -1495,7 +1495,7 @@ std::array<std::uint8_t, kUsbPacketSize> MetisClient::buildNextControlPacket(qin
     const auto isI2cBank = [](const Cc& bank) {
         return bank[0] == kC0I2c1 || bank[0] == kC0I2c2;
     };
-    //DH1KLM Bus 2 spacing (m_builtAtMs): a held bank waits for a later packet, in order.
+    // Bus 2 spacing (m_builtAtMs): a held bank waits for a later packet, in order.
     const bool holdI2cWrite = nowMs - m_lastBusReadSentMs < kI2cBusSpacingMs;
     const bool requestIsBusRead = m_ccRequest.state() == Hl2ControlRequest::State::Queued
         && m_ccRequest.outstanding().addr == (kC0I2c2 >> 1);
@@ -1682,7 +1682,7 @@ void MetisClient::onControlPacketSent(qint64 bytesWritten, qint64 nowMs) noexcep
     if (carriedRequest && bytesWritten > 0)
         m_ccRequest.onRequestSent(nowMs);
     if (bytesWritten > 0) {
-        //DH1KLM Not a session's first config: the read waits for EP6, long after it.
+        // Not a session's first config: the read waits for EP6, long after it.
         if (m_lastConfigBus2Sent != kConfigBus2Unknown
             && m_configBus2OnBuiltPacket != m_lastConfigBus2Sent)
             m_lastI2cWriteSentMs = m_builtAtMs;

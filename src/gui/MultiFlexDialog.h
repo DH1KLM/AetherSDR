@@ -13,8 +13,8 @@ namespace AetherSDR {
 
 class RadioModel;
 
-//DH1KLM The multiFLEX Dashboard: a canon dialog (style guide, RFC #6226) that stays
-//DH1KLM open beside the main window, listing every station sharing the radio.
+// The multiFLEX Dashboard: a canon dialog (style guide, RFC #6226) that stays
+// open beside the main window, listing every station sharing the radio.
 class MultiFlexDialog : public CanonWindow {
     Q_OBJECT
 public:

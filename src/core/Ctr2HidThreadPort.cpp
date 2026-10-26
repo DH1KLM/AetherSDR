@@ -168,9 +168,9 @@ private:
         }, Qt::QueuedConnection);
     }
 
-    //DH1KLM Writes the reports at `off` in `reports`: one in report 0x01, or with
-    //DH1KLM wide reports up to kReportsPerWideReport bundled in report 0x04.
-    //DH1KLM Returns how many were written, or -1 on error.
+    // Writes the reports at `off` in `reports`: one in report 0x01, or with
+    // wide reports up to kReportsPerWideReport bundled in report 0x04.
+    // Returns how many were written, or -1 on error.
     int writeReports(const QByteArray& reports, qsizetype off)
     {
         const int available = static_cast<int>((reports.size() - off) / ctr2hid::kReportBytes);
@@ -189,15 +189,15 @@ private:
         return m_io.write(out.data(), static_cast<int>(out.size())) >= 0 ? n : -1;
     }
 
-    //DH1KLM One read: the 8-byte reports it carries, appended to *received.
+    // One read: the 8-byte reports it carries, appended to *received.
     bool unpack(const unsigned char* buf, int n, QByteArray* received)
     {
-        //DH1KLM Numbered reports arrive with the report ID first on hidraw,
-        //DH1KLM IOHIDManager and Windows; on a plain link, tolerate a backend that
-        //DH1KLM strips it. Windows pads every report to the device's largest, so
-        //DH1KLM report 0x01 may arrive longer than 9 bytes from a device with report
-        //DH1KLM 0x04. With wide reports every read must carry its ID: a short read
-        //DH1KLM starting 0x04 would otherwise pass as link data.
+        // Numbered reports arrive with the report ID first on hidraw,
+        // IOHIDManager and Windows; on a plain link, tolerate a backend that
+        // strips it. Windows pads every report to the device's largest, so
+        // report 0x01 may arrive longer than 9 bytes from a device with report
+        // 0x04. With wide reports every read must carry its ID: a short read
+        // starting 0x04 would otherwise pass as link data.
         if (n >= 1 + ctr2hid::kReportBytes && buf[0] == ctr2hid::kReportId) {
             received->append(reinterpret_cast<const char*>(buf + 1), ctr2hid::kReportBytes);
             return true;
@@ -255,8 +255,8 @@ private:
             }
             const int n = writeReports(m_outbox, 0);
             if (n < 0) {
-                //DH1KLM What this tick did write reached the device: count it
-                //DH1KLM before the failure, which arrives after it.
+                // What this tick did write reached the device: count it
+                // before the failure, which arrives after it.
                 if (sent > 0) {
                     QMetaObject::invokeMethod(m_port, [port = m_port, sent, generation] {
                         port->deliverSent(sent, generation);
@@ -320,7 +320,7 @@ private:
     quint64 m_generation;
     QTimer* m_timer{nullptr};
     QByteArray m_outbox;
-    bool m_wide{false};          //DH1KLM wide reports negotiated: report 0x04 bundles
+    bool m_wide{false};          // wide reports negotiated: report 0x04 bundles
     bool m_open{true};
     std::promise<void> m_release;
     bool m_released{false};

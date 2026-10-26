@@ -41,7 +41,7 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
     {
-        //DH1KLM Calibration belongs to one MAC/model/board/protocol and keeps ADC offsets independent.
+        // Calibration belongs to one MAC/model/board/protocol and keeps ADC offsets independent.
         ReceiveCalibration calibration;
         calibration.frequencyFactor = 1.00001;
         calibration.meterOffsetDb[1] = 23.5;
@@ -69,7 +69,7 @@ int main(int argc, char** argv)
     }
 
     {
-        //DH1KLM Manual user outputs persist per device/profile without borrowing band OC.
+        // Manual user outputs persist per device/profile without borrowing band OC.
         FilterConfig config = defaultFilterConfig(false);
         config.userDigitalOutputs = 9;
         QVariantMap options = filterOptions(config);
@@ -134,7 +134,7 @@ int main(int argc, char** argv)
               "band edits never overwrite a newer document");
     }
 
-    //DH1KLM: Logical hardware selection is exact-radio scoped, not inherited.
+    // Logical hardware selection is exact-radio scoped, not inherited.
     const QString rp = QStringLiteral("88:A2:9E:6D:9F:6A");
     const QString other = QStringLiteral("88:A2:9E:6D:9F:6B");
     check(!AnanSettings::redPitayaP1ForRadio(rp), "absent model override is standard");
@@ -186,7 +186,7 @@ int main(int argc, char** argv)
                     {QStringLiteral("overrideDetection"), QStringLiteral("true")}}), "malformed override fixture");
     check(!AnanSettings::radioProfile(other).valid, "non-boolean override field fails closed");
 
-    //DH1KLM: Two radios sharing a selected profile must retain different
+    // Two radios sharing a selected profile must retain different
     // reported identities. Forget removes only the selected MAC's mapping.
     RadioInfo diy;
     diy.family = QStringLiteral("anan"); diy.serial = rp; diy.boardId = 5;
@@ -367,7 +367,7 @@ int main(int argc, char** argv)
         check(!parseFilterOptions(options), "present but incomplete ADC1 table is rejected");
     }
     {
-        //DH1KLM: A DIY override and another MAC must never share edited ranges.
+        // A DIY override and another MAC must never share edited ranges.
         const QString serial = QStringLiteral("FILTER-TEST");
         auto config = defaultFilterConfig(false);
         config.receive[0].lowHz = 1900000;
@@ -502,7 +502,7 @@ int main(int argc, char** argv)
         check(parseFilterOptions(AnanSettings::hardwareFilters(serial,7,5))->rxOnlyInput == 2,
               "refused RX input leaves saved selection unchanged");
     }
-    //DH1KLM The amplifier option does not replace device-scoped filter ownership.
+    // The amplifier option does not replace device-scoped filter ownership.
     AnanSettings::reset();
     check(!AnanSettings::speakerAmpMuted(), "speaker amplifier defaults unmuted");
     AnanSettings::setDdc0RateKsps(96);

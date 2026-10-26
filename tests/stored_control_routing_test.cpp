@@ -212,7 +212,7 @@ void cwProfileRawStatus()
 }
 void cwProfileLateCapability()
 {
-    //DH1KLM Connect-by-IP: the firmware version arrives after the connect-time refresh.
+    // Connect-by-IP: the firmware version arrives after the connect-time refresh.
     RadioModel model;
     RadioSetupTestBackend* backend = installRadioSetupBackend(model);
     model.refreshProfiles();

@@ -1,27 +1,27 @@
-//DH1KLM aetherd ANAN P2 -- discovery broadcast targeting, and what discovery logs
-//DH1KLM when it cannot find a radio (#6299).
-//DH1KLM
-//DH1KLM WHAT THIS IS FOR. A discovery datagram sent to 255.255.255.255 leaves by one
-//DH1KLM interface: whichever the host's default route picks. On a machine with the
-//DH1KLM radio on a second NIC on a distinct subnet, the default broadcast can miss
-//DH1KLM it. AnanDiscovery::broadcastTargets() turns the
-//DH1KLM host's own address entries into one directed broadcast per subnet.
-//DH1KLM
-//DH1KLM It is tested here rather than against a live host because the interesting
-//DH1KLM network shapes (multi-homed, a point-to-point tunnel with no broadcast
-//DH1KLM address, IPv6 alongside IPv4) are exactly the ones a developer machine and a
-//DH1KLM CI runner do not have. QNetworkAddressEntry can be built by hand; a
-//DH1KLM QNetworkInterface cannot, which is why the flag filtering sits in
-//DH1KLM AnanDiscovery.cpp and only this half is covered.
-//DH1KLM
-//DH1KLM THE LOG LINES. AnanDiscoveryLog is the policy AnanDiscovery feeds from its
-//DH1KLM sweeps: a failed bind, a sweep with no subnet to probe, a probe that could
-//DH1KLM not be sent, and a run of unanswered sweeps, each logged once per
-//DH1KLM occurrence. The lines are captured off the real "aether.discovery" category
-//DH1KLM with the product's default filter rule installed, so a line this test sees
-//DH1KLM reaches a support bundle.
-//DH1KLM
-//DH1KLM No sockets, no radio, nothing sent.
+// aetherd ANAN P2 -- discovery broadcast targeting, and what discovery logs
+// when it cannot find a radio (#6299).
+//
+// WHAT THIS IS FOR. A discovery datagram sent to 255.255.255.255 leaves by one
+// interface: whichever the host's default route picks. On a machine with the
+// radio on a second NIC on a distinct subnet, the default broadcast can miss
+// it. AnanDiscovery::broadcastTargets() turns the
+// host's own address entries into one directed broadcast per subnet.
+//
+// It is tested here rather than against a live host because the interesting
+// network shapes (multi-homed, a point-to-point tunnel with no broadcast
+// address, IPv6 alongside IPv4) are exactly the ones a developer machine and a
+// CI runner do not have. QNetworkAddressEntry can be built by hand; a
+// QNetworkInterface cannot, which is why the flag filtering sits in
+// AnanDiscovery.cpp and only this half is covered.
+//
+// THE LOG LINES. AnanDiscoveryLog is the policy AnanDiscovery feeds from its
+// sweeps: a failed bind, a sweep with no subnet to probe, a probe that could
+// not be sent, and a run of unanswered sweeps, each logged once per
+// occurrence. The lines are captured off the real "aether.discovery" category
+// with the product's default filter rule installed, so a line this test sees
+// reaches a support bundle.
+//
+// No sockets, no radio, nothing sent.
 
 #include "core/backends/anan/AnanDiscovery.h"
 #include "core/LogManager.h"
@@ -37,12 +37,12 @@
 #include <functional>
 
 namespace AetherSDR::anan {
-//DH1KLM AnanDiscovery's friend: whether it holds a socket, read without opening one.
+// AnanDiscovery's friend: whether it holds a socket, read without opening one.
 class AnanDiscoveryTestAccess {
 public:
     static bool hasSocket(const AnanDiscovery& d) { return d.m_socket != nullptr; }
 };
-}  //DH1KLM namespace AetherSDR::anan
+}  // namespace AetherSDR::anan
 
 using AetherSDR::anan::AnanDiscovery;
 using AetherSDR::anan::AnanDiscoveryLog;
@@ -74,7 +74,7 @@ void capture(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
                          msg);
 }
 
-//DH1KLM Captures what one step logs, and nothing from the steps around it.
+// Captures what one step logs, and nothing from the steps around it.
 QStringList logged(const std::function<void()>& step)
 {
     QStringList lines;
@@ -89,8 +89,8 @@ const QHostAddress kSubnetA(QStringLiteral("192.168.8.255"));
 const QHostAddress kSubnetB(QStringLiteral("10.0.5.255"));
 const QString kSilence = QStringLiteral("no supported OpenHPSDR radio answered");
 
-//DH1KLM One sweep as AnanDiscovery reports it: its target list, a probe to each,
-//DH1KLM a listed reply if `answered`, then the reply window closing.
+// One sweep as AnanDiscovery reports it: its target list, a probe to each,
+// a listed reply if `answered`, then the reply window closing.
 void sentSweep(AnanDiscoveryLog& n, bool answered)
 {
     n.targetsListed({kGlobal, kSubnetA});
@@ -102,7 +102,7 @@ void sentSweep(AnanDiscoveryLog& n, bool answered)
     n.sweepClosed();
 }
 
-//DH1KLM A sweep whose every probe failed: nothing was asked.
+// A sweep whose every probe failed: nothing was asked.
 void failedSweep(AnanDiscoveryLog& n)
 {
     n.targetsListed({kGlobal, kSubnetA});
@@ -225,8 +225,8 @@ void silenceIsLoggedOnceAfterThreshold()
           "no reply: an intermittent reply never reaches the threshold");
 }
 
-//DH1KLM The silence line means "asked and not answered". A sweep whose every send
-//DH1KLM failed asked nothing; the send-failure warning is its whole report.
+// The silence line means "asked and not answered". A sweep whose every send
+// failed asked nothing; the send-failure warning is its whole report.
 void sweepWithNoProbeSentIsNotSilence()
 {
     AnanDiscoveryLog allFail;
@@ -262,8 +262,8 @@ void sweepWithNoProbeSentIsNotSilence()
               QStringLiteral("answered 3 sweeps to 1 address")),
           "no probe sent: two listed, one sent -> the silence line counts the one sent");
 
-    //DH1KLM The mark belongs to one sweep: a probe that left sweep 1 does not make
-    //DH1KLM the failed sweeps after it count.
+    // The mark belongs to one sweep: a probe that left sweep 1 does not make
+    // the failed sweeps after it count.
     AnanDiscoveryLog stale;
     check(logged([&stale] {
               sentSweep(stale, false);
@@ -278,7 +278,7 @@ void sweepWithNoProbeSentIsNotSilence()
           }).filter(kSilence).size() == 1,
           "no probe sent: failed sweeps do not clear the count; two more sent ones log it");
 
-    //DH1KLM A sweep that was answered closes its own mark too.
+    // A sweep that was answered closes its own mark too.
     AnanDiscoveryLog answered;
     check(logged([&answered] {
               sentSweep(answered, true);
@@ -306,8 +306,8 @@ void resetForgetsEverything()
           "reset (AnanDiscovery::stop): all four conditions are logged again");
 }
 
-//DH1KLM A discovery that is not running opens no socket, so sends nothing. Never
-//DH1KLM started is the same state stop() leaves: timer stopped, no socket.
+// A discovery that is not running opens no socket, so sends nothing. Never
+// started is the same state stop() leaves: timer stopped, no socket.
 void protocolFailuresAreIndependent()
 {
     AnanDiscoveryLog log;
@@ -354,10 +354,10 @@ void sweepWhileStoppedSendsNothing()
           "sweepNow() on a discovery that is not running opens no socket");
 }
 
-}  //DH1KLM namespace
+}  // namespace
 
-//DH1KLM One ordinary IPv4 entry: an address, its netmask, and the broadcast address
-//DH1KLM the platform derives from them.
+// One ordinary IPv4 entry: an address, its netmask, and the broadcast address
+// the platform derives from them.
 static QNetworkAddressEntry ipv4Entry(const char* ip, const char* mask, const char* broadcast)
 {
     QNetworkAddressEntry e;
@@ -371,21 +371,21 @@ int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
 
-    const QHostAddress global(QHostAddress::Broadcast);   //DH1KLM 255.255.255.255
+    const QHostAddress global(QHostAddress::Broadcast);   // 255.255.255.255
 
-    //DH1KLM THE PROPERTY THAT MATTERS MOST: the global broadcast is always present and
-    //DH1KLM always first. Everything else is added to what this already did, so a host
-    //DH1KLM whose enumeration is empty, wrong, or unlike anything anticipated here is
-    //DH1KLM no worse off than before the change. A regression that made the directed
-    //DH1KLM addresses REPLACE it would break discovery on every single-NIC machine.
+    // THE PROPERTY THAT MATTERS MOST: the global broadcast is always present and
+    // always first. Everything else is added to what this already did, so a host
+    // whose enumeration is empty, wrong, or unlike anything anticipated here is
+    // no worse off than before the change. A regression that made the directed
+    // addresses REPLACE it would break discovery on every single-NIC machine.
     {
         const auto none = AnanDiscovery::broadcastTargets({});
         check(none.size() == 1 && none.first() == global,
               "no interfaces at all still sweeps 255.255.255.255");
     }
 
-    //DH1KLM The ordinary multi-homed case this exists for: two subnets, the radio on
-    //DH1KLM whichever one is not the default route.
+    // The ordinary multi-homed case this exists for: two subnets, the radio on
+    // whichever one is not the default route.
     {
         QList<QNetworkAddressEntry> entries{
             ipv4Entry("192.168.1.50", "255.255.255.0", "192.168.1.255"),
@@ -400,8 +400,8 @@ int main(int argc, char** argv)
               "and so is the second's -- the whole point of the change");
     }
 
-    //DH1KLM Qt synthesizes ip | ~netmask even for /32 point-to-point links.
-    //DH1KLM That is this host's own address, not a broadcast destination.
+    // Qt synthesizes ip | ~netmask even for /32 point-to-point links.
+    // That is this host's own address, not a broadcast destination.
     {
         QNetworkAddressEntry tunnel;
         tunnel.setIp(QHostAddress(QLatin1String("10.8.0.6")));
@@ -420,8 +420,8 @@ int main(int argc, char** argv)
             check(!t.isNull(), "no null address is ever returned as a target");
     }
 
-    //DH1KLM /31 links have no broadcast domain either; a missing broadcast is also
-    //DH1KLM rejected independently of the prefix length.
+    // /31 links have no broadcast domain either; a missing broadcast is also
+    // rejected independently of the prefix length.
     {
         const QNetworkAddressEntry pointToPoint =
             ipv4Entry("10.8.0.6", "255.255.255.254", "10.8.0.7");
@@ -434,8 +434,8 @@ int main(int argc, char** argv)
               "an absent broadcast contributes no target");
     }
 
-    //DH1KLM Loopback. Its subnet broadcast reaches this host only; the radio is not
-    //DH1KLM there, and sweeping it would be noise on every machine.
+    // Loopback. Its subnet broadcast reaches this host only; the radio is not
+    // there, and sweeping it would be noise on every machine.
     {
         QNetworkAddressEntry lo = ipv4Entry("127.0.0.1", "255.0.0.0", "127.255.255.255");
         const auto targets = AnanDiscovery::broadcastTargets({lo});
@@ -443,9 +443,9 @@ int main(int argc, char** argv)
               "loopback contributes no directed broadcast");
     }
 
-    //DH1KLM IPv6 has no broadcast concept at all, and protocol 2 discovery is IPv4
-    //DH1KLM only. An IPv6 entry must be skipped rather than producing something that
-    //DH1KLM cannot be sent to.
+    // IPv6 has no broadcast concept at all, and protocol 2 discovery is IPv4
+    // only. An IPv6 entry must be skipped rather than producing something that
+    // cannot be sent to.
     {
         QNetworkAddressEntry v6;
         v6.setIp(QHostAddress(QLatin1String("fe80::1")));
@@ -460,8 +460,8 @@ int main(int argc, char** argv)
               "and the IPv4 entry beside it is still swept");
     }
 
-    //DH1KLM Two addresses on the same subnet produce one destination. With the
-    //DH1KLM wildcard socket, this does not guarantee a sweep of both interfaces.
+    // Two addresses on the same subnet produce one destination. With the
+    // wildcard socket, this does not guarantee a sweep of both interfaces.
     {
         QList<QNetworkAddressEntry> entries{
             ipv4Entry("192.168.1.50", "255.255.255.0", "192.168.1.255"),
@@ -471,8 +471,8 @@ int main(int argc, char** argv)
         check(targets.size() == 2, "a repeated broadcast address is sent to once");
     }
 
-    //DH1KLM And the global broadcast appearing as an interface's own broadcast address
-    //DH1KLM must not add a second copy of it either.
+    // And the global broadcast appearing as an interface's own broadcast address
+    // must not add a second copy of it either.
     {
         QList<QNetworkAddressEntry> entries{
             ipv4Entry("10.1.2.3", "0.0.0.0", "255.255.255.255"),
@@ -482,13 +482,13 @@ int main(int argc, char** argv)
               "an entry whose broadcast IS 255.255.255.255 is not duplicated");
     }
 
-    //DH1KLM LogManager::applyFilterRules() suppresses Debug on every aether.*
-    //DH1KLM category by default; a warning has to survive that.
+    // LogManager::applyFilterRules() suppresses Debug on every aether.*
+    // category by default; a warning has to survive that.
     QLoggingCategory::setFilterRules(QStringLiteral("aether.*.debug=false"));
     const QtMessageHandler previous = qInstallMessageHandler(capture);
 
-    //DH1KLM Control: the capture sees the category, and the filter rule is live.
-    //DH1KLM Info is checked too: the silence line is the one Info line.
+    // Control: the capture sees the category, and the filter rule is live.
+    // Info is checked too: the silence line is the one Info line.
     const QStringList control = logged([] {
         qCDebug(AetherSDR::lcDiscovery) << "control debug";
         qCInfo(AetherSDR::lcDiscovery) << "control info";

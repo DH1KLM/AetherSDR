@@ -18,8 +18,8 @@ namespace AetherSDR {
 struct MeterDef {
     int     index{-1};
     QString source;       // "SLC", "RAD", "AMP", "TX", ...
-    //DH1KLM The wire value is a uint32; a Flex amp/tuner handle above INT_MAX is kept
-    //DH1KLM bit for bit, so publish it through publishedSourceIndex().
+    // The wire value is a uint32; a Flex amp/tuner handle above INT_MAX is kept
+    // bit for bit, so publish it through publishedSourceIndex().
     int     sourceIndex{0};
     QString name;         // "LEVEL", "FWDPWR", "SWR", "PATEMP", ...
     QString unit;         // "dBm", "dB", "dBFS", "SWR", "Volts", "Amps", "degC", "degF", "Watts", "Percent"

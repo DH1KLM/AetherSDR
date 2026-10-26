@@ -283,7 +283,7 @@ void RXASetNC(int channel, int nc);
 void RXASetMP(int channel, int mp);
 void SetRXAAGCMode(int channel, int mode);
 void SetRXAAGCTop(int channel, double maximumGainDb);
-//DH1KLM: Native WDSP threshold/top API used by host-side Auto AGC-T.
+// Native WDSP threshold/top API used by host-side Auto AGC-T.
 void SetRXAAGCThresh(int channel, double thresholdDb, double size, double rate);
 void GetRXAAGCTop(int channel, double* maximumGainDb);
 // The rest of the AGC surface. SetRXAAGCMode alone leaves slope and the time

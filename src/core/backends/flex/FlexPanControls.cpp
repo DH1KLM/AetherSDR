@@ -15,12 +15,12 @@ QString displayId(const QString& id)
 
 bool radioRejected(const RadioControlReply& reply)
 {
-    //DH1KLM Local command-funnel refusals are not firmware compatibility evidence.
+    // Local command-funnel refusals are not firmware compatibility evidence.
     return reply.kind == RadioControlReply::Kind::Failed && reply.code > 0
         && reply.code != 0x50000061 && reply.code != 0x50000063;
 }
 
-} //DH1KLM namespace
+} // namespace
 
 ReceiveDispatch FlexBackend::requestPanDisplay(const QString& panId, const QString& waterfallId,
     const PanDisplayRequest& request, const RadioControlCompletion& completion,
@@ -175,8 +175,8 @@ ReceiveDispatch FlexBackend::requestPanLifecycle(const PanLifecycleRequest& requ
             replies->pan = result;
             finishRemoval();
         })) { return ReceiveDispatch::Unsupported; }
-    //DH1KLM The pan's removal can synchronously retire its model. The composition's
-    //DH1KLM fence retains only the original pairing, not a requirement for a live pan.
+    // The pan's removal can synchronously retire its model. The composition's
+    // fence retains only the original pairing, not a requirement for a live pan.
     if (!alive || (current && !current())) {
         complete({{RadioControlReply::Kind::Cancelled, -1, QStringLiteral("original teardown pairing retired")}, panId, {}});
         return ReceiveDispatch::Dispatched;
@@ -192,4 +192,4 @@ ReceiveDispatch FlexBackend::requestPanLifecycle(const PanLifecycleRequest& requ
     return ReceiveDispatch::Dispatched;
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

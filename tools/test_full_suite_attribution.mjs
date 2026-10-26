@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-//DH1KLM Tests for the red-main attribution in .github/workflows/full-suite.yml.
-//DH1KLM
-//DH1KLM   node tools/test_full_suite_attribution.mjs
-//DH1KLM
-//DH1KLM Runs the "Open or update tracking issue" step's script as written in the
-//DH1KLM workflow, against an in-memory GitHub, and checks the source PR and parent
-//DH1KLM verdict it writes. Also runs the extract step's failed-list producer on a
-//DH1KLM CTest summary, so a status it drops shows up as a wrong verdict here rather
-//DH1KLM than on a red main.
-//DH1KLM
-//DH1KLM Stdlib only (Node 20+). No network: every API call is answered by a stub.
+// Tests for the red-main attribution in .github/workflows/full-suite.yml.
+//
+//   node tools/test_full_suite_attribution.mjs
+//
+// Runs the "Open or update tracking issue" step's script as written in the
+// workflow, against an in-memory GitHub, and checks the source PR and parent
+// verdict it writes. Also runs the extract step's failed-list producer on a
+// CTest summary, so a status it drops shows up as a wrong verdict here rather
+// than on a red main.
+//
+// Stdlib only (Node 20+). No network: every API call is answered by a stub.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,7 +20,7 @@ import {fileURLToPath} from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/full-suite.yml'), 'utf8').split(/\r?\n/);
 
-//DH1KLM The block scalar under `script: |` in the named step, dedented.
+// The block scalar under `script: |` in the named step, dedented.
 function stepScript(name) {
   const start = workflow.findIndex(l => l.trim() === `- name: ${name}`);
   if (start < 0) throw new Error(`no step "${name}"`);
@@ -44,8 +44,8 @@ const PARENT = 'p'.repeat(40);
 const runUrl = id => `https://github.com/aethersdr/AetherSDR/actions/runs/${id}`;
 const entry = (id, failed) => `**Run:** ${runUrl(id)}\n**Commit:** \`ppppppp\`\n**Failed:** ${failed}\n`;
 
-//DH1KLM One case: the parent's runs (newest first), the tracking issues already
-//DH1KLM filed, the PRs associated with the commit, and this run's FAILED value.
+// One case: the parent's runs (newest first), the tracking issues already
+// filed, the PRs associated with the commit, and this run's FAILED value.
 async function attribute({runs = [], issues = [], pulls = [], failed, throws = false}) {
   const written = [];
   const fail = () => { if (throws) throw new Error('stubbed API failure'); };

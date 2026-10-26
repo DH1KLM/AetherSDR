@@ -33,7 +33,7 @@ namespace {
 QLabel* plain(const QString& role, QWidget* parent)
 {
     auto* l = new QLabel(parent);
-    l->setTextFormat(Qt::PlainText);   //DH1KLM versions and messages come from the network and the radio
+    l->setTextFormat(Qt::PlainText);   // versions and messages come from the network and the radio
     l->setProperty("role", role);
     l->setWordWrap(true);
     return l;
@@ -45,10 +45,10 @@ void restyle(QWidget* w)
     w->style()->polish(w);
 }
 
-//DH1KLM FlexRadio's published list, shared by every window this process opens.
-//DH1KLM Fetched at most once a day, the policy FirmwareCurrency states for the
-//DH1KLM same index: an operator who connects daily contacts flexradio.com once a
-//DH1KLM day, not once per window or reconnect.
+// FlexRadio's published list, shared by every window this process opens.
+// Fetched at most once a day, the policy FirmwareCurrency states for the
+// same index: an operator who connects daily contacts flexradio.com once a
+// day, not once per window or reconnect.
 struct ReleaseListCache {
     QStringList releases;
     QDateTime fetchedUtc;
@@ -70,7 +70,7 @@ QString displayVersion(const QString& version)
     return release.isNull() ? version : release.toString();
 }
 
-} //DH1KLM namespace
+} // namespace
 
 FirmwareUpdateCard::FirmwareUpdateCard(RadioModel* model, QWidget* parent)
     : QFrame(parent)
@@ -135,7 +135,7 @@ FirmwareUpdateCard::FirmwareUpdateCard(RadioModel* model, QWidget* parent)
     actions->addWidget(m_cancel);
     root->addLayout(actions);
 
-    //DH1KLM Three steps, numbered; the current one is lit, finished ones are marked.
+    // Three steps, numbered; the current one is lit, finished ones are marked.
     m_steps = new QWidget(this);
     auto* steps = new QHBoxLayout(m_steps);
     steps->setContentsMargins(0, 0, 0, 0);
@@ -199,9 +199,9 @@ FirmwareUpdateCard::FirmwareUpdateCard(RadioModel* model, QWidget* parent)
         releaseListCache() = {published, QDateTime::currentDateTimeUtc()};
         showReleases(published);
     });
-    //DH1KLM The release-list check owns the pill only: it never writes the
-    //DH1KLM install's status line or progress bar, so a radio's reconnect
-    //DH1KLM after an install cannot overwrite the install's outcome.
+    // The release-list check owns the pill only: it never writes the
+    // install's status line or progress bar, so a radio's reconnect
+    // after an install cannot overwrite the install's outcome.
     connect(m_stager, &FirmwareStager::updateCheckFailed, this, [this](const QString& error) {
         m_pill->setText(tr("Releases unavailable"));
         m_pill->setToolTip(error);
@@ -211,16 +211,16 @@ FirmwareUpdateCard::FirmwareUpdateCard(RadioModel* model, QWidget* parent)
     });
     connect(m_stager, &FirmwareStager::stageProgress, this, [this](int percent, const QString& status) {
         if (!m_staging) {
-            return;   //DH1KLM checkForUpdate() reports on this signal too; listing releases is not an install
+            return;   // checkForUpdate() reports on this signal too; listing releases is not an install
         }
         m_progress->setValue(percent);
         setStatus(status, QString());
     });
     connect(m_stager, &FirmwareStager::stageComplete, this, [this](const QString& path, const QString&) {
         m_staging = false;
-        //DH1KLM Install confirmed up front on the promise of an MD5 check; when
-        //DH1KLM FlexRadio's hash was unavailable that promise was not kept, so ask
-        //DH1KLM again and say so. Open Installer always asks before the upload.
+        // Install confirmed up front on the promise of an MD5 check; when
+        // FlexRadio's hash was unavailable that promise was not kept, so ask
+        // again and say so. Open Installer always asks before the upload.
         const bool unverifiedDownload = m_uploadAfterStage && !m_stager->stagedVerified();
         const bool confirmFirst = !m_uploadAfterStage || unverifiedDownload;
         m_uploadAfterStage = false;
@@ -237,7 +237,7 @@ FirmwareUpdateCard::FirmwareUpdateCard(RadioModel* model, QWidget* parent)
     if (m_model) {
         connect(m_model, &RadioModel::connectionStateChanged, this, [this](bool connected) {
             if (!connected) {
-                showReleases({});   //DH1KLM the next radio's installed release is not this one's
+                showReleases({});   // the next radio's installed release is not this one's
             }
             refreshAvailability();
             if (connected) {
@@ -292,8 +292,8 @@ void FirmwareUpdateCard::refreshAvailability()
     m_lanes->setVisible(capable && !m_releases.isEmpty());
     m_caution->setVisible(capable);
     m_notes->setVisible(capable);
-    //DH1KLM A backend that declares no release-notes source leaves the button dead
-    //DH1KLM rather than opening a URL invented here.
+    // A backend that declares no release-notes source leaves the button dead
+    // rather than opening a URL invented here.
     const auto& source = connected ? m_model->backendCapabilities().firmwareUpdateSource
                                    : std::optional<FirmwareUpdateSource>{};
     const bool hasNotes = source && !source->releaseNotesUrlTemplate.isEmpty();
@@ -303,7 +303,7 @@ void FirmwareUpdateCard::refreshAvailability()
     m_notes->setAccessibleDescription(notesReason);
     m_install->setEnabled(usable && !selectedRelease().isEmpty());
     m_openInstaller->setEnabled(usable);
-    //DH1KLM Dimmed controls state why, where a screen reader hears it.
+    // Dimmed controls state why, where a screen reader hears it.
     m_install->setToolTip(reason);
     m_install->setAccessibleDescription(
         reason.isEmpty() ? tr("Downloads the chosen release from FlexRadio and uploads it to the radio.")
@@ -557,8 +557,8 @@ void FirmwareUpdateCard::ensureUploader()
     });
     connect(m_uploader, &FirmwareUploader::finished, this,
             [this](FirmwareUploader::Outcome outcome, const QString& message) {
-        //DH1KLM Three outcomes, not two (#5572): only the radio's own `file update
-        //DH1KLM failed=` settles it, and the words say which, not colour alone.
+        // Three outcomes, not two (#5572): only the radio's own `file update
+        // failed=` settles it, and the words say which, not colour alone.
         QString tone;
         switch (outcome) {
         case FirmwareUploader::Outcome::Succeeded:
@@ -566,8 +566,8 @@ void FirmwareUpdateCard::ensureUploader()
             tone = QStringLiteral("current");
             break;
         case FirmwareUploader::Outcome::Unconfirmed:
-            //DH1KLM Bytes left the host and the radio is probably applying them; the
-            //DH1KLM uploader refuses a retry until reconnect.
+            // Bytes left the host and the radio is probably applying them; the
+            // uploader refuses a retry until reconnect.
             m_progress->setValue(100);
             tone = QStringLiteral("warning");
             break;
@@ -584,7 +584,7 @@ void FirmwareUpdateCard::ensureUploader()
 
 bool FirmwareUpdateCard::confirmStop(QWidget* parent)
 {
-    //DH1KLM A nested close/reject must not destroy the owner underneath this prompt.
+    // A nested close/reject must not destroy the owner underneath this prompt.
     if (m_closePromptOpen) {
         return false;
     }
@@ -647,7 +647,7 @@ bool FirmwareUpdateCard::confirmStop(QWidget* parent)
         }
     };
     refreshPrompt();
-    //DH1KLM The upload can advance or finish while exec() runs its nested event loop.
+    // The upload can advance or finish while exec() runs its nested event loop.
     connect(uploader, &FirmwareUploader::progressChanged, box, refreshPrompt);
     connect(uploader, &FirmwareUploader::finished, box, refreshPrompt);
     m_closePromptOpen = true;
@@ -660,8 +660,8 @@ bool FirmwareUpdateCard::confirmStop(QWidget* parent)
         return false;
     }
     if (uploader) {
-        //DH1KLM Classify the CURRENT phase; it may have changed inside the prompt.
-        //DH1KLM cancel() is a no-op if a terminal radio result already arrived.
+        // Classify the CURRENT phase; it may have changed inside the prompt.
+        // cancel() is a no-op if a terminal radio result already arrived.
         uploader->cancel();
     }
     return !self.isNull();
@@ -688,4 +688,4 @@ void FirmwareUpdateCard::setStatus(const QString& text, const QString& tone)
     restyle(m_status);
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

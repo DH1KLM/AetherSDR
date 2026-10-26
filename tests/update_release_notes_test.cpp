@@ -4,10 +4,10 @@
 #include <QDebug>
 #include <QFile>
 
-//DH1KLM UpdateChecker's release reading against the real v26.10.3 release JSON
-//DH1KLM (tests/fixtures/release/), plus hostile inputs: the tagline and chapters
-//DH1KLM the Updates window shows, the installer picked per platform,
-//DH1KLM and the download-URL allowlist. Pure: no network, no settings.
+// UpdateChecker's release reading against the real v26.10.3 release JSON
+// (tests/fixtures/release/), plus hostile inputs: the tagline and chapters
+// the Updates window shows, the installer picked per platform,
+// and the download-URL allowlist. Pure: no network, no settings.
 
 using namespace AetherSDR;
 
@@ -60,7 +60,7 @@ int main(int argc, char** argv)
     check(picked("macos", "x86_64", false).isEmpty(), "no Intel Mac build: release page instead");
     check(picked("windows", "arm64", false).isEmpty(), "no Windows on ARM build: release page instead");
 
-    //DH1KLM The allowlist.
+    // The allowlist.
     auto trusted = [](const char* url) {
         return UpdateChecker::isTrustedDownloadUrl(QUrl(QString::fromLatin1(url), QUrl::StrictMode));
     };
@@ -78,7 +78,7 @@ int main(int argc, char** argv)
     check(!trusted("https://github.com/aethersdr/AetherSDR/releases/download/v1/sub/a.exe"), "extra segment refused");
     check(!trusted("javascript:alert(1)"), "script URL refused");
 
-    //DH1KLM Hostile and degenerate input.
+    // Hostile and degenerate input.
     const ReleaseInfo hostile = UpdateChecker::parseRelease(QByteArrayLiteral(R"({
         "tag_name": "v99.0.0<b>x",
         "name": "AetherSDR v99 — <img src=x onerror=alert(1)> **bold** `code`\u0007",

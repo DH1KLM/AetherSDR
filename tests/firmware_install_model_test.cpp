@@ -214,8 +214,8 @@ void testUnknownMac()
 
 } // namespace
 
-//DH1KLM The CTR2 window offers the Linux access rule only when the OS refused the
-//DH1KLM port: a typed flag from the opener, never the wording of the message.
+// The CTR2 window offers the Linux access rule only when the OS refused the
+// port: a typed flag from the opener, never the wording of the message.
 void testAccessDenied()
 {
     using Loader = FirmwareInstallModel::Loader;
@@ -224,7 +224,7 @@ void testAccessDenied()
     QTemporaryDir dir;
     FirmwareInstallModel model(nullptr);
     model.setJobTargetOpener([denied](const QString& port, QString* problem, bool* accessDenied) {
-        //DH1KLM Same words either way: only the flag may tell them apart.
+        // Same words either way: only the flag may tell them apart.
         *problem = QStringLiteral("Permission to open %1 was denied.").arg(port);
         *accessDenied = *denied;
         return std::unique_ptr<EspFlashTarget>();

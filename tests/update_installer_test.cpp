@@ -9,9 +9,9 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
-//DH1KLM UpdateInstaller, the app's side of AetherSDRUpdater (RFC #5304 Phase 3):
-//DH1KLM the helper's command line, reading what it did once, remembering a
-//DH1KLM rolled-back release, and the self-test marker. No processes are started.
+// UpdateInstaller, the app's side of AetherSDRUpdater (RFC #5304 Phase 3):
+// the helper's command line, reading what it did once, remembering a
+// rolled-back release, and the self-test marker. No processes are started.
 
 using namespace AetherSDR;
 
@@ -38,7 +38,7 @@ private slots:
         QCOMPARE(a.at(a.indexOf(QStringLiteral("--wait-pid")) + 1), QStringLiteral("4242"));
         QCOMPARE(a.at(a.indexOf(QStringLiteral("--version")) + 1), QStringLiteral("26.10.4"));
         QVERIFY(!a.contains(QStringLiteral("--restart")));
-        //DH1KLM Each value is one argument, spaces and all: QProcess quotes it.
+        // Each value is one argument, spaces and all: QProcess quotes it.
         const QStringList spaced = UpdateInstaller::helperArguments(
             1, QStringLiteral("D:/Ham Radio/AetherSDR"), QStringLiteral("x"), QStringLiteral("y"),
             QStringLiteral("26.10.4"), true);
@@ -59,7 +59,7 @@ private slots:
         QCOMPARE(r.outcome, QStringLiteral("RolledBack"));
         QCOMPARE(r.version, QStringLiteral("26.10.4"));
         QCOMPARE(UpdateSettings::rolledBackVersion(), QStringLiteral("26.10.4"));
-        QVERIFY(!f.exists());   //DH1KLM read once
+        QVERIFY(!f.exists());   // read once
         QVERIFY(UpdateInstaller::takeSwapResult(dir.path()).outcome.isEmpty());
     }
 
@@ -85,7 +85,7 @@ private slots:
         UpdateSettings::setRolledBackVersion(QString());
         QVERIFY(UpdateInstaller::takeSwapResult(dir.path()).outcome.isEmpty());
         QVERIFY(UpdateSettings::rolledBackVersion().isEmpty());
-        //DH1KLM Review of #6767: a forged result is neither logged nor kept.
+        // Review of #6767: a forged result is neither logged nor kept.
         for (const QByteArray& forged :
              {QByteArray("RolledBack 26.10.4\x1b[2Jinjected"), QByteArray("Owned 26.10.4"),
               QByteArray("RolledBack 26.10"), QByteArray("RolledBack v26.10.4")}) {
@@ -94,10 +94,10 @@ private slots:
             f.close();
             QVERIFY(UpdateInstaller::takeSwapResult(dir.path()).outcome.isEmpty());
             QVERIFY(UpdateSettings::rolledBackVersion().isEmpty());
-            QVERIFY(!f.exists());   //DH1KLM read once, even when refused
+            QVERIFY(!f.exists());   // read once, even when refused
         }
         UpdateSettings::setRolledBackVersion(QStringLiteral("not a version"));
-        QVERIFY(UpdateSettings::rolledBackVersion().isEmpty());   //DH1KLM only parsed digits are kept
+        QVERIFY(UpdateSettings::rolledBackVersion().isEmpty());   // only parsed digits are kept
     }
 
     void theSelfTestReportsItsVersion()
@@ -107,7 +107,7 @@ private slots:
         QVERIFY(UpdateInstaller::writeSelfTestMarker(marker, QStringLiteral("26.10.4")));
         QFile f(marker);
         QVERIFY(f.open(QIODevice::ReadOnly));
-        QCOMPARE(f.readAll(), QByteArray("26.10.4"));   //DH1KLM exactly what UpdateSwap compares
+        QCOMPARE(f.readAll(), QByteArray("26.10.4"));   // exactly what UpdateSwap compares
         QVERIFY(!UpdateInstaller::writeSelfTestMarker(dir.filePath(QStringLiteral("no/such/dir/m")),
                                                       QStringLiteral("26.10.4")));
     }

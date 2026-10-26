@@ -31,7 +31,7 @@ namespace AetherSDR { class BandPlanManager; }
 
 namespace AetherSDR::anan {
 
-// DH1KLM: RX-only backend for source-pinned ANAN P1/P2 board/model profiles.
+// RX-only backend for source-pinned ANAN P1/P2 board/model profiles.
 //  Owns one AnanClient and up to five slice DSP chains on the existing I/O
 //  thread. Hardware captures may be shared or independently tuned. RX only.
 //    - CTUN holds the DDC centre while the slice tunes digitally within its sampled span.
@@ -227,7 +227,7 @@ public:
 
 private:
     friend struct AnanMultiRxTestAccess;
-    //DH1KLM: Auto AGC-T is opt-in per live slice; revisions fence queued observations.
+    // Auto AGC-T is opt-in per live slice; revisions fence queued observations.
     bool m_autoAgcEnabled = false;
     int m_manualAgcBeforeAuto = kDefaultAgcThreshold;
     double m_autoAgcOffset = AnanAutoAgc::kDefaultOffsetDb;
@@ -306,7 +306,7 @@ private:
     void applyReceiveGain(int adcDb, int alexDb);
     anan::ReceiveAntennaSelection activeReceiveAntenna() const;
     QString applyReceiveAntenna(int antenna);
-    //DH1KLM One physical ADC0 path follows RX1, then the lowest remaining ready slice.
+    // One physical ADC0 path follows RX1, then the lowest remaining ready slice.
     int receiveAntennaOwner() const;
     int receiveAntennaBandIndex() const;
     ReceiveAntennaBand receiveAntennaRoute() const;
@@ -316,7 +316,7 @@ private:
     mutable QString m_antennaPlanName;
     int m_appliedAntenna = -1;
     int m_appliedRxOnly = -1;
-    // DH1KLM: Shipped defaults are valid only for the Saturn RX profile.
+    // Shipped defaults are valid only for the Saturn RX profile.
     void seedDroopCorrectionTables(bool useSaturnDefaults);
     friend class AnanNoiseBlankerTestAccess;
     friend class AnanLinkStatsTestAccess;
@@ -337,7 +337,7 @@ private:
     // actually exists.
     [[nodiscard]] int nearestSessionRateKsps(int requestedKsps) const noexcept;
     AnanClient::Params m_pendingParams;
-    // DH1KLM: Retain ANT1/2/3 across P2 session restarts.
+    // Retain ANT1/2/3 across P2 session restarts.
     int m_rxAntenna = 1;
     AnanRxDsp::Config m_pendingDspConfig;
     // Panadapter points from the panel width (setPanPixelWidth()). Kept here

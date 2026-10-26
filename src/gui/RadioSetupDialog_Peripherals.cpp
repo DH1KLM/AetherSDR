@@ -91,7 +91,7 @@ struct PeripheralDeviceUi {
         SerialOrNetwork,  // ACOM, SPE Expert, LP-100A: serial port or ser2net host
         Vkamp,            // host + port, plus the amplifier model
         Kpa1500,          // host + port
-        Rfkit,            //DH1KLM host + port (HTTP)
+        Rfkit,            // host + port (HTTP)
         Kxpa100,          // KXPA100 amplifier with optional tuner
         Kat500,           // KAT500 serial or TCP tuner
         Kpa500,           // Serial with selectable baud, or raw TCP
@@ -662,9 +662,9 @@ void closeSaverForNetworkField(PeripheralDeviceUi* ui, QVector<std::function<voi
         }
         // The user cleared a previously-saved IP. If still connected (e.g.
         // auto-connect ran at startup), disconnect first so downstream
-        //DH1KLM visibility handlers see the cleared settings. A reconnect loop still
-        //DH1KLM aimed at the cleared address is stopped too, or it would keep
-        //DH1KLM dialing it until restart.
+        // visibility handlers see the cleared settings. A reconnect loop still
+        // aimed at the cleared address is stopped too, or it would keep
+        // dialing it until restart.
         settings.remove(ui->ipKey);
         settings.remove(ui->portKey);
         settings.save();
@@ -689,9 +689,9 @@ void closeSaverForSettingsGroup(PeripheralDeviceUi* ui, QVector<std::function<vo
         }
         PeripheralSettings::clearDeviceField(ui->settingsGroup, "ManualIp");
         PeripheralSettings::clearDeviceField(ui->settingsGroup, "ManualPort");
-        //DH1KLM Only disconnect if the connection is actually the network target
-        //DH1KLM being cleared, whether connected or still retrying it; it may be on
-        //DH1KLM Serial, which this saved IP has nothing to do with.
+        // Only disconnect if the connection is actually the network target
+        // being cleared, whether connected or still retrying it; it may be on
+        // Serial, which this saved IP has nothing to do with.
         if (ui->description && ui->description().startsWith(savedIp + ":")) {
             ui->disconnectNow();
         }
@@ -1342,8 +1342,8 @@ void RadioSetupDialog::buildVkampDevice(PeripheralDeviceUi& ui, QWidget* stackPa
         }
         PeripheralSettings::clearDeviceField("Vkamp", "ManualIp");
         PeripheralSettings::clearDeviceField("Vkamp", "ManualPort");
-        //DH1KLM Connected or still retrying: a reconnect loop aimed at the cleared
-        //DH1KLM address would otherwise keep dialing it until restart.
+        // Connected or still retrying: a reconnect loop aimed at the cleared
+        // address would otherwise keep dialing it until restart.
         if (u->description().startsWith(savedIp + ":")) {
             u->disconnectNow();
         }
@@ -1593,7 +1593,7 @@ void RadioSetupDialog::buildRfkitDevice(PeripheralDeviceUi& ui, QWidget* stackPa
     ui.addressEdit->setAccessibleDescription(
         tr("IP address or host name of the RF-KIT amplifier"));
 
-    //DH1KLM The REST API's port is a device setting, so it is editable rather than fixed.
+    // The REST API's port is a device setting, so it is editable rather than fixed.
     ui.portSpin = makePortSpin(ui);
     ui.portSpin->setValue(PeripheralSettings::deviceInt("Rfkit", "ManualPort", ui.defaultPort));
     ui.portSpin->setAccessibleName(tr("RF-KIT control port"));
@@ -1635,8 +1635,8 @@ void RadioSetupDialog::buildRfkitDevice(PeripheralDeviceUi& ui, QWidget* stackPa
         }
         PeripheralSettings::clearDeviceField("Rfkit", "ManualIp");
         PeripheralSettings::clearDeviceField("Rfkit", "ManualPort");
-        //DH1KLM Connected or still retrying: a reconnect loop aimed at the cleared
-        //DH1KLM address would otherwise keep dialing it until restart.
+        // Connected or still retrying: a reconnect loop aimed at the cleared
+        // address would otherwise keep dialing it until restart.
         if (u->description().startsWith(savedIp + ":")) {
             u->disconnectNow();
         }
@@ -1700,8 +1700,8 @@ void RadioSetupDialog::buildKpa1500Device(PeripheralDeviceUi& ui, QWidget* stack
         }
         PeripheralSettings::clearDeviceField("Kpa1500", "ManualIp");
         PeripheralSettings::clearDeviceField("Kpa1500", "ManualPort");
-        //DH1KLM Connected or still retrying: a reconnect loop aimed at the cleared
-        //DH1KLM address would otherwise keep dialing it until restart.
+        // Connected or still retrying: a reconnect loop aimed at the cleared
+        // address would otherwise keep dialing it until restart.
         if (u->description().startsWith(savedIp + ":")) {
             u->disconnectNow();
         }
@@ -1814,7 +1814,7 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
         ui->authDevice = PeripheralAuthStore::Device::Tgxl;
         ui->isConnected = [this]() { return m_tgxl->isConnected(); };
         ui->isConnecting = [this]() { return m_tgxl->isConnecting(); };
-        //DH1KLM The target reconnects aim at, so clearing its address can stop them.
+        // The target reconnects aim at, so clearing its address can stop them.
         ui->description = [this]() {
             const QString host = m_tgxl->reconnectHost();
             return host.isEmpty() ? QString()
@@ -1859,7 +1859,7 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
         ui->authDevice = PeripheralAuthStore::Device::Pgxl;
         ui->isConnected = [this]() { return m_pgxl->isConnected(); };
         ui->isConnecting = [this]() { return m_pgxl->isConnecting(); };
-        //DH1KLM The target reconnects aim at, so clearing its address can stop them.
+        // The target reconnects aim at, so clearing its address can stop them.
         ui->description = [this]() {
             const QString host = m_pgxl->reconnectHost();
             return host.isEmpty() ? QString()
@@ -2103,8 +2103,8 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
         buildKpa1500Device(*ui, detailStack, refresh);
     }
     if (m_rfkit) {
-        //DH1KLM REST over HTTP (docs/architecture/rfkit-amplifier-design.md): a plain
-        //DH1KLM host/port pair, no Serial/Network toggle.
+        // REST over HTTP (docs/architecture/rfkit-amplifier-design.md): a plain
+        // host/port pair, no Serial/Network toggle.
         auto ui = addDevice(QStringLiteral("rfkit"), tr("RF-KIT Amplifier"),
                             QStringLiteral("RF-KIT amplifier"),
                             PeripheralDeviceUi::Kind::Rfkit, Rfkit::kDefaultPort);
@@ -3001,7 +3001,7 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
     connect(&m_model->amplifier(), &AmpModel::presenceChanged, this, refresh);
     connect(m_model, &RadioModel::connectionStateChanged, this, refresh);
 
-    //DH1KLM The serial, VK3AMP, KPA1500 and RF-KIT devices: link changes, failures, and link-up with a
+    // The serial, VK3AMP, KPA1500 and RF-KIT devices: link changes, failures, and link-up with a
     // silent device.
     auto wireLinkDevice = [this, onLink, onFailure](const QString& id, auto* connection) {
         using Connection = std::remove_pointer_t<decltype(connection)>;

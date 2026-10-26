@@ -20,34 +20,34 @@ class FirmwareStager;
 class FirmwareUploader;
 class RadioModel;
 
-//DH1KLM The Updates window's radio section: the connected radio's firmware against
-//DH1KLM the releases its vendor publishes, laid out as one lane per major line, and
-//DH1KLM the install itself. Install… downloads the chosen release, checks its MD5,
-//DH1KLM extracts the firmware and uploads it (FirmwareStager, FirmwareUploader);
-//DH1KLM Open Installer… does the same from a file the operator downloaded.
-//DH1KLM Experimental, and says so. A radio the client cannot update, or none, dims
-//DH1KLM the section with the reason.
+// The Updates window's radio section: the connected radio's firmware against
+// the releases its vendor publishes, laid out as one lane per major line, and
+// the install itself. Install… downloads the chosen release, checks its MD5,
+// extracts the firmware and uploads it (FirmwareStager, FirmwareUploader);
+// Open Installer… does the same from a file the operator downloaded.
+// Experimental, and says so. A radio the client cannot update, or none, dims
+// the section with the reason.
 class FirmwareUpdateCard : public QFrame {
     Q_OBJECT
 
 public:
     explicit FirmwareUpdateCard(RadioModel* model, QWidget* parent = nullptr);
 
-    //DH1KLM Downloading, staging or uploading.
+    // Downloading, staging or uploading.
     bool isBusy() const;
 
-    //DH1KLM Asked before the window closes. Idle: true. While working: a prompt
-    //DH1KLM naming what closing does at this phase; true only if the operator
-    //DH1KLM confirms, after the work is cancelled.
+    // Asked before the window closes. Idle: true. While working: a prompt
+    // naming what closing does at this phase; true only if the operator
+    // confirms, after the work is cancelled.
     bool confirmStop(QWidget* parent);
 
-    //DH1KLM The published releases (newest first, as FirmwareStager reports them)
-    //DH1KLM as one lane per major line: newest line first, each lane's releases
-    //DH1KLM oldest to newest.
+    // The published releases (newest first, as FirmwareStager reports them)
+    // as one lane per major line: newest line first, each lane's releases
+    // oldest to newest.
     static QList<QPair<int, QStringList>> firmwareLanes(const QStringList& releasesNewestFirst);
 
-    //DH1KLM The release Install starts on: the newest in the radio's own line when
-    //DH1KLM it is newer than what is installed; otherwise empty.
+    // The release Install starts on: the newest in the radio's own line when
+    // it is newer than what is installed; otherwise empty.
     static QString preselectedRelease(const QStringList& releasesNewestFirst,
                                       const QString& installedVersion);
 
@@ -99,4 +99,4 @@ private:
     QLabel* m_caution{nullptr};
 };
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

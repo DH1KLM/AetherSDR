@@ -450,10 +450,10 @@ private:
 
     void buildUI();
     void buildMenuBar();
-    void wireUpdateChecker();          //DH1KLM MainWindow_Menus.cpp
-    void showUpdatesWindow(bool checkNow);  //DH1KLM MainWindow_Menus.cpp
-    void setAutomaticUpdateCheck(bool on);  //DH1KLM MainWindow_Menus.cpp
-    void restoreKnownUpdate();         //DH1KLM MainWindow_Menus.cpp
+    void wireUpdateChecker();          // MainWindow_Menus.cpp
+    void showUpdatesWindow(bool checkNow);  // MainWindow_Menus.cpp
+    void setAutomaticUpdateCheck(bool on);  // MainWindow_Menus.cpp
+    void restoreKnownUpdate();         // MainWindow_Menus.cpp
     void minimizeActiveApplicationWindow();
     void toggleActiveApplicationWindowFullScreen();
     void applyDarkTheme();
@@ -586,11 +586,11 @@ private:
     // docked one) and dim it with the reason on the others; otherwise every
     // pane keeps its own live pair. PanSpanControlGate.h.
     void syncPanSpanControlPlacement();
-    //DH1KLM The connected backend declares pan display controls without span, so no
-    //DH1KLM zoom route can change it (the Demo). Absent declarations are not fixed.
+    // The connected backend declares pan display controls without span, so no
+    // zoom route can change it (the Demo). Absent declarations are not fixed.
     bool panSpanFixedByBackend() const;
-    //DH1KLM Set while syncKiwiSdrPanadapterUiStates() walks every pane, so the span
-    //DH1KLM pair is re-derived once after the walk rather than once per pane.
+    // Set while syncKiwiSdrPanadapterUiStates() walks every pane, so the span
+    // pair is re-derived once after the walk rather than once per pane.
     bool m_kiwiSpanSyncDeferred{false};
     void updateSplitState();
     void disableSplit();
@@ -1359,7 +1359,7 @@ private:
     class Kxpa100RadioAssociation* m_kxpa100Association = nullptr;
     QPointer<class AtuPreTuneDialog> m_kat500PreTuneDialog;
     Kpa500Connection  m_kpa500Conn;      // Elecraft KPA500 amplifier, serial or raw TCP
-    RfkitConnection   m_rfkitConn;       //DH1KLM RF-KIT amplifier, REST/JSON over HTTP (default port 8080)
+    RfkitConnection   m_rfkitConn;       // RF-KIT amplifier, REST/JSON over HTTP (default port 8080)
     Kpa1500Connection m_kpa1500Conn;     // Elecraft KPA1500 amplifier, TCP control/status on port 1500 (#4097)
     BandPlanManager*  m_bandPlanMgr{nullptr};
 #ifdef HAVE_CW_RX_BACKENDS
@@ -1498,7 +1498,7 @@ private:
     void togglePanZoomModeForPan(const QString& panId, bool segmentZoom);
     void setPanZoomMode(bool segmentZoom, bool enable);
     void zoomActivePanadapter(double factor);
-    //DH1KLM: Touch events are handled on every build, independently of USB HID controllers.
+    // Touch events are handled on every build, independently of USB HID controllers.
     QTimer*           m_touchHoldTimer{nullptr};
     QPoint            m_touchHoldGlobalPos;
     QPointer<QWidget> m_touchHoldWidget;

@@ -231,8 +231,8 @@ struct IcomBand {
 // generic relative indication rather than borrowing another radio's curve.
 [[nodiscard]] std::span<const CurvePoint> powerCurveFor(const IcomModel& model);
 
-//DH1KLM The front-end stages at the radio-reported frequency, in register order
-//DH1KLM (index 0 is OFF). Zero frequency uses the shared stages of a ranged ladder.
+// The front-end stages at the radio-reported frequency, in register order
+// (index 0 is OFF). Zero frequency uses the shared stages of a ranged ladder.
 // EMPTY means no verified ladder: publish NOTHING rather than borrow another
 // radio's (stages are genuinely per-model), so the operator gets no button
 // instead of a mislabelled one.
@@ -318,7 +318,7 @@ struct SetMenuProfile {
     int civTransceiveItem = -1;
 };
 
-//DH1KLM Which Fixed Edges range table (CivCodec.h) a model uses.
+// Which Fixed Edges range table (CivCodec.h) a model uses.
 enum class ScopeEdgeTable : std::uint8_t { None, Hf, Ic705, Ic9700 };
 
 struct ScopeCommandProfile {
@@ -327,13 +327,13 @@ struct ScopeCommandProfile {
     bool scrollCenter = false;
     bool scrollFixed = false;
     bool hasSweepSpeed = false;
-    //DH1KLM The Fixed Edges slot (27 16 / 27 1E) AetherSDR owns in Fixed and
-    //DH1KLM SCROLL-F; the operator's other slots are never written. 0 = SCROLL-F is
-    //DH1KLM not offered. Slot 4 exists from IC-705 firmware 1.20 / IC-9700 1.30;
-    //DH1KLM older firmware answers FA to SCROLL-F and keeps Center.
+    // The Fixed Edges slot (27 16 / 27 1E) AetherSDR owns in Fixed and
+    // SCROLL-F; the operator's other slots are never written. 0 = SCROLL-F is
+    // not offered. Slot 4 exists from IC-705 firmware 1.20 / IC-9700 1.30;
+    // older firmware answers FA to SCROLL-F and keeps Center.
     int dedicatedEdgeSlot = 0;
     ScopeEdgeTable edgeTable = ScopeEdgeTable::None;
-    //DH1KLM 27 12/14/15/16/17/19/1A and 27 00 carry 00 MAIN / 01 SUB (IC-9700).
+    // 27 12/14/15/16/17/19/1A and 27 00 carry 00 MAIN / 01 SUB (IC-9700).
     bool mainSubSelector = false;
 };
 
@@ -452,7 +452,7 @@ struct IcomModelProfile {
     std::optional<MemoryProfile> memory;
     std::optional<NetworkConfigurationProfile> networkConfiguration;
     std::span<const std::string_view> preampLabels;
-    //DH1KLM Zero means no frequency restriction on the model ladder.
+    // Zero means no frequency restriction on the model ladder.
     std::uint64_t preampTwoStageUpperExclusiveHz = 0;
     std::span<const AttenStep> attenuatorSteps;
     std::span<const std::string_view> modes;

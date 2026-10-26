@@ -4,7 +4,7 @@ namespace AetherSDR::anan {
 AnanClient::AnanClient(QObject* parent) : QObject(parent),
     m_p1(new P1Client(this)), m_p2(new P2Client(this))
 {
-    //DH1KLM: Ignore deliveries from the inactive transport. Selection is made
+    // Ignore deliveries from the inactive transport. Selection is made
     // only after stopping the old session, on this object's own IO thread.
     auto wire = [this]<typename Client>(Client* client, int protocol) {
         connect(client, &Client::linkUp, this, [this, protocol] {

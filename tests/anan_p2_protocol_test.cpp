@@ -82,7 +82,7 @@ int main()
     check(!hasSpeakerAmpMute(2, AnanModel::Anan7000, 3, false)
           && hasSpeakerAmpMute(2, AnanModel::Anan7000, 3, true),
           "only an explicit hardware override permits mismatched supported model wiring");
-    //DH1KLM: Patroclus RadioProfile.CreateDiscoveryResponse at 8c275223:
+    // Patroclus RadioProfile.CreateDiscoveryResponse at 8c275223:
     // every emulated profile shares MAC 00:00:00:00:00:01; P2 byte 12 is 2.
     // Feed its wire shape through the production parser, not a fake radio.
     {
@@ -117,7 +117,7 @@ int main()
         check(acceptsDiscoveryProtocolUpdate(other, preferred, preferred, 0),
               "explicit Red Pitaya P1 or default P2 preference wins");
     }
-    //DH1KLM: The same wire ID has different meanings in P1 and P2.
+    // The same wire ID has different meanings in P1 and P2.
     {
         std::array<std::uint8_t, 60> legacy{};
         legacy[0] = 0xef; legacy[1] = 0xfe; legacy[2] = 2;
@@ -214,7 +214,7 @@ int main()
                   "Thetis ProtocolSupported is opaque and cannot misclassify a P2-shaped reply as P1");
         }
 
-        //DH1KLM: Keep the P2 physical-board registry pinned independently
+        // Keep the P2 physical-board registry pinned independently
         // from the implemented receive-profile gate in AnanDiscovery.
         // These are Thetis/Nereus HPSDRHW IDs, not the different P1 byte map.
         constexpr std::array<std::uint8_t, 10> supportedBoardIds{
@@ -235,7 +235,7 @@ int main()
         check(unknownReply && !unknownReply->isSupportedOpenHpsdrBoard(),
               "unknown P2 board ID is not classified as a supported board");
 
-        //DH1KLM: A board's presence in the registry must not grant it the Saturn
+        // A board's presence in the registry must not grant it the Saturn
         // session profile. Unknown/manual targets still need an implemented RX profile.
         check(discoveryMatchesVerifiedAnanProfile(10, -1),
               "manual target is accepted only when Discovery identifies Saturn");
@@ -268,7 +268,7 @@ int main()
               "unknown board ID cannot use the Saturn session profile");
     }
 
-    //DH1KLM: ANAN-7000DLE RX layout from Thetis UpdateDDCs/GetDDC,
+    // ANAN-7000DLE RX layout from Thetis UpdateDDCs/GetDDC,
     // clsHardwareSpecific.cs and ChannelMaster CmdRx/CmdHighPriority.
     {
         const auto profile = receiveProfile(5);
@@ -328,7 +328,7 @@ int main()
               "invalid physical DDC offsets cannot enable a receiver");
     }
 
-    //DH1KLM: Thetis clsHardwareSpecific/GetDDC and Nereus P2CodecHermes.
+    // Thetis clsHardwareSpecific/GetDDC and Nereus P2CodecHermes.
     {
         constexpr std::array<int, 5> ids{{1, 2, 3, 4, 20}};
         constexpr std::array<int, 5> adcCounts{{1, 1, 2, 2, 1}};
@@ -413,7 +413,7 @@ int main()
         check((static_cast<int>(d96[18]) << 8 | d96[19]) == 96, "rate field honours the argument");
         check(d96[4] == 1, "numAdcs argument is honoured");
 
-        //DH1KLM: Keep the one-ADC Hermes-class wire field testable separately
+        // Keep the one-ADC Hermes-class wire field testable separately
         // from Saturn; this validates encoding only, not a connectable profile.
         const auto dOneAdc = buildDdcSpecific(48, 1, true, true, 0);
         check(dOneAdc[5] == 0x01 && dOneAdc[6] == 0x01,
@@ -860,7 +860,7 @@ int main()
         // requirement is visible from the test, not only from a comment.
         std::vector<std::uint8_t> reply(kHighPriorityStatusBytes, 0);
         reply[4] = 0x02;
-        //DH1KLM: Use a plausible identity so this fixture passes Discovery
+        // Use a plausible identity so this fixture passes Discovery
         // validation as well as the intentionally overlapping status parser.
         reply[5] = 0x88;
         reply[10] = 0x6A;
@@ -1099,7 +1099,7 @@ int main()
         check(!p6.catchingUp(), "reset clears catch-up for the next session");
     }
 
-    //DH1KLM: The discovery registry must preserve Thetis wire IDs and
+    // The discovery registry must preserve Thetis wire IDs and
     // recognize every documented OpenHPSDR family without guessing an SKU.
     {
         struct BoardCase { std::uint8_t id; const char* label; };
@@ -1131,7 +1131,7 @@ int main()
               "unknown board IDs receive an explicit label");
     }
 
-    //DH1KLM: ANAN-7000DLE capture, 2026-10-17: the directed request to
+    // ANAN-7000DLE capture, 2026-10-17: the directed request to
     // UDP/1024 gets a valid reply from UDP/0 after 94 us. MAC anonymized.
     // The former manual-connect port guard discarded this exact reply shape.
     {
@@ -1162,7 +1162,7 @@ int main()
     }
 
     {
-        //DH1KLM: Editable defaults preserve all existing qualified profile packets.
+        // Editable defaults preserve all existing qualified profile packets.
         for (int board : {1, 2, 3, 4, 5, 10, 20}) {
             const auto profile = receiveProfile(board);
             const auto defaults = defaultFilterConfig(profile->filterKind == ReceiveFilterKind::MkIIBpf);
@@ -1178,7 +1178,7 @@ int main()
                       "editable model defaults preserve existing qualified P2 packet bytes");
             }
         }
-        //DH1KLM: Thetis legacy HPF and MkII BPF differ at 5 MHz (bits 6 and 5).
+        // Thetis legacy HPF and MkII BPF differ at 5 MHz (bits 6 and 5).
         FilterConfig legacy = defaultFilterConfig(false);
         FilterConfig mkII = defaultFilterConfig(true);
         const std::array<std::uint32_t, 1> frequency{phaseWord(5000000)};
@@ -1217,7 +1217,7 @@ int main()
     }
 
     {
-        //DH1KLM: Thetis capture, 2026-10-17: Alex1 upper relay word follows
+        // Thetis capture, 2026-10-17: Alex1 upper relay word follows
         // ANT1 + 80 m/20 m LPF even in RX. Its low ADC1 filter word is separate.
         const FilterConfig config = defaultFilterConfig(false);
         for (const auto& [hz, capturedUpper] : std::array<std::pair<double, std::uint32_t>, 2>{{
@@ -1249,7 +1249,7 @@ int main()
     }
 
     {
-        //DH1KLM: Thetis capture OC byte 1401 is the configured mask shifted left, not an ALEX bit.
+        // Thetis capture OC byte 1401 is the configured mask shifted left, not an ALEX bit.
         auto config = defaultFilterConfig(false);
         config.ocReceive[1] = {3500000, 3800000, 0x0b};
         config.ocReceive[5] = {14000000, 14350000, 0x05};
@@ -1317,7 +1317,7 @@ int main()
     }
 
     {
-        //DH1KLM: Thetis' separate Alex-2 range table must affect only ADC1.
+        // Thetis' separate Alex-2 range table must affect only ADC1.
         auto config = defaultFilterConfig(true);
         config.receiveAdc1 = config.receive;
         (*config.receiveAdc1)[1].highHz = 6499999;

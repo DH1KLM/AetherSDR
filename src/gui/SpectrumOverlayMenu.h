@@ -177,12 +177,12 @@ public:
     void setPreampStep(int step);
     void setAttenuatorLabels(const QStringList& labels);
     void setAttenuatorStep(int step);
-    //DH1KLM The radio's own scope mode (Display panel, PANADAPTER group). Fewer than
-    //DH1KLM two labels: dimmed with a reason; index -1 lights none.
+    // The radio's own scope mode (Display panel, PANADAPTER group). Fewer than
+    // two labels: dimmed with a reason; index -1 lights none.
     void setScopeModeLabels(const QStringList& labels);
     void setScopeModeIndex(int index);
-    //DH1KLM The connected radio's family. The Scope row is shown for "icom" only, a
-    //DH1KLM deliberate family exception to dim-never-hide (maintainer ruling).
+    // The connected radio's family. The Scope row is shown for "icom" only, a
+    // deliberate family exception to dim-never-hide (maintainer ruling).
     void setRadioFamily(const QString& family);
     void setLoopState(bool loopA, bool loopB);
     void syncNoiseFloorPosition(int pos);
@@ -296,8 +296,8 @@ signals:
     // Step index into the label list this menu was given, never a dB value.
     void preampStepChanged(int step);
     void attenuatorStepChanged(int step);
-    //DH1KLM Index into the scope-mode label list. A REQUEST: the buttons repaint
-    //DH1KLM from what the radio reports, not from the click.
+    // Index into the scope-mode label list. A REQUEST: the buttons repaint
+    // from what the radio reports, not from the click.
     void scopeModeChanged(int index);
     // customLowMhz/customHighMhz bound the sweep when the operator has ticked
     // "Limit range" (else both 0 = sweep the full band). The values are clamped
@@ -493,7 +493,7 @@ private:
     QPushButton* m_lineColorBtn{nullptr};
     QColor       m_lineColor{0x00, 0xe5, 0xff};  // default cyan (#4239)
     QPushButton* m_heatMapBtn{nullptr};
-    //DH1KLM Scope mode row — one exclusive button per published label.
+    // Scope mode row — one exclusive button per published label.
     QWidget*            m_scopeModeRow{nullptr};
     QHBoxLayout*        m_scopeModeLayout{nullptr};
     QList<QPushButton*> m_scopeModeBtns;
@@ -553,7 +553,7 @@ private:
     QSlider*     m_floorSlider{nullptr};
     QLabel*      m_floorLabel{nullptr};
     QPushButton* m_floorEnableBtn{nullptr};
-    QSlider*     m_floorRangeSlider{nullptr};   //DH1KLM half-dB steps
+    QSlider*     m_floorRangeSlider{nullptr};   // half-dB steps
     QLabel*      m_floorRangeLabel{nullptr};
     QPushButton* m_cloneToAllPansBtn{nullptr};
 

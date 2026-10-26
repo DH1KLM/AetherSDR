@@ -1,4 +1,4 @@
-//DH1KLM Real controller failure signals; no radio, model download or inference.
+// Real controller failure signals; no radio, model download or inference.
 #include "TestSettingsProfile.h"
 #include "AetherBuildIdentity.h"
 #include "asr/AsrCrashMarker.h"
@@ -37,7 +37,7 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
     app.setApplicationVersion(QStringLiteral("test"));
     AppSettings::instance().load();
-    //DH1KLM A recorded discovery fault keeps this fixture out of GPU discovery.
+    // A recorded discovery fault keeps this fixture out of GPU discovery.
     AsrAttempt fault;
     fault.stage = QString::fromLatin1(kAsrStageDiscovery);
     fault.appVersion = QStringLiteral("test+") + QStringLiteral(AETHER_BUILD_SHA);
@@ -68,7 +68,7 @@ int main(int argc, char** argv)
                "repeated rejected enables retain the fault explanation");
     }
     const auto preparePendingEnable = [&] {
-        //DH1KLM Set the pending UI/engine state without requesting a real model.
+        // Set the pending UI/engine state without requesting a real model.
         const QSignalBlocker blocker(&panel);
         panel.setAsrEnabled(true);
         panel.setBusy(true);

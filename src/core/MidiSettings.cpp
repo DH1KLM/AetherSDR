@@ -517,16 +517,16 @@ bool MidiSettings::writeSettingsDocument(const QString& filePath,
 {
     QDir().mkpath(QFileInfo(filePath).absolutePath());
 
-    //DH1KLM QSaveFile writes beside the target and renames over it on commit(), so
-    //DH1KLM a crash or full disk leaves the previous settings intact instead of a
-    //DH1KLM truncated file. (#5160)
+    // QSaveFile writes beside the target and renames over it on commit(), so
+    // a crash or full disk leaves the previous settings intact instead of a
+    // truncated file. (#5160)
     QSaveFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         qWarning() << "MidiSettings: failed to save" << filePath;
         return false;
     }
 
-    //DH1KLM Scope writer so document finishes before commit()
+    // Scope writer so document finishes before commit()
     {
         QXmlStreamWriter xml(&file);
         xml.setAutoFormatting(true);
@@ -536,14 +536,14 @@ bool MidiSettings::writeSettingsDocument(const QString& filePath,
         xml.writeTextElement("LastDevice", m_lastDevice);
         xml.writeTextElement("AutoConnect", m_autoConnect ? "True" : "False");
 
-        //DH1KLM Write bindings inline in the main settings file
+        // Write bindings inline in the main settings file
         xml.writeStartElement("Bindings");
         for (const auto& b : bindings) {
             writeBindingElement(xml, b);
         }
-        xml.writeEndElement(); //DH1KLM Bindings
+        xml.writeEndElement(); // Bindings
 
-        xml.writeEndElement(); //DH1KLM MidiSettings
+        xml.writeEndElement(); // MidiSettings
         xml.writeEndDocument();
 
         if (xml.hasError()) {

@@ -15,13 +15,13 @@ Q_LOGGING_CATEGORY(lcAnanP1, "aether.anan.p1", QtInfoMsg)
 namespace AetherSDR::anan {
 std::optional<P1Client::Profile> P1Client::profile(int board, bool redPitaya) noexcept
 {
-    //DH1KLM: Thetis accepts Red Pitaya reporting Hermes or Orion MkII.
+    // Thetis accepts Red Pitaya reporting Hermes or Orion MkII.
     // Its explicit P1 model uses five slots, two ADCs and legacy HPF selection.
     if (redPitaya)
         return board == 1 || board == 5
             ? std::optional<Profile>{Profile{2, 5, false, ReceiveFilterKind::LegacyHpf}}
             : std::nullopt;
-    //DH1KLM: Thetis UpdateDDCs P1 layouts; RX1 is frame slot 0, not P2 DDC2.
+    // Thetis UpdateDDCs P1 layouts; RX1 is frame slot 0, not P2 DDC2.
     // Shared Orion MkII IDs still describe the standard physical board profile.
     switch (board) {
     case 1: return Profile{1, 4, true, ReceiveFilterKind::LegacyHpf};
@@ -36,7 +36,7 @@ std::optional<P1Client::Profile> P1Client::profile(int board, bool redPitaya) no
 int P1Client::maximumRateKsps(int board, bool redPitaya) noexcept
 {
     Q_UNUSED(board);
-    //DH1KLM: Nereus BoardCapsTable::sampleRatesFor caps standard P1 boards
+    // Nereus BoardCapsTable::sampleRatesFor caps standard P1 boards
     // at 192 ksps. HL2 and explicit Red Pitaya model overrides are separate.
     return redPitaya ? 384 : 192;
 }
@@ -50,7 +50,7 @@ P1Client::P1Client(QObject* parent) : QObject(parent)
     m_timeoutTimer = new QTimer(this);
     m_timeoutTimer->setSingleShot(true);
     connect(m_timeoutTimer, &QTimer::timeout, this, [this] {
-        //DH1KLM: Distinguish stale/wrong P1 selection from a validated P1
+        // Distinguish stale/wrong P1 selection from a validated P1
         // radio that answered discovery but never started delivering IQ.
         fail(m_validated
             ? QStringLiteral("No validated OpenHPSDR P1 IQ arrived before the connection timeout.")
@@ -222,7 +222,7 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
             << "model" << QString::fromLatin1(descriptor ? descriptor->name.data() : "Unknown") << "override" << m_params.overrideDetection
             << "ADC" << m_config.adcIndex << "rate ksps" << m_config.rateKsps
             << "frame slots" << m_config.receivers;
-        //DH1KLM: Prime every RX control bank before enabling the IQ stream.
+        // Prime every RX control bank before enabling the IQ stream.
         for (std::size_t n = 0; n < (m_addresses.size() + 1) / 2; ++n) {
             const auto first = nextAddress();
             const auto second = nextAddress();
@@ -269,7 +269,7 @@ void P1Client::updateFilters()
 {
     if (!m_profile)
         return;
-    //DH1KLM: Reuse the verified frequency tables; translate relay positions
+    // Reuse the verified frequency tables; translate relay positions
     // into P1 bank-local bits. P2 packet bytes never reach the P1 socket.
     const std::array<std::uint32_t, 1> words{phaseWord(m_config.frequencyHz)};
     const auto filters = m_params.filters.value_or(defaultFilterConfig(m_profile->filterKind == ReceiveFilterKind::MkIIBpf));
@@ -295,7 +295,7 @@ void P1Client::updateFilters()
     m_config.rxOcMask = m_params.filters ? receiveOcMask(*m_params.filters, m_config.frequencyHz) : 0;
     m_config.userDigitalOutputs = filters.userDigitalOutputs;
     m_config.receiveFilterBits = filter(alex);
-    //DH1KLM: ADC0 band bypass/LNA controls must not alter ADC1's independent filter bits.
+    // ADC0 band bypass/LNA controls must not alter ADC1's independent filter bits.
     m_config.adc1ReceiveFilterBits = filter((std::uint32_t{hp[1430]} << 8) | hp[1431]);
     constexpr std::array<int, 7> lpfBits{20, 21, 22, 23, 29, 30, 31};
     m_config.lowPassBits = 0;
@@ -324,7 +324,7 @@ void P1Client::drainAt(qint64 now)
         m_frameCredit + (now - m_lastClockNs) * (48000.0 / 1e9));
     m_lastClockNs = now;
     while (m_frameCredit >= p1::kSpeakerFrames) {
-        //DH1KLM: DSP audio arrives in blocks, independently of EP2's clock.
+        // DSP audio arrives in blocks, independently of EP2's clock.
         // Prime two blocks, then consume only complete packets; padding each
         // short tail would insert periodic gaps between otherwise continuous audio.
         if (!m_audioPrimed && m_audio.size() >= 4096)
@@ -406,7 +406,7 @@ bool P1Client::setDdcRateLive(int ddc, int rate)
     config.rateKsps = rate;
     const auto packet = p1::speakerAndControl(m_txSequence, 0, 0, config);
     if (!packet || !send(*packet)) { return false; }
-    //DH1KLM: A refused local write must not change subsequent periodic controls.
+    // A refused local write must not change subsequent periodic controls.
     ++m_txSequence;
     m_config = config;
     return true;

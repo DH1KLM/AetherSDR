@@ -38,8 +38,8 @@ public:
         // Just the name: the model, else the product.
         QString shortName() const;
         // A recognized device whose firmware relays over USB: AetherKnob,
-        //DH1KLM firmware that names itself (AetherCTR2), or a CTR2-Max / Nano on
-        //DH1KLM Lynovation's firmware (v1.02.00 on; earlier versions never answer).
+        // firmware that names itself (AetherCTR2), or a CTR2-Max / Nano on
+        // Lynovation's firmware (v1.02.00 on; earlier versions never answer).
         bool usbLink() const;
     };
 
@@ -56,7 +56,7 @@ public:
         quint16 productId;
         const char* product;
         const char* model;
-        //DH1KLM Its firmware relays over USB (the link this relay speaks).
+        // Its firmware relays over USB (the link this relay speaks).
         bool usbLink{false};
     };
     static const std::vector<KnownCtr2>& knownCtr2Devices();

@@ -10,30 +10,30 @@ class QPushButton;
 
 namespace AetherSDR {
 
-//DH1KLM A question or a notice in the style guide's window, for windows built on
-//DH1KLM CanonWindow in place of QMessageBox: the title as a canon header, the text in
-//DH1KLM canon ink, optional further text below it in the softer ink, and the buttons
-//DH1KLM in a row at the bottom right. Run it with exec() and read clickedButton(),
-//DH1KLM which stays null when the operator closes it instead (the corner button,
-//DH1KLM Escape, ⌘W / Ctrl+W).
+// A question or a notice in the style guide's window, for windows built on
+// CanonWindow in place of QMessageBox: the title as a canon header, the text in
+// canon ink, optional further text below it in the softer ink, and the buttons
+// in a row at the bottom right. Run it with exec() and read clickedButton(),
+// which stays null when the operator closes it instead (the corner button,
+// Escape, ⌘W / Ctrl+W).
 class CanonMessageBox : public CanonWindow {
     Q_OBJECT
 
 public:
-    //DH1KLM Accept and Reject buttons close it as accepted or rejected; Destructive
-    //DH1KLM accepts too, and is drawn in the warning gold, for a step that replaces
-    //DH1KLM what is on the device.
+    // Accept and Reject buttons close it as accepted or rejected; Destructive
+    // accepts too, and is drawn in the warning gold, for a step that replaces
+    // what is on the device.
     enum class Role { Accept, Reject, Destructive };
 
     CanonMessageBox(const QString& title, const QString& text, QWidget* parent = nullptr);
 
     void setInformativeText(const QString& text);
-    //DH1KLM Lets the operator select and copy the texts (commands to paste).
+    // Lets the operator select and copy the texts (commands to paste).
     void setTextSelectable(bool on);
 
     QPushButton* addButton(const QString& text, Role role);
-    //DH1KLM The button Return clicks; also takes the focus when the box opens.
-    //DH1KLM Every box sets one; without it nothing decides where the focus starts.
+    // The button Return clicks; also takes the focus when the box opens.
+    // Every box sets one; without it nothing decides where the focus starts.
     void setDefaultButton(QPushButton* button);
     QPushButton* clickedButton() const { return m_clicked; }
 
@@ -49,4 +49,4 @@ private:
     QPushButton*        m_clicked{nullptr};
 };
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

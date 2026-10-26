@@ -283,8 +283,8 @@ void logicalModels() {
         }
     }
 }
-//DH1KLM: Thetis NetworkIO board matching permits Hermes/Hermes-II for
-//DH1KLM: ANAN-10/10E/100/100B and Hermes/Orion MkII for Red Pitaya.
+// Thetis NetworkIO board matching permits Hermes/Hermes-II for
+// ANAN-10/10E/100/100B and Hermes/Orion MkII for Red Pitaya.
 void compatibleModelMatrix() {
     struct Board { int wire; int normalized; };
     int accepted = 0;
@@ -366,7 +366,7 @@ void liveRateWriteFailure() {
             check(P1ClientTestAccess::config(client).rateKsps == previous.rateKsps,
                 "P1 refused rate packet preserves the previous live rate");
             P1ClientTestAccess::acceptWrites(client, packets);
-            //DH1KLM: The ordinary control scheduler must keep the old rate after a refused write.
+            // The ordinary control scheduler must keep the old rate after a refused write.
             P1ClientTestAccess::drain(client, now += 1000000000);
             P1ClientTestAccess::drain(client, now += 1000000000);
             bool foundGeneral = false;
@@ -578,7 +578,7 @@ int main(int argc, char** argv) {
         check(cfg.receiveFilterBits == 0x08 && cfg.lowPassBits == 2,
               "P1 restores 40m HPF/LPF after the high-band receiver closes");
     }
-    //DH1KLM: Exercise the production P1 profile/priming path for the same
+    // Exercise the production P1 profile/priming path for the same
     // Orion MkII + ANAN-200D DIY override as P2, with no socket or fake radio.
     {
         std::vector<QByteArray> packets; P1Client client;
@@ -594,7 +594,7 @@ int main(int argc, char** argv) {
               "P1 Orion MkII reply primes ANAN-200D legacy HPF hardware");
     }
     {
-        //DH1KLM: A live hardware-page edit reaches the P1 bank-local encoder through dispatch.
+        // A live hardware-page edit reaches the P1 bank-local encoder through dispatch.
         std::vector<QByteArray> packets;
         AnanClient dispatcher;
         AnanClientTestAccess::select(dispatcher, 1);
@@ -684,7 +684,7 @@ int main(int argc, char** argv) {
     }
     qInstallMessageHandler(previousHandler);
     {
-        //DH1KLM Stop emits cleared bank 11 before the P1 stream-stop command.
+        // Stop emits cleared bank 11 before the P1 stream-stop command.
         std::vector<QByteArray> packets;
         P1Client client;
         auto p = params(4);

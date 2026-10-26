@@ -68,10 +68,10 @@ public:
     // Rescans local IPv4 addresses and CTR2-class USB HID devices, now, on
     // this thread. The periodic rescan does the same work off the GUI thread.
     void refreshDevices();
-    //DH1KLM Forgets what the idle probe last read from the selected device and
-    //DH1KLM reads it again (its version and FIRMWARE offer, usbFirmwareVersion() and
-    //DH1KLM usbFirmwareCommands()). A probe taken while the firmware was still
-    //DH1KLM starting can read nothing; a firmware switch keeps the same path.
+    // Forgets what the idle probe last read from the selected device and
+    // reads it again (its version and FIRMWARE offer, usbFirmwareVersion() and
+    // usbFirmwareCommands()). A probe taken while the firmware was still
+    // starting can read nothing; a firmware switch keeps the same path.
     void reprobeFirmware();
 
     // Setters refuse (return false) while running.
@@ -115,28 +115,28 @@ public:
     // Starts the relay by itself whenever AetherSDR is connected to a radio,
     // with the setup it last started with (Ctr2RelaySettings, saved), and
     // keeps trying while the device is missing. In USB mode only a device
-    //DH1KLM whose firmware relays over USB (usbLink()) is started, and a device
-    //DH1KLM that failed without ever answering is retried only every
-    //DH1KLM kNoAnswerRetryMs, or at once when the device list, the selected
-    //DH1KLM device, the mode or the radio changes.
+    // whose firmware relays over USB (usbLink()) is started, and a device
+    // that failed without ever answering is retried only every
+    // kNoAnswerRetryMs, or at once when the device list, the selected
+    // device, the mode or the radio changes.
     bool autoStart() const { return m_settings.autoStart; }
     void setAutoStart(bool on);
     static constexpr int kAutoStartRetryMs = 5000;
     static constexpr int kNoAnswerRetryMs = 60000;
-    void setNoAnswerRetryMs(int ms);   //DH1KLM tests
+    void setNoAnswerRetryMs(int ms);   // tests
     // While the relay is stopped, USB devices are rescanned this often, so a
     // controller that switched firmware (and so changed its USB identity)
     // appears without pressing Rescan.
     static constexpr int kDeviceRescanMs = 2000;
-    //DH1KLM After a restart request, the longest auto-start waits for the device to
-    //DH1KLM leave the bus and come back before trying anyway.
+    // After a restart request, the longest auto-start waits for the device to
+    // leave the bus and come back before trying anyway.
     static constexpr int kRestartHoldMs = 20000;
-    //DH1KLM Shown while a USB relay that has run this long has never had an answer
-    //DH1KLM from the CTR2, as firmware without USB mode never answers; empty
-    //DH1KLM otherwise.
+    // Shown while a USB relay that has run this long has never had an answer
+    // from the CTR2, as firmware without USB mode never answers; empty
+    // otherwise.
     QString noAnswerHint() const;
     static constexpr int kNoAnswerHintMs = 10000;
-    void setNoAnswerHintMs(int ms);   //DH1KLM tests
+    void setNoAnswerHintMs(int ms);   // tests
 
     TcpByteProxy::State state() const;
     QString stateText() const;
@@ -236,7 +236,7 @@ private:
     Transport m_transport{Transport::Wifi};
     Transport m_activeTransport{Transport::Wifi};
     QTimer* m_noAnswerTimer{nullptr};
-    bool m_usbAnswered{false};   //DH1KLM the CTR2 has answered since the relay started
+    bool m_usbAnswered{false};   // the CTR2 has answered since the relay started
     bool m_noAnswer{false};
     QString m_usbStartError;
     QStringList m_listenChoices;
@@ -272,20 +272,20 @@ private:
     // background scan that started before one of them is dropped.
     quint64 m_scanGeneration{0};
     bool m_autoStartHeld{false};   // the operator stopped it this connection
-    //DH1KLM The USB relay failed before the CTR2 ever answered (firmware with no
-    //DH1KLM USB mode, or a fault on the way up): no automatic retry before this
-    //DH1KLM expires, rather than opening the device on this thread every
-    //DH1KLM kAutoStartRetryMs. Expired (the default) means no hold.
+    // The USB relay failed before the CTR2 ever answered (firmware with no
+    // USB mode, or a fault on the way up): no automatic retry before this
+    // expires, rather than opening the device on this thread every
+    // kAutoStartRetryMs. Expired (the default) means no hold.
     QDeadlineTimer m_noAnswerHold;
-    //DH1KLM A restart request (restartUsbDevice) answered: the device leaves the bus
-    //DH1KLM a moment later (Lynovation's firmware after about two seconds), and is
-    //DH1KLM still listed until then. Auto-start leaves m_restartedPath alone until a
-    //DH1KLM scan has seen it gone and back, or m_restartedHold expires.
+    // A restart request (restartUsbDevice) answered: the device leaves the bus
+    // a moment later (Lynovation's firmware after about two seconds), and is
+    // still listed until then. Auto-start leaves m_restartedPath alone until a
+    // scan has seen it gone and back, or m_restartedHold expires.
     QString m_restartedPath;
-    Ctr2HidPort::DeviceInfo m_restartedDevice;   //DH1KLM as listed when restarted
+    Ctr2HidPort::DeviceInfo m_restartedDevice;   // as listed when restarted
     bool m_restartedSeenGone{false};
     QDeadlineTimer m_restartedHold;
-    //DH1KLM The restarted device is the one selected and still held.
+    // The restarted device is the one selected and still held.
     bool restartHeld();
     int m_noAnswerRetryMs{kNoAnswerRetryMs};
 };

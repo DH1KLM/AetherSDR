@@ -88,7 +88,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     if (m_host.isNull())
         return false;   // not a parseable IPv4/IPv6 literal -- fail fast, no hostname lookup here
 
-    //DH1KLM: Do not silently turn a bad hardware profile into Saturn's two-ADC
+    // Do not silently turn a bad hardware profile into Saturn's two-ADC
     // layout. A future board profile must provide its verified ADC count.
     if (params.numAdcs < 1 || params.numAdcs > 2) {
         qCWarning(lcAnanP2) << "ANAN: refusing session with invalid board ADC count"
@@ -113,7 +113,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_adc0AttenuationDb = params.adc0AttenuationDb;
     m_adc1AttenuationDb = params.adc1AttenuationDb;
     m_rxAntenna = (params.rxAntenna >= 1 && params.rxAntenna <= 3) ? params.rxAntenna : 1;
-    //DH1KLM: Keep the validated hardware ADC count with the session; never infer it from the DDC count.
+    // Keep the validated hardware ADC count with the session; never infer it from the DDC count.
     m_numAdcs = params.numAdcs;
     m_speakerAudioEnabled = params.speakerAudioEnabled;
     m_speakerAmpMuted = hasSpeakerAmpMute(2, params.model, params.expectedBoardId, params.overrideDetection)
@@ -156,7 +156,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
 
     m_running = true;
 
-    //DH1KLM: Send only Discovery initially. Until its reply proves this is
+    // Send only Discovery initially. Until its reply proves this is
     // a supported RX board (matching the selected ID when known), do not
     // send any board-specific General/DDC-Specific/High-Priority packets.
     sendTo(*m_socket, buildDiscovery(), m_host, kRadioPort, m_txBytes);
@@ -177,7 +177,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_ditherEnabled = params.ditherEnabled;
     m_randomEnabled = params.randomEnabled;
 
-    //DH1KLM: The resolved DDC list and flags are retained in m_activeDdcs
+    // The resolved DDC list and flags are retained in m_activeDdcs
     // above until Discovery validates the board. No profile-specific packet
     // is emitted in start().
     qCInfo(lcAnanP2) << "ANAN P2: discovery sent to" << m_host.toString() << "local endpoint" << localEndpoint();
@@ -203,10 +203,10 @@ void P2Client::stop()
     m_speakerUnderflowReports = 0;
     m_lastSpeakerFifoLevel = 0;
     if (m_socket) {
-        //DH1KLM: Only send the selected profile's stop after its identity
+        // Only send the selected profile's stop after its identity
         // was validated. Preserve physical DDC mapping through teardown.
         if (m_discoveryValidated) {
-            //DH1KLM: Retain Orion MkII filter selection during stop; keep
+            // Retain Orion MkII filter selection during stop; keep
             // the existing all-zero Saturn frequency words unchanged.
             const std::vector<std::uint32_t> stopWords = m_selectReceiveLpf
                 ? sharedFreqWords()
@@ -391,7 +391,7 @@ void P2Client::onSpeakerDrainTick()
 
 void P2Client::setDdc0FrequencyHz(double hz)
 {
-    //DH1KLM: Match the P1 tuning boundary before floating-to-integer encoding;
+    // Match the P1 tuning boundary before floating-to-integer encoding;
     // malformed input must leave the last valid receive word unchanged.
     if (!std::isfinite(hz) || hz < 0 || hz > static_cast<double>(kDspClockHz) / 2.0) {
         return;
@@ -420,7 +420,7 @@ void P2Client::setFrequencyCorrection(double factor)
     setRxAntenna(m_rxAntenna);
 }
 
-//DH1KLM: Apply ANT1/ANT2/ANT3 through Thetis' Alex0 antenna bits.
+// Apply ANT1/ANT2/ANT3 through Thetis' Alex0 antenna bits.
 void P2Client::setHardwareFilters(const QVariantMap& options)
 {
     setReceiveHardware(options, m_rxAntenna);
@@ -486,7 +486,7 @@ bool P2Client::setDdcRateLive(int ddcIndex, int rateKsps)
     if (!m_socket && !m_ddcRateSendOverride) { return false; }
     const auto packet = prepareDdcRateChange(ddcIndex, rateKsps);
     if (!packet) { return false; }
-    //DH1KLM: Repeat unchanged valid rates for the backend's UDP-loss retries.
+    // Repeat unchanged valid rates for the backend's UDP-loss retries.
     qint64 sent = 0;
     if (m_ddcRateSendOverride) {
         sent = m_ddcRateSendOverride(*packet);
@@ -512,7 +512,7 @@ std::optional<std::array<std::uint8_t, 1444>> P2Client::prepareDdcRateChange(int
     }
     auto ddcs = m_activeDdcs;
     ddcs[static_cast<std::size_t>(ddcIndex)].rateKsps = rateKsps;
-    //DH1KLM: Preserve every other enabled DDC, ADC route and linearisation
+    // Preserve every other enabled DDC, ADC route and linearisation
     // flag when replacing one rate. Disabled physical rows remain disabled.
     return buildDdcSpecific(ddcs, m_numAdcs,
         m_ditherEnabled, m_randomEnabled, m_firstDdcIndex);
@@ -524,7 +524,7 @@ std::optional<std::array<std::uint8_t, 60>> P2Client::takeGeneralRefresh(qint64 
         || nowMs < m_nextGeneralRefreshMs) {
         return std::nullopt;
     }
-    //DH1KLM: Coalesce late ticks instead of bursting stale retries after a stall.
+    // Coalesce late ticks instead of bursting stale retries after a stall.
     m_nextGeneralRefreshMs = nowMs + kGeneralRefreshMs;
     return m_generalPacket;
 }
@@ -533,7 +533,7 @@ void P2Client::onKeepaliveTick()
 {
     if (!m_running || !m_socket || !m_discoveryValidated)
         return;
-    //DH1KLM: Match Thetis KeepAliveLoop's 500 ms General refresh. HP alone
+    // Match Thetis KeepAliveLoop's 500 ms General refresh. HP alone
     // keeps RUN alive but cannot recover a lost ALEX-enable General packet.
     if (m_generalClock.isValid()) {
         if (const auto general = takeGeneralRefresh(m_generalClock.elapsed())) {
@@ -614,7 +614,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
         // Not DDC0-shaped: Mic Data, High Priority Status, or this session's
         // Discovery reply. Parse the reply on EVERY datagram (notify once): skipping it
         // would let a duplicate reply fall through and decode as a phantom underflow.
-        //DH1KLM: Session discovery must come from its discovery endpoint,
+        // Session discovery must come from its discovery endpoint,
         // not a status/IQ source whose payload happens to resemble a reply.
         if (const auto reply = parseDiscoveryReply(bytes)) {
             // Still consume reply-shaped duplicates from other ports: they
@@ -627,7 +627,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                     stop();
                     return;
                 }
-                //DH1KLM: Require an implemented RX profile and matching board ID.
+                // Require an implemented RX profile and matching board ID.
                 // A recognized family alone does not authorize session packets.
                 const auto resolvedProfile = receiveProfile(reply->boardId, m_model, m_overrideDetection);
                 if (!resolvedProfile || (m_expectedBoardId >= 0
@@ -643,7 +643,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                     return;
                 }
 
-                //DH1KLM: Select the physical RX layout from the actual reply,
+                // Select the physical RX layout from the actual reply,
                 // not from the reported receiver count or the display name.
                 const ReceiveProfile profile = *resolvedProfile;
                 m_streamLimit = std::min(5, profile.physicalDdcLimit - profile.firstDdcIndex);
@@ -658,7 +658,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                             || std::find(kDdc0RatesKsps.begin(), kDdc0RatesKsps.end(), ddc.rateKsps)
                                 == kDdc0RatesKsps.end();
                     });
-                //DH1KLM: An address-only caller cannot know the ADC count;
+                // An address-only caller cannot know the ADC count;
                 // derive it from the actual board's explicit profile.
                 if (m_expectedBoardId < 0) {
                     m_numAdcs = profile.numAdcs;
@@ -688,12 +688,12 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                     << "first physical DDC" << m_firstDdcIndex << "ADCs" << m_numAdcs
                     << "logical RX0 ADC" << (m_activeDdcs.empty() ? -1 : m_activeDdcs.front().adcIndex)
                     << "rate ksps" << (m_activeDdcs.empty() ? 0 : m_activeDdcs.front().rateKsps);
-                //DH1KLM: Cache only the resolved session profile; never rebuild
+                // Cache only the resolved session profile; never rebuild
                 // retries from an automatic/default model or unvalidated reply.
                 m_generalPacket = buildGeneral(profile.alexEnableMask, profile.disablePa);
                 m_generalClock.start();
                 m_nextGeneralRefreshMs = kGeneralRefreshMs;
-                //DH1KLM: Publish identity only after profile validation, so the
+                // Publish identity only after profile validation, so the
                 // backend never seeds defaults or capabilities for a rejected board.
                 if (!m_discoveryInfoSent) {
                     m_discoveryInfoSent = true;
@@ -738,7 +738,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
     // Which DDC sent this. The IQ packet carries no DDC index of its
     // own, so the sender port is the only discriminator -- see
     // ddcIndexForSenderPort()'s comment for how that is verified.
-    //DH1KLM: A pending session must not link up on stale DDC0 traffic
+    // A pending session must not link up on stale DDC0 traffic
     // before Discovery has selected its physical receiver layout.
     if (m_running && !m_discoveryValidated) {
         return;
@@ -781,7 +781,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
     }
     m_expectedSeq[slot] = frame->seq + 1;
 
-    //DH1KLM: linkUp stays keyed on logical RX0 (DDC0 Saturn, DDC2 MkII):
+    // linkUp stays keyed on logical RX0 (DDC0 Saturn, DDC2 MkII):
     // and the connect timeout's message says "no DDC0 IQ". A session
     // whose DDC1 streamed but whose DDC0 never did is a real failure,
     // not a connected session.

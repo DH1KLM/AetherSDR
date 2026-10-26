@@ -163,7 +163,7 @@ int main(int argc, char** argv)
         CHECK(!d.list.has_value() && !d.current.has_value());
     }
 
-    //DH1KLM ---- Profile: CW list/current (SmartSDR 4.3.16) ----
+    // ---- Profile: CW list/current (SmartSDR 4.3.16) ----
     {
         const ProfileDelta list = decodeProfile(b, QStringLiteral("cw"),
             QStringLiteral("list=Default^Contest 30 WPM"));
@@ -176,7 +176,7 @@ int main(int argc, char** argv)
         CHECK(current.current.has_value() && *current.current == QStringLiteral("Contest 30 WPM"));
     }
 
-    //DH1KLM ---- Profile: unsaved_changes_cw names its own type ----
+    // ---- Profile: unsaved_changes_cw names its own type ----
     {
         const ProfileDelta dirty = decodeProfile(b, QStringLiteral("cw"),
             QStringLiteral("unsaved_changes_cw=1"));

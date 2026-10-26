@@ -61,7 +61,7 @@ public:
     // RX antenna selection for ADC0's switched ANT1/2/3 input bank.
     static int rxAntenna();
     static void setRxAntenna(int antenna);
-    //DH1KLM: Exact device/model/board ownership. Missing choices retain the
+    // Exact device/model/board ownership. Missing choices retain the
     // legacy default; live writes never modify that family-wide default.
     static int radioRxAntenna(const QString& serial, int model, int board);
     static bool setRadioRxAntenna(const QString& serial, int model, int board, int antenna);
@@ -77,9 +77,9 @@ public:
     static bool speakerAudioEnabled();
     static void setSpeakerAudioEnabled(bool on);
 
-    //DH1KLM ---- Live options: the High Priority packet carries them every 100 ms ----
+    // ---- Live options: the High Priority packet carries them every 100 ms ----
 
-    //DH1KLM Mute the radio's speaker amplifier (High Priority byte 1400 bit 1).
+    // Mute the radio's speaker amplifier (High Priority byte 1400 bit 1).
     static bool speakerAmpMuted();
     static void setSpeakerAmpMuted(bool on);
 
@@ -94,7 +94,7 @@ public:
     // are no capabilities to read.
     [[nodiscard]] static QList<int> validDdc0RatesKsps();
 
-    //DH1KLM: Explicit logical-model choice belongs to this radio's MAC,
+    // Explicit logical-model choice belongs to this radio's MAC,
     // never a global default inherited by another radio sharing the board ID.
     static bool redPitayaP1ForRadio(const QString& serial);
     static bool setRedPitayaP1ForRadio(const QString& serial, bool enabled);

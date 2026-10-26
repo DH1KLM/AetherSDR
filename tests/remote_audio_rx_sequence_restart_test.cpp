@@ -7,9 +7,9 @@
 // Socket-free: a backend with no transport, status lines fed to the model's
 // router, and meter-class packets fed straight to processDatagram(). The
 // restart is keyed by stream id alone, whatever the packet class.
-//DH1KLM Pre-connect PC Audio toggles also leave RX creation retryable: a real model's
-//DH1KLM connection records writes in memory and delivers replies through its ordinary
-//DH1KLM commandResponse signal. No radio peer is connected.
+// Pre-connect PC Audio toggles also leave RX creation retryable: a real model's
+// connection records writes in memory and delivers replies through its ordinary
+// commandResponse signal. No radio peer is connected.
 
 #include "TestSettingsProfile.h"
 #include "core/backends/IRadioBackend.h"

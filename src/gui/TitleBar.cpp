@@ -201,7 +201,7 @@ TitleBar::TitleBar(QWidget* parent)
     markDragHandle(m_brand);
     m_hbox->addWidget(m_brand);
 
-    //DH1KLM Hidden until UpdateChecker finds a newer release (RFC #5304).
+    // Hidden until UpdateChecker finds a newer release (RFC #5304).
     m_updateBadge = new QPushButton(QStringLiteral("UPDATE"), this);
     m_updateBadge->setObjectName(QStringLiteral("updateAvailableBadge"));
     m_updateBadge->setFlat(true);
@@ -220,7 +220,7 @@ TitleBar::TitleBar(QWidget* parent)
     m_hbox->addWidget(m_updateBadge);
 
     // The menu bar (Linux/Windows only — macOS puts it in the system bar) is
-    //DH1KLM inserted here by setMenuBar(), after the brand and the UPDATE badge.
+    // inserted here by setMenuBar(), after the brand and the UPDATE badge.
     m_menuBarSlot = m_hbox->count();
 
     // ── 3. Radio tabs ───────────────────────────────────────────────────────
@@ -1342,8 +1342,8 @@ void TitleBar::setExperimentalRadioFamily(const QString& familyName)
 
 void TitleBar::setUpdateAvailable(const QString& latestVersion)
 {
-    //DH1KLM The release tag is network text, so only the parsed digits reach the
-    //DH1KLM tooltip (which Qt may render as rich text).
+    // The release tag is network text, so only the parsed digits reach the
+    // tooltip (which Qt may render as rich text).
     const VersionNumber parsed = VersionNumber::parse(latestVersion);
     m_updateVersion = parsed.isNull() ? QString() : parsed.toString();
     if (m_updateBadge) {

@@ -86,8 +86,8 @@ Ctr2ProxyModel::Ctr2ProxyModel(QObject* parent)
     connect(m_firmware, &Ctr2FirmwareUpdater::stepChanged, this, &Ctr2ProxyModel::firmwareUpdateStep);
     connect(m_firmware, &Ctr2FirmwareUpdater::finished, this,
             [this](bool ok, const QString& message, const QString&) {
-        //DH1KLM A refused restart: the device stays. One written but never answered
-        //DH1KLM may still be on its way off the bus, so it stays held.
+        // A refused restart: the device stays. One written but never answered
+        // may still be on its way off the bus, so it stays held.
         if (!ok && !m_firmware->restartUnanswered())
             m_restartedPath.clear();
         refreshDevices();   // the device re-enumerated, perhaps at a new path
@@ -235,8 +235,8 @@ void Ctr2ProxyModel::applyDeviceScan(DeviceScan scan)
 {
     QStringList& choices = scan.listenChoices;
     const QList<Ctr2HidPort::DeviceInfo>& usb = scan.usb;
-    //DH1KLM By identity, not just path: on Linux a CTR2-Max that switches firmware
-    //DH1KLM comes back at the same hidraw path with another product and serial.
+    // By identity, not just path: on Linux a CTR2-Max that switches firmware
+    // comes back at the same hidraw path with another product and serial.
     const auto same = [](const Ctr2HidPort::DeviceInfo& a, const Ctr2HidPort::DeviceInfo& b) {
         return a.path == b.path && a.vendorId == b.vendorId && a.productId == b.productId
             && a.manufacturer == b.manufacturer && a.product == b.product && a.serial == b.serial;
@@ -251,8 +251,8 @@ void Ctr2ProxyModel::applyDeviceScan(DeviceScan scan)
         });
         if (at == usb.end())
             m_restartedSeenGone = true;
-        //DH1KLM Back: seen gone and listed again, or another firmware at the same
-        //DH1KLM path (a Linux switch that re-enumerates between two scans).
+        // Back: seen gone and listed again, or another firmware at the same
+        // path (a Linux switch that re-enumerates between two scans).
         else if (m_restartedSeenGone || !same(*at, m_restartedDevice))
             m_restartedPath.clear();
     }
@@ -262,7 +262,7 @@ void Ctr2ProxyModel::applyDeviceScan(DeviceScan scan)
     m_listenChoices = std::move(choices);
     m_usbChoices = usb;
     if (usbChanged)
-        m_noAnswerHold = QDeadlineTimer();   //DH1KLM replugged, or switched firmware: try it again
+        m_noAnswerHold = QDeadlineTimer();   // replugged, or switched firmware: try it again
     // Default to the first recognized CTR2 while nothing is selected or the
     // selected device has gone; an existing choice stands.
     if (!isRunning() && !selectedUsbDevice()) {
@@ -465,8 +465,8 @@ void Ctr2ProxyModel::tryAutoStart()
         || m_firmware->isRunning() || m_aetherRadioAddress.isNull()) {
         return;
     }
-    //DH1KLM Restarted on request and not back yet: opening it now would catch it
-    //DH1KLM on its way off the bus. Another device, or Wi-Fi, is not held.
+    // Restarted on request and not back yet: opening it now would catch it
+    // on its way off the bus. Another device, or Wi-Fi, is not held.
     if (restartHeld())
         return;
     // The device list is the one the periodic rescan keeps current, so a
@@ -476,7 +476,7 @@ void Ctr2ProxyModel::tryAutoStart()
     if (m_transport == Transport::Usb) {
         const Ctr2HidPort::DeviceInfo* device = selectedUsbDevice();
         if (!device || !device->usbLink())
-            return;   //DH1KLM firmware with no USB mode
+            return;   // firmware with no USB mode
         if (usbDeviceNeedsAccessRule())
             return;   // Start offers to install the rule; nothing to retry
     }
@@ -503,9 +503,9 @@ void Ctr2ProxyModel::onUsbStateChanged()
                  "firmware v1.02.00 or later, or AetherCTR2. For other firmware, use Wi-Fi mode.");
         emit lastErrorChanged();
     }
-    //DH1KLM Connecting means the CTR2 answered; Stopped and Error end the run.
+    // Connecting means the CTR2 answered; Stopped and Error end the run.
     m_usbAnswered = s != State::Stopped && s != State::Error;
-    //DH1KLM What the relay knew of the firmware goes with it: read it again idle.
+    // What the relay knew of the firmware goes with it: read it again idle.
     if (!m_usbAnswered)
         QTimer::singleShot(0, this, &Ctr2ProxyModel::reprobeFirmware);
     m_noAnswerTimer->stop();

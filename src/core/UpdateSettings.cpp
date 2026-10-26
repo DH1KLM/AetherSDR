@@ -17,7 +17,7 @@ const QString kLastCheckUtcField = QStringLiteral("lastCheckUtc");
 const QString kLatestVersionField = QStringLiteral("latestVersion");
 const QString kAcceptedManifestField = QStringLiteral("acceptedManifestUtc");
 const QString kRolledBackVersionField = QStringLiteral("rolledBackVersion");
-} //DH1KLM namespace
+} // namespace
 
 QJsonObject UpdateSettings::readObj()
 {
@@ -135,4 +135,4 @@ bool UpdateSettings::automaticCheckDue(const QDateTime& nowUtc)
     return last.secsTo(nowUtc) >= kAutomaticCheckIntervalHours * 3600;
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

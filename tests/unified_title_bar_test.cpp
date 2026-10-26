@@ -430,9 +430,9 @@ int main(int argc, char** argv)
         check(visibleSeparators() > 0, "dock separator returns after minimal mode");
     }
 
-    //DH1KLM ── UPDATE badge ────────────────────────────────────────────────────────
-    //DH1KLM Hidden until a version is set; only parsed digits reach its text and the
-    //DH1KLM bridge; minimal mode hides it without forgetting the version.
+    // ── UPDATE badge ────────────────────────────────────────────────────────
+    // Hidden until a version is set; only parsed digits reach its text and the
+    // bridge; minimal mode hides it without forgetting the version.
     {
         auto updateState = [bar]() {
             return bar->barState().value(QStringLiteral("update")).toMap();

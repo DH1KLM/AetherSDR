@@ -756,9 +756,9 @@ void MainWindow::showMultiFlexDialog()
         return;
     }
 
-    //DH1KLM A canon dialog that stays open beside the main window: raised if it is
-    //DH1KLM already open, otherwise created. Closing it (Escape, Ctrl+W, the corner
-    //DH1KLM button) destroys it, so each open starts fresh.
+    // A canon dialog that stays open beside the main window: raised if it is
+    // already open, otherwise created. Closing it (Escape, Ctrl+W, the corner
+    // button) destroys it, so each open starts fresh.
     if (!m_multiFlexDialog) {
         auto* dlg = new MultiFlexDialog(&m_radioModel, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
@@ -1402,7 +1402,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_kiwiSdrManager = new KiwiSdrManager(this);
     m_kiwiSdrManager->setOperatorCallsign(m_radioModel.callsign());
 
-    //DH1KLM Before buildMenuBar(): Help → Check for Updates references the checker.
+    // Before buildMenuBar(): Help → Check for Updates references the checker.
     wireUpdateChecker();
 
     buildMenuBar();
@@ -4158,9 +4158,9 @@ void MainWindow::closeEvent(QCloseEvent* event)
     // destructor-path unkey somewhere to run while the event loop is still
     // live, rather than during member destruction (#4097).
     m_kpa1500Conn.disconnect();
-    //DH1KLM The RF-KIT likewise has zero radio awareness. Closing it here also aborts
-    //DH1KLM any request still in flight while the event loop is live, rather than
-    //DH1KLM leaving that to member destruction.
+    // The RF-KIT likewise has zero radio awareness. Closing it here also aborts
+    // any request still in flight while the event loop is live, rather than
+    // leaving that to member destruction.
     m_rfkitConn.disconnect();
     // The LP-100A is likewise independent of the radio lifecycle and may be
     // connected through a shared ser2net proxy. Close it explicitly while
@@ -5682,7 +5682,7 @@ void MainWindow::buildUI()
         // AGC (outside KiwiSDR replacement), NB and NR through the SliceModel
         // setters, so they reach every backend, not only a command plane.
         m_radioModel.recallBandStackReceiveDsp(slice, e);
-        //DH1KLM Stored WNB values are optional replay, not individual control actions.
+        // Stored WNB values are optional replay, not individual control actions.
         if (auto* pan = m_radioModel.activePanadapter()) {
             if (e.wnbOn != pan->wnbActive()) {
                 m_radioModel.requestPanDisplay(pan, {PanDisplayField::Wnb, e.wnbOn},
@@ -6119,7 +6119,7 @@ void MainWindow::buildUI()
     applyStatusBarCompactLabelStyle(m_radioVersionLabel, QStringLiteral("{{color.text.secondary}}"));
     m_radioVersionLabel->setAlignment(Qt::AlignCenter);
     // Only out-of-date firmware is actionable, but the row is wired once here
-    //DH1KLM rather than as the verdict changes: openFirmwareUpdate() checks
+    // rather than as the verdict changes: openFirmwareUpdate() checks
     // m_radioFirmwareCurrency and does nothing otherwise, and
     // applyFirmwareCurrencyToVersionLabel() drops the tab stop it does not need.
     m_radioVersionLabel->installEventFilter(this);
@@ -8265,10 +8265,10 @@ void MainWindow::applyCapabilitiesToUi(bool connected, const RadioCapabilities& 
     if (m_multiFlexAction) {
         m_multiFlexAction->setVisible(!connected || caps.hasMultiClientSessions);
     }
-    //DH1KLM The dashboard stays open beside the main window, so a radio without
-    //DH1KLM multi-client sessions closes it rather than leaving it to drive one.
+    // The dashboard stays open beside the main window, so a radio without
+    // multi-client sessions closes it rather than leaving it to drive one.
     if (connected && !caps.hasMultiClientSessions && m_multiFlexDialog) {
-        m_multiFlexDialog->close();  //DH1KLM QPointer, guarded above
+        m_multiFlexDialog->close();  // QPointer, guarded above
     }
     updateToolsMenuState();
     // Both entries open the SAME host serial knob (m_aetherControlAction is
@@ -8782,8 +8782,8 @@ void MainWindow::applyPanRangeRequest(const QString& panId, double centerMhz,
     }
 
     auto* pan = m_radioModel.panadapter(panId);
-    //DH1KLM A fixed span takes the center only, silently: no zoom route can change
-    //DH1KLM it, and the dimmed -/+ pair already says why.
+    // A fixed span takes the center only, silently: no zoom route can change
+    // it, and the dimmed -/+ pair already says why.
     const bool spanFixed = panSpanFixedByBackend();
 
     if (pan) {
@@ -9509,8 +9509,8 @@ void MainWindow::routeCwDecoderOutput()
 
     // Connect to new applet
     if (m_cwDecoderApplet) {
-        //DH1KLM Each pan builds its own range sliders; the decoder's ranges are one
-        //DH1KLM shared setting, so the target shows the saved ones before they are pushed.
+        // Each pan builds its own range sliders; the decoder's ranges are one
+        // shared setting, so the target shows the saved ones before they are pushed.
         m_cwDecoderApplet->restoreCwRanges();
         connect(&m_cwDecoder, &CwRxModel::textDecoded,
                 m_cwDecoderApplet, &PanadapterApplet::appendCwText);
@@ -9680,8 +9680,8 @@ void MainWindow::enableNr2WithWisdom()
         const auto result = std::make_shared<std::atomic<int>>(
             static_cast<int>(SpectralNR::WisdomResult::Failed));
 
-        //DH1KLM The window shows progress and takes the cancel; the worker reads
-        //DH1KLM `cancelled`, which the window's cancel and shutdown both set.
+        // The window shows progress and takes the cancel; the worker reads
+        // `cancelled`, which the window's cancel and shutdown both set.
         auto* dlg = new Nr2WisdomDialog(this);
         connect(dlg, &Nr2WisdomDialog::cancelRequested, this,
                 [cancelled]() { cancelled->store(true); });
@@ -11236,7 +11236,7 @@ void MainWindow::restoreBandState(const BandSnapshot& snap)
         // Don't push center or bandwidth — slice tune recenters the pan and
         // the radio determines bandwidth. Pushing stale saved values causes
         // FFT/waterfall misalignment during the transition (#279, #291).
-        //DH1KLM Replay optional display fields without unsupported-control notices.
+        // Replay optional display fields without unsupported-control notices.
         m_radioModel.requestPanDisplay(pan,
             {PanDisplayField::LevelRange, PanLevelRange{snap.minDbm, snap.maxDbm}},
             {}, false);

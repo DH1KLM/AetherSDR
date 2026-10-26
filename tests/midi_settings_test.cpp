@@ -829,25 +829,25 @@ int main(int argc, char** argv)
     }
 #endif
 
-    //DH1KLM ── Live midi.settings store: atomic write reports outcome (#5160) ────────
+    // ── Live midi.settings store: atomic write reports outcome (#5160) ────────
 
     {
-        //DH1KLM 1. Initial write with saveBindings() returns true and loads back
+        // 1. Initial write with saveBindings() returns true and loads back
         ok &= expect(settings.saveBindings(saved),
                      "midi.settings: a successful saveBindings returns true");
         const auto loaded = settings.loadBindings();
         ok &= expect(loaded.size() == saved.size(),
                      "midi.settings: saved bindings load back cleanly");
 
-        //DH1KLM 2. save() with device properties returns true
+        // 2. save() with device properties returns true
         settings.setLastDevice("TestController");
         settings.setAutoConnect(true);
         ok &= expect(settings.save(),
                      "midi.settings: save() returns true");
 
-        //DH1KLM 3. A directory at the destination must refuse the save
+        // 3. A directory at the destination must refuse the save
         const QString settingsPath = configRoot + "/AetherSDR/midi.settings";
-        //DH1KLM A directory target cannot be replaced by a settings document.
+        // A directory target cannot be replaced by a settings document.
         QFile::remove(settingsPath);
         QDir().mkdir(settingsPath);
         ok &= expect(!settings.saveBindings(saved),
@@ -856,12 +856,12 @@ int main(int argc, char** argv)
                      "midi.settings: save to an unwritable path returns false");
         QDir().rmdir(settingsPath);
 
-        //DH1KLM 4. Failed write leaves previous midi.settings intact
+        // 4. Failed write leaves previous midi.settings intact
         ok &= expect(settings.saveBindings(saved),
                      "midi.settings: rewrite valid settings");
 #ifndef Q_OS_WIN
         if (::geteuid() != 0) {
-            //DH1KLM Make config dir read-only so QSaveFile temp file creation or rename fails
+            // Make config dir read-only so QSaveFile temp file creation or rename fails
             QFile::setPermissions(configRoot + "/AetherSDR",
                                   QFileDevice::ReadOwner | QFileDevice::ExeOwner);
             QVector<MidiBinding> bigger = saved;

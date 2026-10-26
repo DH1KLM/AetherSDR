@@ -38,12 +38,12 @@ class MidiSettings {
 public:
     static MidiSettings& instance();
 
-    //DH1KLM Load/save the default settings file. Saves replace the file atomically
-    //DH1KLM and return false on open, serialization, or commit failure. (#5160)
+    // Load/save the default settings file. Saves replace the file atomically
+    // and return false on open, serialization, or commit failure. (#5160)
     void load();
     bool save();
 
-    //DH1KLM Binding saves use the same atomic write and failure reporting. (#5160)
+    // Binding saves use the same atomic write and failure reporting. (#5160)
     QVector<MidiBinding> loadBindings() const;
     bool saveBindings(const QVector<MidiBinding>& bindings);
 

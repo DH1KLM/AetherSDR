@@ -101,7 +101,7 @@ ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
                         model->transmitModel().activeMicProfile()),
         "Microphone");
 
-    //DH1KLM CW tab — SmartSDR 4.3.16 added CW profiles; older firmware dims the page.
+    // CW tab — SmartSDR 4.3.16 added CW profiles; older firmware dims the page.
     QWidget* cwPage = buildProfileTab("cw", model->transmitModel().cwProfileList(),
                                       model->transmitModel().activeCwProfile());
     m_tabs->addTab(cwPage, "CW");
@@ -136,8 +136,8 @@ ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
     connect(&model->transmitModel(), &TransmitModel::cwProfilesChanged, this, [this] {
         refreshTab("cw");
     });
-    //DH1KLM The dirty flag only toggles its line; rebuilding the list would drop the
-    //DH1KLM operator's selection on every CW setting change.
+    // The dirty flag only toggles its line; rebuilding the list would drop the
+    // operator's selection on every CW setting change.
     connect(&model->transmitModel(), &TransmitModel::cwProfileUnsavedChanged, this,
             [this](bool unsaved) {
         if (m_cwUnsavedLabel) {
@@ -195,13 +195,13 @@ QWidget* ProfileManagerDialog::buildProfileTab(const QString& type,
     const bool isCw = (type == "cw");
     QPushButton* resetBtn = nullptr;
     if (isCw) {
-        //DH1KLM FlexLib 4.3.16 gives CW profiles a reset verb that TX/Mic lack.
+        // FlexLib 4.3.16 gives CW profiles a reset verb that TX/Mic lack.
         resetBtn = new QPushButton("Reset");
         resetBtn->setObjectName(QStringLiteral("profileResetBtn_cw"));
         resetBtn->setEnabled(false);
         btnRow->insertWidget(2, resetBtn);
 
-        //DH1KLM The radio flags edits to the active CW profile that are not yet saved.
+        // The radio flags edits to the active CW profile that are not yet saved.
         m_cwUnsavedLabel = new QLabel("The active CW profile has unsaved changes.");
         m_cwUnsavedLabel->setObjectName(QStringLiteral("profileUnsaved_cw"));
         m_cwUnsavedLabel->setVisible(m_model->transmitModel().cwProfileUnsaved());

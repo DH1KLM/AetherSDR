@@ -3548,8 +3548,8 @@ void RxApplet::rebuildFilterButtons()
             btn->setAccessibleName(QStringLiteral("Receive filter %1")
                                        .arg(preset.label));
         }
-        //DH1KLM Three preset columns must leave room for the 60 px AGC slider
-        //DH1KLM and Auto button within the dock's 248 px viewport.
+        // Three preset columns must leave room for the 60 px AGC slider
+        // and Auto button within the dock's 248 px viewport.
         btn->setStyleSheet(kButtonBase() + kBlueActive()
             + QStringLiteral("QPushButton { padding: 1px; }"));
         connect(btn, &QPushButton::clicked, this,

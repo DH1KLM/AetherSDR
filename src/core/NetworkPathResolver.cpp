@@ -118,7 +118,7 @@ qsizetype NetworkPathResolver::matchSelection(const QList<NetworkPathCandidate>&
         }
         return -1;
     };
-    //DH1KLM Among one interface's addresses, the one closest to the target.
+    // Among one interface's addresses, the one closest to the target.
     auto best = [&](auto&& predicate) -> qsizetype {
         qsizetype chosen = -1;
         int chosenBits = -1;
@@ -193,7 +193,7 @@ bool NetworkPathResolver::isUsableSourceAddress(const QHostAddress& address)
 
 NetworkPathResolver::Family NetworkPathResolver::targetFamily(const QString& host)
 {
-    //DH1KLM An IPv4-mapped literal is an IPv4 radio, as usableUnicastAddress folds it.
+    // An IPv4-mapped literal is an IPv4 radio, as usableUnicastAddress folds it.
     const QHostAddress literal(host.trimmed());
     bool mapped = false;
     literal.toIPv4Address(&mapped);

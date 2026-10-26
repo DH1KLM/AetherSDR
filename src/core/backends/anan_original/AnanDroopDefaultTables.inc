@@ -1,16 +1,16 @@
-//DH1KLM GENERATED FILE -- do not edit by hand.
-//DH1KLM Regenerate with derive_droop_from_gateware.py.
-//DH1KLM
-//DH1KLM DERIVED, not measured: the Saturn DDC's own FIR coefficients
-//DH1KLM (6-stage CIC + 1024-tap decimate-by-8 FIR), evaluated on our
-//DH1KLM 1024-bin grid. One table covers all six DDC0 rates -- the FIR
-//DH1KLM sees the same normalised frequency at every rate, and the CIC
-//DH1KLM term varies by 0.003 dB across the whole range.
-//DH1KLM
-//DH1KLM Source coefficients tx1024cfirImpulse.coe
-//DH1KLM   sha256 6ba2026d33ddbeb80684f6da71ff459742dd840c6cd7fbc036238ce1584ce027
-//DH1KLM Saturn gateware 27. Clamped to [0, 90] dB, matching
-//DH1KLM AnanDroopCalibrator::computeCorrection()'s own cap.
+// GENERATED FILE -- do not edit by hand.
+// Regenerate with derive_droop_from_gateware.py.
+//
+// DERIVED, not measured: the Saturn DDC's own FIR coefficients
+// (6-stage CIC + 1024-tap decimate-by-8 FIR), evaluated on our
+// 1024-bin grid. One table covers all six DDC0 rates -- the FIR
+// sees the same normalised frequency at every rate, and the CIC
+// term varies by 0.003 dB across the whole range.
+//
+// Source coefficients tx1024cfirImpulse.coe
+//   sha256 6ba2026d33ddbeb80684f6da71ff459742dd840c6cd7fbc036238ce1584ce027
+// Saturn gateware 27. Clamped to [0, 90] dB, matching
+// AnanDroopCalibrator::computeCorrection()'s own cap.
 
 inline constexpr std::array<float, 1024> kDroopCorrectionGw27 = {
     90.0000f, 90.0000f, 90.0000f, 90.0000f, 90.0000f, 90.0000f, 90.0000f, 90.0000f,

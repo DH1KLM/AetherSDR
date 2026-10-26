@@ -177,8 +177,8 @@ class AppletDropArea : public QScrollArea {
 public:
     AppletDropArea(AppletPanel* panel) : QScrollArea(panel), m_panel(panel) {
         setAcceptDrops(true);
-        //DH1KLM Opt out of the app-wide touch-scroll hook: applets are rearranged by
-        //DH1KLM touch-dragging them, which QScroller would swallow as a scroll.
+        // Opt out of the app-wide touch-scroll hook: applets are rearranged by
+        // touch-dragging them, which QScroller would swallow as a scroll.
         setProperty("_aetherNoTouchScroll", true);
     }
 
@@ -964,12 +964,12 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         m_appletOrder.append(entry);
     }
 
-    //DH1KLM RF-KIT amplifier — independent of every other amplifier applet for the
-    //DH1KLM same reason the KPA1500 is: a station can have any combination of them
-    //DH1KLM connected at once. Deliberately NOT in kDefaultOrder either: the RF-KIT
-    //DH1KLM has no discovery path, so the stored Peripherals configuration is the
-    //DH1KLM only thing that can ever reveal it. See
-    //DH1KLM docs/architecture/rfkit-amplifier-design.md.
+    // RF-KIT amplifier — independent of every other amplifier applet for the
+    // same reason the KPA1500 is: a station can have any combination of them
+    // connected at once. Deliberately NOT in kDefaultOrder either: the RF-KIT
+    // has no discovery path, so the stored Peripherals configuration is the
+    // only thing that can ever reveal it. See
+    // docs/architecture/rfkit-amplifier-design.md.
     m_rfkitApplet = new RfkitApplet;
     {
         auto entry = makeEntry("RFKIT", "RF-KIT Amplifier", m_rfkitApplet, false,

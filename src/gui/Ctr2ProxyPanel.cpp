@@ -154,7 +154,7 @@ void Ctr2ProxyPanel::buildUi()
     statusRow->setSpacing(8);
     m_endpointsLabel = makeLabel(QString(), statusPane, "secondary");
     m_endpointsLabel->setObjectName(QStringLiteral("ctr2ProxyEndpoints"));
-    //DH1KLM Carries a device's own product string; never render it as rich text.
+    // Carries a device's own product string; never render it as rich text.
     m_endpointsLabel->setTextFormat(Qt::PlainText);
     m_endpointsLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     // Let long endpoints clip rather than widen the window.
@@ -274,9 +274,9 @@ QString loadRule()
     return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll()) : QString();
 }
 
-//DH1KLM True when this build's rule is the one udev uses, locally or as packaged.
+// True when this build's rule is the one udev uses, locally or as packaged.
 // Then a password prompt cannot help: the ACL is missing for another reason.
-//DH1KLM An older copy in /etc masks a current packaged one, and is not installed.
+// An older copy in /etc masks a current packaged one, and is not installed.
 bool ruleAlreadyInstalled(const QString& rule)
 {
     return udevRuleInEffect(udevRuleDirs(), QStringLiteral("70-aethersdr-ctr2.rules"), rule);
@@ -431,8 +431,8 @@ void Ctr2ProxyPanel::installUsbAccessRule(RuleUse use)
         "set -e; "
         "printf '%s' \"$1\" > \"$2\"; "
         "udevadm control --reload-rules; "
-        //DH1KLM hidraw nodes carry no ID_VENDOR_ID before systemd 256, so they are
-        //DH1KLM all retriggered; ttys only for Espressif and Seeed devices.
+        // hidraw nodes carry no ID_VENDOR_ID before systemd 256, so they are
+        // all retriggered; ttys only for Espressif and Seeed devices.
         "udevadm trigger --subsystem-match=hidraw; "
         "udevadm trigger --subsystem-match=tty "
         "--property-match=ID_VENDOR_ID=303a --property-match=ID_VENDOR_ID=2886; "
@@ -454,9 +454,9 @@ void Ctr2ProxyPanel::installUsbAccessRule(RuleUse use)
         const QString err = QString::fromLocal8Bit(proc->readAllStandardError()).trimmed();
         proc->deleteLater();
         if (code == 0 && use != RuleUse::Relay) {
-            //DH1KLM Carry on with the CTR2 window's action. On the hardware run the
-            //DH1KLM ACL was in place by then; if a port is still denied, the window
-            //DH1KLM retries once more before saying anything.
+            // Carry on with the CTR2 window's action. On the hardware run the
+            // ACL was in place by then; if a port is still denied, the window
+            // retries once more before saying anything.
             m_installingRule = false;
             syncConfiguration();
             if (auto next = std::exchange(m_afterRule, nullptr))
@@ -627,7 +627,7 @@ void Ctr2ProxyPanel::syncConfiguration()
     }
 
     const QString problem = editable ? m_model->configurationProblem() : QString();
-    //DH1KLM While running, the hint that the CTR2 has not answered the link.
+    // While running, the hint that the CTR2 has not answered the link.
     const QString hint = problem.isEmpty() && running ? m_model->noAnswerHint() : problem;
     m_problemLabel->setText(hint);
     m_problemLabel->setAccessibleName(problem.isEmpty() && running ? tr("CTR2 link status")

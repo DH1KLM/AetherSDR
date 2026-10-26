@@ -58,7 +58,7 @@ public:
     {
         window.m_firmware->setStatus(text, QStringLiteral("current"));
     }
-    //DH1KLM An Install (network download) that has just finished staging.
+    // An Install (network download) that has just finished staging.
     static void beginNetworkInstall(UpdatesWindow& window)
     {
         window.m_firmware->m_staging = true;
@@ -92,7 +92,7 @@ private slots:
         QFETCH(int, path);
         QFETCH(bool, confirm);
         RadioModel model; // cold, disconnected; never calls connectRadio()
-        HeldNetwork network; //DH1KLM no update request leaves the process
+        HeldNetwork network; // no update request leaves the process
         UpdateChecker checker(nullptr, &network);
         UpdatesWindow dialog(&checker, &model);
         FirmwareUploader uploader(nullptr);
@@ -144,7 +144,7 @@ private slots:
     void advancesInsidePrompt()
     {
         RadioModel model;
-        HeldNetwork network; //DH1KLM no update request leaves the process
+        HeldNetwork network; // no update request leaves the process
         UpdateChecker checker(nullptr, &network);
         UpdatesWindow dialog(&checker, &model);
         FirmwareUploader uploader(nullptr);
@@ -167,7 +167,7 @@ private slots:
     void terminalInsidePrompt()
     {
         RadioModel model;
-        HeldNetwork network; //DH1KLM no update request leaves the process
+        HeldNetwork network; // no update request leaves the process
         UpdateChecker checker(nullptr, &network);
         UpdatesWindow dialog(&checker, &model);
         FirmwareUploader uploader(nullptr);
@@ -212,7 +212,7 @@ private slots:
     void idleDismissalNeedsNoConfirmation()
     {
         RadioModel model;
-        HeldNetwork network; //DH1KLM no update request leaves the process
+        HeldNetwork network; // no update request leaves the process
         UpdateChecker checker(nullptr, &network);
         UpdatesWindow dialog(&checker, &model);
         dialog.show();
@@ -241,8 +241,8 @@ private slots:
     }
     void indexCheckIsNotAnInstall()
     {
-        //DH1KLM FirmwareStager reports its release-index check on stageProgress
-        //DH1KLM too; that must not paint an install that is not happening.
+        // FirmwareStager reports its release-index check on stageProgress
+        // too; that must not paint an install that is not happening.
         RadioModel model;
         HeldNetwork network;
         UpdateChecker checker(nullptr, &network);
@@ -256,9 +256,9 @@ private slots:
     }
     void indexCheckLeavesTheOutcome()
     {
-        //DH1KLM After an install the radio reboots and reconnects, which re-runs
-        //DH1KLM the release-list check; its start, answer or failure must leave
-        //DH1KLM the install's outcome and progress bar alone.
+        // After an install the radio reboots and reconnects, which re-runs
+        // the release-list check; its start, answer or failure must leave
+        // the install's outcome and progress bar alone.
         RadioModel model;
         HeldNetwork network;
         UpdateChecker checker(nullptr, &network);
@@ -277,8 +277,8 @@ private slots:
     }
     void unverifiedDownloadAsksAgain()
     {
-        //DH1KLM FlexRadio's MD5 could not be fetched: the Install the operator
-        //DH1KLM confirmed on the promise of a check must ask again and say so.
+        // FlexRadio's MD5 could not be fetched: the Install the operator
+        // confirmed on the promise of a check must ask again and say so.
         RadioModel model;
         HeldNetwork network;
         UpdateChecker checker(nullptr, &network);

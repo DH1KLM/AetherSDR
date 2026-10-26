@@ -18,9 +18,9 @@
 #include <QPushButton>
 #include <QSignalSpy>
 
-//DH1KLM The Updates window over an in-memory transport (no sockets) and the real
-//DH1KLM v26.10.3 release JSON: which view each answer produces, that release text
-//DH1KLM is never shown as markup, Skip, and the mirrored toggle.
+// The Updates window over an in-memory transport (no sockets) and the real
+// v26.10.3 release JSON: which view each answer produces, that release text
+// is never shown as markup, Skip, and the mirrored toggle.
 
 using namespace AetherSDR;
 
@@ -53,7 +53,7 @@ const QPushButton* button(const UpdatesWindow& w, const QString& textStart)
     return nullptr;
 }
 
-} //DH1KLM namespace
+} // namespace
 
 int main(int argc, char** argv)
 {
@@ -99,7 +99,7 @@ int main(int argc, char** argv)
         check(get && get->isVisible(), "the primary action names the release");
         check(!text(*w, "updatesFootnote").isEmpty(), "the footnote says what the download is");
 
-        //DH1KLM Skip retires the badge and is not offered twice.
+        // Skip retires the badge and is not offered twice.
         QSignalSpy badge(w, &UpdatesWindow::badgeChanged);
         auto* skip = const_cast<QPushButton*>(button(*w, QStringLiteral("Skip this version")));
         check(skip != nullptr, "Skip is offered");
@@ -111,7 +111,7 @@ int main(int argc, char** argv)
         check(UpdateChecker::isSkipped(QStringLiteral("26.10.3")), "Skip stores the release");
         check(skip && !skip->isEnabled() && skip->text() == QLatin1String("Skipped"), "Skip shows it is done");
 
-        //DH1KLM The Help toggle and the window's box stay in step without echoing.
+        // The Help toggle and the window's box stay in step without echoing.
         auto* daily = w->findChild<QCheckBox*>(QStringLiteral("updatesCheckDaily"));
         QSignalSpy toggled(w, &UpdatesWindow::automaticCheckToggled);
         w->setAutomaticCheck(false);
@@ -124,7 +124,7 @@ int main(int argc, char** argv)
     }
 
     {
-        //DH1KLM Running the newest release.
+        // Running the newest release.
         QCoreApplication::setApplicationVersion(QStringLiteral("26.10.3"));
         HeldNetwork network;
         UpdateChecker checker(nullptr, &network);
@@ -138,7 +138,7 @@ int main(int argc, char** argv)
     }
 
     {
-        //DH1KLM A failed check, with nothing saved from an earlier answer.
+        // A failed check, with nothing saved from an earlier answer.
         AppSettings::instance().remove(QStringLiteral("Updates"));
         AppSettings::instance().save();
         HeldNetwork network;
@@ -153,9 +153,9 @@ int main(int argc, char** argv)
     }
 
     {
-        //DH1KLM A release saved by an earlier answer, GitHub unreachable now: the
-        //DH1KLM badge restored at startup must stay actionable (Skip) without a
-        //DH1KLM successful request (#5304 Phase 1 ruling).
+        // A release saved by an earlier answer, GitHub unreachable now: the
+        // badge restored at startup must stay actionable (Skip) without a
+        // successful request (#5304 Phase 1 ruling).
         QCoreApplication::setApplicationVersion(QStringLiteral("26.10.2"));
         UpdateSettings::setSkippedVersion(QString());
         UpdateSettings::recordAnswer(QDateTime::currentDateTimeUtc(), QStringLiteral("26.10.3"));
@@ -188,14 +188,14 @@ int main(int argc, char** argv)
         check(badge.size() == 1 && UpdateChecker::isSkipped(QStringLiteral("26.10.3")),
               "offline, Skip clears the badge and is stored");
 
-        //DH1KLM A check started from outside the window (Help → Check for Updates)
-        //DH1KLM shows as checking at once.
+        // A check started from outside the window (Help → Check for Updates)
+        // shows as checking at once.
         w.checkNow();
         check(network.requests == 2, "checkNow asks GitHub again");
     }
 
     {
-        //DH1KLM A failed window turns to "checking" as soon as a check starts.
+        // A failed window turns to "checking" as soon as a check starts.
         QCoreApplication::setApplicationVersion(QStringLiteral("26.10.2"));
         AppSettings::instance().remove(QStringLiteral("Updates"));
         AppSettings::instance().save();
@@ -212,8 +212,8 @@ int main(int argc, char** argv)
     }
 
     {
-        //DH1KLM A saved release that is NOT newer says nothing about GitHub now: it
-        //DH1KLM must never turn a failed or pending check into "up to date".
+        // A saved release that is NOT newer says nothing about GitHub now: it
+        // must never turn a failed or pending check into "up to date".
         for (const char* saved : {"26.10.3", "26.10.2"}) {
             QCoreApplication::setApplicationVersion(QStringLiteral("26.10.3"));
             UpdateSettings::setSkippedVersion(QString());
@@ -233,8 +233,8 @@ int main(int argc, char** argv)
     }
 
     {
-        //DH1KLM Opened on a saved version, then GitHub answers for that same
-        //DH1KLM version: the answer's chapters must be built.
+        // Opened on a saved version, then GitHub answers for that same
+        // version: the answer's chapters must be built.
         for (const char* running : {"26.10.3", "26.10.2"}) {
             QCoreApplication::setApplicationVersion(QString::fromLatin1(running));
             UpdateSettings::setSkippedVersion(QString());
@@ -254,9 +254,9 @@ int main(int argc, char** argv)
     }
 
     {
-        //DH1KLM After a real answer: a check in flight says so, a failed re-check
-        //DH1KLM says the window shows the last answer, the footer names when
-        //DH1KLM GitHub answered, and edited release notes rebuild the chips.
+        // After a real answer: a check in flight says so, a failed re-check
+        // says the window shows the last answer, the footer names when
+        // GitHub answered, and edited release notes rebuild the chips.
         QCoreApplication::setApplicationVersion(QStringLiteral("26.10.3"));
         UpdateSettings::setSkippedVersion(QString());
         HeldNetwork network;
@@ -269,7 +269,7 @@ int main(int argc, char** argv)
               "the footer names when GitHub answered");
         check(text(w, "updatesNote").isEmpty(), "no note after a good answer");
 
-        checker.checkNow(UpdateChecker::Trigger::Automatic);   //DH1KLM started outside the window
+        checker.checkNow(UpdateChecker::Trigger::Automatic);   // started outside the window
         const QPushButton* retry = button(w, QStringLiteral("Checking"));
         check(retry && retry->isVisible() && !retry->isEnabled(), "a check in flight shows Checking…");
         network.last->finishWithError(QNetworkReply::HostNotFoundError);
@@ -295,8 +295,8 @@ int main(int argc, char** argv)
     }
 
     {
-        //DH1KLM A new release from a real answer, then a failed re-check: still
-        //DH1KLM actionable, and the note says the release is GitHub's last answer.
+        // A new release from a real answer, then a failed re-check: still
+        // actionable, and the note says the release is GitHub's last answer.
         QCoreApplication::setApplicationVersion(QStringLiteral("26.10.2"));
         UpdateSettings::setSkippedVersion(QString());
         HeldNetwork network;
@@ -314,9 +314,9 @@ int main(int argc, char** argv)
     }
 
     {
-        //DH1KLM The radio section with no radio connected: it says so, and its
-        //DH1KLM install controls are dimmed with that reason for a screen reader.
-        RadioModel model;   //DH1KLM cold; never connects
+        // The radio section with no radio connected: it says so, and its
+        // install controls are dimmed with that reason for a screen reader.
+        RadioModel model;   // cold; never connects
         HeldNetwork network;
         UpdateChecker checker(nullptr, &network);
         UpdatesWindow w(&checker, &model);
@@ -338,8 +338,8 @@ int main(int argc, char** argv)
     }
 
     {
-        //DH1KLM Firmware lanes from a published list (newest first, as FlexRadio's
-        //DH1KLM index gives it), and the release Install starts on.
+        // Firmware lanes from a published list (newest first, as FlexRadio's
+        // index gives it), and the release Install starts on.
         const QStringList published = {"4.3.16", "4.2.20", "4.2.18", "4.1.5", "3.10.15", "2.10.1"};
         const auto lanes = FirmwareUpdateCard::firmwareLanes(published);
         check(lanes.size() == 3 && lanes[0].first == 4 && lanes[1].first == 3 && lanes[2].first == 2,

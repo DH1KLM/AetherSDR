@@ -105,14 +105,14 @@ int main(int argc, char** argv)
         CHECK(model.swAlc() == -12.0f);
     }
 
-    //DH1KLM ---- num is a uint: decimal for a slice, 0x%08X for an amp/tuner handle.
-    //DH1KLM      A handle above INT_MAX must still parse and route to its amplifier
-    //DH1KLM      (FlexLib Radio.cs:6913, Meter.cs:112). ----
+    // ---- num is a uint: decimal for a slice, 0x%08X for an amp/tuner handle.
+    //      A handle above INT_MAX must still parse and route to its amplifier
+    //      (FlexLib Radio.cs:6913, Meter.cs:112). ----
     {
         FlexBackend backend;
         const MeterDef slc = decode1(backend, QStringLiteral(
             "9.src=SLC#9.num=10#9.nam=LEVEL#9.unit=dBm"));
-        CHECK(slc.sourceIndex == 10);   //DH1KLM decimal, not hex
+        CHECK(slc.sourceIndex == 10);   // decimal, not hex
 
         const MeterDef amp = decode1(backend, QStringLiteral(
             "15.src=AMP#15.num=0x80000001#15.nam=ID#15.unit=Amps#15.low=0.0#15.hi=70.0"));
@@ -141,7 +141,7 @@ int main(int argc, char** argv)
             CHECK(v.toObject().value(QStringLiteral("source_index")).toInteger() > 0);
     }
 
-    //DH1KLM ---- num out of uint32 range or negative is dropped ----
+    // ---- num out of uint32 range or negative is dropped ----
     {
         FlexBackend backend;
         CHECK(decode1(backend, QStringLiteral(

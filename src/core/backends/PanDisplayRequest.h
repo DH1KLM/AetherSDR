@@ -96,6 +96,6 @@ struct PanDisplayRequest {
     }
 };
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR
 
 Q_DECLARE_METATYPE(AetherSDR::PanDisplayRequest)

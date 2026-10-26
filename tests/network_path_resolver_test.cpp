@@ -1,5 +1,5 @@
-//DH1KLM Socket-free: the VPN source-path resolver's family rules. Reads this host's
-//DH1KLM interface list (QNetworkInterface) but opens no socket.
+// Socket-free: the VPN source-path resolver's family rules. Reads this host's
+// interface list (QNetworkInterface) but opens no socket.
 #include "core/NetworkPathResolver.h"
 
 #include <QHostAddress>
@@ -49,9 +49,9 @@ int main()
             allMatch = allMatch && c.address.protocol() == family && c.isValid();
         check(allMatch, "every enumerated candidate is a valid source of the requested family");
     }
-    //DH1KLM Every live address of the family is offered, including ones with a
-    //DH1KLM finite lifetime (DHCP leases, SLAAC), which most LAN addresses are.
-    //DH1KLM Interfaces can change between two snapshots, so retry before failing.
+    // Every live address of the family is offered, including ones with a
+    // finite lifetime (DHCP leases, SLAAC), which most LAN addresses are.
+    // Interfaces can change between two snapshots, so retry before failing.
     const auto liveCount = [](QAbstractSocket::NetworkLayerProtocol family) {
         qsizetype live = 0;
         for (const QNetworkInterface& iface : QNetworkInterface::allInterfaces()) {
@@ -73,8 +73,8 @@ int main()
             same = R::enumerateCandidates(family).size() == liveCount(family);
         check(same, "every live address of the family is a candidate");
     }
-    //DH1KLM One interface with a GUA and a ULA (sorted GUA first), as IPv6 LANs
-    //DH1KLM usually have, plus a second interface.
+    // One interface with a GUA and a ULA (sorted GUA first), as IPv6 LANs
+    // usually have, plus a second interface.
     const auto cand = [](const char* id, const char* name, const char* addr) {
         return NetworkPathCandidate{QString::fromLatin1(id), QString::fromLatin1(name), a(addr)};
     };

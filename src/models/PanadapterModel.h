@@ -153,8 +153,8 @@ public:
     int attenuatorStep() const { return m_attenuatorStep; }
     void setAttenuatorLabels(const QStringList& labels);
     void setAttenuatorStep(int step);
-    //DH1KLM The radio's own scope mode (IRadioBackend::panScopeModesChanged). Empty
-    //DH1KLM labels = no choice to offer; index -1 = a mode outside the list.
+    // The radio's own scope mode (IRadioBackend::panScopeModesChanged). Empty
+    // labels = no choice to offer; index -1 = a mode outside the list.
     QStringList scopeModeLabels() const { return m_scopeModeLabels; }
     int scopeModeIndex() const { return m_scopeModeIndex; }
     void setScopeModeLabels(const QStringList& labels);
@@ -228,8 +228,8 @@ public:
     // zoom toggles read (#4057).
     bool bandZoomOn() const { return m_bandZoomOn; }
     bool segmentZoomOn() const { return m_segmentZoomOn; }
-    //DH1KLM Radio-owned noise floor range in dB (FlexLib Panadapter.NoiseFloorRange);
-    //DH1KLM empty until the radio reports it.
+    // Radio-owned noise floor range in dB (FlexLib Panadapter.NoiseFloorRange);
+    // empty until the radio reports it.
     std::optional<double> noiseFloorRange() const { return m_noiseFloorRange; }
 
     // Configuration flags

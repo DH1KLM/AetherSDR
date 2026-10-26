@@ -1,9 +1,9 @@
-//DH1KLM Transport-level behaviour of RfkitConnection, against a stub RF-KIT speaking
-//DH1KLM HTTP/1.1 on loopback. RfkitProtocol has its own pure-codec test; this covers
-//DH1KLM what only exists once there is a live HTTP exchange underneath: the connect
-//DH1KLM handshake (GET /info), strictly serialized requests, command bodies and
-//DH1KLM verbs, refusal of out-of-range antennas before the wire, a non-RF-KIT peer,
-//DH1KLM an invalid address, and loss of the link after repeated transport failures.
+// Transport-level behaviour of RfkitConnection, against a stub RF-KIT speaking
+// HTTP/1.1 on loopback. RfkitProtocol has its own pure-codec test; this covers
+// what only exists once there is a live HTTP exchange underneath: the connect
+// handshake (GET /info), strictly serialized requests, command bodies and
+// verbs, refusal of out-of-range antennas before the wire, a non-RF-KIT peer,
+// an invalid address, and loss of the link after repeated transport failures.
 
 #include "TestSettingsProfile.h"
 
@@ -49,8 +49,8 @@ bool spin(std::function<bool()> done, int timeoutMs = 5000)
     return done();
 }
 
-//DH1KLM A request body as the amp would read it. QJsonObject writes its keys sorted,
-//DH1KLM so compare by value rather than by byte order.
+// A request body as the amp would read it. QJsonObject writes its keys sorted,
+// so compare by value rather than by byte order.
 QJsonObject jsonBody(const QByteArray& body)
 {
     return QJsonDocument::fromJson(body).object();
@@ -64,9 +64,9 @@ void spinFor(int ms)
     }
 }
 
-//DH1KLM A stub RF-KIT. Answers "METHOD /path" from a route table, records every
-//DH1KLM request, and tracks how many were outstanding at once (a reply is delayed so
-//DH1KLM that overlap, if the client produced any, is observable).
+// A stub RF-KIT. Answers "METHOD /path" from a route table, records every
+// request, and tracks how many were outstanding at once (a reply is delayed so
+// that overlap, if the client produced any, is observable).
 class StubAmp : public QObject {
 public:
     struct Reply {
@@ -123,11 +123,11 @@ public:
     }
 
     QMap<QString, Reply> routes;
-    QStringList requests;           //DH1KLM "METHOD /path" in arrival order
-    QMap<QString, QByteArray> bodies;  //DH1KLM last body per "METHOD /path"
+    QStringList requests;           // "METHOD /path" in arrival order
+    QMap<QString, QByteArray> bodies;  // last body per "METHOD /path"
     int maxOutstanding{0};
     int replyDelayMs{15};
-    bool truncateReplies{false};  //DH1KLM promise more body than is sent, then hang up
+    bool truncateReplies{false};  // promise more body than is sent, then hang up
 
 private:
     void onReadyRead(QTcpSocket* socket)
@@ -178,19 +178,19 @@ private:
     int m_outstanding{0};
 };
 
-}  //DH1KLM namespace
+}  // namespace
 
 int main(int argc, char** argv)
 {
-    //DH1KLM Before QCoreApplication and before anything can touch AppSettings --
-    //DH1KLM LogManager reaches for it on the first qCWarning. Per the CMake settings
-    //DH1KLM contract in AGENTS.md.
+    // Before QCoreApplication and before anything can touch AppSettings --
+    // LogManager reaches for it on the first qCWarning. Per the CMake settings
+    // contract in AGENTS.md.
     TestSettingsProfile profile(QStringLiteral("rfkit-connection-test"));
 
     QCoreApplication app(argc, argv);
 
-    //DH1KLM Fail fast rather than burn the timeout when loopback cannot be bound
-    //DH1KLM (SKIP_RETURN_CODE 77 in tests.cmake).
+    // Fail fast rather than burn the timeout when loopback cannot be bound
+    // (SKIP_RETURN_CODE 77 in tests.cmake).
     {
         StubAmp probe;
         if (!probe.listening()) {
@@ -199,7 +199,7 @@ int main(int argc, char** argv)
         }
     }
 
-    //DH1KLM ── Handshake, initial refresh, polling, serialization ────────────────
+    // ── Handshake, initial refresh, polling, serialization ────────────────
     {
         StubAmp amp;
         RfkitConnection conn;
@@ -236,7 +236,7 @@ int main(int argc, char** argv)
         conn.disconnect();
     }
 
-    //DH1KLM ── Commands: verb, path, body ─────────────────────────────────────────
+    // ── Commands: verb, path, body ─────────────────────────────────────────
     {
         StubAmp amp;
         RfkitConnection conn;
@@ -272,14 +272,14 @@ int main(int argc, char** argv)
         report("an antenna change re-reads the antenna list",
                spin([&] { return amp.count("GET /antennas") > antennaReads; }));
 
-        //DH1KLM Out of range: refused before the wire.
+        // Out of range: refused before the wire.
         conn.selectAntenna({Rfkit::AntennaType::Internal, 9});
         conn.selectAntenna({Rfkit::AntennaType::External, 1});
         spinFor(300);
         report("out-of-range antennas never reach the wire",
                amp.count("PUT /antennas/active") == 1);
 
-        //DH1KLM The external selection is sent without a number.
+        // The external selection is sent without a number.
         conn.selectAntenna({Rfkit::AntennaType::External, 0});
         report("the external antenna is selected with a number-less body",
                spin([&] { return amp.count("PUT /antennas/active") == 2; })
@@ -296,7 +296,7 @@ int main(int argc, char** argv)
         conn.disconnect();
     }
 
-    //DH1KLM ── Commands queued behind a slow reply reach the amp in click order ──
+    // ── Commands queued behind a slow reply reach the amp in click order ──
     {
         StubAmp amp;
         RfkitConnection conn;
@@ -307,7 +307,7 @@ int main(int argc, char** argv)
 
         amp.replyDelayMs = 300;
         const auto seen = amp.requests.size();
-        spin([&] { return amp.requests.size() > seen; });  //DH1KLM the stub now holds one request
+        spin([&] { return amp.requests.size() > seen; });  // the stub now holds one request
         conn.selectAntenna({Rfkit::AntennaType::Internal, 2});
         conn.selectAntenna({Rfkit::AntennaType::Internal, 3});
         report("two queued antenna commands both reach the wire",
@@ -318,7 +318,7 @@ int main(int argc, char** argv)
         conn.disconnect();
     }
 
-    //DH1KLM ── An accepted switch re-reads the list even if its reply won't parse ──
+    // ── An accepted switch re-reads the list even if its reply won't parse ──
     {
         StubAmp amp;
         amp.routes["PUT /antennas/active"] = {200, R"({"status":"ok"})"};
@@ -328,10 +328,10 @@ int main(int argc, char** argv)
         spin([&] { return connectedSpy.count() > 0; });
         spinFor(300);
 
-        //DH1KLM With the re-read queued, GET /antennas is among the next four
-        //DH1KLM requests: the PUT can only sit ahead of the rest of one poll round.
-        //DH1KLM Without it, that happens only when the slow-poll rotation lands on
-        //DH1KLM /antennas, so four clicks a round or more apart cannot all pass by luck.
+        // With the re-read queued, GET /antennas is among the next four
+        // requests: the PUT can only sit ahead of the rest of one poll round.
+        // Without it, that happens only when the slow-poll rotation lands on
+        // /antennas, so four clicks a round or more apart cannot all pass by luck.
         bool everyClickReread = true;
         for (int click = 0; click < 4; ++click) {
             const int puts = amp.count("PUT /antennas/active");
@@ -348,7 +348,7 @@ int main(int argc, char** argv)
         conn.disconnect();
     }
 
-    //DH1KLM ── A link that keeps dying mid-body is declared lost ─────────────────
+    // ── A link that keeps dying mid-body is declared lost ─────────────────
     {
         StubAmp amp;
         RfkitConnection conn;
@@ -358,13 +358,13 @@ int main(int argc, char** argv)
         spin([&] { return connectedSpy.count() > 0; });
         spinFor(300);
 
-        amp.truncateReplies = true;  //DH1KLM 200 OK headers, then the transfer breaks
+        amp.truncateReplies = true;  // 200 OK headers, then the transfer breaks
         report("replies that break after the headers count as link loss",
                spin([&] { return disconnectedSpy.count() > 0; }, 8000));
         conn.disconnect();
     }
 
-    //DH1KLM ── A refused command (409) does not drop the link ────────────────────
+    // ── A refused command (409) does not drop the link ────────────────────
     {
         StubAmp amp;
         amp.routes["PUT /operate-mode"] = {409, R"({"status":"error","reason":"Function currently disabled"})"};
@@ -384,7 +384,7 @@ int main(int argc, char** argv)
         conn.disconnect();
     }
 
-    //DH1KLM ── A peer that is not an RF-KIT ───────────────────────────────────────
+    // ── A peer that is not an RF-KIT ───────────────────────────────────────
     {
         StubAmp amp;
         amp.routes["GET /info"] = {404, "not found"};
@@ -407,7 +407,7 @@ int main(int argc, char** argv)
                spin([&] { return failedSpy.count() > 0; }) && connectedSpy.isEmpty() && !conn.isConnected());
     }
     {
-        //DH1KLM Principle VII: a peer that streams more than any endpoint can send.
+        // Principle VII: a peer that streams more than any endpoint can send.
         StubAmp amp;
         amp.routes["GET /info"] = {200, QByteArray(Rfkit::kMaxBodyBytes * 3, 'x')};
         RfkitConnection conn;
@@ -418,7 +418,7 @@ int main(int argc, char** argv)
                spin([&] { return failedSpy.count() > 0; }) && connectedSpy.isEmpty());
     }
 
-    //DH1KLM ── Invalid or unreachable addresses ───────────────────────────────────
+    // ── Invalid or unreachable addresses ───────────────────────────────────
     {
         RfkitConnection conn;
         QSignalSpy failedSpy(&conn, &RfkitConnection::connectionFailed);
@@ -432,7 +432,7 @@ int main(int argc, char** argv)
         report("port 0 is refused", failedSpy.count() == 4);
     }
     {
-        //DH1KLM Nothing listening: a refused connection reports failure, not a hang.
+        // Nothing listening: a refused connection reports failure, not a hang.
         quint16 closedPort = 0;
         {
             QTcpServer probe;
@@ -446,7 +446,7 @@ int main(int argc, char** argv)
                spin([&] { return failedSpy.count() > 0; }) && !conn.isConnected());
     }
 
-    //DH1KLM ── Loss of the link ────────────────────────────────────────────────────
+    // ── Loss of the link ────────────────────────────────────────────────────
     {
         StubAmp amp;
         RfkitConnection conn;
@@ -457,15 +457,15 @@ int main(int argc, char** argv)
         spinFor(300);
 
         amp.stopListening();
-        //DH1KLM Three serialized requests may each consume their 4 s timeout on
-        //DH1KLM Windows before the transport-failure threshold is reached.
+        // Three serialized requests may each consume their 4 s timeout on
+        // Windows before the transport-failure threshold is reached.
         report("repeated transport failures take the link down (disconnected emitted once)",
                spin([&] { return disconnectedSpy.count() > 0; }, 15000));
         spinFor(300);
         report("disconnected is emitted exactly once", disconnectedSpy.count() == 1 && !conn.isConnected());
     }
 
-    //DH1KLM ── HTTP error statuses are not transport failures ─────────────────────
+    // ── HTTP error statuses are not transport failures ─────────────────────
     {
         StubAmp amp;
         RfkitConnection conn;
@@ -474,8 +474,8 @@ int main(int argc, char** argv)
         QSignalSpy disconnectedSpy(&conn, &RfkitConnection::disconnected);
         conn.connectNetwork(QStringLiteral("127.0.0.1"), amp.port());
         spin([&] { return connectedSpy.count() > 0; });
-        //DH1KLM The device answers every poll with a 500. It is reachable and
-        //DH1KLM talking HTTP, so the link must not be declared down.
+        // The device answers every poll with a 500. It is reachable and
+        // talking HTTP, so the link must not be declared down.
         amp.routes["GET /power"] = {500, "{}"};
         spinFor(800);
         report("HTTP error statuses are not transport failures: the link stays up",
@@ -483,7 +483,7 @@ int main(int argc, char** argv)
         conn.disconnect();
     }
 
-    //DH1KLM ── Deliberate disconnect ───────────────────────────────────────────────
+    // ── Deliberate disconnect ───────────────────────────────────────────────
     {
         StubAmp amp;
         RfkitConnection conn;
@@ -497,8 +497,8 @@ int main(int argc, char** argv)
         report("disconnect() emits disconnected() itself", disconnectedSpy.count() == 1);
         report("the connection reports itself down", !conn.isConnected());
 
-        //DH1KLM A request already written before the disconnect can still be read by
-        //DH1KLM the stub afterwards; let it land before counting.
+        // A request already written before the disconnect can still be read by
+        // the stub afterwards; let it land before counting.
         spinFor(300);
         const int before = amp.requests.size();
         conn.setOperate(true);
@@ -509,7 +509,7 @@ int main(int argc, char** argv)
         report("a deliberate disconnect does not auto-reconnect", connectedSpy.count() == 1 && !conn.isConnected());
     }
 
-    //DH1KLM ── Reconnecting over a live link ───────────────────────────────────────
+    // ── Reconnecting over a live link ───────────────────────────────────────
     {
         StubAmp first;
         StubAmp second;

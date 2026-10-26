@@ -29,7 +29,7 @@ QString sheet()
         "QPushButton#canonPromptConfirm:focus { border-width: 2px; padding: 8px 15px; }");
 }
 
-} //DH1KLM namespace
+} // namespace
 
 CanonPrompt::CanonPrompt(const QString& title, const QString& text, const QString& confirmLabel,
                          QWidget* parent)
@@ -87,4 +87,4 @@ QString CanonPrompt::text() const
     return m_text->text();
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

@@ -100,10 +100,10 @@ private slots:
         QSignalSpy errors(&connection, &RadioConnection::errorOccurred);
         connection.connectToHost(QHostAddress(QStringLiteral("192.0.2.1")), 4992,
             RadioBindMode::Explicit, QHostAddress(QStringLiteral("2001:db8::2")));
-        //DH1KLM The mismatch is reported, but the session must end Disconnected so the
-        //DH1KLM operator can retry after correcting the source -- NOT wedged in Error,
-        //DH1KLM which connectToHost's "state must be Disconnected" guard would make
-        //DH1KLM permanent (reconnect timer and Connect button would no-op forever).
+        // The mismatch is reported, but the session must end Disconnected so the
+        // operator can retry after correcting the source -- NOT wedged in Error,
+        // which connectToHost's "state must be Disconnected" guard would make
+        // permanent (reconnect timer and Connect button would no-op forever).
         QCOMPARE(connection.state(), ConnectionState::Disconnected);
         QCOMPARE(errors.size(), 1);
         QVERIFY(errors.first().first().toString().contains(QStringLiteral("family")));

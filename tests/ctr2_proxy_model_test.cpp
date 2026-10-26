@@ -1,7 +1,7 @@
 // Ctr2ProxyModel destination handling: the relay targets only the radio its
 // owner pushes in, and every unusable case keeps Start disabled with the
-//DH1KLM pushed reason. Socket-free: nothing is bound, and a relay that reaches
-//DH1KLM its radio connection gets an injected socket.
+// pushed reason. Socket-free: nothing is bound, and a relay that reaches
+// its radio connection gets an injected socket.
 
 #include "TestSettingsProfile.h"
 #include "core/Ctr2HidFraming.h"
@@ -83,8 +83,8 @@ private:
     bool m_open{true};
 };
 
-//DH1KLM A radio socket that never connects: a test whose CTR2 answers READY keeps
-//DH1KLM the relay Connecting without reaching the network.
+// A radio socket that never connects: a test whose CTR2 answers READY keeps
+// the relay Connecting without reaching the network.
 class InertRadioSocket final : public QTcpSocket {
 public:
     using QTcpSocket::connectToHost;
@@ -215,7 +215,7 @@ void testUdevRuleMatchesKnownCtr2s()
         if (line.trimmed().isEmpty() || line.trimmed().startsWith(QLatin1Char('#'))) {
             continue;
         }
-        //DH1KLM The download-mode serial port is not a CTR2 HID device: checked below.
+        // The download-mode serial port is not a CTR2 HID device: checked below.
         if (line.contains(QLatin1String("SUBSYSTEM==\"tty\""))) {
             ttyLines << line;
             continue;
@@ -246,8 +246,8 @@ void testUdevRuleMatchesKnownCtr2s()
     }
     check(granted == known, "the udev rule lists exactly the recognized CTR2 product patterns");
 
-    //DH1KLM One tty line: the ESP32-S3 ROM's USB serial port, which is what the
-    //DH1KLM CTR2-Max is in download mode, opened to the seat's user only.
+    // One tty line: the ESP32-S3 ROM's USB serial port, which is what the
+    // CTR2-Max is in download mode, opened to the seat's user only.
     check(ttyLines.size() == 1, "the rule has one tty line, for download mode");
     const QString tty = ttyLines.value(0);
     check(tty.contains(QLatin1String("ATTRS{idVendor}==\"303a\""))
@@ -275,9 +275,9 @@ void testUdevRuleMatchesKnownCtr2s()
     }
 }
 
-//DH1KLM udev uses the first copy of a rule file in precedence order; a copy in
-//DH1KLM /etc masks the packaged one. "Already installed" must mean the copy in
-//DH1KLM effect, or an operator with an older rule in /etc is never offered the new one.
+// udev uses the first copy of a rule file in precedence order; a copy in
+// /etc masks the packaged one. "Already installed" must mean the copy in
+// effect, or an operator with an older rule in /etc is never offered the new one.
 void testUdevRuleInEffect()
 {
     QTemporaryDir root;
@@ -303,9 +303,9 @@ void testUdevRuleInEffect()
     check(AetherSDR::udevRuleInEffect(dirs, name, current), "the current copy in /etc: installed");
     check(AetherSDR::udevRuleDirs().first() == QStringLiteral("/etc/udev/rules.d"),
           "/etc is udev's highest precedence");
-    //DH1KLM: /dev/null masks are POSIX symlinks, not Windows shell links.
+    // /dev/null masks are POSIX symlinks, not Windows shell links.
 #ifdef Q_OS_UNIX
-    //DH1KLM An administrator's mask: never offered, so never written through.
+    // An administrator's mask: never offered, so never written through.
     QFile::remove(etc + QLatin1Char('/') + name);
     check(QFile::link(QStringLiteral("/dev/null"), etc + QLatin1Char('/') + name)
               && AetherSDR::udevRuleInEffect(dirs, name, current),
@@ -313,8 +313,8 @@ void testUdevRuleInEffect()
 #endif
 }
 
-//DH1KLM A retry armed for one CTR2 window action runs only while that action is
-//DH1KLM still the operator's latest: another action or Cancel drops it.
+// A retry armed for one CTR2 window action runs only while that action is
+// still the operator's latest: another action or Cancel drops it.
 void testActionRetryTickets()
 {
     AetherSDR::Ctr2ActionRetry actions;
@@ -338,7 +338,7 @@ void testActionRetryTickets()
     check(!actions.current(pressed) && actions.retried(),
           "until an action starts; a retry is marked as the one retry");
 
-    //DH1KLM A press waiting on a read of the device belongs to that device.
+    // A press waiting on a read of the device belongs to that device.
     const auto forA = actions.mark(QStringLiteral("/sim/A|AA"));
     check(actions.current(forA, QStringLiteral("/sim/A|AA")), "a press for A is current while A is selected");
     check(!actions.current(forA, QStringLiteral("/sim/B|BB")),
@@ -392,7 +392,7 @@ bool waitUntil(const std::function<bool()>& predicate, int timeoutMs)
 
 // The relay starts by itself when AetherSDR connects to a radio, retries
 // until the device is plugged in, stays stopped after the operator's Stop
-//DH1KLM until the next connection, and remembers its device.
+// until the next connection, and remembers its device.
 void testAutoStart(const QString& product)
 {
     using Info = AetherSDR::Ctr2HidPort::DeviceInfo;
@@ -451,10 +451,10 @@ void testAutoStart(const QString& product)
     AetherSDR::Ctr2RelaySettings{}.save();
 }
 
-//DH1KLM Lynovation's firmware relays over USB from v1.02.00 on, so a CTR2-Max on
-//DH1KLM it starts by itself like AetherCTR2; one that never answers the link (an
-//DH1KLM earlier version) gets the hint, which an answer or a stop clears. Other
-//DH1KLM stock CTR2 identities still have no USB mode.
+// Lynovation's firmware relays over USB from v1.02.00 on, so a CTR2-Max on
+// it starts by itself like AetherCTR2; one that never answers the link (an
+// earlier version) gets the hint, which an answer or a stop clears. Other
+// stock CTR2 identities still have no USB mode.
 void testStockFirmwareOverUsb()
 {
     using Info = AetherSDR::Ctr2HidPort::DeviceInfo;
@@ -495,7 +495,7 @@ void testStockFirmwareOverUsb()
 
     model.start();
     check(waitUntil([&] { return model.isRunning() && port; }, 1000), "started again");
-    const auto ready = QByteArray::fromHex("ff00000200010000");   //DH1KLM READY, counter 0
+    const auto ready = QByteArray::fromHex("ff00000200010000");   // READY, counter 0
     emit port->reportsReceived(ready);
     check(!waitUntil([&] { return !model.noAnswerHint().isEmpty(); }, 800),
           "a CTR2 that answered gets no hint");
@@ -512,10 +512,10 @@ void testStockFirmwareOverUsb()
     AetherSDR::Ctr2RelaySettings{}.save();
 }
 
-//DH1KLM A relay that fails before the CTR2 ever answered (firmware with no USB
-//DH1KLM mode, whose first write fails on Windows and macOS) is not reopened every
-//DH1KLM kAutoStartRetryMs on the GUI thread: it waits for the device list to
-//DH1KLM change. One that fails after an answer is retried as before.
+// A relay that fails before the CTR2 ever answered (firmware with no USB
+// mode, whose first write fails on Windows and macOS) is not reopened every
+// kAutoStartRetryMs on the GUI thread: it waits for the device list to
+// change. One that fails after an answer is retried as before.
 void testNoRetryWithoutAnswer()
 {
     using Info = AetherSDR::Ctr2HidPort::DeviceInfo;
@@ -567,14 +567,14 @@ void testNoRetryWithoutAnswer()
           "a change in the device list tries it again");
 
     check(waitUntil([&] { return bool(port); }, 1000), "with a new port");
-    emit port->reportsReceived(QByteArray::fromHex("ff00000200010000"));   //DH1KLM READY
+    emit port->reportsReceived(QByteArray::fromHex("ff00000200010000"));   // READY
     waitUntil([] { return false; }, 100);
     const int answeredOpens = log->opened;
     emit port->failed(QStringLiteral("HID read failed"));
     check(waitUntil([&] { return model.isRunning() && log->opened > answeredOpens; }, retry),
           "a CTR2 that had answered is retried as before");
 
-    //DH1KLM The hold is a slower retry, not a stop: a fault on the way up heals.
+    // The hold is a slower retry, not a stop: a fault on the way up heals.
     model.setNoAnswerRetryMs(500);
     check(waitUntil([&] { return bool(port); }, 1000), "the retry has a port");
     const int slowOpens = log->opened;
@@ -605,7 +605,7 @@ void testDevicesRescanByThemselves()
                     Ctr2ProxyModel::kDeviceRescanMs + 2000),
           "after a firmware switch the new device is found without a Rescan");
 
-    //DH1KLM On Linux the switched firmware comes back at the same hidraw path.
+    // On Linux the switched firmware comes back at the same hidraw path.
     Info samePath = stock;
     samePath.path = aether.path;
     samePath.serial.clear();

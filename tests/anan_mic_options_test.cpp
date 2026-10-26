@@ -39,7 +39,7 @@ int main(int argc, char** argv)
     TestSettingsProfile settings(QStringLiteral("anan-microphone"));
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
-    //DH1KLM: Thetis networkproto1 bank 10 C1 and network.c CmdTx byte 50 are the wire authority.
+    // Thetis networkproto1 bank 10 C1 and network.c CmdTx byte 50 are the wire authority.
     for (int mask = 0; mask < 16; ++mask) {
         const MicOptions options{bool(mask & 1), bool(mask & 2), bool(mask & 4), bool(mask & 8)};
         check(parseMicOptions(micOptions(options)).has_value(), "all microphone choices round-trip");

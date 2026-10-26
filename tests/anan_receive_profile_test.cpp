@@ -1,4 +1,4 @@
-//DH1KLM: Inject the real P2Client frame handler without creating sockets.
+// Inject the real P2Client frame handler without creating sockets.
 // Thetis ANAN-7000DLE normal RX1 uses physical DDC2, delivered as logical RX0.
 #include "core/backends/anan/P2Client.h"
 #include "core/backends/anan/AnanFilterOptions.h"
@@ -155,13 +155,13 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
     QLoggingCategory::setFilterRules(QStringLiteral("aether.*.debug=false"));
     const auto previousHandler = qInstallMessageHandler(captureSessionLog);
-    //DH1KLM: Resolve the actual profile before driving its independent ADC attenuators.
+    // Resolve the actual profile before driving its independent ADC attenuators.
     for (const int board : {1,2,3,4,5,10,20}) {
         for (const auto& entry : kAnanModels) {
             if (entry.model == AnanModel::Automatic || !receiveProfile(entry.nativeBoardId)) { continue; }
             P2Client client;
             P2ClientTestAccess::prepare(client, board, entry.model, true);
-            //DH1KLM Oscillator correction follows every valid model/board override, not its label.
+            // Oscillator correction follows every valid model/board override, not its label.
             client.setFrequencyCorrection(1.00001);
             client.setFrequencyCorrection(std::numeric_limits<double>::quiet_NaN());
             check(P2ClientTestAccess::correction(client) == 1.00001,
@@ -201,7 +201,7 @@ int main(int argc, char** argv)
                   "invalid ADC indices cannot alter either attenuator");
         }
     }
-    //DH1KLM: Direct setter injection, no socket or running session required.
+    // Direct setter injection, no socket or running session required.
     {
         P2Client client;
         client.setDdc0FrequencyHz(14'200'000);
@@ -248,7 +248,7 @@ int main(int argc, char** argv)
               "P2 model defaults restore ANT input without changing its independent bank");
         client.stop();
     }
-    //DH1KLM: Exercise production live-rate dispatch with an injected send, never a socket.
+    // Exercise production live-rate dispatch with an injected send, never a socket.
     for (const int board : {1, 2, 3, 4, 5, 10, 20}) {
         P2Client client;
         P2ClientTestAccess::prepare(client, board);
@@ -330,7 +330,7 @@ int main(int argc, char** argv)
         client.stop();
         check(!P2ClientTestAccess::ratePacket(client, 0, 96), "stopped session cannot prepare rate changes");
     }
-    //DH1KLM: Discard the initial General as a lost UDP datagram. Continued IQ
+    // Discard the initial General as a lost UDP datagram. Continued IQ
     // must not prevent later General packets from restoring ALEX enable. The
     // scheduler used by the real keepalive is driven without sleeps or sockets.
     for (const int board : {1, 5, 10}) {
@@ -478,8 +478,8 @@ int main(int argc, char** argv)
         P2ClientTestAccess::feed(client, discovery(1), 1024);
         check(!P2ClientTestAccess::validated(client), "Hermes cannot use nonexistent ADC1");
     }
-    //DH1KLM: Thetis NetworkIO compatibility includes alternate Hermes IDs and
-    //DH1KLM: Red Pitaya's Hermes identity; every accepted pair must deliver IQ.
+    // Thetis NetworkIO compatibility includes alternate Hermes IDs and
+    // Red Pitaya's Hermes identity; every accepted pair must deliver IQ.
     int compatiblePairs = 0;
     for (const int board : {1, 2, 3, 4, 5, 10, 20}) {
         for (const auto& entry : kAnanModels) {
@@ -530,7 +530,7 @@ int main(int argc, char** argv)
         check(!P2ClientTestAccess::validated(client), "selected logical model cannot take over a busy P2 radio");
     }
     {
-        //DH1KLM: A DIY Orion MkII digital board can deliberately use the
+        // A DIY Orion MkII digital board can deliberately use the
         // ANAN-200D effective profile. Board identity remains the actual reply.
         P2Client client;
         P2ClientTestAccess::prepare(client, 5, AnanModel::Anan200D, true);

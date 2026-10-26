@@ -1,14 +1,14 @@
 #pragma once
 
-//DH1KLM The canon table (style guide, RFC #6226): a QTableView or QTableWidget on
-//DH1KLM color.canon.nested with color.canon.line rules and border, a
-//DH1KLM color.canon.control selection band and cyan header text on
-//DH1KLM color.canon.raised. Template text for ThemeManager::applyStyleSheet() or
-//DH1KLM applyCanonSheet(); a window appends its own sizes and paddings after it.
-//DH1KLM
-//DH1KLM The selected-item rule sets no text color, so an item's own foreground
-//DH1KLM survives selection where a delegate keeps it (the multiFLEX Dashboard); a
-//DH1KLM window that wants plain ink on its selection band adds that itself.
+// The canon table (style guide, RFC #6226): a QTableView or QTableWidget on
+// color.canon.nested with color.canon.line rules and border, a
+// color.canon.control selection band and cyan header text on
+// color.canon.raised. Template text for ThemeManager::applyStyleSheet() or
+// applyCanonSheet(); a window appends its own sizes and paddings after it.
+//
+// The selected-item rule sets no text color, so an item's own foreground
+// survives selection where a delegate keeps it (the multiFLEX Dashboard); a
+// window that wants plain ink on its selection band adds that itself.
 
 #include <QString>
 
@@ -38,4 +38,4 @@ QHeaderView::section {
 )");
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

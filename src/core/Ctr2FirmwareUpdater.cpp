@@ -471,10 +471,10 @@ void Ctr2FirmwareUpdater::onPortFailed(const QString& message)
                 "either the new firmware or the old one.").arg(message));
         break;
     case Phase::Commanding:
-        //DH1KLM Leaving the bus is what the request asks for. A device that does it
-        //DH1KLM after the request was written, before its STATUS arrives or with a
-        //DH1KLM STATUS naming another op, has still restarted. A port that failed
-        //DH1KLM before writing it (a write error) has not.
+        // Leaving the bus is what the request asks for. A device that does it
+        // after the request was written, before its STATUS arrives or with a
+        // STATUS naming another op, has still restarted. A port that failed
+        // before writing it (a write error) has not.
         if (m_reportsWritten >= m_restartQueuedTo) {
             restarted();
             break;

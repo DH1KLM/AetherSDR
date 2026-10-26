@@ -356,7 +356,7 @@ void externalReceiveHandoffOrdering()
         s->prepareExternalReceiveAudioReplacementBandRecall(false);
         order.append(QStringLiteral("continue band attempt"));
     });
-    //DH1KLM Band requests address a published model pan, not the backend's own ID.
+    // Band requests address a published model pan, not the backend's own ID.
     emit f.backend->panCenterBandwidthChanged(QStringLiteral("receiver"), 14.2, 0.2);
     check(f.radio.panadapters().size() == 1, "the backend's pan is published to the model");
     f.radio.requestPanBand(f.radio.panadapters().first()->panId(), QStringLiteral("20"));

@@ -277,7 +277,7 @@ public:
     bool licenseFeatureEnabled(const QString& name) const;
     QString licenseFeatureReason(const QString& name) const;
     QString autoAgcThresholdUnavailableReason(const SliceModel* slice) const;
-    //DH1KLM Empty when the radio can take a noise floor range for its panadapters.
+    // Empty when the radio can take a noise floor range for its panadapters.
     QString panNoiseFloorRangeUnavailableReason() const;
 
     QString ip()          const { return m_ip; }
@@ -1065,8 +1065,8 @@ public:
     ReceiveDispatch requestRadioSetup(const RadioSetupRequest& request,
                                      QObject* replyContext = nullptr,
                                      const RadioSetupCompletion& completion = {});
-    //DH1KLM The completion answers the radio's reply, or refuses at once when the
-    //DH1KLM request is not dispatched; it is dropped once replyContext is destroyed.
+    // The completion answers the radio's reply, or refuses at once when the
+    // request is not dispatched; it is dropped once replyContext is destroyed.
     ReceiveDispatch requestTxBand(const TxBandRequest& request,
                                  std::optional<RadioControlSession> expectedSession = {},
                                  QObject* replyContext = nullptr,
@@ -1148,8 +1148,8 @@ public:
     // wire-text fallback.
     void setPanPreampFor(const QString& panId, int step);
     void setPanAttenuatorFor(const QString& panId, int step);
-    //DH1KLM The radio's own scope mode — `index` addresses
-    //DH1KLM PanadapterModel::scopeModeLabels. Seam-only, like the two above.
+    // The radio's own scope mode — `index` addresses
+    // PanadapterModel::scopeModeLabels. Seam-only, like the two above.
     void setPanScopeModeFor(const QString& panId, int index);
 
     // Display controls — FFT (display pan set)
@@ -1589,8 +1589,8 @@ private:
     void resetGpsState(bool receiveMessages = true);
     void wireGpsSessionReceivers(bool receiveMessages = true);
     void handleMessageReceived(const ParsedMessage& msg, quint64 gpsSessionGeneration);
-    //DH1KLM Asks for the CW profile list once per session, whenever the backend's CW
-    //DH1KLM capability is (or later becomes) engaged.
+    // Asks for the CW profile list once per session, whenever the backend's CW
+    // capability is (or later becomes) engaged.
     void refreshCwProfilesIfSupported();
     void refreshCwProfilesOnCapabilityChange();
     void applyMemoryChanges(const MemoryDelta& delta);
@@ -2467,7 +2467,7 @@ private:
     QString     m_activeGlobalProfile;
     bool        m_profileDatabaseImporting{false};
     bool        m_profileDatabaseExporting{false};
-    bool        m_cwProfilesRequested{false};   //DH1KLM this session asked for "profile cw info"
+    bool        m_cwProfilesRequested{false};   // this session asked for "profile cw info"
     RadioStatusOwnership::RemoteAudioRxTracking m_rxAudio;
     struct DaxStreamDebugState {
         QString type;
@@ -2557,7 +2557,7 @@ private:
     QString m_radioWakeModel;
     void cancelRadioWake();
     void finishRadioWake(const QString& message, bool success);
-    QString m_backendImplementation; //DH1KLM: Immutable for one backend lifetime.
+    QString m_backendImplementation; // Immutable for one backend lifetime.
     RadioInfo m_lastInfo;               // stored for auto-reconnect
     bool      m_intentionalDisconnect{false};
     // See isConnectAttemptInFlight(). Set by the connect entry points, cleared

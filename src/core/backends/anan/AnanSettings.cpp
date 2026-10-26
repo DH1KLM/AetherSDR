@@ -21,8 +21,8 @@ namespace {
 // Single nested-JSON key holding this backend's config (Principle V).
 // Shape: {"ddc0RateKsps":int, "dither":bool,
 //         "random":bool, "ddc0AdcIndex":int, "bypassAdc0Filters":bool,
-//DH1KLM         "bypassAdc1Filters":bool, "speakerAudioEnabled":bool,
-//DH1KLM         "speakerAmpMuted":bool}
+//         "bypassAdc1Filters":bool, "speakerAudioEnabled":bool,
+//         "speakerAmpMuted":bool}
 const QString kRootKey = QStringLiteral("Anan");
 
 constexpr const char* kFieldDdc0RateKsps      = "ddc0RateKsps";
@@ -56,7 +56,7 @@ void AnanSettings::writeObj(const QJsonObject& obj)
     s.save();
 }
 
-//DH1KLM: A model-specific child prevents an override from reusing another filter bank's limits.
+// A model-specific child prevents an override from reusing another filter bank's limits.
 QVariantMap AnanSettings::hardwareFilters(const QString& serial, int model, int board)
 {
     if (serial.trimmed().isEmpty()) { return {}; }
@@ -207,7 +207,7 @@ void AnanSettings::setRxAntenna(int antenna)
 
 bool AnanSettings::bypassAdc0Filters()
 {
-    //DH1KLM: Saturn BPF1 is selected from the tuned frequency unless the operator opts into bypass.
+    // Saturn BPF1 is selected from the tuned frequency unless the operator opts into bypass.
     return readObj().value(QLatin1String(kFieldBypassAdc0Filters)).toBool(false);
 }
 
@@ -248,7 +248,7 @@ void AnanSettings::setBypassAdc1Filters(bool on)
 
 bool AnanSettings::speakerAmpMuted()
 {
-    //DH1KLM false on absence: the radio powers up with its amplifier live.
+    // false on absence: the radio powers up with its amplifier live.
     return readObj().value(QLatin1String(kFieldSpeakerAmpMuted)).toBool(false);
 }
 
@@ -294,7 +294,7 @@ AnanSettings::RadioProfile AnanSettings::radioProfile(const QString& serial)
     if (status != AppSettings::FeatureReadStatus::Present || version < 1 || version > 3) {
         return {AnanModel::Automatic, 0, false};
     }
-    //DH1KLM: Preserve the hardware-tested version-1 Red Pitaya P1 preference.
+    // Preserve the hardware-tested version-1 Red Pitaya P1 preference.
     if (version == 1) {
         return doc.value(QStringLiteral("redPitayaP1")).toBool(false)
             ? RadioProfile{AnanModel::RedPitaya, 1, true} : RadioProfile{};
@@ -331,7 +331,7 @@ bool AnanSettings::setRadioProfile(const QString& serial, AnanModel model, int p
     return scope.setFeature(QStringLiteral("HardwareProfile"), 3, doc);
 }
 
-//DH1KLM: Discovery reports a board family, never proof of a specific SKU.
+// Discovery reports a board family, never proof of a specific SKU.
 // Keep that identity intact and expose the effective mapping separately.
 void AnanSettings::applyRadioProfileDisplay(RadioInfo& radio)
 {
@@ -351,7 +351,7 @@ void AnanSettings::applyRadioProfileDisplay(RadioInfo& radio)
     }
     const auto saved = radioProfile(radio.serial);
     const auto* descriptor = ananModelInfo(saved.model);
-    //DH1KLM: The main operating UI uses the selected model only for explicit
+    // The main operating UI uses the selected model only for explicit
     // override. Discovery and the connection-details snapshot keep model intact.
     radio.effectiveModel = saved.valid && saved.overrideDetection && descriptor
         && receiveProfile(radio.boardId, saved.model, true)
@@ -398,7 +398,7 @@ bool AnanSettings::forgetRadioProfileMapping(const RadioInfo& radio)
         return true;
     if (status != AppSettings::FeatureReadStatus::Present || version < 1 || version > 3)
         return false;
-    //DH1KLM: Forget only the logical model/override mapping. Keep protocol,
+    // Forget only the logical model/override mapping. Keep protocol,
     // sibling fields and every other feature (nickname, DSP, calibration, etc.).
     if (version == 1)
         doc.insert(QStringLiteral("protocol"), doc.value(QStringLiteral("redPitayaP1")).toBool(false) ? 1 : 0);

@@ -6,7 +6,7 @@ namespace AetherSDR {
 
 // A GitHub release tag is network text, and VersionNumber::parse reads only
 // the leading digits of each part, so a tag that passes the newer-version
-//DH1KLM test can still carry markup. The prompt neutralizes the tag itself.
+// test can still carry markup. The prompt neutralizes the tag itself.
 
 // Rich text by design (<p>, <b>), so both versions are HTML-escaped.
 inline QString outdatedVersionPromptHtml(const QString& current, const QString& latestTag)

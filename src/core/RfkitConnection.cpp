@@ -15,10 +15,10 @@ QString path(const char* literal)
     return QString::fromLatin1(literal);
 }
 
-//DH1KLM One of these per tick, round-robin, alongside /power and /data. They are
-//DH1KLM configuration-style readbacks that change only when the operator (or the
-//DH1KLM radio's band data) changes them, so a ~1s full cycle is plenty and it keeps
-//DH1KLM the request rate on a small embedded controller low.
+// One of these per tick, round-robin, alongside /power and /data. They are
+// configuration-style readbacks that change only when the operator (or the
+// radio's band data) changes them, so a ~1s full cycle is plenty and it keeps
+// the request rate on a small embedded controller low.
 const QStringList& slowPollPaths()
 {
     static const QStringList kSlow{
@@ -30,18 +30,18 @@ const QStringList& slowPollPaths()
     return kSlow;
 }
 
-}  //DH1KLM namespace
+}  // namespace
 
 RfkitConnection::RfkitConnection(QObject* parent)
     : QObject(parent)
 {
-    //DH1KLM The amplifier is a LAN device addressed by IP; never route it through a
-    //DH1KLM system proxy the operator configured for the internet.
+    // The amplifier is a LAN device addressed by IP; never route it through a
+    // system proxy the operator configured for the internet.
     m_nam.setProxy(QNetworkProxy::NoProxy);
 
-    //DH1KLM Retries indefinitely until the amp returns or the user disconnects —
-    //DH1KLM same precedent as every other peripheral connection here, for a device
-    //DH1KLM that may legitimately be power-cycling.
+    // Retries indefinitely until the amp returns or the user disconnects —
+    // same precedent as every other peripheral connection here, for a device
+    // that may legitimately be power-cycling.
     m_reconnectTimer.setSingleShot(true);
     m_reconnectTimer.setInterval(kReconnectIntervalMs);
     connect(&m_reconnectTimer, &QTimer::timeout, this, [this]() {
@@ -57,15 +57,15 @@ RfkitConnection::RfkitConnection(QObject* parent)
     connect(&m_deadlineTimer, &QTimer::timeout, this, [this]() {
         if (m_reply) {
             m_reply->setProperty("rfkitDeadline", true);
-            m_reply->abort();  //DH1KLM finished() follows and counts it as a transport failure
+            m_reply->abort();  // finished() follows and counts it as a transport failure
         }
     });
 }
 
 RfkitConnection::~RfkitConnection()
 {
-    //DH1KLM Invalidate in-flight replies so a late finished() cannot reach a
-    //DH1KLM half-destroyed object.
+    // Invalidate in-flight replies so a late finished() cannot reach a
+    // half-destroyed object.
     ++m_epoch;
     if (m_reply) {
         m_reply->abort();
@@ -92,10 +92,10 @@ void RfkitConnection::connectNetwork(const QString& host, quint16 port)
     m_reconnectTimer.stop();
     resetSession();
 
-    //DH1KLM Build the URL from parts rather than concatenating text, and refuse
-    //DH1KLM anything QUrl does not accept as a bare host: the address field is free
-    //DH1KLM text, and a stray '/', '@' or space must not turn into a different
-    //DH1KLM request target.
+    // Build the URL from parts rather than concatenating text, and refuse
+    // anything QUrl does not accept as a bare host: the address field is free
+    // text, and a stray '/', '@' or space must not turn into a different
+    // request target.
     QUrl url;
     url.setScheme(QStringLiteral("http"));
     url.setHost(trimmed, QUrl::StrictMode);
@@ -117,15 +117,15 @@ void RfkitConnection::connectNetwork(const QString& host, quint16 port)
 
 void RfkitConnection::disconnect()
 {
-    //DH1KLM Self-contained rather than relying on a transport signal to fire
-    //DH1KLM disconnected() — the ACOM row learned that the hard way (see
-    //DH1KLM AcomConnection::disconnect()): a user-initiated disconnect that never
-    //DH1KLM emits disconnected() leaves the applet stuck showing "Connected".
+    // Self-contained rather than relying on a transport signal to fire
+    // disconnected() — the ACOM row learned that the hard way (see
+    // AcomConnection::disconnect()): a user-initiated disconnect that never
+    // emits disconnected() leaves the applet stuck showing "Connected".
     const bool wasConnected = m_connected;
     m_deliberateDisconnect = true;
     m_reconnectTimer.stop();
     m_connected = false;
-    resetSession();  //DH1KLM bumps the epoch: a pending request must not resurrect this
+    resetSession();  // bumps the epoch: a pending request must not resurrect this
     if (wasConnected) {
         qCDebug(lcTuner) << "RfkitConnection: disconnected";
         emit disconnected();
@@ -143,7 +143,7 @@ void RfkitConnection::resetSession()
     if (m_reply) {
         QNetworkReply* reply = m_reply;
         m_reply = nullptr;
-        reply->abort();  //DH1KLM its finished() sees the old epoch and discards it
+        reply->abort();  // its finished() sees the old epoch and discards it
     }
     m_status = {};
     m_lastBody.clear();
@@ -155,8 +155,8 @@ void RfkitConnection::resetSession()
 void RfkitConnection::enqueue(const Request& request, bool front)
 {
     if (front) {
-        //DH1KLM Ahead of queued polls, behind earlier commands: two clicks must
-        //DH1KLM reach the amplifier in the order they were made.
+        // Ahead of queued polls, behind earlier commands: two clicks must
+        // reach the amplifier in the order they were made.
         Request command = request;
         command.command = true;
         qsizetype at = 0;
@@ -182,7 +182,7 @@ void RfkitConnection::pump()
     QNetworkRequest netRequest(url);
     netRequest.setTransferTimeout(kRequestTimeoutMs);
     netRequest.setRawHeader("Accept", "application/json");
-    //DH1KLM No redirects: a device that redirects is not speaking this API.
+    // No redirects: a device that redirects is not speaking this API.
     netRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                             QNetworkRequest::ManualRedirectPolicy);
     netRequest.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
@@ -208,9 +208,9 @@ void RfkitConnection::pump()
     m_deadlineTimer.start();
     const int epoch = m_epoch;
 
-    //DH1KLM Principle VII: bound what a LAN peer can make us buffer. The transfer
-    //DH1KLM timeout only aborts a transfer that goes silent for its interval; this
-    //DH1KLM bounds the size.
+    // Principle VII: bound what a LAN peer can make us buffer. The transfer
+    // timeout only aborts a transfer that goes silent for its interval; this
+    // bounds the size.
     connect(reply, &QNetworkReply::downloadProgress, reply, [reply](qint64 received, qint64) {
         if (received > Rfkit::kMaxBodyBytes) {
             reply->setProperty("rfkitOversize", true);
@@ -226,7 +226,7 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
 {
     reply->deleteLater();
     if (epoch != m_epoch) {
-        return;  //DH1KLM a reply from a session that has since ended
+        return;  // a reply from a session that has since ended
     }
     m_inFlight = false;
     m_reply = nullptr;
@@ -236,12 +236,12 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
     const bool oversize = reply->property("rfkitOversize").toBool();
     const QByteArray body = oversize ? QByteArray() : reply->read(Rfkit::kMaxBodyBytes + 1);
 
-    //DH1KLM No HTTP status at all means the exchange never completed: refused,
-    //DH1KLM timed out, unresolvable, reset, or aborted for size or time. A transfer
-    //DH1KLM that broke after the headers (reset or timeout mid-body) has a status of
-    //DH1KLM 200 but a network-level error, so that counts too. HTTP error statuses
-    //DH1KLM set a content/protocol error (201 and up) and are the device answering,
-    //DH1KLM not link loss.
+    // No HTTP status at all means the exchange never completed: refused,
+    // timed out, unresolvable, reset, or aborted for size or time. A transfer
+    // that broke after the headers (reset or timeout mid-body) has a status of
+    // 200 but a network-level error, so that counts too. HTTP error statuses
+    // set a content/protocol error (201 and up) and are the device answering,
+    // not link loss.
     const bool deadline = reply->property("rfkitDeadline").toBool();
     const QNetworkReply::NetworkError netError = reply->error();
     const bool brokeInTransit = netError != QNetworkReply::NoError
@@ -268,8 +268,8 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
         qCWarning(lcTuner).noquote() << "RfkitConnection:" << method
                                      << request.path << "refused:" << http << reason;
         if (request.probe) {
-            //DH1KLM Answering the handshake with an error status means this is not
-            //DH1KLM an RF-KIT (or not one reachable on this port).
+            // Answering the handshake with an error status means this is not
+            // an RF-KIT (or not one reachable on this port).
             resetSession();
             emit connectionFailed(tr("Not an RF-KIT amplifier (HTTP %1)").arg(http));
             if (!m_deliberateDisconnect && m_autoReconnect) { armReconnect(); }
@@ -309,19 +309,19 @@ bool RfkitConnection::applyReply(const Request& request, const QByteArray& body)
         return false;
     };
 
-    //DH1KLM Writes: the reply confirms the new state, and anything it does not
-    //DH1KLM carry is refreshed.
+    // Writes: the reply confirms the new state, and anything it does not
+    // carry is refreshed.
     if (request.method == Request::Method::Post) {
-        //DH1KLM POST /error/reset. Nothing in the reply is needed; re-read what an
-        //DH1KLM error can have changed.
+        // POST /error/reset. Nothing in the reply is needed; re-read what an
+        // error can have changed.
         enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false});
         enqueue(Request{Request::Method::Get, path(Rfkit::kPathInterface), {}, false, false});
         return false;
     }
     if (request.method == Request::Method::Put && p == QLatin1String(Rfkit::kPathAntennaActive)) {
-        //DH1KLM The reply names only the new active antenna; the per-antenna states
-        //DH1KLM come from the list. Re-read it whatever the reply looks like: a 2xx
-        //DH1KLM means the switch was accepted, and the highlight must follow it.
+        // The reply names only the new active antenna; the per-antenna states
+        // come from the list. Re-read it whatever the reply looks like: a 2xx
+        // means the switch was accepted, and the highlight must follow it.
         enqueue(Request{Request::Method::Get, path(Rfkit::kPathAntennas), {}, false, false});
         if (!Rfkit::parseAntenna(body)) {
             return malformed();
@@ -371,8 +371,8 @@ void RfkitConnection::onProbeSucceeded()
                     << (m_status.info ? m_status.info->device : QString());
     m_pollTimer.start();
     emit connected();
-    //DH1KLM Read everything once so the applet fills in immediately instead of
-    //DH1KLM waiting a full slow-poll rotation for the configuration readbacks.
+    // Read everything once so the applet fills in immediately instead of
+    // waiting a full slow-poll rotation for the configuration readbacks.
     enqueueFullRefresh();
     emit statusUpdated(m_status);
 }
@@ -401,7 +401,7 @@ void RfkitConnection::onTransportFailure(const QString& errorString, const Reque
         onTransportDown(errorString);
         return;
     }
-    pump();  //DH1KLM drop the failed request and carry on with the rest
+    pump();  // drop the failed request and carry on with the rest
 }
 
 void RfkitConnection::onTransportDown(const QString& errorString)
@@ -428,8 +428,8 @@ void RfkitConnection::armReconnect()
 
 void RfkitConnection::poll()
 {
-    //DH1KLM Never stack a poll round behind unfinished work: a slow device lowers
-    //DH1KLM the poll rate instead of growing a backlog.
+    // Never stack a poll round behind unfinished work: a slow device lowers
+    // the poll rate instead of growing a backlog.
     if (!m_connected || m_inFlight || !m_queue.isEmpty()) {
         return;
     }
@@ -485,4 +485,4 @@ void RfkitConnection::resetError()
     enqueue(request, true);
 }
 
-}  //DH1KLM namespace AetherSDR
+}  // namespace AetherSDR

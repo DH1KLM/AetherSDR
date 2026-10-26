@@ -7,11 +7,11 @@ namespace {
 
 // Offsets inside a 0x27 0x00 frame's data (i.e. after cmd + subcommand).
 //
-//DH1KLM   data[0]      scope selector: 00, or 00 MAIN / 01 SUB on the IC-9700
+//   data[0]      scope selector: 00, or 00 MAIN / 01 SUB on the IC-9700
 //   data[1]      division index, BCD 01..11
 //   data[2]      division maximum, BCD — 01 over WLAN, 11 over USB
 // then, ONLY when the division index is 1:
-//DH1KLM   data[3]      mode: 00 centre, 01 fixed, 02 SCROLL-C, 03 SCROLL-F
+//   data[3]      mode: 00 centre, 01 fixed, 02 SCROLL-C, 03 SCROLL-F
 //   data[4..8]   frequency A — centre (centre mode) or lower edge (fixed)
 //   data[9..13]  frequency B — span   (centre mode) or upper edge (fixed)
 //   data[14]     out-of-range flag

@@ -293,7 +293,7 @@ qint64 AsioOutput::writeData(const char* bytes, qint64 size)
     if (!isOpen() || !m_impl->ring || size < 0 || size % 8 != 0 || resetRequested()) { return -1; }
     const std::size_t count = std::min(static_cast<std::size_t>(size / 8), m_impl->ring->freeFrames());
     for (std::size_t i = 0; i < count; ++i) {
-        //DH1KLM: QIODevice accepts unaligned byte storage; only the local frame is read as float.
+        // QIODevice accepts unaligned byte storage; only the local frame is read as float.
         std::array<float, 2> frame{};
         std::memcpy(frame.data(), bytes + i * 8, 8);
         m_impl->ring->write(frame);

@@ -392,13 +392,13 @@ int main(int argc, char* argv[])
 #endif
     QApplication app(argc, argv);
 
-    //DH1KLM The self-test AetherSDRUpdater.exe runs after swapping a new release in
-    //DH1KLM (RFC #5304 Phase 3): reaching here means Qt, its platform plugin and
-    //DH1KLM this build's libraries loaded. Report the version and stop, before any
-    //DH1KLM window, settings write, log or radio.
-    //DH1KLM The marker path from Qt's arguments, which on Windows come from the
-    //DH1KLM Unicode command line: argv is the ANSI code page, which cannot hold
-    //DH1KLM every profile folder's name (漢字 on code page 1252).
+    // The self-test AetherSDRUpdater.exe runs after swapping a new release in
+    // (RFC #5304 Phase 3): reaching here means Qt, its platform plugin and
+    // this build's libraries loaded. Report the version and stop, before any
+    // window, settings write, log or radio.
+    // The marker path from Qt's arguments, which on Windows come from the
+    // Unicode command line: argv is the ANSI code page, which cannot hold
+    // every profile folder's name (漢字 on code page 1252).
     if (const QStringList args = app.arguments();
         args.size() >= 3 && args.at(1) == QLatin1String("--update-selftest")) {
         return AetherSDR::UpdateInstaller::writeSelfTestMarker(args.at(2), QStringLiteral(AETHERSDR_VERSION))
@@ -436,9 +436,9 @@ int main(int argc, char* argv[])
     app.setApplicationName("AetherSDR");
     app.setApplicationVersion(AETHERSDR_VERSION);
 #if AETHER_UPDATE_DEV_OVERRIDES
-    //DH1KLM Run as an older release, so an update to this build's own release can
-    //DH1KLM be tried. Taken out of the environment, so the updater's self-test and
-    //DH1KLM the restarted app are this build's real version.
+    // Run as an older release, so an update to this build's own release can
+    // be tried. Taken out of the environment, so the updater's self-test and
+    // the restarted app are this build's real version.
     if (const QString pretend = qEnvironmentVariable("AETHER_UPDATE_PRETEND_VERSION"); !pretend.isEmpty()) {
         qunsetenv("AETHER_UPDATE_PRETEND_VERSION");
         qCWarning(AetherSDR::lcUpdater).noquote()
@@ -626,8 +626,8 @@ int main(int argc, char* argv[])
     // to LogManager. SHistorySoftEdgeDb migration moved here for the same
     // reason.
     AetherSDR::AppSettings::instance().load();
-    //DH1KLM What AetherSDRUpdater did last time, read once; a rolled-back release
-    //DH1KLM is remembered so it is not offered again (RFC #5304 Phase 3).
+    // What AetherSDRUpdater did last time, read once; a rolled-back release
+    // is remembered so it is not offered again (RFC #5304 Phase 3).
     AetherSDR::UpdateInstaller::takeSwapResult();
     // Construct the NR2 feature-owned settings model on the main thread after
     // AppSettings is loaded. This also performs its one-time flat-key migration.

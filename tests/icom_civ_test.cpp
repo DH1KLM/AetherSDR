@@ -704,7 +704,7 @@ static void testCommands()
     check(bytesAre(cmdScopeMode(kIc705, 0x01), {0xFE, 0xFE, 0xA4, 0xE0, 0x27, 0x14, 0x00, 0x01, 0xFD}),
           "fixed mode is 27 14 0001 — two BCD bytes, not one");
 
-    //DH1KLM SCROLL-F (IC-7300MK2 guide pp. 25-26, IC-705 ed. 6 p. 29, IC-9700 ed. 4 pp. 25-26)
+    // SCROLL-F (IC-7300MK2 guide pp. 25-26, IC-705 ed. 6 p. 29, IC-9700 ed. 4 pp. 25-26)
     {
         constexpr std::uint8_t kMk2 = 0xB6;
         check(bytesAre(cmdScopeMode(kMk2, 0x03), {0xFE, 0xFE, 0xB6, 0xE0, 0x27, 0x14, 0x00, 0x03, 0xFD}),
@@ -715,8 +715,8 @@ static void testCommands()
               "edge slot 4 is 27 16 00 04");
         check(bytesAre(cmdReadScopeEdgeNumber(kMk2), {0xFE, 0xFE, 0xB6, 0xE0, 0x27, 0x16, 0x00, 0xFD}),
               "the edge-slot read carries only the leading 00 selector");
-        //DH1KLM Range 04 (6-8 MHz), edge 2, 7.000-7.300 MHz. TWELVE data bytes and NO
-        //DH1KLM leading 00: range, edge, then two little-endian BCD frequencies.
+        // Range 04 (6-8 MHz), edge 2, 7.000-7.300 MHz. TWELVE data bytes and NO
+        // leading 00: range, edge, then two little-endian BCD frequencies.
         check(bytesAre(cmdScopeFixedEdge(kMk2, 4, 2, 7'000'000, 7'300'000),
                        {0xFE, 0xFE, 0xB6, 0xE0, 0x27, 0x1E, 0x04, 0x02,
                         0x00, 0x00, 0x00, 0x07, 0x00,

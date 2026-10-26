@@ -510,7 +510,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
         "guest Wi-Fi isolation, VPN software, or firewall rules may be blocking discovery.",
         kHintLabelStyle));
 
-    //DH1KLM: Visible with both an empty and populated radio list. Discovery
+    // Visible with both an empty and populated radio list. Discovery
     // continues automatically; this row tracks a requested response window.
     auto* scanRow = new QHBoxLayout;
     m_scanStatusLabel = makeWrappedLabel(tr("Automatic discovery is running. No manual scan yet."), kHintLabelStyle);
@@ -940,7 +940,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     connect(m_manualIcomCivCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int) { syncIcomCivCustomRow(); });
 
-    //DH1KLM: This choice is saved only after discovery supplies this radio's MAC.
+    // This choice is saved only after discovery supplies this radio's MAC.
     m_manualAnanProfileCombo = new QComboBox(manualGroup);
     m_manualAnanProfileCombo->setObjectName(QStringLiteral("connectionManualAnanProfileCombo"));
     m_manualAnanProfileCombo->setAccessibleName(tr("OpenHPSDR receive profile"));
@@ -949,24 +949,24 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualAnanProfileCombo->setToolTip(tr("Saved per radio. Automatic keeps the physical-board profile."));
     AetherSDR::applyComboStyle(m_manualAnanProfileCombo, comboExtraRules);
     m_manualAnanProfileCombo->addItem(tr("Use saved model"), -100);
-    //DH1KLM: Picker order and captions are independent of stable model IDs and board detection.
+    // Picker order and captions are independent of stable model IDs and board detection.
     const std::pair<anan::AnanModel, const char*> receiveProfiles[]{
         {anan::AnanModel::Automatic, "Automatic physical-board profile"},
-        //DH1KLM: {anan::AnanModel::Hpsdr, "OpenHPSDR / Atlas / Metis"}, omitted from this picker; board recognition remains.
+        // {anan::AnanModel::Hpsdr, "OpenHPSDR / Atlas / Metis"}, omitted from this picker; board recognition remains.
         {anan::AnanModel::Hermes, "HERMES"},
-        //DH1KLM: {anan::AnanModel::HermesLite2, "HERMES-LITE 2"}, use the dedicated radio type; board recognition remains.
+        // {anan::AnanModel::HermesLite2, "HERMES-LITE 2"}, use the dedicated radio type; board recognition remains.
         {anan::AnanModel::Anan10, "ANAN-10"},
         {anan::AnanModel::Anan10E, "ANAN-10E"},
         {anan::AnanModel::Anan100, "ANAN-100"},
         {anan::AnanModel::Anan100B, "ANAN-100B"},
         {anan::AnanModel::Anan100D, "ANAN-100D"},
         {anan::AnanModel::Anan200D, "ANAN-200D"},
-        //DH1KLM: {anan::AnanModel::OrionMkII, "Orion MkII"}, board designation, not a transceiver.
+        // {anan::AnanModel::OrionMkII, "Orion MkII"}, board designation, not a transceiver.
         {anan::AnanModel::Anan7000, "ANAN-7000DLE"},
         {anan::AnanModel::Anan8000, "ANAN-8000DLE"},
         {anan::AnanModel::AnanG2E, "ANAN-G2E"},
         {anan::AnanModel::AnanG2, "ANAN-G2"},
-        //DH1KLM: {anan::AnanModel::AnanG21K, "ANAN-G2 1K"}, omitted from this picker by request.
+        // {anan::AnanModel::AnanG21K, "ANAN-G2 1K"}, omitted from this picker by request.
         {anan::AnanModel::AnvelinaPro3, "ANVELINA-Pro III"},
         {anan::AnanModel::RedPitaya, "RED-PITAYA"}
     };
@@ -979,7 +979,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
             auto* items = qobject_cast<QStandardItemModel*>(m_manualAnanProfileCombo->model());
             if (items) {
                 auto* item = items->item(m_manualAnanProfileCombo->count() - 1);
-                //DH1KLM: Item accessibility is supplied through model roles.
+                // Item accessibility is supplied through model roles.
                 item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
                 item->setToolTip(reason);
                 item->setData(reason, Qt::AccessibleDescriptionRole);
@@ -988,7 +988,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     }
     m_manualAnanProfileCombo->addItem(anan::AnanImplementation::label(true), -200);
     m_manualAnanProfileRow = addManualRow(QStringLiteral("Receive profile:"), m_manualAnanProfileCombo);
-    //DH1KLM: Partial state reads the exact radio's saved choice after discovery
+    // Partial state reads the exact radio's saved choice after discovery
     // supplies its MAC, so a second device never inherits the first override.
     m_manualAnanOverrideCheck = new QCheckBox(tr("Override detection (use saved setting)"), manualGroup);
     m_manualAnanOverrideCheck->setObjectName(QStringLiteral("connectionManualAnanOverrideDetection"));
@@ -1524,7 +1524,7 @@ void ConnectionPanel::clearPendingIcomCredentials()
 
 void ConnectionPanel::setConnectionInfo(const RadioInfo& radio)
 {
-    //DH1KLM: This is the connect-time snapshot, not a view of mutable settings.
+    // This is the connect-time snapshot, not a view of mutable settings.
     QString identity = radio.model;
     if (!radio.nickname.trimmed().isEmpty()
         && radio.nickname.trimmed().compare(radio.model.trimmed(), Qt::CaseInsensitive) != 0)
@@ -1782,7 +1782,7 @@ void ConnectionPanel::saveLowBandwidthPreference(bool enabled)
 QString ConnectionPanel::formatLocalRadioLabel(const RadioInfo& radio) const
 {
     QString title = radio.model.trimmed();
-    //DH1KLM: Discovery's model-name fallback is not a distinct nickname.
+    // Discovery's model-name fallback is not a distinct nickname.
     if (!radio.nickname.trimmed().isEmpty()
         && radio.nickname.trimmed().compare(radio.model.trimmed(), Qt::CaseInsensitive) != 0)
         title += QStringLiteral("  %1").arg(radio.nickname.trimmed());
@@ -1808,7 +1808,7 @@ QString ConnectionPanel::formatLocalRadioLabel(const RadioInfo& radio) const
     if (!radio.turfRegion.trimmed().isEmpty())
         detail += QStringLiteral(" • %1").arg(radio.turfRegion.trimmed());
 
-    //DH1KLM: The board's identity must not disappear behind a saved model.
+    // The board's identity must not disappear behind a saved model.
     // IP/MAC distinguish two devices even when their effective profiles match.
     if (!radio.connectionProfile.isEmpty()) {
         detail = tr("IP: %1 • ID/MAC: %2\n%3")
@@ -1976,8 +1976,8 @@ void ConnectionPanel::updateManualAdvancedVisibility()
     const auto family = NetworkPathResolver::targetFamily(
         m_manualIpEdit ? m_manualIpEdit->text() : QString());
     const auto candidates = NetworkPathResolver::enumerateCandidates(family);
-    //DH1KLM One IPv6 adapter normally has a GUA and a ULA; that is not a choice of
-    //DH1KLM path, so IPv6 counts adapters. IPv4 keeps counting addresses.
+    // One IPv6 adapter normally has a GUA and a ULA; that is not a choice of
+    // path, so IPv6 counts adapters. IPv4 keeps counting addresses.
     qsizetype paths = candidates.size();
     if (family == QAbstractSocket::IPv6Protocol) {
         QSet<QString> interfaces;
@@ -2099,7 +2099,7 @@ void ConnectionPanel::onRadioDiscovered(const RadioInfo& discovered)
         const RadioInfo original = anan::AnanImplementation::choices(discovered).last();
         onRadioDiscovered(original);
     }
-    //DH1KLM: Discovery snapshots can predate Forget; the persisted mapping owns display metadata.
+    // Discovery snapshots can predate Forget; the persisted mapping owns display metadata.
     RadioInfo radio = discovered;
     anan::AnanSettings::applyRadioProfileDisplay(radio);
     for (int i = 0; i < m_radios.size(); ++i) {
@@ -2157,7 +2157,7 @@ void ConnectionPanel::onRadioUpdated(const RadioInfo& discovered)
         const RadioInfo original = anan::AnanImplementation::choices(discovered).last();
         onRadioUpdated(original);
     }
-    //DH1KLM: Re-evaluate a cached discovery update against the current saved mapping.
+    // Re-evaluate a cached discovery update against the current saved mapping.
     RadioInfo radio = discovered;
     anan::AnanSettings::applyRadioProfileDisplay(radio);
     for (int i = 0; i < m_radios.size(); ++i) {
@@ -2230,7 +2230,7 @@ void ConnectionPanel::startLocalScan()
     m_scanStatusLabel->setText(tr("Scan requested; collecting replies for two seconds…"));
     m_scanStatusLabel->setAccessibleDescription(m_scanStatusLabel->text());
     emit retryDiscoveryRequested();
-    //DH1KLM: A bounded observation window is not a claim that every device
+    // A bounded observation window is not a claim that every device
     // replied. Late replies still enter the continuously running discovery.
     QTimer::singleShot(2000, this, [this] {
         m_scanRunning = false;
@@ -2429,7 +2429,7 @@ void ConnectionPanel::refreshManualSourceOptions(const RadioBindSettings* select
             candidates, selected->interfaceId, selected->interfaceName, selected->bindAddress,
             QHostAddress(m_manualIpEdit ? m_manualIpEdit->text().trimmed() : QString()));
         if (match >= 0)
-            selectedIndex = 1 + static_cast<int>(match);   //DH1KLM row 0 is Auto
+            selectedIndex = 1 + static_cast<int>(match);   // row 0 is Auto
     }
 
     if (selected
@@ -2519,7 +2519,7 @@ void ConnectionPanel::applySavedSourceSelection(const QString& ip, bool restoreF
     refreshManualSourceOptions(&settings);
     updateManualAdvancedVisibility();
     if (restoreFamily)
-        m_manualSourcePick = settings;   //DH1KLM a chosen address brings its own path
+        m_manualSourcePick = settings;   // a chosen address brings its own path
 }
 
 RadioBindSettings ConnectionPanel::currentManualBindSettings(bool* staleSelection) const
@@ -3203,9 +3203,9 @@ void ConnectionPanel::probeRadio(const QString& ip, bool restoreSavedFamily)
 
 bool ConnectionPanel::resolveNamedSourceFamily(const QString& host, RadioBindSettings* bind)
 {
-    //DH1KLM The source list follows the typed text, so a host name lists IPv4
-    //DH1KLM paths. A name with only IPv6 addresses reaches the radio over IPv6:
-    //DH1KLM use the chosen interface's IPv6 address instead of failing on family.
+    // The source list follows the typed text, so a host name lists IPv4
+    // paths. A name with only IPv6 addresses reaches the radio over IPv6:
+    // use the chosen interface's IPv6 address instead of failing on family.
     if (bind->mode != RadioBindMode::Explicit || !QHostAddress(host).isNull())
         return true;
     const QHostInfo info = QHostInfo::fromName(host);
@@ -3214,12 +3214,12 @@ bool ConnectionPanel::resolveNamedSourceFamily(const QString& host, RadioBindSet
         bool isV4 = false;
         address.toIPv4Address(&isV4);
         if (isV4)
-            return true;   //DH1KLM reachable over IPv4: the listed path applies
+            return true;   // reachable over IPv4: the listed path applies
         if (v6.isNull() && address.protocol() == QAbstractSocket::IPv6Protocol)
             v6 = address;
     }
     if (v6.isNull())
-        return true;   //DH1KLM unresolved: the probe reports it
+        return true;   // unresolved: the probe reports it
     const NetworkPathCandidate path = NetworkPathResolver::resolveExplicitSelection(
         bind->interfaceId, bind->interfaceName, bind->bindAddress,
         QAbstractSocket::IPv6Protocol, v6);
@@ -3587,7 +3587,7 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
         return AnanProbeResult::NotAttempted;
     }
 
-    //DH1KLM: Probe both formats; the reply determines the session protocol.
+    // Probe both formats; the reply determines the session protocol.
     const auto legacyRequest = anan::p1::discoveryRequest();
     if (protocolChoice != 2 && hpsdr.writeDatagram(reinterpret_cast<const char*>(legacyRequest.data()),
                            qint64(legacyRequest.size()), dest, anan::kRadioPort) < 0 && preferP1) {
@@ -3609,7 +3609,7 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
                 std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t*>(d.constData()), std::size_t(d.size())),
                 static_cast<std::uint16_t>(datagram.senderPort()));
-            //DH1KLM: Discovery can identify several Thetis board families, but
+            // Discovery can identify several Thetis board families, but
             // only implemented RX profiles may proceed to the session. Discovery
             // still labels the physical family rather than guessing a SKU.
             if (!reply || !reply->isSupportedOpenHpsdrBoard()
@@ -3631,7 +3631,7 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
 
             RadioInfo info;
             info.family   = QString::fromLatin1(kFamilyAnan);
-            //DH1KLM: Keep the physical identity on the manual-connect path too.
+            // Keep the physical identity on the manual-connect path too.
             info.boardId  = reply->boardId;
             info.hpsdrProtocol = reply->wireProtocol;
             info.address  = dest;
@@ -3683,7 +3683,7 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
                 setManualMessage(tr("Could not save the selected Saturn implementation."), true);
                 return AnanProbeResult::Answered;
             }
-            //DH1KLM: An explicit original choice must not follow the next, unrelated radio address.
+            // An explicit original choice must not follow the next, unrelated radio address.
             m_manualAnanProfileCombo->setCurrentIndex(0);
             m_manualAnanProtocolCombo->setCurrentIndex(0);
             m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);

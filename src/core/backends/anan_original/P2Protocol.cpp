@@ -33,8 +33,8 @@ void writeU32be(std::uint8_t* p, std::uint32_t v) noexcept
     p[3] = static_cast<std::uint8_t>(v & 0xFF);
 }
 
-//DH1KLM Sign-extend a 24-bit two's-complement value carried in the low 24 bits of
-//DH1KLM a 32-bit int.
+// Sign-extend a 24-bit two's-complement value carried in the low 24 bits of
+// a 32-bit int.
 int signExtend24(std::int32_t raw) noexcept
 {
     if (raw & 0x800000)
@@ -53,8 +53,8 @@ std::array<std::uint8_t, 60> buildDiscovery() noexcept
 
 std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> data) noexcept
 {
-    //DH1KLM Bounds-check BEFORE indexing (Principle VII) -- this parses
-    //DH1KLM unauthenticated UDP. 24 bytes covers the header through byte 23.
+    // Bounds-check BEFORE indexing (Principle VII) -- this parses
+    // unauthenticated UDP. 24 bytes covers the header through byte 23.
     if (data.size() < 24)
         return std::nullopt;
     if (data[0] != 0 || data[1] != 0 || data[2] != 0 || data[3] != 0)
@@ -80,15 +80,15 @@ std::array<std::uint8_t, 60> buildGeneral() noexcept
 {
     std::array<std::uint8_t, 60> pkt{};
     pkt[4] = 0x00;  // Command byte for the General Packet (spec p.19)
-    //DH1KLM Bytes 5-22 (port table) left zero: "if set to zero the default port
-    //DH1KLM will be used" (p.19-20). No renegotiation in Phase 1b.
+    // Bytes 5-22 (port table) left zero: "if set to zero the default port
+    // will be used" (p.19-20). No renegotiation in Phase 1b.
     pkt[37] = 0x08; // bit[3]: DDC/DUC frequency as PHASE WORD (p.21) --
-                     //DH1KLM matches Discovery byte 21 == 1, not a guess.
+                     // matches Discovery byte 21 == 1, not a guess.
     pkt[38] = 0x01; // bit[0]: hardware reset timer / watchdog ON (p.8, p.21).
-                     //DH1KLM See buildGeneral()'s header comment for why this stays
-                     //DH1KLM on deliberately.
+                     // See buildGeneral()'s header comment for why this stays
+                     // on deliberately.
     pkt[39] = 0x00; // BE + 3-byte -- the only format Discovery byte22==0
-                     //DH1KLM declares (p.22, p.45). See discoveryDeclaresBigEndian3Byte().
+                     // declares (p.22, p.45). See discoveryDeclaresBigEndian3Byte().
     return pkt;
 }
 
@@ -96,32 +96,32 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(std::span<const DdcConfig> ddcs,
                                                 bool ditherEnabled, bool randomEnabled) noexcept
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length (80 DDCs); unused DDCs
-                                            //DH1KLM stay zero/disabled
+                                            // stay zero/disabled
     pkt[4] = static_cast<std::uint8_t>(numAdcs);  // "number of ADCs the hardware
-                                                   //DH1KLM supports" (p.25)
-    //DH1KLM Bytes 5/6: one Dither/Random control on this radio, not a per-ADC
-    //DH1KLM pair, so both ADC0 and ADC1 bits track it together regardless of
-    //DH1KLM which ADC any given DDC actually selects.
+                                                   // supports" (p.25)
+    // Bytes 5/6: one Dither/Random control on this radio, not a per-ADC
+    // pair, so both ADC0 and ADC1 bits track it together regardless of
+    // which ADC any given DDC actually selects.
     pkt[5] = ditherEnabled ? 0x03 : 0x00;
     pkt[6] = randomEnabled ? 0x03 : 0x00;
 
-    //DH1KLM Clamp rather than trust the caller: writing rows for more DDCs than
-    //DH1KLM kMaxDdcs would keep landing inside this 1444-byte packet (the spec has
-    //DH1KLM room for 80), so this is not a buffer guard -- it is a refusal to
-    //DH1KLM enable hardware receivers the rest of this backend is not driving.
+    // Clamp rather than trust the caller: writing rows for more DDCs than
+    // kMaxDdcs would keep landing inside this 1444-byte packet (the spec has
+    // room for 80), so this is not a buffer guard -- it is a refusal to
+    // enable hardware receivers the rest of this backend is not driving.
     const std::size_t count =
         std::min(ddcs.size(), static_cast<std::size_t>(kMaxDdcs));
 
     std::uint8_t enableBits = 0;
     for (std::size_t n = 0; n < count; ++n) {
         enableBits |= static_cast<std::uint8_t>(1u << n);
-        //DH1KLM One 6-byte row per DDC: ADC select, 2-byte rate, CIC1, CIC2,
-        //DH1KLM sample size. Offsets confirmed against the single-DDC layout this
-        //DH1KLM replaced (DDC0: 17 / 18-19 / 20-21 / 22), which is bench-proven.
+        // One 6-byte row per DDC: ADC select, 2-byte rate, CIC1, CIC2,
+        // sample size. Offsets confirmed against the single-DDC layout this
+        // replaced (DDC0: 17 / 18-19 / 20-21 / 22), which is bench-proven.
         const std::size_t row = 17 + 6 * n;
         pkt[row] = static_cast<std::uint8_t>(ddcs[n].adcIndex);
         writeU16be(&pkt[row + 1], static_cast<std::uint16_t>(ddcs[n].rateKsps));
-        //DH1KLM row+3, row+4 = CIC1/CIC2, "For Future use" (p.25) -- left zero.
+        // row+3, row+4 = CIC1/CIC2, "For Future use" (p.25) -- left zero.
         pkt[row + 5] = 24;   // sample size, 24 bits (default, made explicit)
     }
     pkt[7] = enableBits;   // bit[n] enables DDC n
@@ -132,9 +132,9 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(int ddc0RateKsps, int numAdcs,
                                                 bool ditherEnabled, bool randomEnabled,
                                                 int ddc0AdcIndex) noexcept
 {
-    //DH1KLM Delegates so the row layout has exactly one implementation; the
-    //DH1KLM single-DDC output stays byte-identical to what this function built
-    //DH1KLM before the multi-DDC overload existed (pinned by the existing tests).
+    // Delegates so the row layout has exactly one implementation; the
+    // single-DDC output stays byte-identical to what this function built
+    // before the multi-DDC overload existed (pinned by the existing tests).
     const DdcConfig one{ddc0RateKsps, ddc0AdcIndex};
     return buildDdcSpecific(std::span<const DdcConfig>(&one, 1),
                             numAdcs, ditherEnabled, randomEnabled);
@@ -142,8 +142,8 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(int ddc0RateKsps, int numAdcs,
 
 std::uint16_t alexRxFilterBits(AlexRxFilter filter) noexcept
 {
-    //DH1KLM Bits from the spec's SATURN/ANAN-G2 Alex0 and Alex1 tables (p.91). The
-    //DH1KLM shift yields unsigned int; the casts narrow it to the 16-bit word.
+    // Bits from the spec's SATURN/ANAN-G2 Alex0 and Alex1 tables (p.91). The
+    // shift yields unsigned int; the casts narrow it to the 16-bit word.
     switch (filter) {
     case AlexRxFilter::Bypass:    return std::uint16_t(1u << 12);
     case AlexRxFilter::Bpf1_5MHz: return std::uint16_t(1u << 6);
@@ -153,16 +153,16 @@ std::uint16_t alexRxFilterBits(AlexRxFilter filter) noexcept
     case AlexRxFilter::Bpf20MHz:  return std::uint16_t(1u << 2);
     case AlexRxFilter::Preamp6m:  return std::uint16_t(1u << 3);
     }
-    //DH1KLM Unreachable for a valid enumerator. Bypass, not zero: zero energises no
-    //DH1KLM relay, and with the bank in series that is no signal path (p.90).
+    // Unreachable for a valid enumerator. Bypass, not zero: zero energises no
+    // relay, and with the bank in series that is no signal path (p.90).
     return std::uint16_t(1u << 12);
 }
 
 AlexRxFilter alexRxFilterFor(double tunedHz) noexcept
 {
     const double mhz = tunedHz / 1e6;
-    //DH1KLM Every comparison with NaN is false, so a non-finite frequency would fall
-    //DH1KLM through to the 6 m preamp, which on HF is silence.
+    // Every comparison with NaN is false, so a non-finite frequency would fall
+    // through to the 6 m preamp, which on HF is silence.
     if (!std::isfinite(mhz)) {
         return AlexRxFilter::Bypass;
     }
@@ -197,16 +197,16 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
 {
     std::array<std::uint8_t, 1444> pkt{};  // full spec length
     pkt[4] = run ? 0x01 : 0x00;  // bit[0] = run. Bits[1..4] = PTT0..3 -- there is no
-                                  //DH1KLM parameter to set them; see this header's own comment.
-    //DH1KLM One 4-byte frequency/phase word per DDC at 9 + 4*n (p.32). Same
-    //DH1KLM clamp-and-ignore contract as buildDdcSpecific().
+                                  // parameter to set them; see this header's own comment.
+    // One 4-byte frequency/phase word per DDC at 9 + 4*n (p.32). Same
+    // clamp-and-ignore contract as buildDdcSpecific().
     const std::size_t count =
         std::min(ddcFreqWords.size(), static_cast<std::size_t>(kMaxDdcs));
     for (std::size_t n = 0; n < count; ++n)
         writeU32be(&pkt[9 + 4 * n], ddcFreqWords[n]);
-    //DH1KLM Alex0, bytes 1432-1435: ANT1 (bit 24) in the TX/antenna half, ADC0's
-    //DH1KLM receive selection in the low half. A filter replaces bypass: the series
-    //DH1KLM bank takes one relay. See this function's declaration comment.
+    // Alex0, bytes 1432-1435: ANT1 (bit 24) in the TX/antenna half, ADC0's
+    // receive selection in the low half. A filter replaces bypass: the series
+    // bank takes one relay. See this function's declaration comment.
     std::uint32_t alex0 = std::uint32_t{1} << 24;
     if (opts.adc0Filter) {
         alex0 |= alexRxFilterBits(*opts.adc0Filter);
@@ -214,19 +214,19 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
         alex0 |= std::uint32_t{1} << 12;
     }
     writeU32be(&pkt[1432], alex0);
-    //DH1KLM Alex1 (RX2/BPF2), bytes 1430-1431: ADC1's receive word, the same bits
-    //DH1KLM (p.91's Alex1 table).
+    // Alex1 (RX2/BPF2), bytes 1430-1431: ADC1's receive word, the same bits
+    // (p.91's Alex1 table).
     if (opts.adc1Filter) {
         writeU16be(&pkt[1430], alexRxFilterBits(*opts.adc1Filter));
     } else if (bypassAdc1Filters) {
         writeU16be(&pkt[1430], std::uint16_t{1} << 12);
     }
-    //DH1KLM Byte 1400 bit 1 mutes the speaker amplifier; bits 0 and 2 stay clear
-    //DH1KLM (HighPriorityOptions::muteSpeakerAmp).
+    // Byte 1400 bit 1 mutes the speaker amplifier; bits 0 and 2 stay clear
+    // (HighPriorityOptions::muteSpeakerAmp).
     if (opts.muteSpeakerAmp) {
         pkt[1400] = std::uint8_t(1u << 1);
     }
-    //DH1KLM Step attenuators, pp.34,36: byte 1443 = ADC0, byte 1442 = ADC1, 0-31 dB.
+    // Step attenuators, pp.34,36: byte 1443 = ADC0, byte 1442 = ADC1, 0-31 dB.
     pkt[1443] = static_cast<std::uint8_t>(
         std::clamp(adc0AttenuationDb, 0, kMaxStepAttenuationDb));
     pkt[1442] = static_cast<std::uint8_t>(
@@ -241,9 +241,9 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run, std::uint32_t ddc0Fre
                                                   int adc1AttenuationDb,
                                                   const HighPriorityOptions& opts) noexcept
 {
-    //DH1KLM Delegates, same reasoning as buildDdcSpecific()'s single-DDC overload:
-    //DH1KLM one implementation of the row layout, and byte-identical output to
-    //DH1KLM what this built before (pinned by the existing tests).
+    // Delegates, same reasoning as buildDdcSpecific()'s single-DDC overload:
+    // one implementation of the row layout, and byte-identical output to
+    // what this built before (pinned by the existing tests).
     return buildHighPriority(run, std::span<const std::uint32_t>(&ddc0FreqWord, 1),
                              bypassAdc0Filters, bypassAdc1Filters,
                              adc0AttenuationDb, adc1AttenuationDb, opts);
@@ -254,16 +254,16 @@ std::array<std::uint8_t, kSpeakerPacketBytes> buildSpeakerAudio(
 {
     std::array<std::uint8_t, kSpeakerPacketBytes> pkt{};
     writeU32be(pkt.data(), sequence);
-    //DH1KLM Zero-initialised above, so the short-input case needs no separate fill
-    //DH1KLM path -- everything past `count` is already silence. See the header for why
-    //DH1KLM silence is the right answer here and a refusal is not.
+    // Zero-initialised above, so the short-input case needs no separate fill
+    // path -- everything past `count` is already silence. See the header for why
+    // silence is the right answer here and a refusal is not.
     constexpr std::size_t kMaxSamples = kSpeakerSampleBytes / sizeof(std::int16_t);
     const std::size_t count = std::min(interleavedLr.size(), kMaxSamples);
     for (std::size_t i = 0; i < count; ++i) {
-        //DH1KLM Reinterpreted through the unsigned type, not shifted as signed: a
-        //DH1KLM right shift of a negative value is implementation-defined, and every
-        //DH1KLM sample below -1 dBFS is negative half the time. The two's-complement
-        //DH1KLM bit pattern is what the wire wants and what the cast produces.
+        // Reinterpreted through the unsigned type, not shifted as signed: a
+        // right shift of a negative value is implementation-defined, and every
+        // sample below -1 dBFS is negative half the time. The two's-complement
+        // bit pattern is what the wire wants and what the cast produces.
         writeU16be(pkt.data() + 4 + i * sizeof(std::int16_t),
                    static_cast<std::uint16_t>(interleavedLr[i]));
     }
@@ -279,7 +279,7 @@ std::optional<HighPriorityStatus> parseHighPriorityStatus(
     s.seq = readU32be(data.data());
     s.speakerUnderflow = (data[30] & 0b0000'1000) != 0;
     s.speakerFifoLevel = readU16be(data.data() + 37);
-    //DH1KLM In bounds by the exact-size guard above, which admits only 60 bytes.
+    // In bounds by the exact-size guard above, which admits only 60 bytes.
     s.supplyRailCounts = readU16be(data.data() + 57);
     return s;
 }
@@ -289,9 +289,9 @@ std::optional<int> ddcIndexForSenderPort(std::uint16_t senderPort, int numDdc,
 {
     if (numDdc <= 0 || senderPort < basePort)
         return std::nullopt;
-    //DH1KLM Widened to int before subtracting: both operands are uint16_t, and the
-    //DH1KLM guard above already rules out the wrap case, but doing the arithmetic
-    //DH1KLM in int keeps that correctness local rather than resting on the guard.
+    // Widened to int before subtracting: both operands are uint16_t, and the
+    // guard above already rules out the wrap case, but doing the arithmetic
+    // in int keeps that correctness local rather than resting on the guard.
     const int index = static_cast<int>(senderPort) - static_cast<int>(basePort);
     if (index >= numDdc)
         return std::nullopt;
@@ -300,19 +300,19 @@ std::optional<int> ddcIndexForSenderPort(std::uint16_t senderPort, int numDdc,
 
 std::optional<DdcFrame> parseDdcFrame(std::span<const std::uint8_t> data) noexcept
 {
-    //DH1KLM Bounds-check BEFORE indexing (Principle VII) -- the declared sample
-    //DH1KLM count is used to REJECT a malformed/foreign datagram below, never to
-    //DH1KLM index past what the buffer actually contains.
+    // Bounds-check BEFORE indexing (Principle VII) -- the declared sample
+    // count is used to REJECT a malformed/foreign datagram below, never to
+    // index past what the buffer actually contains.
     if (data.size() < static_cast<std::size_t>(kDdcHeaderLen))
         return std::nullopt;
 
     const std::uint32_t seq = readU32be(&data[0]);
-    //DH1KLM bytes 4-11 (timestamp) are unused in Phase 1b -- header field only, p.54
+    // bytes 4-11 (timestamp) are unused in Phase 1b -- header field only, p.54
     const std::uint16_t bitsPerSample = readU16be(&data[12]);
     const std::uint16_t samplesDeclared = readU16be(&data[14]);
 
-    //DH1KLM STRICT shape check, not a clamp -- see this function's declaration
-    //DH1KLM comment in P2Protocol.h for why.
+    // STRICT shape check, not a clamp -- see this function's declaration
+    // comment in P2Protocol.h for why.
     const std::size_t expectedLen = static_cast<std::size_t>(kDdcHeaderLen)
         + static_cast<std::size_t>(samplesDeclared) * static_cast<std::size_t>(kDdcSampleBytes);
     if (bitsPerSample != 24 || data.size() != expectedLen)

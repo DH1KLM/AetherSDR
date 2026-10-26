@@ -1,5 +1,5 @@
-//DH1KLM Socket-free: the unicast-endpoint helpers the CTR2 relay and TCP proxy use
-//DH1KLM to accept a radio AetherSDR reached over IPv4 or IPv6.
+// Socket-free: the unicast-endpoint helpers the CTR2 relay and TCP proxy use
+// to accept a radio AetherSDR reached over IPv4 or IPv6.
 #include "core/UnicastEndpoint.h"
 
 #include <QHostAddress>

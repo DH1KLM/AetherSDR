@@ -363,7 +363,7 @@ struct RadioCapabilities {
     bool canCreateSlices = false;
     int maxSlices = 1;             // independent demod slices the radio supports
     int maxPanadapters = 1;        // simultaneous panadapters
-    //DH1KLM Desktop requests only; these do not widen the daemon capability catalogue.
+    // Desktop requests only; these do not widen the daemon capability catalogue.
     std::optional<PanDisplayControl> panDisplayControl;
     std::optional<PanLifecycleControl> panLifecycleControl;
     QVector<int> sampleRatesHz;    // supported per-receiver sample rates (Hz)
@@ -672,8 +672,8 @@ struct RadioCapabilities {
     // Desktop utility verbs only; neither record adds daemon permissions.
     std::optional<SpotControl> spotControl;
     std::optional<PanControl> panControl;
-    //DH1KLM PanControlField::NoiseFloorRange, separate from panControl because it
-    //DH1KLM needs a license the radio reports. Absent refuses the field.
+    // PanControlField::NoiseFloorRange, separate from panControl because it
+    // needs a license the radio reports. Absent refuses the field.
     struct NoiseFloorRangeControl {
         QString requiredLicenseFeature;
     };
@@ -907,10 +907,10 @@ struct RadioCapabilities {
     // applet, the Profile Manager, import/export, the Profiles menu — goes away,
     // rather than offering an empty list the operator cannot populate.
     bool hasProfiles = false;
-    //DH1KLM The radio also stores named CW profiles (Flex `profile cw …`, SmartSDR
-    //DH1KLM 4.3.16+) that a client can list, load, create, delete and reset. Engaged
-    //DH1KLM gates ProfileRequest::Kind::Cw and the Profile Manager CW tab; meaningless
-    //DH1KLM unless hasProfiles is also true.
+    // The radio also stores named CW profiles (Flex `profile cw …`, SmartSDR
+    // 4.3.16+) that a client can list, load, create, delete and reset. Engaged
+    // gates ProfileRequest::Kind::Cw and the Profile Manager CW tab; meaningless
+    // unless hasProfiles is also true.
     struct CwProfileControl {};
     std::optional<CwProfileControl> cwProfileControl;
 

@@ -1,21 +1,21 @@
-//DH1KLM AetherSDRUpdater.exe (RFC #5304 Phase 3): swaps a staged AetherSDR release
-//DH1KLM into place after AetherSDR exits, checks it with the new version's
-//DH1KLM self-test, and rolls back when it fails. The swap itself is UpdateSwap;
-//DH1KLM this file is only its Windows side: arguments, the old process, the
-//DH1KLM processes it starts, a log, and a message when nothing can be fixed.
-//DH1KLM
-//DH1KLM Built with the static MSVC runtime and no Qt, so it loads nothing from the
-//DH1KLM install folder it renames. AetherSDR copies it out of the install before
-//DH1KLM starting it (UpdateInstaller).
-//DH1KLM
-//DH1KLM   AetherSDRUpdater.exe --protocol 1 --wait-pid <pid> --install <dir>
-//DH1KLM                        --staged <dir> --state-dir <dir> --version <x.y.z>
-//DH1KLM                        [--restart]
-//DH1KLM   AetherSDRUpdater.exe --protocol 1 --repair --state-dir <dir>
-//DH1KLM
-//DH1KLM --repair is what the RunOnce entry armed before the first rename runs at
-//DH1KLM the next logon: repair() from the plan the swap left in the state folder,
-//DH1KLM for when the swap died with no install left to start AetherSDR from.
+// AetherSDRUpdater.exe (RFC #5304 Phase 3): swaps a staged AetherSDR release
+// into place after AetherSDR exits, checks it with the new version's
+// self-test, and rolls back when it fails. The swap itself is UpdateSwap;
+// this file is only its Windows side: arguments, the old process, the
+// processes it starts, a log, and a message when nothing can be fixed.
+//
+// Built with the static MSVC runtime and no Qt, so it loads nothing from the
+// install folder it renames. AetherSDR copies it out of the install before
+// starting it (UpdateInstaller).
+//
+//   AetherSDRUpdater.exe --protocol 1 --wait-pid <pid> --install <dir>
+//                        --staged <dir> --state-dir <dir> --version <x.y.z>
+//                        [--restart]
+//   AetherSDRUpdater.exe --protocol 1 --repair --state-dir <dir>
+//
+// --repair is what the RunOnce entry armed before the first rename runs at
+// the next logon: repair() from the plan the swap left in the state folder,
+// for when the swap died with no install left to start AetherSDR from.
 
 #include "UpdateSwap.h"
 
@@ -34,8 +34,8 @@ namespace {
 
 std::wstring quoted(const std::wstring& arg)
 {
-    //DH1KLM The inverse of CommandLineToArgvW: backslashes are literal except
-    //DH1KLM before a quote, where each is doubled and the quote escaped.
+    // The inverse of CommandLineToArgvW: backslashes are literal except
+    // before a quote, where each is doubled and the quote escaped.
     if (!arg.empty() && arg.find_first_of(L" \t\"") == std::wstring::npos) {
         return arg;
     }
@@ -54,14 +54,14 @@ std::wstring quoted(const std::wstring& arg)
         slashes = 0;
         out.push_back(c);
     }
-    out.append(slashes * 2, L'\\');   //DH1KLM before the closing quote
+    out.append(slashes * 2, L'\\');   // before the closing quote
     out.push_back(L'"');
     return out;
 }
 
-//DH1KLM The journal, durably: written and flushed to the disk (not just to the
-//DH1KLM OS), then moved over the old one with the move itself written through, so
-//DH1KLM a power cut leaves either record whole.
+// The journal, durably: written and flushed to the disk (not just to the
+// OS), then moved over the old one with the move itself written through, so
+// a power cut leaves either record whole.
 bool writeDurably(const fs::path& path, const std::string& text)
 {
     std::error_code ec;
@@ -100,8 +100,8 @@ fs::path selfPath()
     }
 }
 
-//DH1KLM The volume serial and NTFS file ID: kept by a rename, new for a file
-//DH1KLM written again.
+// The volume serial and NTFS file ID: kept by a rename, new for a file
+// written again.
 std::string fileId(const fs::path& p)
 {
     const DWORD share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
@@ -122,8 +122,8 @@ std::string fileId(const fs::path& p)
     return utf8(fs::path(buf));
 }
 
-//DH1KLM Whether an AetherSDR.exe is running from the install (the repair has no
-//DH1KLM process id to wait on).
+// Whether an AetherSDR.exe is running from the install (the repair has no
+// process id to wait on).
 bool runningFrom(const fs::path& install)
 {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -154,8 +154,8 @@ bool runningFrom(const fs::path& install)
     return found;
 }
 
-//DH1KLM The repair's plan beside the helper, then the RunOnce entry that starts
-//DH1KLM it; only both together are an armed repair.
+// The repair's plan beside the helper, then the RunOnce entry that starts
+// it; only both together are an armed repair.
 bool armRepair(const Plan& plan)
 {
     const fs::path self = selfPath();
@@ -166,7 +166,7 @@ bool armRepair(const Plan& plan)
     const std::wstring command = quoted(self.wstring()) + L" --protocol " + std::to_wstring(kProtocol)
                                  + L" --repair --state-dir " + quoted(plan.stateDir.wstring());
     if (command.size() >= MAX_PATH) {
-        return false;   //DH1KLM RunOnce runs no longer command line; nothing is swapped then
+        return false;   // RunOnce runs no longer command line; nothing is swapped then
     }
     HKEY key = nullptr;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, kRunOnceKey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key,
@@ -187,7 +187,7 @@ void disarmRepair(const Plan& plan)
     fs::remove(plan.stateDir / kRepairPlan, ec);
 }
 
-//DH1KLM The plan armRepair() left: the install's path and the version, UTF-8.
+// The plan armRepair() left: the install's path and the version, UTF-8.
 bool readRepairPlan(Plan* plan)
 {
     std::ifstream in(plan->stateDir / kRepairPlan, std::ios::binary);
@@ -204,8 +204,8 @@ bool readRepairPlan(Plan* plan)
 
 void showBroken(const Plan& plan)
 {
-    //DH1KLM Nothing runnable is in place and the helper could not fix it: say
-    //DH1KLM where everything is rather than fail silently.
+    // Nothing runnable is in place and the helper could not fix it: say
+    // where everything is rather than fail silently.
     const Paths paths = pathsFor(plan);
     const std::wstring text =
         L"AetherSDR could not finish updating and could not restore the previous version.\n\n"
@@ -217,7 +217,7 @@ void showBroken(const Plan& plan)
     MessageBoxW(nullptr, text.c_str(), L"AetherSDR update", MB_OK | MB_ICONERROR);
 }
 
-//DH1KLM What a swap and a repair share. plan must outlive the result.
+// What a swap and a repair share. plan must outlive the result.
 Ops baseOps(const Plan& plan, std::ofstream& logFile)
 {
     Ops ops;
@@ -231,7 +231,7 @@ Ops baseOps(const Plan& plan, std::ofstream& logFile)
     return ops;
 }
 
-} //DH1KLM namespace
+} // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
@@ -252,7 +252,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     }
     LocalFree(argv);
 
-    //DH1KLM The contract first: an app of another protocol is refused, not guessed at.
+    // The contract first: an app of another protocol is refused, not guessed at.
     if (args[L"--protocol"] != std::to_wstring(kProtocol)) {
         return 2;
     }
@@ -268,8 +268,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
             RegDeleteKeyValueW(HKEY_CURRENT_USER, kRunOnceKey, kRunOnceValue);
             return 0;
         }
-        //DH1KLM No process id to wait on: the app counts as running while any
-        //DH1KLM AetherSDR.exe runs from the install.
+        // No process id to wait on: the app counts as running while any
+        // AetherSDR.exe runs from the install.
         ops.waitForOldExit = [&ops, &plan](Duration timeout) {
             const auto deadline = Clock::now() + timeout;
             while (runningFrom(plan.install)) {
@@ -305,7 +305,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     plan.stateDir = args[L"--state-dir"];
     plan.exeName = L"AetherSDR.exe";
     for (wchar_t c : args[L"--version"]) {
-        plan.version.push_back(static_cast<char>(c));   //DH1KLM digits and dots only
+        plan.version.push_back(static_cast<char>(c));   // digits and dots only
     }
     plan.relaunch = restart;
     const DWORD pid = static_cast<DWORD>(std::wcstoul(args[L"--wait-pid"].c_str(), nullptr, 10));
@@ -315,7 +315,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     ops.waitForOldExit = [pid](Duration timeout) {
         HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, pid);
         if (!h) {
-            return true;   //DH1KLM already gone
+            return true;   // already gone
         }
         const DWORD r = WaitForSingleObject(h, static_cast<DWORD>(timeout.count()));
         CloseHandle(h);
@@ -350,16 +350,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     try {
         outcome = run(plan, ops);
     } catch (const std::exception& e) {
-        //DH1KLM Never a silent crash: put the known-good install back the way a
-        //DH1KLM later run would, and say so. Only an install still missing is
-        //DH1KLM Broken; a swap that had already finished is left as it reported.
+        // Never a silent crash: put the known-good install back the way a
+        // later run would, and say so. Only an install still missing is
+        // Broken; a swap that had already finished is left as it reported.
         ops.log(std::string("the swap stopped on an error: ") + e.what());
         try {
             const Paths paths = pathsFor(plan);
             std::error_code ec;
             if (!fs::exists(paths.journal, ec) && fs::exists(paths.result, ec)) {
                 ops.log("the swap had already finished; its result stands");
-                outcome = Outcome::NotPossible;   //DH1KLM not Broken: no message
+                outcome = Outcome::NotPossible;   // not Broken: no message
             } else {
                 const bool owed = fs::exists(paths.journal, ec);
                 const bool restored = recover(plan, ops);

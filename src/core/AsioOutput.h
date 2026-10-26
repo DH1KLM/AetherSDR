@@ -19,7 +19,7 @@ struct AsioOutputConfig {
 };
 struct AsioOutputDriver { QString name; QString id; };
 
-//DH1KLM: Output-only native ASIO host; driver lifetime stays on the existing AudioEngine thread.
+// Output-only native ASIO host; driver lifetime stays on the existing AudioEngine thread.
 class AsioOutput final : public QIODevice {
 public:
     explicit AsioOutput(QObject* parent = nullptr);

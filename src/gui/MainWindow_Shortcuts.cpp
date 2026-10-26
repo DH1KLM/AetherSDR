@@ -680,12 +680,12 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         }
     }
 
-    //DH1KLM Enable kinetic touch-scroll on every scroll area app-wide (band stack,
-    //DH1KLM memory/profile lists, the radio-setup menus, any QScrollArea/item view),
-    //DH1KLM once, the first time each is shown. With QScroller grabbed a touch drag
-    //DH1KLM flick-scrolls instead of rubber-band selecting, while a stationary tap
-    //DH1KLM still falls through as a click. Widgets whose drag means something else
-    //DH1KLM (AppletPanel's applet drag-and-drop) opt out via _aetherNoTouchScroll.
+    // Enable kinetic touch-scroll on every scroll area app-wide (band stack,
+    // memory/profile lists, the radio-setup menus, any QScrollArea/item view),
+    // once, the first time each is shown. With QScroller grabbed a touch drag
+    // flick-scrolls instead of rubber-band selecting, while a stationary tap
+    // still falls through as a click. Widgets whose drag means something else
+    // (AppletPanel's applet drag-and-drop) opt out via _aetherNoTouchScroll.
     if (event->type() == QEvent::Show) {
         if (auto* area = qobject_cast<QAbstractScrollArea*>(obj)) {
             if (!area->property("_aetherTouchScroll").toBool()
@@ -700,16 +700,16 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         }
     }
 
-    //DH1KLM Touch tap-and-hold -> right-click. On a touchscreen Qt synthesizes a LEFT
-    //DH1KLM click from a tap; watch those synthesized mouse events and, when a press is
-    //DH1KLM held in place long enough, turn it into a right-button click (plus a
-    //DH1KLM context-menu event) so press-and-hold acts like the right mouse button with
-    //DH1KLM no physical mouse. The press the touch already armed on the widget is
-    //DH1KLM cancelled and its release swallowed, so a fired hold performs exactly one
-    //DH1KLM action (the context menu), never also the normal click. Real
-    //DH1KLM (non-synthesized) mouse input is untouched.
-    static constexpr int kTouchHoldMs = 600;     //DH1KLM hold this long -> right-click
-    static constexpr int kTouchHoldSlopPx = 12;  //DH1KLM move more than this -> it's a drag
+    // Touch tap-and-hold -> right-click. On a touchscreen Qt synthesizes a LEFT
+    // click from a tap; watch those synthesized mouse events and, when a press is
+    // held in place long enough, turn it into a right-button click (plus a
+    // context-menu event) so press-and-hold acts like the right mouse button with
+    // no physical mouse. The press the touch already armed on the widget is
+    // cancelled and its release swallowed, so a fired hold performs exactly one
+    // action (the context menu), never also the normal click. Real
+    // (non-synthesized) mouse input is untouched.
+    static constexpr int kTouchHoldMs = 600;     // hold this long -> right-click
+    static constexpr int kTouchHoldSlopPx = 12;  // move more than this -> it's a drag
     if (event->type() == QEvent::MouseButtonPress
         || event->type() == QEvent::MouseButtonRelease
         || event->type() == QEvent::MouseMove) {
@@ -729,19 +729,19 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                     if (!w) { return; }
                     const QPointF global(m_touchHoldGlobalPos);
                     const QPointF local = w->mapFromGlobal(m_touchHoldGlobalPos);
-                    //DH1KLM Cancel the left press the synthesized touch already armed on
-                    //DH1KLM this widget, WITHOUT activating it: a release delivered
-                    //DH1KLM outside the widget un-arms a QAbstractButton (and ends a
-                    //DH1KLM pan-drag) without emitting clicked()/tuning. Then swallow the
-                    //DH1KLM real release on finger-lift (below), so the hold never also
-                    //DH1KLM performs the click.
+                    // Cancel the left press the synthesized touch already armed on
+                    // this widget, WITHOUT activating it: a release delivered
+                    // outside the widget un-arms a QAbstractButton (and ends a
+                    // pan-drag) without emitting clicked()/tuning. Then swallow the
+                    // real release on finger-lift (below), so the hold never also
+                    // performs the click.
                     QMouseEvent cancel(QEvent::MouseButtonRelease, QPointF(-1, -1),
                                        w->mapToGlobal(QPoint(-1, -1)),
                                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
                     QApplication::sendEvent(w, &cancel);
                     m_touchHoldSwallowRelease = true;
-                    //DH1KLM Right-button click: SpectrumWidget and other inline handlers
-                    //DH1KLM open their menu straight from mousePressEvent().
+                    // Right-button click: SpectrumWidget and other inline handlers
+                    // open their menu straight from mousePressEvent().
                     QMouseEvent press(QEvent::MouseButtonPress, local, global,
                                       Qt::RightButton, Qt::RightButton,
                                       Qt::NoModifier);
@@ -750,10 +750,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                                         Qt::RightButton, Qt::NoButton,
                                         Qt::NoModifier);
                     QApplication::sendEvent(w, &release);
-                    //DH1KLM Widgets that use contextMenuEvent() instead of an inline
-                    //DH1KLM right-button check get their menu this way -- but only if the
-                    //DH1KLM press was not already consumed, so a widget that opened its
-                    //DH1KLM menu from the press does not get a second, propagated one.
+                    // Widgets that use contextMenuEvent() instead of an inline
+                    // right-button check get their menu this way -- but only if the
+                    // press was not already consumed, so a widget that opened its
+                    // menu from the press does not get a second, propagated one.
                     if (!press.isAccepted()) {
                         QContextMenuEvent cme(QContextMenuEvent::Mouse, local.toPoint(),
                                               m_touchHoldGlobalPos);
@@ -769,20 +769,20 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                    && m_touchHoldTimer->isActive()) {
             if ((me->globalPosition().toPoint() - m_touchHoldGlobalPos)
                     .manhattanLength() > kTouchHoldSlopPx) {
-                m_touchHoldTimer->stop();  //DH1KLM moved -> it's a drag/scroll, not a hold
+                m_touchHoldTimer->stop();  // moved -> it's a drag/scroll, not a hold
             }
         } else if (event->type() == QEvent::MouseButtonRelease
                    && me->button() == Qt::LeftButton) {
             if (m_touchHoldTimer) { m_touchHoldTimer->stop(); }
             if (m_touchHoldSwallowRelease) {
                 m_touchHoldSwallowRelease = false;
-                return true;   //DH1KLM the hold acted; drop the click this release would do
+                return true;   // the hold acted; drop the click this release would do
             }
         }
     }
-    //DH1KLM A touch flick inside a QScroller-grabbed viewport is owned by the scroller,
-    //DH1KLM so the synthesized MouseMove/Release above may never arrive. Cancel a
-    //DH1KLM pending hold on touch movement past the slop or a touch cancel too.
+    // A touch flick inside a QScroller-grabbed viewport is owned by the scroller,
+    // so the synthesized MouseMove/Release above may never arrive. Cancel a
+    // pending hold on touch movement past the slop or a touch cancel too.
     if (m_touchHoldTimer && m_touchHoldTimer->isActive()) {
         if (event->type() == QEvent::TouchCancel) {
             m_touchHoldTimer->stop();
@@ -1057,7 +1057,7 @@ void MainWindow::activateStatusIndicator(QObject* obj)
     }
 #endif
     if (obj == m_radioVersionLabel) {
-        openFirmwareUpdate();   //DH1KLM no-op unless the row shows out-of-date firmware
+        openFirmwareUpdate();   // no-op unless the row shows out-of-date firmware
         return;
     }
     if (obj == m_cwxIndicator) {
@@ -1905,7 +1905,7 @@ int MainWindow::fireShortcutAction(const QString& id, bool allowTx,
                 return ShortcutFireTxBlocked;
             }
             if (m_radioModel.isConnected()) {
-                //DH1KLM Copy before invoking: nested configuration may rebuild actions.
+                // Copy before invoking: nested configuration may rebuild actions.
                 const auto handler = a->txHandler;
                 const TxController::Input input = controller->capture(a->txActivity);
                 handler(input);
@@ -2099,8 +2099,8 @@ void MainWindow::zoomActivePanadapter(double factor)
     if (!sw) {
         return;
     }
-    //DH1KLM A fixed span cannot zoom; skip the local preview too. A Kiwi pane's
-    //DH1KLM zoom is that local view change, so it keeps working.
+    // A fixed span cannot zoom; skip the local preview too. A Kiwi pane's
+    // zoom is that local view change, so it keeps working.
     if (panSpanFixedByBackend() && !kiwiSdrPanDisplaysKiwi(s->panId())) {
         return;
     }

@@ -267,7 +267,7 @@ public:
         update();
     }
 
-    //DH1KLM Colour of the middle (caution) zone and its tick labels; default olive.
+    // Colour of the middle (caution) zone and its tick labels; default olive.
     void setCautionColor(const QColor& color) {
         m_cautionColor = color;
         update();
@@ -317,10 +317,10 @@ public:
         update();
     }
 
-    //DH1KLM Move only the yellow/red zone starts on an unchanged axis. Unlike
-    //DH1KLM setRange() this leaves the smoother alone, so a caller that tracks the
-    //DH1KLM zones to a live reading (RF-KIT's SWR zones follow forward power) does
-    //DH1KLM not snap the bar several times a second.
+    // Move only the yellow/red zone starts on an unchanged axis. Unlike
+    // setRange() this leaves the smoother alone, so a caller that tracks the
+    // zones to a live reading (RF-KIT's SWR zones follow forward power) does
+    // not snap the bar several times a second.
     void setZones(float redStart, float yellowStart) {
         if (redStart == m_redStart && yellowStart == m_yellowStart) return;
         m_redStart = redStart;

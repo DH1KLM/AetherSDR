@@ -1,31 +1,31 @@
-//DH1KLM The multiFLEX Dashboard is a canon dialog.
-//DH1KLM
-//DH1KLM Pinned here, each with its control:
-//DH1KLM   1. it is a non-modal CanonWindow dialog: no native frame, titled multiFLEX
-//DH1KLM      Dashboard, under the canon/multiFlex theme scope, and with no Close
-//DH1KLM      button of its own (the corner close button and Escape close it);
-//DH1KLM   2. the size and place the operator gives it persist under the key it used
-//DH1KLM      as a PersistentDialog (MultiFlexDialogGeometry), so geometry saved
-//DH1KLM      before the migration (PersistentDialog's base64 saveGeometry()) carries
-//DH1KLM      over, and a second window restores the size it saves;
-//DH1KLM   3. the Enabled / Disabled button is drawn in color.toggle.success when
-//DH1KLM      multiFLEX is on and color.accent.danger when it is off, under Default
-//DH1KLM      Dark and Default Light;
-//DH1KLM   4. in the station table, the PTT tick is drawn in color.accent.success
-//DH1KLM      (a glyph the UI font carries, so no color-emoji fallback grays it), our own
-//DH1KLM      station is color.canon.cyan with no Disconnect button, and another
-//DH1KLM      station's Disconnect button is drawn in color.accent.danger and asks
-//DH1KLM      once, then disables;
-//DH1KLM   5. Return or Enter on a station row does not click the Enabled /
-//DH1KLM      Disabled toggle, the dialog's default button
-//DH1KLM      (setReturnClicksDefault(false));
-//DH1KLM   6. a selected row keeps its tick and station colors, a theme change
-//DH1KLM      recolors the rows without rebuilding them, hovering the toggle
-//DH1KLM      brightens its border to color.canon.aqua, and losing the radio closes
-//DH1KLM      the window.
-//DH1KLM
-//DH1KLM No radio: the model is bare and never connected, so the button's toggle
-//DH1KLM changes only the model's local state.
+// The multiFLEX Dashboard is a canon dialog.
+//
+// Pinned here, each with its control:
+//   1. it is a non-modal CanonWindow dialog: no native frame, titled multiFLEX
+//      Dashboard, under the canon/multiFlex theme scope, and with no Close
+//      button of its own (the corner close button and Escape close it);
+//   2. the size and place the operator gives it persist under the key it used
+//      as a PersistentDialog (MultiFlexDialogGeometry), so geometry saved
+//      before the migration (PersistentDialog's base64 saveGeometry()) carries
+//      over, and a second window restores the size it saves;
+//   3. the Enabled / Disabled button is drawn in color.toggle.success when
+//      multiFLEX is on and color.accent.danger when it is off, under Default
+//      Dark and Default Light;
+//   4. in the station table, the PTT tick is drawn in color.accent.success
+//      (a glyph the UI font carries, so no color-emoji fallback grays it), our own
+//      station is color.canon.cyan with no Disconnect button, and another
+//      station's Disconnect button is drawn in color.accent.danger and asks
+//      once, then disables;
+//   5. Return or Enter on a station row does not click the Enabled /
+//      Disabled toggle, the dialog's default button
+//      (setReturnClicksDefault(false));
+//   6. a selected row keeps its tick and station colors, a theme change
+//      recolors the rows without rebuilding them, hovering the toggle
+//      brightens its border to color.canon.aqua, and losing the radio closes
+//      the window.
+//
+// No radio: the model is bare and never connected, so the button's toggle
+// changes only the model's local state.
 
 #include "TestSettingsProfile.h"
 #include "core/AppSettings.h"
@@ -54,7 +54,7 @@ QPushButton* findEnableButton(QWidget& window)
     return window.findChild<QPushButton*>(QStringLiteral("multiFlexEnableButton"));
 }
 
-//DH1KLM Pixels within `slack` of `color` on every channel.
+// Pixels within `slack` of `color` on every channel.
 int pixelsNear(const QImage& image, const QColor& color, int slack)
 {
     int n = 0;
@@ -70,8 +70,8 @@ int pixelsNear(const QImage& image, const QColor& color, int slack)
     return n;
 }
 
-//DH1KLM Feeds two stations into a bare model: client 0x00000000 is us (a bare
-//DH1KLM model's own handle is 0), and the other station holds PTT.
+// Feeds two stations into a bare model: client 0x00000000 is us (a bare
+// model's own handle is 0), and the other station holds PTT.
 void addTwoStations(RadioModel& model)
 {
     model.handleStatusForTest(QStringLiteral("client 0x00000000"),
@@ -101,7 +101,7 @@ int cellPixelsNear(QTableWidget* table, int row, int column, const QColor& color
     return pixelsNear(table->viewport()->grab(cell).toImage(), color, slack);
 }
 
-//DH1KLM Returns the process to the theme it started on, on every exit from a slot.
+// Returns the process to the theme it started on, on every exit from a slot.
 class ThemeRestore {
 public:
     ThemeRestore() : m_theme(ThemeManager::instance().activeTheme()) {}
@@ -111,7 +111,7 @@ private:
     const QString m_theme;
 };
 
-} //DH1KLM namespace
+} // namespace
 
 class MultiFlexDashboardWindowTest : public QObject {
     Q_OBJECT
@@ -124,14 +124,14 @@ private slots:
         QVERIFY(qobject_cast<CanonWindow*>(&window));
         QCOMPARE(window.windowTitle(), QStringLiteral("multiFLEX Dashboard"));
         QVERIFY(window.windowFlags().testFlag(Qt::FramelessWindowHint));
-        //DH1KLM A dialog over its parent, not a workspace, and it leaves the main
-        //DH1KLM window usable while it is open.
+        // A dialog over its parent, not a workspace, and it leaves the main
+        // window usable while it is open.
         QCOMPARE(window.windowType(), Qt::Dialog);
         QCOMPARE(window.windowModality(), Qt::NonModal);
         QCOMPARE(window.property("themeContainer").toString(),
                  QStringLiteral("canon/multiFlex"));
-        //DH1KLM CONTROL: the Enabled button is found, so the search below can find
-        //DH1KLM a button by its text.
+        // CONTROL: the Enabled button is found, so the search below can find
+        // a button by its text.
         QVERIFY(findEnableButton(window));
         for (QPushButton* button : window.findChildren<QPushButton*>()) {
             QVERIFY2(button->text() != QLatin1String("Close"),
@@ -143,8 +143,8 @@ private slots:
     {
         auto& settings = AppSettings::instance();
         settings.remove(QLatin1String(kGeometryKey));
-        //DH1KLM CONTROL: nothing saved yet, so the restore below can only come from
-        //DH1KLM this slot's own close.
+        // CONTROL: nothing saved yet, so the restore below can only come from
+        // this slot's own close.
         QVERIFY(settings.value(QLatin1String(kGeometryKey)).toString().isEmpty());
 
         RadioModel model;
@@ -156,7 +156,7 @@ private slots:
             window.resize(chosen);
             QCoreApplication::processEvents();
             QCOMPARE(window.size(), chosen);
-            //DH1KLM Escape closes it, and the geometry is flushed on hide.
+            // Escape closes it, and the geometry is flushed on hide.
             QTest::keyClick(&window, Qt::Key_Escape);
             QTRY_VERIFY(!window.isVisible());
         }
@@ -164,7 +164,7 @@ private slots:
         QVERIFY2(saved.endsWith(QLatin1String(",900,420")), qPrintable(saved));
 
         MultiFlexDialog again(&model);
-        //DH1KLM CONTROL: a fresh window is not born at the saved size.
+        // CONTROL: a fresh window is not born at the saved size.
         QVERIFY(again.size() != chosen);
         again.show();
         QVERIFY(QTest::qWaitForWindowExposed(&again));
@@ -174,9 +174,9 @@ private slots:
 
     void geometrySavedByThePersistentDialogCarriesOver()
     {
-        //DH1KLM PersistentDialog saved saveGeometry() as base64 under the same key;
-        //DH1KLM that is what an existing install holds on its first canon open.
-        const QSize legacy(720, 360);   //DH1KLM inside the 800x600 offscreen screen
+        // PersistentDialog saved saveGeometry() as base64 under the same key;
+        // that is what an existing install holds on its first canon open.
+        const QSize legacy(720, 360);   // inside the 800x600 offscreen screen
         QByteArray blob;
         {
             QDialog old;
@@ -192,7 +192,7 @@ private slots:
 
         RadioModel model;
         MultiFlexDialog window(&model);
-        //DH1KLM CONTROL: the window is not born at the legacy size.
+        // CONTROL: the window is not born at the legacy size.
         QVERIFY(window.size() != legacy);
         window.show();
         QVERIFY(QTest::qWaitForWindowExposed(&window));
@@ -216,7 +216,7 @@ private slots:
             QVERIFY(button);
             const QColor success = tm.color(button, QStringLiteral("color.toggle.success.border.checked"));
             const QColor danger = tm.color(button, QStringLiteral("color.accent.danger"));
-            //DH1KLM CONTROL: the two states must be told apart by color at all.
+            // CONTROL: the two states must be told apart by color at all.
             QVERIFY(success != danger);
 
             auto measure = [&](bool on) {
@@ -240,7 +240,7 @@ private slots:
             };
             measure(true);
             measure(false);
-            measure(true);   //DH1KLM the property flip repolishes in both directions
+            measure(true);   // the property flip repolishes in both directions
         }
         QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QStringLiteral("\n"))));
     }
@@ -255,21 +255,21 @@ private slots:
         auto* table = window.findChild<QTableWidget*>();
         QPushButton* button = findEnableButton(window);
         QVERIFY(table && button);
-        //DH1KLM CONTROL: the toggle is the dialog's default button, and a station
-        //DH1KLM row is current, so the table passes Return up to the dialog.
+        // CONTROL: the toggle is the dialog's default button, and a station
+        // row is current, so the table passes Return up to the dialog.
         QVERIFY(button->isDefault());
         table->setFocus();
         table->setCurrentCell(1, 1);
         QTRY_VERIFY(table->hasFocus());
         const bool before = model.multiFlexEnabled();
 
-        //DH1KLM Each key checked on its own: two clicks would toggle it back.
+        // Each key checked on its own: two clicks would toggle it back.
         QTest::keyClick(table, Qt::Key_Return);
         QCOMPARE(model.multiFlexEnabled(), before);
         QTest::keyClick(table, Qt::Key_Enter);
         QCOMPARE(model.multiFlexEnabled(), before);
 
-        //DH1KLM CONTROL: the button itself still takes the keyboard when focused.
+        // CONTROL: the button itself still takes the keyboard when focused.
         button->setFocus();
         QTRY_VERIFY(button->hasFocus());
         QTest::keyClick(button, Qt::Key_Space);
@@ -298,8 +298,8 @@ private slots:
 
             table->selectRow(other);
             QCoreApplication::processEvents();
-            //DH1KLM CONTROL: the row really is selected, so the selection band and
-            //DH1KLM its text color apply to it.
+            // CONTROL: the row really is selected, so the selection band and
+            // its text color apply to it.
             QVERIFY(table->item(other, 0)->isSelected());
             const int tick = cellPixelsNear(table, other, 0, success, 40);
 
@@ -342,12 +342,12 @@ private slots:
         QVERIFY(tm.setActiveTheme(QStringLiteral("Default Light")));
         QCoreApplication::processEvents();
         const QColor lightCyan = tm.color(table, QStringLiteral("color.canon.cyan"));
-        //DH1KLM CONTROL: the two themes' cyan differ, so a recolor is observable.
+        // CONTROL: the two themes' cyan differ, so a recolor is observable.
         QVERIFY(darkCyan != lightCyan);
         QCOMPARE(table->item(ours, 1)->foreground().color(), lightCyan);
         QCOMPARE(table->item(other, 0)->foreground().color(),
                  tm.color(table, QStringLiteral("color.accent.success")));
-        //DH1KLM The rows and their Disconnect buttons are the same objects.
+        // The rows and their Disconnect buttons are the same objects.
         QCOMPARE(table->cellWidget(other, 4), disconnectBefore);
         QCOMPARE(table->item(other, 0), tickBefore);
     }
@@ -378,7 +378,7 @@ private slots:
                 qInfo().noquote() << QStringLiteral("HOVER %1 %2: aqua at rest %3, hovered %4")
                                          .arg(QLatin1String(theme), button->text())
                                          .arg(rest).arg(hover);
-                //DH1KLM CONTROL: no aqua at rest, so the hovered count is the border.
+                // CONTROL: no aqua at rest, so the hovered count is the border.
                 if (rest != 0 || hover <= 0)
                     failures << QStringLiteral("%1 %2: aqua at rest %3, hovered %4")
                                     .arg(QLatin1String(theme), button->text())
@@ -394,7 +394,7 @@ private slots:
         MultiFlexDialog window(&model);
         window.show();
         QVERIFY(QTest::qWaitForWindowExposed(&window));
-        //DH1KLM CONTROL: a connect does not close it.
+        // CONTROL: a connect does not close it.
         emit model.connectionStateChanged(true);
         QCoreApplication::processEvents();
         QVERIFY(window.isVisible());
@@ -418,8 +418,8 @@ private slots:
 
             auto* table = window.findChild<QTableWidget*>();
             QVERIFY(table);
-            //DH1KLM CONTROL: both stations are listed, so the per-row checks below
-            //DH1KLM read real rows.
+            // CONTROL: both stations are listed, so the per-row checks below
+            // read real rows.
             QCOMPARE(table->rowCount(), 2);
             const QColor success = tm.color(table, QStringLiteral("color.accent.success"));
             const QColor cyan = tm.color(table, QStringLiteral("color.canon.cyan"));
@@ -443,9 +443,9 @@ private slots:
                 if (table->item(row, 0)->foreground().color() != success)
                     failures << QStringLiteral("%1: %2's PTT tick is not the success token")
                                     .arg(QLatin1String(theme), station);
-                //DH1KLM The tick must take that color when drawn: a glyph that falls
-                //DH1KLM back to a color-emoji font paints its own gray instead. The
-                //DH1KLM row is not selected (ours is), so no selection color covers it.
+                // The tick must take that color when drawn: a glyph that falls
+                // back to a color-emoji font paints its own gray instead. The
+                // row is not selected (ours is), so no selection color covers it.
                 const QRect tickCell = table->visualItemRect(table->item(row, 0));
                 const int green = pixelsNear(
                     table->viewport()->grab(tickCell).toImage(), success, 40);

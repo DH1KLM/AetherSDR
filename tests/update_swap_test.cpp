@@ -1,11 +1,11 @@
-//DH1KLM The folder swap AetherSDRUpdater.exe performs (src/updater/UpdateSwap),
-//DH1KLM driven through injected processes on a simulated clock, on any platform.
-//DH1KLM
-//DH1KLM Each "install" is a folder whose AetherSDR.exe is a text file saying what
-//DH1KLM the binary would do when its self-test runs: "good <version>" writes the
-//DH1KLM marker and exits, "broken" exits without it, "hang" never exits. Renames
-//DH1KLM can be made to fail, as a locked folder or another volume would.
-//DH1KLM No Qt, no sockets, no real processes.
+// The folder swap AetherSDRUpdater.exe performs (src/updater/UpdateSwap),
+// driven through injected processes on a simulated clock, on any platform.
+//
+// Each "install" is a folder whose AetherSDR.exe is a text file saying what
+// the binary would do when its self-test runs: "good <version>" writes the
+// marker and exits, "broken" exits without it, "hang" never exits. Renames
+// can be made to fail, as a locked folder or another volume would.
+// No Qt, no sockets, no real processes.
 
 #include "updater/UpdateSwap.h"
 
@@ -46,7 +46,7 @@ void put(const fs::path& p, const std::string& text)
 }
 
 struct FakeProc {
-    std::string kind;   //DH1KLM what the launched binary does
+    std::string kind;   // what the launched binary does
     fs::path marker;
     std::string version;
     bool exited = false;
@@ -61,11 +61,11 @@ struct Harness {
     bool oldExits = true;
     std::vector<std::pair<fs::path, std::vector<fs::path>>> launches;
     std::vector<std::shared_ptr<FakeProc>> procs;
-    std::map<std::string, int> renameFailures;   //DH1KLM "<from name>" -> how many times to fail
-    std::errc renameError = std::errc::permission_denied;   //DH1KLM what a failing rename reports
-    std::string journalFailsAt;                  //DH1KLM a step ("swap-1") whose journal write fails
+    std::map<std::string, int> renameFailures;   // "<from name>" -> how many times to fail
+    std::errc renameError = std::errc::permission_denied;   // what a failing rename reports
+    std::string journalFailsAt;                  // a step ("swap-1") whose journal write fails
     std::vector<std::string> logLines;
-    bool armed = false;      //DH1KLM the RunOnce repair
+    bool armed = false;      // the RunOnce repair
     bool armFails = false;
     int arms = 0;
 
@@ -112,8 +112,8 @@ struct Harness {
         };
         ops.sleep = [this](Duration d) {
             clock += d;
-            //DH1KLM No path waits an hour: a loop with no way out is a failure,
-            //DH1KLM not a hang.
+            // No path waits an hour: a loop with no way out is a failure,
+            // not a hang.
             if (clock.time_since_epoch() > std::chrono::hours(1)) {
                 std::fprintf(stderr, "FAIL: the swap waited over an hour (a loop with no exit)\n");
                 std::exit(1);
@@ -137,8 +137,8 @@ struct Harness {
             return true;
         };
         ops.disarmRepair = [this] { armed = false; };
-        //DH1KLM A rename keeps a file's size and time; a file written again gets
-        //DH1KLM a new time (reinstalled() below sets one).
+        // A rename keeps a file's size and time; a file written again gets
+        // a new time (reinstalled() below sets one).
         ops.fileId = [](const fs::path& p) {
             std::error_code ec;
             const auto t = fs::last_write_time(p, ec);
@@ -146,7 +146,7 @@ struct Harness {
                 return std::string();
             }
             return std::to_string(fs::file_size(p, ec)) + "-"
-                   + std::to_string(static_cast<long long>(t.time_since_epoch().count()));   //DH1KLM libc++: __int128
+                   + std::to_string(static_cast<long long>(t.time_since_epoch().count()));   // libc++: __int128
         };
         ops.rename = [this](const fs::path& from, const fs::path& to, std::error_code& ec) {
             auto it = renameFailures.find(from.filename().string());
@@ -174,12 +174,12 @@ void cleanUpdate()
     CHECK(run(h.plan, h.ops) == Outcome::Updated);
     CHECK(h.installed() == "good 26.10.4");
     CHECK(slurp(h.plan.install / "Qt6Core.dll") == "qt 6.12 new");
-    CHECK(slurp(h.paths().previous / "AetherSDR.exe") == "good 26.10.3");   //DH1KLM one kept
+    CHECK(slurp(h.paths().previous / "AetherSDR.exe") == "good 26.10.3");   // one kept
     CHECK(!fs::exists(h.paths().next));
     CHECK(!fs::exists(h.paths().journal));
     CHECK(!fs::exists(h.paths().marker));
     CHECK(h.result() == "Updated 26.10.4\n");
-    //DH1KLM The self-test, then the app itself (Restart to update).
+    // The self-test, then the app itself (Restart to update).
     CHECK(h.launches.size() == 2);
     CHECK(h.launches[0].second.size() == 2 && h.launches[0].second[0] == "--update-selftest");
     CHECK(h.launches[1].second.empty());
@@ -190,7 +190,7 @@ void onQuitTheAppIsNotStarted()
     Harness h("quit");
     h.plan.relaunch = false;
     CHECK(run(h.plan, h.ops) == Outcome::Updated);
-    CHECK(h.launches.size() == 1);   //DH1KLM the self-test only
+    CHECK(h.launches.size() == 1);   // the self-test only
 }
 
 void anOlderPreviousIsReplaced()
@@ -210,7 +210,7 @@ void aBrokenReleaseIsRolledBack()
     CHECK(h.installed() == "good 26.10.3");
     CHECK(slurp(h.paths().failed / "AetherSDR.exe") == "broken");
     CHECK(h.result() == "RolledBack 26.10.4\n");
-    CHECK(h.launches.size() == 2 && h.launches[1].second.empty());   //DH1KLM the old version restarted
+    CHECK(h.launches.size() == 2 && h.launches[1].second.empty());   // the old version restarted
 }
 
 void aSelfTestThatHangsIsStoppedAndRolledBack()
@@ -224,8 +224,8 @@ void aSelfTestThatHangsIsStoppedAndRolledBack()
 
 void anOldBinaryCannotPassForTheNewOne()
 {
-    //DH1KLM The staged tree still holds the old binary: its self-test reports
-    //DH1KLM the wrong version and is treated as a failure.
+    // The staged tree still holds the old binary: its self-test reports
+    // the wrong version and is treated as a failure.
     Harness h("wrong-version");
     put(h.plan.staged / "AetherSDR.exe", "good 26.10.3");
     CHECK(run(h.plan, h.ops) == Outcome::RolledBack);
@@ -253,23 +253,23 @@ void preFlightFailuresChangeNothing()
         Harness h("leftover-new");
         put(h.paths().next / "x", "someone's folder");
         CHECK(run(h.plan, h.ops) == Outcome::NotPossible);
-        CHECK(slurp(h.paths().next / "x") == "someone's folder");   //DH1KLM not ours, not removed
+        CHECK(slurp(h.paths().next / "x") == "someone's folder");   // not ours, not removed
     }
 }
 
 void anotherVolumeIsCopiedBesideTheInstall()
 {
     Harness h("cross-volume");
-    h.renameFailures["26.10.4"] = 1;   //DH1KLM staged -> .new fails, as across volumes
+    h.renameFailures["26.10.4"] = 1;   // staged -> .new fails, as across volumes
     h.renameError = std::errc::cross_device_link;
     CHECK(run(h.plan, h.ops) == Outcome::Updated);
     CHECK(h.installed() == "good 26.10.4");
-    CHECK(!fs::exists(h.plan.staged));   //DH1KLM the copy's source is cleaned up
+    CHECK(!fs::exists(h.plan.staged));   // the copy's source is cleaned up
 }
 
 void aLockedStagedTreeIsNotCopied()
 {
-    //DH1KLM Review of #6767: only another volume is a reason to copy.
+    // Review of #6767: only another volume is a reason to copy.
     Harness h("staged-locked");
     h.renameFailures["26.10.4"] = 1;
     CHECK(run(h.plan, h.ops) == Outcome::NotPossible);
@@ -285,10 +285,10 @@ void aLockedStagedTreeIsNotCopied()
 
 void pathsOutsideTheCodePageAreSwapped()
 {
-    //DH1KLM The Windows run of #6767: a path under 漢字 crashed the helper,
-    //DH1KLM which joined paths through the ANSI code page.
-    //DH1KLM Escaped, so the name is these characters whatever the compiler's
-    //DH1KLM source code page.
+    // The Windows run of #6767: a path under 漢字 crashed the helper,
+    // which joined paths through the ANSI code page.
+    // Escaped, so the name is these characters whatever the compiler's
+    // source code page.
     Harness h(u8"\u6f22\u5b57 \u00dcn\u00efc\u00f8d\u00e9");
     h.plan.relaunch = true;
     CHECK(run(h.plan, h.ops) == Outcome::Updated);
@@ -300,7 +300,7 @@ void pathsOutsideTheCodePageAreSwapped()
 void aBriefLockIsWaitedOut()
 {
     Harness h("brief-lock");
-    h.renameFailures["AetherSDR"] = 3;   //DH1KLM the install folder, held for ~0.75 s
+    h.renameFailures["AetherSDR"] = 3;   // the install folder, held for ~0.75 s
     CHECK(run(h.plan, h.ops) == Outcome::Updated);
     CHECK(h.installed() == "good 26.10.4");
 }
@@ -309,16 +309,16 @@ void aLockThatNeverClearsIsUndone()
 {
     {
         Harness h("lock-install");
-        h.renameFailures["AetherSDR"] = -1;   //DH1KLM install -> .previous never succeeds
+        h.renameFailures["AetherSDR"] = -1;   // install -> .previous never succeeds
         CHECK(run(h.plan, h.ops) == Outcome::SwapUndone);
         CHECK(h.installed() == "good 26.10.3");
         CHECK(!fs::exists(h.paths().next));
     }
     {
         Harness h("lock-new");
-        h.renameFailures["AetherSDR.new"] = -1;   //DH1KLM .new -> install never succeeds
+        h.renameFailures["AetherSDR.new"] = -1;   // .new -> install never succeeds
         CHECK(run(h.plan, h.ops) == Outcome::SwapUndone);
-        CHECK(h.installed() == "good 26.10.3");   //DH1KLM the previous version put back
+        CHECK(h.installed() == "good 26.10.3");   // the previous version put back
         CHECK(!fs::exists(h.paths().next));
     }
 }
@@ -327,10 +327,10 @@ void aFailedRollbackIsReportedNotHidden()
 {
     Harness h("broken-rollback");
     put(h.plan.staged / "AetherSDR.exe", "broken");
-    h.renameFailures["AetherSDR.previous"] = -1;   //DH1KLM previous -> install never succeeds
+    h.renameFailures["AetherSDR.previous"] = -1;   // previous -> install never succeeds
     CHECK(run(h.plan, h.ops) == Outcome::Broken);
     CHECK(h.result() == "Broken 26.10.4\n");
-    //DH1KLM The journal survives, so once the lock clears the next run repairs it.
+    // The journal survives, so once the lock clears the next run repairs it.
     CHECK(fs::exists(h.paths().journal));
     CHECK(!fs::exists(h.plan.install));
     h.renameFailures.clear();
@@ -346,13 +346,13 @@ void aJournalThatCannotBeWrittenStopsTheStep()
         h.journalFailsAt = step;
         const Outcome o = run(h.plan, h.ops);
         CHECK(o == Outcome::NotPossible || o == Outcome::SwapUndone);
-        CHECK(h.installed() == "good 26.10.3");   //DH1KLM the old version, whole
+        CHECK(h.installed() == "good 26.10.3");   // the old version, whole
         CHECK(!fs::exists(h.paths().next));
         CHECK(!fs::exists(h.paths().journal));
-        //DH1KLM Nothing untested was ever left in place: no self-test ran.
+        // Nothing untested was ever left in place: no self-test ran.
         CHECK(h.launches.empty());
     }
-    //DH1KLM The older previous version goes only once swap-1 is recorded.
+    // The older previous version goes only once swap-1 is recorded.
     Harness h("journal-keeps-previous");
     put(h.paths().previous / "AetherSDR.exe", "good 26.10.2");
     h.journalFailsAt = "swap-1";
@@ -362,8 +362,8 @@ void aJournalThatCannotBeWrittenStopsTheStep()
 
 void aPendingRepairWaitsForTheAppToExit()
 {
-    //DH1KLM A journal from a helper that died mid-self-test, and an app that is
-    //DH1KLM running again: nothing is renamed until it exits.
+    // A journal from a helper that died mid-self-test, and an app that is
+    // running again: nothing is renamed until it exits.
     Harness h("pending-repair");
     fs::rename(h.plan.install, h.paths().previous);
     fs::rename(h.plan.staged, h.plan.install);
@@ -377,11 +377,11 @@ void aPendingRepairWaitsForTheAppToExit()
     };
     CHECK(run(h.plan, h.ops) == Outcome::OldStillRunning);
     CHECK(renamed.empty());
-    CHECK(h.installed() == "good 26.10.4");   //DH1KLM untouched
-    CHECK(fs::exists(h.paths().journal));     //DH1KLM still pending
+    CHECK(h.installed() == "good 26.10.4");   // untouched
+    CHECK(fs::exists(h.paths().journal));     // still pending
     h.oldExits = true;
-    //DH1KLM The next run repairs; the staged tree was consumed by the first
-    //DH1KLM attempt, so there is nothing more to install.
+    // The next run repairs; the staged tree was consumed by the first
+    // attempt, so there is nothing more to install.
     CHECK(run(h.plan, h.ops) == Outcome::NotPossible);
     CHECK(!fs::exists(h.paths().journal));
 }
@@ -389,7 +389,7 @@ void aPendingRepairWaitsForTheAppToExit()
 void aHelperThatDiedMidSwapIsRecovered()
 {
     {
-        //DH1KLM Died after install -> .previous, before .new -> install.
+        // Died after install -> .previous, before .new -> install.
         Harness h("died-swap");
         fs::rename(h.plan.install, h.paths().previous);
         fs::rename(h.plan.staged, h.paths().next);
@@ -400,8 +400,8 @@ void aHelperThatDiedMidSwapIsRecovered()
         CHECK(!fs::exists(h.paths().journal));
     }
     {
-        //DH1KLM Died just after .new became the install, before the self-test was
-        //DH1KLM journaled: untested, so the previous version goes back.
+        // Died just after .new became the install, before the self-test was
+        // journaled: untested, so the previous version goes back.
         Harness h("died-after-swap-2");
         put(h.plan.staged / "AetherSDR.exe", "broken");
         fs::rename(h.plan.install, h.paths().previous);
@@ -412,8 +412,8 @@ void aHelperThatDiedMidSwapIsRecovered()
         CHECK(slurp(h.paths().failed / "AetherSDR.exe") == "broken");
     }
     {
-        //DH1KLM Died during the self-test: the new release's health is unknown,
-        //DH1KLM so the version that ran before goes back.
+        // Died during the self-test: the new release's health is unknown,
+        // so the version that ran before goes back.
         Harness h("died-selftest");
         fs::rename(h.plan.install, h.paths().previous);
         fs::rename(h.plan.staged, h.plan.install);
@@ -423,14 +423,14 @@ void aHelperThatDiedMidSwapIsRecovered()
         CHECK(slurp(h.paths().failed / "AetherSDR.exe") == "good 26.10.4");
     }
     {
-        //DH1KLM No journal: nothing to do, nothing touched.
+        // No journal: nothing to do, nothing touched.
         Harness h("no-journal");
         CHECK(recover(h.plan, h.ops));
         CHECK(h.installed() == "good 26.10.3");
     }
 }
 
-} //DH1KLM namespace
+} // namespace
 
 
 void aRepairIsArmedForTheSwapAndClearedAfter()
@@ -442,7 +442,7 @@ void aRepairIsArmedForTheSwapAndClearedAfter()
         CHECK(!h.armed);
     }
     {
-        //DH1KLM Armed before anything is renamed: no rename precedes it.
+        // Armed before anything is renamed: no rename precedes it.
         Harness h("arm-first");
         bool renamedBeforeArm = false;
         auto inner = h.ops.rename;
@@ -456,7 +456,7 @@ void aRepairIsArmedForTheSwapAndClearedAfter()
         CHECK(!renamedBeforeArm);
     }
     {
-        //DH1KLM A repair that cannot be armed means no swap at all.
+        // A repair that cannot be armed means no swap at all.
         Harness h("arm-fails");
         h.armFails = true;
         CHECK(run(h.plan, h.ops) == Outcome::NotPossible);
@@ -466,7 +466,7 @@ void aRepairIsArmedForTheSwapAndClearedAfter()
         CHECK(h.launches.empty());
     }
     {
-        //DH1KLM Still armed while a repair is owed.
+        // Still armed while a repair is owed.
         Harness h("arm-broken");
         h.renameFailures["AetherSDR.previous"] = -1;
         put(h.plan.staged / "AetherSDR.exe", "broken");
@@ -478,9 +478,9 @@ void aRepairIsArmedForTheSwapAndClearedAfter()
 void theArmedRepairRestoresAnInstallNothingCanStart()
 {
     {
-        //DH1KLM Blocker 2 of the #6767 review: died between the two renames, so
-        //DH1KLM there is no AetherSDR.exe to start. The logon repair puts the
-        //DH1KLM previous version back.
+        // Blocker 2 of the #6767 review: died between the two renames, so
+        // there is no AetherSDR.exe to start. The logon repair puts the
+        // previous version back.
         Harness h("repair-between");
         fs::rename(h.plan.install, h.paths().previous);
         fs::rename(h.plan.staged, h.paths().next);
@@ -490,11 +490,11 @@ void theArmedRepairRestoresAnInstallNothingCanStart()
         CHECK(h.installed() == "good 26.10.3");
         CHECK(!fs::exists(h.paths().next));
         CHECK(!fs::exists(h.paths().journal));
-        CHECK(h.result() == "SwapUndone 26.10.4\n");   //DH1KLM never RolledBack: it was never tested
+        CHECK(h.result() == "SwapUndone 26.10.4\n");   // never RolledBack: it was never tested
         CHECK(!h.armed);
     }
     {
-        //DH1KLM Nothing owed: it only disarms.
+        // Nothing owed: it only disarms.
         Harness h("repair-nothing");
         h.armed = true;
         CHECK(repair(h.plan, h.ops));
@@ -503,7 +503,7 @@ void theArmedRepairRestoresAnInstallNothingCanStart()
         CHECK(h.installed() == "good 26.10.3");
     }
     {
-        //DH1KLM A repair that cannot finish stays armed for the next logon.
+        // A repair that cannot finish stays armed for the next logon.
         Harness h("repair-locked");
         fs::rename(h.plan.install, h.paths().previous);
         put(h.paths().journal, "swap-1 26.10.4");
@@ -518,9 +518,9 @@ void theArmedRepairRestoresAnInstallNothingCanStart()
     }
 }
 
-//DH1KLM The state a helper that died mid-self-test leaves: the new release at
-//DH1KLM <install> (renamed, so the same file), the old one at .previous, and the
-//DH1KLM journal naming the file it left.
+// The state a helper that died mid-self-test leaves: the new release at
+// <install> (renamed, so the same file), the old one at .previous, and the
+// journal naming the file it left.
 void diedInSelfTest(Harness& h)
 {
     const std::string id = h.ops.fileId(h.plan.staged / "AetherSDR.exe");
@@ -532,7 +532,7 @@ void diedInSelfTest(Harness& h)
 void aReinstallIsNeverRolledBack()
 {
     {
-        //DH1KLM The tree the swap left, untested: rolled back.
+        // The tree the swap left, untested: rolled back.
         Harness h("ours-rolled-back");
         diedInSelfTest(h);
         CHECK(repair(h.plan, h.ops));
@@ -540,8 +540,8 @@ void aReinstallIsNeverRolledBack()
         CHECK(h.result() == "SwapUndone 26.10.4\n");
     }
     {
-        //DH1KLM Review of #6767: the user reinstalled after the Broken message.
-        //DH1KLM The logon repair keeps the fresh install and moves nothing.
+        // Review of #6767: the user reinstalled after the Broken message.
+        // The logon repair keeps the fresh install and moves nothing.
         Harness h("reinstalled");
         diedInSelfTest(h);
         const fs::path exe = h.plan.install / "AetherSDR.exe";
@@ -552,11 +552,11 @@ void aReinstallIsNeverRolledBack()
         CHECK(h.installed() == "good 26.10.4");
         CHECK(!fs::exists(h.paths().failed));
         CHECK(!fs::exists(h.paths().journal));
-        CHECK(h.result().empty());   //DH1KLM nothing was undone
+        CHECK(h.result().empty());   // nothing was undone
         CHECK(!h.armed);
     }
     {
-        //DH1KLM A journal written by a real swap carries the id.
+        // A journal written by a real swap carries the id.
         Harness h("journal-id");
         std::vector<std::string> steps;
         h.ops.writeJournal = [&](const fs::path& path, const std::string& text) {
@@ -576,7 +576,7 @@ void aReinstallIsNeverRolledBack()
 void theRepairRearmsWaitsAndOnlyReportsWhatItMoved()
 {
     {
-        //DH1KLM Re-armed first: a repair cut short runs again.
+        // Re-armed first: a repair cut short runs again.
         Harness h("repair-rearm");
         diedInSelfTest(h);
         bool armedBeforeRename = false;
@@ -590,8 +590,8 @@ void theRepairRearmsWaitsAndOnlyReportsWhatItMoved()
         CHECK(!h.armed);
     }
     {
-        //DH1KLM AetherSDR already running from the install at logon: nothing is
-        //DH1KLM renamed, nothing is reported broken, and it stays armed.
+        // AetherSDR already running from the install at logon: nothing is
+        // renamed, nothing is reported broken, and it stays armed.
         Harness h("repair-app-running");
         diedInSelfTest(h);
         h.oldExits = false;
@@ -602,9 +602,9 @@ void theRepairRearmsWaitsAndOnlyReportsWhatItMoved()
         CHECK(h.result().empty());
     }
     {
-        //DH1KLM Died after swap-1 was journaled but before the rename: the
-        //DH1KLM install is whole, so only the stray .new goes and nothing is
-        //DH1KLM reported undone.
+        // Died after swap-1 was journaled but before the rename: the
+        // install is whole, so only the stray .new goes and nothing is
+        // reported undone.
         Harness h("repair-nothing-moved");
         fs::rename(h.plan.staged, h.paths().next);
         put(h.paths().journal, "swap-1 26.10.4 id=x");

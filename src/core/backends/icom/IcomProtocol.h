@@ -342,9 +342,9 @@ struct StreamGrant {
 };
 [[nodiscard]] StreamGrant parseStreamGrant(std::span<const std::uint8_t> pkt);
 
-//DH1KLM The asynchronous 0x90 radio-usage notification is distinct from a stream
-//DH1KLM request reply. Available means the radio reports no owner; the session must
-//DH1KLM correlate its header, auth ID and radio ID before treating it as a release.
+// The asynchronous 0x90 radio-usage notification is distinct from a stream
+// request reply. Available means the radio reports no owner; the session must
+// correlate its header, auth ID and radio ID before treating it as a release.
 enum class ConnectionUsageKind { Invalid, Busy, Available };
 struct ConnectionUsage {
     ConnectionUsageKind kind = ConnectionUsageKind::Invalid;

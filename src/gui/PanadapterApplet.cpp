@@ -248,8 +248,8 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     cwBar->addWidget(m_lockSpeedBtn);
 
     // Pitch range — double-handle slider, label embedded in widget
-    //DH1KLM Both ranges start from the shared saved values and are saved again when a
-    //DH1KLM drag or key press ends (see eventFilter), not on every step of it.
+    // Both ranges start from the shared saved values and are saved again when a
+    // drag or key press ends (see eventFilter), not on every step of it.
     const auto pitch = CwDecodeSettings::pitchRange();
     m_pitchRangeSlider = new RangeSlider(CwDecodeSettings::kPitchSpan.low,
                                          CwDecodeSettings::kPitchSpan.high,
@@ -819,8 +819,8 @@ int PanadapterApplet::pitchRangeHigh() const
 }
 
 namespace {
-//DH1KLM Moves the handle that keeps low <= high first, so neither setter clamps
-//DH1KLM against the slider's previous range.
+// Moves the handle that keeps low <= high first, so neither setter clamps
+// against the slider's previous range.
 void applyRange(RangeSlider* slider, CwDecodeSettings::Range range)
 {
     if (!slider) { return; }
@@ -832,7 +832,7 @@ void applyRange(RangeSlider* slider, CwDecodeSettings::Range range)
         slider->setHigh(range.high);
     }
 }
-} //DH1KLM namespace
+} // namespace
 
 void PanadapterApplet::restoreCwRanges()
 {
@@ -1032,8 +1032,8 @@ bool PanadapterApplet::eventFilter(QObject* obj, QEvent* ev)
             && ev->type() == QEvent::LayoutRequest)) {
         layoutHeader();
     }
-    //DH1KLM A decoder range is saved once the drag or key press that set it ends.
-    //DH1KLM Observe only: the slider still handles the event itself.
+    // A decoder range is saved once the drag or key press that set it ends.
+    // Observe only: the slider still handles the event itself.
     if ((obj == m_pitchRangeSlider || obj == m_speedRangeSlider)
         && (ev->type() == QEvent::MouseButtonRelease
             || (ev->type() == QEvent::KeyRelease

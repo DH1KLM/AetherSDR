@@ -500,7 +500,7 @@ public:
     // pair states its reason in the tooltip (shown on a disabled button by
     // eventFilter()) and in the accessible description, which is what a
     // screen reader announces; the live pair says the span is shared.
-    //DH1KLM `spanFixed` dims the pair on every pane: the backend cannot change span.
+    // `spanFixed` dims the pair on every pane: the backend cannot change span.
     // `live = true, radioWide = false` is the per-pan default and restores
     // exactly what the constructor built: enabled, no tooltip, no description.
     void setSpanControlPlacement(bool live, bool radioWide, bool spanFixed = false)
@@ -526,7 +526,7 @@ public:
             outTip = desc;
             inTip = desc;
         }
-        //DH1KLM Re-derived often; an unchanged description is not re-announced.
+        // Re-derived often; an unchanged description is not re-announced.
         if (m_zoomOutBtn) {
             m_zoomOutBtn->setEnabled(live);
             m_zoomOutBtn->setToolTip(outTip);
@@ -1189,11 +1189,11 @@ private:
     void positionZoomButtons();
     void drawFreqScale(QPainter& p, const QRect& r);
     double frequencyCanvasFractionAtGlobal(const QPointF& globalPosition) const;
-    //DH1KLM Zoom the pan by a bandwidth multiplier, pinning the frequency under
-    //DH1KLM globalPosition to its pixel. Shared by the macOS trackpad pinch
-    //DH1KLM (QNativeGestureEvent, ZoomNativeGesture) and the touch pinch
-    //DH1KLM (QPinchGesture) paths in event(). Returns true (the event is consumed)
-    //DH1KLM whether the zoom applied or was clamped at a bandwidth limit.
+    // Zoom the pan by a bandwidth multiplier, pinning the frequency under
+    // globalPosition to its pixel. Shared by the macOS trackpad pinch
+    // (QNativeGestureEvent, ZoomNativeGesture) and the touch pinch
+    // (QPinchGesture) paths in event(). Returns true (the event is consumed)
+    // whether the zoom applied or was clamped at a bandwidth limit.
     bool applyAnchoredZoom(double bandwidthFactor, const QPointF& globalPosition);
     void drawDbmScale(QPainter& p, const QRect& specRect);
     // Shared strip chrome (background, border, ref-adjust arrows) for both the

@@ -1412,7 +1412,7 @@ void MainWindow::syncKiwiSdrPanadapterUiState(const QString& panId)
     if (!spectrum) {
         return;
     }
-    //DH1KLM A Kiwi-displaying pane keeps live -/+ even when the radio's span is fixed.
+    // A Kiwi-displaying pane keeps live -/+ even when the radio's span is fixed.
     if (!m_kiwiSpanSyncDeferred) {
         syncPanSpanControlPlacement();
     }

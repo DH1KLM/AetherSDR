@@ -493,7 +493,7 @@ private:
     std::function<bool()> m_wanBindForTest;
     std::function<qint64(const QByteArray&, const QHostAddress&, quint16)> m_wanWriteForTest;
     bool m_wanBoundForTest{false};
-    //DH1KLM Inject only the terminal LAN bind/write in socket-free lifecycle tests.
+    // Inject only the terminal LAN bind/write in socket-free lifecycle tests.
     std::function<bool()> m_lanBindForTest;
     std::function<qint64(const QByteArray&, const QHostAddress&, quint16)> m_lanWriteForTest;
     bool m_lanBoundForTest{false};
@@ -501,8 +501,8 @@ private:
     // WAN UDP registration and keepalive
     QTimer*  m_wanRegisterTimer{nullptr};   // udp_register: 50 ms until VITA, then 5 s
     QTimer*  m_routedPrimeTimer{nullptr};   // 250ms: non-WAN UDP prime retry until first packet
-    QTimer*  m_lanKeepaliveTimer{nullptr};  //DH1KLM 5 s: non-WAN keepalive for the whole session
-    bool     m_lanKeepaliveFailed{false};   //DH1KLM warn once per session, not every 5 s
+    QTimer*  m_lanKeepaliveTimer{nullptr};  // 5 s: non-WAN keepalive for the whole session
+    bool     m_lanKeepaliveFailed{false};   // warn once per session, not every 5 s
     bool     m_isWanMode{false};
     bool     m_wanRegistered{false};
     quint32  m_wanClientHandle{0};

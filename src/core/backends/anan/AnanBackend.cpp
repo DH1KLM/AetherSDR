@@ -48,7 +48,7 @@ constexpr float kUncalibratedDbfsToDbmOffset = 0.0f;
 // as BackendPanAveraging::msPerAverageStep.
 constexpr int kMsPerAverageStep = 10;
 
-//DH1KLM WDSP RXA_S_AV is a raw dBFS reading. The selected ADC's measured
+// WDSP RXA_S_AV is a raw dBFS reading. The selected ADC's measured
 // meter offset and commanded attenuation are added before smoothing;
 // spectrum calibration uses its separate display offset.
 constexpr double kSMeterDbmOffset = 0.0;
@@ -361,11 +361,11 @@ AnanBackend::AnanBackend(QObject* parent)
         m_attenuationDb = m_pendingParams.ddc0AdcIndex == 1
             ? m_pendingParams.adc1AttenuationDb
             : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb;
-                // DH1KLM: Also cover address-only connections after the board is known.
+                // Also cover address-only connections after the board is known.
                 const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
         seedDroopCorrectionTables(m_pendingParams.protocol == 2
                                  && profile && profile->saturnDroopDefaults);
-                // DH1KLM: Shipped droop tables follow the effective Saturn profile,
+                // Shipped droop tables follow the effective Saturn profile,
                 //  including an explicit override. Warn about other gateware versions.
                 if (profile && profile->saturnDroopDefaults && firmwareVer != kDefaultsGatewareVersion) {
             qCWarning(lcAnanDefaults).nospace()
@@ -465,7 +465,7 @@ RadioCapabilities AnanBackend::capabilities() const
     c.radioSetupControl = RadioSetupControl{{RadioSetupField::LineoutGain, RadioSetupField::LineoutMute}};
     // No client owner is declared for "Show TX in Waterfall" on an ANAN.
     c.txWaterfallClientFlag = std::nullopt;
-    //DH1KLM Absolute dBm requires a measured reference for the selected ADC;
+    // Absolute dBm requires a measured reference for the selected ADC;
     // absent calibration retains the existing relative dBFS display.
     PanAmplitudeModel amplitude;
     amplitude.calibratedDbm = m_receiveCalibration.levelCalibrated[m_pendingParams.ddc0AdcIndex];
@@ -489,7 +489,7 @@ RadioCapabilities AnanBackend::capabilities() const
     c.autoAgcThresholdControl = RadioCapabilities::AutoAgcThresholdControl{};
     c.hasAgcThreshold = true; // Host receiver DSP implements threshold/off gain.
     c.manufacturer = QStringLiteral("Apache Labs");
-    //DH1KLM: Discovery identifies a family, not an individual Orion MkII SKU.
+    // Discovery identifies a family, not an individual Orion MkII SKU.
     const auto* selectedModel = ananModelInfo(m_pendingParams.model);
     c.model = selectedModel && m_pendingParams.model != AnanModel::Automatic
         ? QString::fromLatin1(selectedModel->name.data(), selectedModel->name.size())
@@ -502,7 +502,7 @@ RadioCapabilities AnanBackend::capabilities() const
     // count (onSupplyRailCounts()). Claimed on a bench measurement, not on the
     // input's label: see kSupplyRailVoltsPerCount for the reading and for why
     // the input is not the one the spec calls "supply voltage".
-    //DH1KLM: Do not generalize the measured 5 V slow-ADC scaling to
+    // Do not generalize the measured 5 V slow-ADC scaling to
     // Hermes/Angelia's 3.3 V hardware before its telemetry is qualified.
     c.hasSupplyVoltageTelemetry = m_pendingParams.protocol == 2
         && (!m_discoveryInfoReceived || effectiveBoardId() == 5 || effectiveBoardId() == 10);
@@ -560,7 +560,7 @@ RadioCapabilities AnanBackend::capabilities() const
     c.hasHostNoiseBlanker = true;  // WDSP ANB on the raw IQ, in AnanRxDsp
     c.radioOwnsDbmScale = false;   // client computes it from raw IQ
     c.hasDdcPanEdgeRolloff = true; // see RadioCapabilities.h's own comment
-    //DH1KLM The host owns FFT averaging and cadence; recall operator choices per radio and pan.
+    // The host owns FFT averaging and cadence; recall operator choices per radio and pan.
     c.backendPanAveraging = BackendPanAveraging{kMsPerAverageStep, true, {}, {}};
     c.panFrameRateShaping = PanFrameRateShaping{true};
     // No protocol field holds a waterfall rate: the client keeps it.
@@ -799,7 +799,7 @@ void AnanBackend::seedDroopCorrectionTables(bool useSaturnDefaults)
         for (auto* target : targets)
             QMetaObject::invokeMethod(target, "clearDroopCorrectionTables",
                                   Qt::QueuedConnection);
-        //DH1KLM: A P2 noise sweep is not a P1 decimator calibration. Clear
+        // A P2 noise sweep is not a P1 decimator calibration. Clear
         // both defaults and saved tables when the same radio connects via P1.
         if (m_pendingParams.protocol == 1)
             return;
@@ -844,7 +844,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         emit connectionError(QStringLiteral("ANAN: invalid host '%1'").arg(request.host));
         return;
     }
-    //DH1KLM: A discovered physical board ID is authoritative metadata. Until
+    // A discovered physical board ID is authoritative metadata. Until
     //a receive profile exists, reject an explicitly identified board. Orion
     //MkII and Saturn have separate physical DDC and ALEX settings.
     if (request.params.contains(QStringLiteral("anan.boardId"))) {
@@ -860,7 +860,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     if (m_connected)
         disconnectRadio();
 
-    //DH1KLM: A new session never inherits another receiver's automatic gain or offset.
+    // A new session never inherits another receiver's automatic gain or offset.
     if (m_autoAgcEnabled) { m_agcThreshold = m_manualAgcBeforeAuto; }
     m_autoAgcEnabled = false;
     m_autoAgcOffset = AnanAutoAgc::kDefaultOffsetDb;
@@ -896,7 +896,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     m_bandViewRestoreReady = false;
     m_beforeBandView = {};
     m_currentViewBand.clear();
-    //DH1KLM: Select the wire protocol from discovery, never from the model name.
+    // Select the wire protocol from discovery, never from the model name.
     m_pendingParams.protocol = request.params.value(QStringLiteral("anan.protocol"), 2).toInt();
     m_pendingParams.model = static_cast<AnanModel>(
         request.params.value(QStringLiteral("anan.model"), -1).toInt());
@@ -914,7 +914,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         emit connectionError(QStringLiteral("Unsupported OpenHPSDR protocol selection."));
         return;
     }
-    //DH1KLM: Saturn-derived defaults follow the selected effective profile.
+    // Saturn-derived defaults follow the selected effective profile.
     const auto profile = receiveProfile(
         request.params.value(QStringLiteral("anan.boardId"), -1).toInt(), m_pendingParams.model,
         m_pendingParams.overrideDetection);
@@ -925,11 +925,11 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     seedDroopCorrectionTables(m_pendingParams.protocol == 2
                              && profile && profile->saturnDroopDefaults);
 
-    //DH1KLM: ADC count comes from the selected effective board profile.
+    // ADC count comes from the selected effective board profile.
     // Unknown address-only targets resolve it in P2Client after Discovery.
     m_pendingParams.numAdcs = profile ? profile->numAdcs : 2;
     m_pendingParams.host = request.host;
-    //DH1KLM: Keep discovery's numeric board identity through to the P2
+    // Keep discovery's numeric board identity through to the P2
     // client so it can reject a target that differs from the selected radio.
     m_pendingParams.expectedBoardId =
         request.params.value(QStringLiteral("anan.boardId"), -1).toInt();
@@ -946,7 +946,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         request.params.value(QStringLiteral("anan.randomEnabled"), true).toBool();
     m_pendingParams.ddc0AdcIndex =
         request.params.value(QStringLiteral("anan.ddc0AdcIndex"), 0).toInt() == 1 ? 1 : 0;
-    //DH1KLM: Thetis Saturn BPF1 is frequency-selected by default; explicit
+    // Thetis Saturn BPF1 is frequency-selected by default; explicit
     //configuration can still request bypass.
     m_pendingParams.bypassAdc0Filters =
         request.params.value(QStringLiteral("anan.bypassAdc0Filters"), false).toBool();
@@ -1618,7 +1618,7 @@ void AnanBackend::setPanBandwidth(const QString& panId, double hz)
         m_bandViewSpanHz = 0.0;
         emitPanState(); // restore full-span bin metadata before subsequent frames
     }
-    //DH1KLM: Clamp in floating point before narrowing; oversized finite
+    // Clamp in floating point before narrowing; oversized finite
     // spans still select the widest supported rate without integer overflow.
     const int requestedKsps = static_cast<int>(std::min(hz / 1000.0 + 0.5,
         static_cast<double>(kDdc0RatesKsps.back())));
@@ -2098,7 +2098,7 @@ int AnanBackend::receiveAntennaBandIndex() const
 {
     const auto* owner = m_receiveLayout.slice(receiveAntennaOwner());
     const double hz = owner ? owner->frequencyHz : m_sliceFreqHz;
-    //DH1KLM GEN and WWV are explicit Aether band slots, rather than Thetis's nearest-band fallback.
+    // GEN and WWV are explicit Aether band slots, rather than Thetis's nearest-band fallback.
     for (const double center : {2.5e6, 5e6, 10e6, 15e6, 20e6, 25e6}) {
         if (std::abs(hz - center) <= 5000) { return 13; }
     }
@@ -2110,7 +2110,7 @@ int AnanBackend::receiveAntennaBandIndex() const
     }
     const auto band = m_antennaBandPlan->amateurBandAt(hz / 1e6);
     if (!band) { return 12; }
-    //DH1KLM These separators identify a regional envelope; its actual edges come from BandPlanManager.
+    // These separators identify a regional envelope; its actual edges come from BandPlanManager.
     constexpr std::array<double, 10> separators{2.75, 4.66525, 6.20175, 8.7, 12.075,
                                                16.209, 19.584, 23.17, 26.465, 39.85};
     const double midpoint = (band->lowMhz + band->highMhz) / 2;
@@ -2123,7 +2123,7 @@ ReceiveAntennaBand AnanBackend::receiveAntennaRoute() const
     const auto& config = m_pendingParams.filters;
     if (config && config->antennaBands && config->antennaBands->enabled) {
         auto route = config->antennaBands->rows[receiveAntennaBandIndex()];
-        //DH1KLM Thetis Alex.cs at 852bf0ef: XVTR is conditional on transverter mode, unavailable here.
+        // Thetis Alex.cs at 852bf0ef: XVTR is conditional on transverter mode, unavailable here.
         if (route.rxOnly >= 3) { route.rxOnly -= 3; }
         return route;
     }
@@ -2139,7 +2139,7 @@ void AnanBackend::applyReceiveAntennaRouting(bool force)
     auto config = *m_pendingParams.filters;
     config.rxOnlyInput = route.rxOnly;
     const auto options = filterOptions(config);
-    //DH1KLM Apply bank and input together, without an intermediate relay command using the old bank.
+    // Apply bank and input together, without an intermediate relay command using the old bank.
     QMetaObject::invokeMethod(m_client, "setReceiveHardware", Qt::QueuedConnection,
                               Q_ARG(QVariantMap, options), Q_ARG(int, route.antenna));
     m_appliedAntenna = route.antenna;
@@ -2192,7 +2192,7 @@ void AnanBackend::loadHardwareFilters(int boardId)
         config.bypassAdc0 = m_pendingParams.bypassAdc0Filters;
         config.bypassAdc1 = m_pendingParams.bypassAdc1Filters;
     }
-    //DH1KLM Seed every new row from the saved manual path; upgrades never switch an antenna.
+    // Seed every new row from the saved manual path; upgrades never switch an antenna.
     if (!config.antennaBands) {
         config.antennaBands.emplace();
         for (auto& row : config.antennaBands->rows) { row = {m_rxAntenna, config.rxOnlyInput}; }
@@ -2579,7 +2579,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         rememberBandView();
         const auto profile = m_bandViewMemory.value(QStringLiteral("profiles")).toObject()
             .value(bandViewProfileKey()).toObject();
-        //DH1KLM Recall the latest state, including CTUN off, rather than an older active B view.
+        // Recall the latest state, including CTUN off, rather than an older active B view.
         const auto record = profile.value(QStringLiteral("bands")).toObject().value(band).toObject();
         const auto view = record.value(QStringLiteral("view")).toObject();
         const bool restored = band != QLatin1String("GEN") && band != QLatin1String("WWV")
@@ -2685,8 +2685,8 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             emit extensionError(requestId, QStringLiteral("Select an active receive window and a supported sample rate."));
             return;
         }
-        //DH1KLM Thetis setup.cs InitAudioTab and RX1/RX2 rate handlers at 852bf0ef:
-        //DH1KLM P1 has one wire rate; P2 permits independent receive captures.
+        // Thetis setup.cs InitAudioTab and RX1/RX2 rate handlers at 852bf0ef:
+        // P1 has one wire rate; P2 permits independent receive captures.
         if (!m_additionalRx.empty()) {
             if (!changeReceiveStreamRate(stream, rate.toInt() / 1000)) {
                 emit extensionError(requestId, QStringLiteral("This rate would exclude a slice sharing a receive window. Choose a wider rate."));
@@ -2735,14 +2735,14 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             const QVariantMap options = verb == QLatin1String("hw.defaults")
                 ? filterOptions(defaultFilterConfig(state.value(QStringLiteral("mkII")).toBool())) : fields;
             auto config = parseFilterOptions(options);
-            //DH1KLM Older callers and filter resets retain the antenna table they do not own.
+            // Older callers and filter resets retain the antenna table they do not own.
             if (config && !config->antennaBands && m_pendingParams.filters) {
                 config->antennaBands = m_pendingParams.filters->antennaBands;
             }
-            //DH1KLM Legacy callers do not own the independent SWL assignments.
+            // Legacy callers do not own the independent SWL assignments.
             if (config && verb == QLatin1String("hw.set") && !fields.contains(QStringLiteral("ocSwl"))
                 && m_pendingParams.filters) { config->ocSwl = m_pendingParams.filters->ocSwl; }
-            //DH1KLM Older callers do not own the independent manual digital outputs.
+            // Older callers do not own the independent manual digital outputs.
             if (config && verb == QLatin1String("hw.set") && !fields.contains(QStringLiteral("userDigitalOutputs"))
                 && m_pendingParams.filters) { config->userDigitalOutputs = m_pendingParams.filters->userDigitalOutputs; }
             if (!config || !AnanSettings::setHardwareFilters(m_radioSerial,
@@ -2760,7 +2760,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         emit extensionResult(requestId, hardwareFilterStatus());
         return;
     }
-    //DH1KLM: ALEX RX antenna control stays behind the ANAN extension. Only
+    // ALEX RX antenna control stays behind the ANAN extension. Only
     // the validated device's saved receive path is changed.
     if (ns == QLatin1String("anan") && verb == QLatin1String("rx-antenna.get")) {
         if (requestId != 0) {
@@ -2955,7 +2955,7 @@ void AnanBackend::onDspMeter(float dbfs)
         emit meterUpdate(QStringLiteral("SLC:LEVEL"), *out);
 }
 
-//DH1KLM: Retain discovery identity separately; an explicit override owns
+// Retain discovery identity separately; an explicit override owns
 // board-dependent telemetry/default selection as well as RX packet encoding.
 int AnanBackend::effectiveBoardId() const
 {
@@ -2973,7 +2973,7 @@ void AnanBackend::onSupplyRailCounts(int counts)
 
 void AnanBackend::onSupplyRailCountsAt(int counts, qint64 nowMs)
 {
-    //DH1KLM: Publish only for the hardware families with the qualified scale.
+    // Publish only for the hardware families with the qualified scale.
     if (m_discoveryInfoReceived && effectiveBoardId() != 5 && effectiveBoardId() != 10) {
         return;
     }

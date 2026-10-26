@@ -1,20 +1,20 @@
-//DH1KLM The FFTW Wisdom window NR2 shows on first use is a canon dialog.
-//DH1KLM
-//DH1KLM Pinned here, each with its control:
-//DH1KLM   1. it is a non-modal CanonWindow tool window titled FFTW Wisdom, under the
-//DH1KLM      canon/nr2Wisdom theme scope, that appears without taking the focus;
-//DH1KLM   2. its sheet is canon: the progress chunk is color.brand.gradient, every
-//DH1KLM      token resolves to a value in the window's scope and the old literal
-//DH1KLM      ground is gone, under Default Dark and Default Light;
-//DH1KLM   3. Cancel and Escape each request cancellation once, Cancel leaves the
-//DH1KLM      window up showing the cancel state, and progress that arrives after a
-//DH1KLM      cancel is ignored;
-//DH1KLM   4. progress and step text from the planner reach the bar and status line,
-//DH1KLM      and the activity line ticks with the elapsed time;
-//DH1KLM   5. each outcome sets the bar, the activity line and the status line, and
-//DH1KLM      the status line's accessible name carries the outcome.
-//DH1KLM
-//DH1KLM No planner runs: the test feeds the window what MainWindow's worker would.
+// The FFTW Wisdom window NR2 shows on first use is a canon dialog.
+//
+// Pinned here, each with its control:
+//   1. it is a non-modal CanonWindow tool window titled FFTW Wisdom, under the
+//      canon/nr2Wisdom theme scope, that appears without taking the focus;
+//   2. its sheet is canon: the progress chunk is color.brand.gradient, every
+//      token resolves to a value in the window's scope and the old literal
+//      ground is gone, under Default Dark and Default Light;
+//   3. Cancel and Escape each request cancellation once, Cancel leaves the
+//      window up showing the cancel state, and progress that arrives after a
+//      cancel is ignored;
+//   4. progress and step text from the planner reach the bar and status line,
+//      and the activity line ticks with the elapsed time;
+//   5. each outcome sets the bar, the activity line and the status line, and
+//      the status line's accessible name carries the outcome.
+//
+// No planner runs: the test feeds the window what MainWindow's worker would.
 
 #include "TestSettingsProfile.h"
 #include "core/AppSettings.h"
@@ -49,7 +49,7 @@ private:
     const QString m_theme;
 };
 
-} //DH1KLM namespace
+} // namespace
 
 class Nr2WisdomWindowTest : public QObject {
     Q_OBJECT
@@ -75,14 +75,14 @@ private slots:
             header = header || label->text() == QLatin1String("FFTW Wisdom");
         }
         QVERIFY2(header, "the canon header carries the title");
-        //DH1KLM Every widget MainWindow and the screenshot recipe find by name.
+        // Every widget MainWindow and the screenshot recipe find by name.
         for (const char* name : {"nr2WisdomStatusLabel", "nr2WisdomActivityLabel",
                                  "nr2WisdomElapsedTimeLabel", "nr2WisdomReassuranceLabel"}) {
             QVERIFY2(child<QLabel>(window, name), name);
         }
         QVERIFY(child<QProgressBar>(window, "nr2WisdomProgressBar"));
         QVERIFY(child<QPushButton>(window, "nr2WisdomCancelButton"));
-        //DH1KLM Return in the window must not press Cancel.
+        // Return in the window must not press Cancel.
         QVERIFY(!child<QPushButton>(window, "nr2WisdomCancelButton")->autoDefault());
     }
 
@@ -98,9 +98,9 @@ private slots:
             const int chunk = sheet.indexOf(QLatin1String("QProgressBar::chunk"));
             QVERIFY2(sheet.indexOf(QLatin1String("qlineargradient"), chunk) > chunk,
                      "the progress chunk is the brand gradient");
-            //DH1KLM An unknown token resolves to "" and leaves a `color: ;` Qt drops,
-            //DH1KLM so check each token the sheet uses resolves in the window's scope
-            //DH1KLM and lands in the sheet, and that no declaration was left empty.
+            // An unknown token resolves to "" and leaves a `color: ;` Qt drops,
+            // so check each token the sheet uses resolves in the window's scope
+            // and lands in the sheet, and that no declaration was left empty.
             for (const char* token :
                  {"color.canon.ink", "color.canon.inkSoft", "color.canon.nested",
                   "color.canon.line", "color.canon.lineHi", "color.canon.control",
@@ -125,7 +125,7 @@ private slots:
         auto* status = child<QLabel>(window, "nr2WisdomStatusLabel");
         auto* reassurance = child<QLabel>(window, "nr2WisdomReassuranceLabel");
 
-        //DH1KLM CONTROL: before the cancel, progress lands.
+        // CONTROL: before the cancel, progress lands.
         window.setProgress(40);
         QCOMPARE(bar->value(), 40);
 
@@ -139,17 +139,17 @@ private slots:
         QVERIFY(!reassurance->isHidden());
         QVERIFY(reassurance->text().startsWith(QLatin1String("Cancel requested")));
 
-        //DH1KLM A second request (Escape) does not ask again.
+        // A second request (Escape) does not ask again.
         window.reject();
         QCOMPARE(spy.count(), 1);
 
-        //DH1KLM The planner's queued reports after the cancel change nothing.
+        // The planner's queued reports after the cancel change nothing.
         window.setStepDescription(QStringLiteral("Computing REAL FORWARD FFT size 4096..."));
         window.setProgress(80);
         QVERIFY(status->text().startsWith(QLatin1String("Canceling FFTW wisdom generation")));
         QCOMPARE(bar->maximum(), 0);
-        //DH1KLM A report would normally hide the reassurance line; after a cancel
-        //DH1KLM the guard drops the report, so the cancel notice stays.
+        // A report would normally hide the reassurance line; after a cancel
+        // the guard drops the report, so the cancel notice stays.
         QVERIFY(!reassurance->isHidden());
         QVERIFY(reassurance->text().startsWith(QLatin1String("Cancel requested")));
     }
@@ -179,7 +179,7 @@ private slots:
         window.setProgress(38);
         QCOMPARE(bar->value(), 38);
 
-        //DH1KLM The activity line ticks every 500 ms.
+        // The activity line ticks every 500 ms.
         QTRY_VERIFY_WITH_TIMEOUT(activity->text().startsWith(QLatin1String("Working.")), 2000);
         QVERIFY2(QRegularExpression(QStringLiteral("^Elapsed: \\d+:[0-5]\\d$"))
                      .match(elapsed->text())
@@ -215,7 +215,7 @@ private slots:
             QCOMPARE(status->text(), QLatin1String(c.status));
             QCOMPARE(status->accessibleName(), QLatin1String(c.status));
             QVERIFY(child<QLabel>(window, "nr2WisdomReassuranceLabel")->isHidden());
-            //DH1KLM The activity line has stopped: it no longer ticks.
+            // The activity line has stopped: it no longer ticks.
             QTest::qWait(600);
             QCOMPARE(child<QLabel>(window, "nr2WisdomActivityLabel")->text(),
                      QLatin1String(c.activity));

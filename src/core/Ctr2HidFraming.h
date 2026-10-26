@@ -60,13 +60,13 @@ constexpr std::uint32_t capabilityBit(MessageType type)
 // Largest payload each extension type may carry; 0 for one not defined.
 int extensionMaxLength(MessageType type);
 
-//DH1KLM Wide reports: capability bit 5, which names no message (0x45 is never
-//DH1KLM sent). Once accepted, both directions carry the link's 8-byte reports
-//DH1KLM bundled in HID report 0x04 instead of report 0x01, up to seven at a time:
-//DH1KLM   [count 1..7][count reports of 8 bytes, back to back][zero padding]
-//DH1KLM in 63 bytes after the report ID. The messages themselves do not change.
-//DH1KLM A device offering it declares report 0x04 (Input and Output) beside report
-//DH1KLM 0x01, which makes Windows pad every report read from it to 64 bytes.
+// Wide reports: capability bit 5, which names no message (0x45 is never
+// sent). Once accepted, both directions carry the link's 8-byte reports
+// bundled in HID report 0x04 instead of report 0x01, up to seven at a time:
+//   [count 1..7][count reports of 8 bytes, back to back][zero padding]
+// in 63 bytes after the report ID. The messages themselves do not change.
+// A device offering it declares report 0x04 (Input and Output) beside report
+// 0x01, which makes Windows pad every report read from it to 64 bytes.
 constexpr std::uint32_t kWideReportsBit = 1u << 5;
 constexpr std::uint8_t kWideReportId = 0x04;
 constexpr int kWideReportBytes = 63;

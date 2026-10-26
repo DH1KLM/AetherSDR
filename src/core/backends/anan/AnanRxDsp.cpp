@@ -102,7 +102,7 @@ AnanRxDsp::RebuildResult AnanRxDsp::buildChannel(const Config& config)
     wc.agcMode = config.agcMode;
     wc.maximumAgcGainDb = config.maximumAgcGainDb;
     wc.agcFixedGainDb = config.agcFixedGainDb;
-    //DH1KLM: App audio controls own volume; WDSP's default panel factor 4 adds 12 dB after AGC.
+    // App audio controls own volume; WDSP's default panel factor 4 adds 12 dB after AGC.
     wc.rxPanelGain = 1.0;
     wc.blockForOutput = config.blockForOutput;
     wc.noiseBlanker = config.noiseBlanker;

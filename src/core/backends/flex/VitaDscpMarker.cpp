@@ -172,9 +172,9 @@ VitaDscpResult VitaDscpMarker::apply(qintptr descriptor, const QHostAddress& des
 #elif defined(Q_OS_UNIX)
     Q_UNUSED(ports);
     const int fd = static_cast<int>(descriptor);
-    //DH1KLM Native IPv6 packets take their class from IPV6_TCLASS; IP_TOS on an
-    //DH1KLM IPv6 socket reads back fine but marks only IPv4-mapped traffic, which a
-    //DH1KLM dual-stack socket sends to an IPv4 destination.
+    // Native IPv6 packets take their class from IPV6_TCLASS; IP_TOS on an
+    // IPv6 socket reads back fine but marks only IPv4-mapped traffic, which a
+    // dual-stack socket sends to an IPv4 destination.
     sockaddr_storage local{};
     socklen_t localLength = sizeof(local);
     const bool ipv6Socket = ::getsockname(fd, reinterpret_cast<sockaddr*>(&local), &localLength) == 0

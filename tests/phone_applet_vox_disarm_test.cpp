@@ -1,7 +1,7 @@
-//DH1KLM The automation bridge may switch VOX off, with or without TX permission, and never on.
+// The automation bridge may switch VOX off, with or without TX permission, and never on.
 // The Phone applet's VOX button carries a disarm-only scoped action (#6053).
-//DH1KLM Production shortcut registration/dispatch is exercised by tools/automation_vox_guard.py.
-//DH1KLM Every other path is pinned: arming and pointer verbs are refused, the operator's own input is untouched.
+// Production shortcut registration/dispatch is exercised by tools/automation_vox_guard.py.
+// Every other path is pinned: arming and pointer verbs are refused, the operator's own input is untouched.
 // No radio, no socket, no transmission: a bare RadioModel's TransmitModel.
 
 #include "TestEventLoop.h"
@@ -191,7 +191,7 @@ int main(int argc, char** argv)
         tx.setVoxEnable(false);
     }
 
-    //DH1KLM ── Bridge, no TX permission: disarm passes, arming is refused ──────────
+    // ── Bridge, no TX permission: disarm passes, arming is refused ──────────
     server.setTxAllowed(false);
     {
         tx.setVoxEnable(true);
@@ -223,8 +223,8 @@ int main(int argc, char** argv)
               "TX not allowed: arming is refused by every verb (unchanged)");
     }
 
-    //DH1KLM The injected result tests the bridge's response mapping only. The full
-    //DH1KLM app probe exercises MainWindow's registration and dispatch independently.
+    // The injected result tests the bridge's response mapping only. The full
+    // app probe exercises MainWindow's registration and dispatch independently.
     {
         QMainWindow window;
         window.show();
@@ -234,7 +234,7 @@ int main(int argc, char** argv)
                                                 const std::shared_ptr<TxController>&) {
             dispatched = id == QStringLiteral("vox_toggle");
             permission = allowTx;
-            return 3; //DH1KLM MainWindow::ShortcutFireTxBlocked
+            return 3; // MainWindow::ShortcutFireTxBlocked
         });
         server.setTxAllowed(false);
         const QJsonObject rep = AutomationServerTestAccess::request(server,

@@ -16,26 +16,26 @@ namespace AetherSDR::anan_original {
 
 namespace {
 
-//DH1KLM View a QByteArray as a byte span for the protocol decoders. Same helper
-//DH1KLM MetisClient.cpp defines locally for the same purpose.
+// View a QByteArray as a byte span for the protocol decoders. Same helper
+// MetisClient.cpp defines locally for the same purpose.
 std::span<const std::uint8_t> asBytes(const QByteArray& d) noexcept
 {
     return {reinterpret_cast<const std::uint8_t*>(d.constData()),
            static_cast<std::size_t>(d.size())};
 }
 
-//DH1KLM txAccum is REQUIRED, not defaulted: a new send site cannot compile without
-//DH1KLM deciding where its bytes are counted, which is what keeps the LinkStats tx
-//DH1KLM total from silently under-reporting as this client grows.
+// txAccum is REQUIRED, not defaulted: a new send site cannot compile without
+// deciding where its bytes are counted, which is what keeps the LinkStats tx
+// total from silently under-reporting as this client grows.
 template <std::size_t N>
 qint64 sendTo(QUdpSocket& s, const std::array<std::uint8_t, N>& buf,
              const QHostAddress& host, quint16 port, quint64& txAccum)
 {
     const qint64 sent = s.writeDatagram(reinterpret_cast<const char*>(buf.data()),
                                         static_cast<qint64>(N), host, port);
-    //DH1KLM Only what the socket ACCEPTED. Counting a refused datagram would inflate
-    //DH1KLM the readout exactly when the link is failing, which is when an operator
-    //DH1KLM is most likely to be reading it.
+    // Only what the socket ACCEPTED. Counting a refused datagram would inflate
+    // the readout exactly when the link is failing, which is when an operator
+    // is most likely to be reading it.
     if (sent > 0)
         txAccum += static_cast<quint64>(sent);
     return sent;
@@ -55,10 +55,10 @@ P2Client::P2Client(QObject* parent) : QObject(parent)
 
     m_speakerDrainTimer = new QTimer(this);
     m_speakerDrainTimer->setInterval(kSpeakerDrainMs);
-    //DH1KLM A realtime stream's pacing timer, so ask for the accurate one. Qt's default
-    //DH1KLM CoarseTimer may be adjusted by up to 5% of the interval, which at 5 ms is
-    //DH1KLM the same order as the interval itself; the pacer's target absorbs jitter but
-    //DH1KLM there is no reason to hand it more than necessary.
+    // A realtime stream's pacing timer, so ask for the accurate one. Qt's default
+    // CoarseTimer may be adjusted by up to 5% of the interval, which at 5 ms is
+    // the same order as the interval itself; the pacer's target absorbs jitter but
+    // there is no reason to hand it more than necessary.
     m_speakerDrainTimer->setTimerType(Qt::PreciseTimer);
     connect(m_speakerDrainTimer, &QTimer::timeout, this, &P2Client::onSpeakerDrainTick);
 
@@ -92,15 +92,15 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     m_ddc0FreqHz = 0.0;   // cleared with m_ddc0FreqWord: nothing is tuned yet
     m_speakerPending.clear();
     m_speakerPacer.reset();
-    //DH1KLM Sequence restarts per session, like the DDC expectations below: p2app
-    //DH1KLM reads it only to spot gaps within one stream.
+    // Sequence restarts per session, like the DDC expectations below: p2app
+    // reads it only to spot gaps within one stream.
     m_speakerSequence = 0;
     m_speakerOverflowLogged = false;
     m_speakerUnderflowReports = 0;
     m_lastSpeakerFifoLevel = 0;
-    //DH1KLM Every DDC's sequence tracker, not just DDC0's -- a stale expectation
-    //DH1KLM carried across a restart would report a phantom gap on the new
-    //DH1KLM session's first frame.
+    // Every DDC's sequence tracker, not just DDC0's -- a stale expectation
+    // carried across a restart would report a phantom gap on the new
+    // session's first frame.
     m_expectedSeq.fill(std::nullopt);
     m_activeDdcCount = 1;   // real value set once the DDC list is resolved below
     m_drops = 0;
@@ -122,51 +122,51 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
 
     m_running = true;
 
-    //DH1KLM No artificial delay between these -- MetisClient::start() sends its
-    //DH1KLM own startup sequence back-to-back too, and nothing in the spike's
-    //DH1KLM proven session flow needed one either.
-    //DH1KLM
-    //DH1KLM Discovery FIRST, from this socket -- see the class comment for why:
-    //DH1KLM it is the source port of THIS packet that decides where the radio
-    //DH1KLM sends DDC0 IQ, not the source port of General/DDC-Specific/High-
-    //DH1KLM Priority below. The reply (if any arrives here) is not parsed;
-    //DH1KLM onReadyRead() already drops anything that isn't DDC0-shaped.
+    // No artificial delay between these -- MetisClient::start() sends its
+    // own startup sequence back-to-back too, and nothing in the spike's
+    // proven session flow needed one either.
+    //
+    // Discovery FIRST, from this socket -- see the class comment for why:
+    // it is the source port of THIS packet that decides where the radio
+    // sends DDC0 IQ, not the source port of General/DDC-Specific/High-
+    // Priority below. The reply (if any arrives here) is not parsed;
+    // onReadyRead() already drops anything that isn't DDC0-shaped.
     sendTo(*m_socket, buildDiscovery(), m_host, kRadioPort, m_txBytes);
     sendTo(*m_socket, buildGeneral(), m_host, kRadioPort, m_txBytes);
 
-    //DH1KLM Resolve the session's DDC list ONCE: either the caller's explicit
-    //DH1KLM multi-DDC list, or a one-element list from the DDC0 shorthand. See
-    //DH1KLM Params::activeDdcs for why these are not merged.
+    // Resolve the session's DDC list ONCE: either the caller's explicit
+    // multi-DDC list, or a one-element list from the DDC0 shorthand. See
+    // Params::activeDdcs for why these are not merged.
     std::vector<DdcConfig> ddcs = params.activeDdcs;
     if (ddcs.empty())
         ddcs.push_back(DdcConfig{params.ddc0RateKsps, params.ddc0AdcIndex});
     if (static_cast<int>(ddcs.size()) > kMaxDdcs)
         ddcs.resize(kMaxDdcs);
     m_activeDdcCount = static_cast<int>(ddcs.size());
-    //DH1KLM Retained for setDdcRateLive() -- see its own comment for why the whole
-    //DH1KLM list (not just the count) has to survive start().
+    // Retained for setDdcRateLive() -- see its own comment for why the whole
+    // list (not just the count) has to survive start().
     m_activeDdcs = ddcs;
     m_ditherEnabled = params.ditherEnabled;
     m_randomEnabled = params.randomEnabled;
 
-    //DH1KLM Destination ports below are NOT interchangeable with kRadioPort -- see
-    //DH1KLM kDdcSpecificPort/kHighPriorityPort's comment. p2app tells these two
-    //DH1KLM packet types apart by which port they arrive on.
+    // Destination ports below are NOT interchangeable with kRadioPort -- see
+    // kDdcSpecificPort/kHighPriorityPort's comment. p2app tells these two
+    // packet types apart by which port they arrive on.
     sendTo(*m_socket,
           buildDdcSpecific(ddcs, /*numAdcs=*/2,
                            params.ditherEnabled, params.randomEnabled),
           m_host, kDdcSpecificPort, m_txBytes);
-    //DH1KLM Every DDC gets the shared m_ddc0FreqWord (sharedFreqWords()): there is no
-    //DH1KLM per-DDC tuning setter yet. All run=1 senders build the packet the same
-    //DH1KLM way, so they cannot disagree (#5547).
+    // Every DDC gets the shared m_ddc0FreqWord (sharedFreqWords()): there is no
+    // per-DDC tuning setter yet. All run=1 senders build the packet the same
+    // way, so they cannot disagree (#5547).
     sendRunningHighPriority();
 
     m_keepaliveTimer->start();
     m_linkCountersTimer->start();
     if (m_speakerAudioEnabled) {
-        //DH1KLM Started from zero at the same moment as the drain, so the pacer's
-        //DH1KLM first advance() measures from the first tick rather than from
-        //DH1KLM whenever this object happened to be constructed.
+        // Started from zero at the same moment as the drain, so the pacer's
+        // first advance() measures from the first tick rather than from
+        // whenever this object happened to be constructed.
         m_speakerClock.restart();
         m_speakerDrainTimer->start();
     }
@@ -181,9 +181,9 @@ void P2Client::stop()
     m_linkCountersTimer->stop();
     m_connectTimeoutTimer->stop();
     m_speakerDrainTimer->stop();
-    //DH1KLM Dropped, not drained. These samples are older than the disconnect and the
-    //DH1KLM radio's own FIFO does not survive it either, so playing them out on the
-    //DH1KLM next session would start it with a fragment of the last one.
+    // Dropped, not drained. These samples are older than the disconnect and the
+    // radio's own FIFO does not survive it either, so playing them out on the
+    // next session would start it with a fragment of the last one.
     m_speakerPending.clear();
     m_speakerPacer.reset();
     m_speakerSequence = 0;
@@ -191,12 +191,12 @@ void P2Client::stop()
     m_speakerUnderflowReports = 0;
     m_lastSpeakerFifoLevel = 0;
     if (m_socket) {
-        //DH1KLM The clean-stop packet, mirroring metisStop(): run=0 reaches the
-        //DH1KLM radio before the socket that would carry any further keepalive
-        //DH1KLM goes away. Without highPriorityOptions(): p2app keeps the last
-        //DH1KLM byte 1400 and Alex words it was sent, and no client is left to
-        //DH1KLM change them, so a clean stop hands the radio back unmuted, with the
-        //DH1KLM bypass flags, not a band filter, deciding both banks.
+        // The clean-stop packet, mirroring metisStop(): run=0 reaches the
+        // radio before the socket that would carry any further keepalive
+        // goes away. Without highPriorityOptions(): p2app keeps the last
+        // byte 1400 and Alex words it was sent, and no client is left to
+        // change them, so a clean stop hands the radio back unmuted, with the
+        // bypass flags, not a band filter, deciding both banks.
         sendTo(*m_socket,
               buildHighPriority(false, 0, m_bypassAdc0Filters, m_bypassAdc1Filters,
                                 m_adc0AttenuationDb, m_adc1AttenuationDb),
@@ -225,17 +225,17 @@ void P2Client::publishLinkCounters()
 
 QString P2Client::localEndpoint() const
 {
-    //DH1KLM Empty rather than a partial string when there is no socket or the bind
-    //DH1KLM did not take: LinkStats::localEndpoint is documented as empty when not
-    //DH1KLM bound, and the consumer falls back to its own source on empty.
+    // Empty rather than a partial string when there is no socket or the bind
+    // did not take: LinkStats::localEndpoint is documented as empty when not
+    // bound, and the consumer falls back to its own source on empty.
     if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
         return {};
     const quint16 port = m_socket->localPort();
     if (port == 0)
         return {};
-    //DH1KLM AnyIPv4 prints as "0.0.0.0", which is the honest answer for a wildcard
-    //DH1KLM bind -- the socket genuinely is not pinned to one interface. The PORT is
-    //DH1KLM the load-bearing half anyway: it is what the radio streams DDC0 to.
+    // AnyIPv4 prints as "0.0.0.0", which is the honest answer for a wildcard
+    // bind -- the socket genuinely is not pinned to one interface. The PORT is
+    // the load-bearing half anyway: it is what the radio streams DDC0 to.
     return QStringLiteral("%1:%2").arg(m_socket->localAddress().toString())
                                   .arg(port);
 }
@@ -243,14 +243,14 @@ QString P2Client::localEndpoint() const
 void P2Client::noteSpeakerFifoStatus(const HighPriorityStatus& status)
 {
     m_lastSpeakerFifoLevel = status.speakerFifoLevel;
-    //DH1KLM EVERY status packet, healthy or not, at debug. The underflow bit only tells
-    //DH1KLM us the stream ALREADY failed; the level is what shows it coming, and a bench
-    //DH1KLM run needs to watch it hold steady rather than only learn afterwards that it
-    //DH1KLM did not. Five lines a second, so debug-gated:
-    //DH1KLM   QT_LOGGING_RULES="aether.anan.p2.debug=true"
-    //DH1KLM
-    //DH1KLM Logged even while the stream is disabled: then it is the radio's own idle
-    //DH1KLM level, which is the baseline a later run is read against.
+    // EVERY status packet, healthy or not, at debug. The underflow bit only tells
+    // us the stream ALREADY failed; the level is what shows it coming, and a bench
+    // run needs to watch it hold steady rather than only learn afterwards that it
+    // did not. Five lines a second, so debug-gated:
+    //   QT_LOGGING_RULES="aether.anan.p2.debug=true"
+    //
+    // Logged even while the stream is disabled: then it is the radio's own idle
+    // level, which is the baseline a later run is read against.
     if (m_speakerAudioEnabled) {
         qCDebug(lcOriginalAnanP2).nospace()
             << "ANAN: speaker FIFO level " << status.speakerFifoLevel
@@ -267,10 +267,10 @@ void P2Client::noteSpeakerFifoStatus(const HighPriorityStatus& status)
         return;
     }
     ++m_speakerUnderflowReports;
-    //DH1KLM The first underflow warns; later ones are only counted, since a starved
-    //DH1KLM stream sets the latched bit on every ~200 ms status packet. p2app reports
-    //DH1KLM underflow even when nobody feeds the FIFO, so it only means something while
-    //DH1KLM we are sending.
+    // The first underflow warns; later ones are only counted, since a starved
+    // stream sets the latched bit on every ~200 ms status packet. p2app reports
+    // underflow even when nobody feeds the FIFO, so it only means something while
+    // we are sending.
     if (!m_speakerAudioEnabled) {
         return;
     }
@@ -301,11 +301,11 @@ void P2Client::enqueueSpeakerAudio(const QByteArray& interleavedInt16)
         kSpeakerFramesPerPacket * kSpeakerChannels;
     const std::size_t cap = kMaxQueuedSpeakerPackets * kPacketSamples;
     if (m_speakerPending.size() + count > cap) {
-        //DH1KLM DROP THE OLDEST, not the newest. This is a realtime stream: the newest
-        //DH1KLM audio is the audio the operator is listening for, and discarding it to
-        //DH1KLM preserve a backlog they have already missed hearing keeps the latency
-        //DH1KLM and loses the content. Dropping from the front loses the same amount of
-        //DH1KLM audio and recovers the latency with it.
+        // DROP THE OLDEST, not the newest. This is a realtime stream: the newest
+        // audio is the audio the operator is listening for, and discarding it to
+        // preserve a backlog they have already missed hearing keeps the latency
+        // and loses the content. Dropping from the front loses the same amount of
+        // audio and recovers the latency with it.
         const std::size_t overflow = m_speakerPending.size() + count - cap;
         const std::size_t drop = std::min(overflow, m_speakerPending.size());
         m_speakerPending.erase(m_speakerPending.begin(),
@@ -328,17 +328,17 @@ void P2Client::onSpeakerDrainTick()
     constexpr std::size_t kPacketSamples =
         kSpeakerFramesPerPacket * kSpeakerChannels;
 
-    //DH1KLM Elapsed first: the pacer's whole estimate is "sent minus drained", and
-    //DH1KLM draining is what happened between ticks.
+    // Elapsed first: the pacer's whole estimate is "sent minus drained", and
+    // draining is what happened between ticks.
     const qint64 elapsedNs = m_speakerClock.nsecsElapsed();
     m_speakerClock.restart();
     m_speakerPacer.advance(static_cast<double>(elapsedNs) * 1.0e-9);
 
     const int queued = static_cast<int>(m_speakerPending.size() / kPacketSamples);
-    //DH1KLM Tell the pacer how far behind WE are before asking what may go. Without
-    //DH1KLM this it only ever knows about the radio's side, which is correct for the
-    //DH1KLM rate and blind to a backlog on ours -- measured on the G2 as a permanent
-    //DH1KLM 26-45 packets held here for the life of the session.
+    // Tell the pacer how far behind WE are before asking what may go. Without
+    // this it only ever knows about the radio's side, which is correct for the
+    // rate and blind to a backlog on ours -- measured on the G2 as a permanent
+    // 26-45 packets held here for the life of the session.
     m_speakerPacer.setBacklog(queued, kMaxQueuedSpeakerPackets);
     int toSend = m_speakerPacer.packetsToSend(queued);
     std::size_t consumed = 0;
@@ -350,15 +350,15 @@ void P2Client::onSpeakerDrainTick()
             reinterpret_cast<const char*>(pkt.data()),
             static_cast<qint64>(pkt.size()), m_host, kSpeakerAudioPort);
         if (sent != static_cast<qint64>(pkt.size())) {
-            //DH1KLM Neither counted into the pacer nor consumed from the queue: a
-            //DH1KLM packet the socket refused never reached the radio's FIFO, so
-            //DH1KLM crediting it would read a dead link as a full buffer and stop the
-            //DH1KLM stream permanently. Retried on the next tick.
+            // Neither counted into the pacer nor consumed from the queue: a
+            // packet the socket refused never reached the radio's FIFO, so
+            // crediting it would read a dead link as a full buffer and stop the
+            // stream permanently. Retried on the next tick.
             break;
         }
-        //DH1KLM Counted here rather than in sendTo(): this is the one send that does
-        //DH1KLM not go through it. Reached only on the accepted path -- the refused
-        //DH1KLM case broke out above.
+        // Counted here rather than in sendTo(): this is the one send that does
+        // not go through it. Reached only on the accepted path -- the refused
+        // case broke out above.
         m_txBytes += static_cast<quint64>(sent);
         ++m_speakerSequence;
         m_speakerPacer.onPacketSent();
@@ -373,8 +373,8 @@ void P2Client::onSpeakerDrainTick()
 void P2Client::setDdc0FrequencyHz(double hz)
 {
     m_ddc0FreqWord = phaseWord(hz);
-    //DH1KLM Moves with m_ddc0FreqWord and nothing else: a stale value would energise
-    //DH1KLM the filter for a band the receiver has left.
+    // Moves with m_ddc0FreqWord and nothing else: a stale value would energise
+    // the filter for a band the receiver has left.
     m_ddc0FreqHz = hz;
     if (m_running && m_socket) {
         sendRunningHighPriority();
@@ -390,8 +390,8 @@ void P2Client::setStepAttenuationDb(int adcIndex, int db)
     } else {
         return;
     }
-    //DH1KLM Now rather than on the next keepalive: the operator is moving a
-    //DH1KLM control and should hear the change, not wait up to 100 ms for it.
+    // Now rather than on the next keepalive: the operator is moving a
+    // control and should hear the change, not wait up to 100 ms for it.
     if (m_running && m_socket) {
         sendRunningHighPriority();
     }
@@ -418,14 +418,14 @@ HighPriorityOptions P2Client::highPriorityOptions() const
     HighPriorityOptions opts;
     opts.muteSpeakerAmp = m_speakerAmpMuted;
     if (m_bandFiltersEnabled) {
-        //DH1KLM Both banks follow DDC0's frequency, as deskHPSDR's do with one
-        //DH1KLM receiver: an unset bank would keep whatever the last session
-        //DH1KLM energised. The selection replaces the bypass flags; they are the
-        //DH1KLM same relay bit.
-        //DH1KLM
-        //DH1KLM The relays switch only when the tuned frequency crosses a band
-        //DH1KLM edge, and AnanBackend throttles retunes before they reach here
-        //DH1KLM (scheduleTuneApply()), so a drag across bands sends a few packets.
+        // Both banks follow DDC0's frequency, as deskHPSDR's do with one
+        // receiver: an unset bank would keep whatever the last session
+        // energised. The selection replaces the bypass flags; they are the
+        // same relay bit.
+        //
+        // The relays switch only when the tuned frequency crosses a band
+        // edge, and AnanBackend throttles retunes before they reach here
+        // (scheduleTuneApply()), so a drag across bands sends a few packets.
         const AlexRxFilter filter = alexRxFilterFor(m_ddc0FreqHz);
         opts.adc0Filter = filter;
         opts.adc1Filter = filter;
@@ -453,23 +453,23 @@ bool P2Client::setDdcRateLive(int ddcIndex, int rateKsps)
     auto& slot = m_activeDdcs[static_cast<std::size_t>(ddcIndex)];
     const bool rateChanged = slot.rateKsps != rateKsps;
     slot.rateKsps = rateKsps;
-    //DH1KLM Whole packet, every DDC's row -- see this function's declaration
-    //DH1KLM comment. Same destination port start() used: p2app tells DDC-Specific
-    //DH1KLM from High Priority by which port it arrives on, so this is not
-    //DH1KLM interchangeable with kRadioPort. Sent even when rateChanged is false:
-    //DH1KLM AnanBackend retries this call at 60/140 ms for UDP loss, and those
-    //DH1KLM retries must not no-op after the first write (#5547).
+    // Whole packet, every DDC's row -- see this function's declaration
+    // comment. Same destination port start() used: p2app tells DDC-Specific
+    // from High Priority by which port it arrives on, so this is not
+    // interchangeable with kRadioPort. Sent even when rateChanged is false:
+    // AnanBackend retries this call at 60/140 ms for UDP loss, and those
+    // retries must not no-op after the first write (#5547).
     sendTo(*m_socket,
           buildDdcSpecific(m_activeDdcs, /*numAdcs=*/2,
                            m_ditherEnabled, m_randomEnabled),
           m_host, kDdcSpecificPort, m_txBytes);
 
-    //DH1KLM The stream's sample cadence changes underneath us from here, so the
-    //DH1KLM sequence expectation for THIS DDC is no longer meaningful -- clear it
-    //DH1KLM rather than let the next frame look like a gap and inflate the drop
-    //DH1KLM counter for what is a deliberate, operator-initiated change. Retries
-    //DH1KLM of the same rate leave the tracker alone: the cadence did not change
-    //DH1KLM again.
+    // The stream's sample cadence changes underneath us from here, so the
+    // sequence expectation for THIS DDC is no longer meaningful -- clear it
+    // rather than let the next frame look like a gap and inflate the drop
+    // counter for what is a deliberate, operator-initiated change. Retries
+    // of the same rate leave the tracker alone: the cadence did not change
+    // again.
     if (rateChanged) {
         m_expectedSeq[static_cast<std::size_t>(ddcIndex)].reset();
     }
@@ -480,8 +480,8 @@ void P2Client::onKeepaliveTick()
 {
     if (!m_running || !m_socket)
         return;
-    //DH1KLM This IS the "any C&C packet" the watchdog needs (p.8) -- no need to
-    //DH1KLM also replay General/DDC-Specific on this cadence, same as the spike.
+    // This IS the "any C&C packet" the watchdog needs (p.8) -- no need to
+    // also replay General/DDC-Specific on this cadence, same as the spike.
     sendRunningHighPriority();
 }
 
@@ -504,9 +504,9 @@ void P2Client::onReadyRead()
 void P2Client::handleDatagramFrom(const QHostAddress& sender,
                                   std::span<const std::uint8_t> bytes, quint16 senderPort)
 {
-    //DH1KLM The radio answers from the address start() sent to: Discovery is unicast
-    //DH1KLM to m_host from this same socket, so its reply passes too. A spoofed
-    //DH1KLM source still passes; this keeps out stray LAN traffic, not an attacker.
+    // The radio answers from the address start() sent to: Discovery is unicast
+    // to m_host from this same socket, so its reply passes too. A spoofed
+    // source still passes; this keeps out stray LAN traffic, not an attacker.
     if (!sender.isEqual(m_host, QHostAddress::TolerantConversion)) {
         if (!m_warnedForeignSender) {
             m_warnedForeignSender = true;
@@ -520,20 +520,20 @@ void P2Client::handleDatagramFrom(const QHostAddress& sender,
     handleDatagram(bytes, senderPort);
 }
 
-//DH1KLM Socket-free ingest seam: production and regression tests share validation,
-//DH1KLM per-DDC sequence tracking, notification ordering and sample delivery.
+// Socket-free ingest seam: production and regression tests share validation,
+// per-DDC sequence tracking, notification ordering and sample delivery.
 void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 senderPort)
 {
-    //DH1KLM Before any parse decides what this datagram IS: the transport carried it
-    //DH1KLM either way, and LinkStats::alive reads bytes, so a session whose IQ has
-    //DH1KLM stalled while Status packets still arrive does not read as a dead link.
+    // Before any parse decides what this datagram IS: the transport carried it
+    // either way, and LinkStats::alive reads bytes, so a session whose IQ has
+    // stalled while Status packets still arrive does not read as a dead link.
     m_rxBytes += static_cast<quint64>(bytes.size());
 
     const auto frame = parseDdcFrame(bytes);
     if (!frame) {
-        //DH1KLM Not DDC0-shaped: Mic Data, High Priority Status, or this session's
-        //DH1KLM Discovery reply. Parse the reply on EVERY datagram (notify once): skipping it
-        //DH1KLM would let a duplicate reply fall through and decode as a phantom underflow.
+        // Not DDC0-shaped: Mic Data, High Priority Status, or this session's
+        // Discovery reply. Parse the reply on EVERY datagram (notify once): skipping it
+        // would let a duplicate reply fall through and decode as a phantom underflow.
         if (const auto reply = parseDiscoveryReply(bytes)) {
             if (!m_discoveryInfoSent) {
                 m_discoveryInfoSent = true;
@@ -542,9 +542,9 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
             }
             return;
         }
-        //DH1KLM Tried after the Discovery reply (both 60 bytes): a status packet with
-        //DH1KLM sequence 0 and byte 4 = 0x02/0x03 reads as a reply and is skipped -- one
-        //DH1KLM diagnostic packet, never a fake fault.
+        // Tried after the Discovery reply (both 60 bytes): a status packet with
+        // sequence 0 and byte 4 = 0x02/0x03 reads as a reply and is skipped -- one
+        // diagnostic packet, never a fake fault.
         if (const auto status = parseHighPriorityStatus(bytes)) {
             noteSpeakerFifoStatus(*status);
             emit supplyRailSampled(status->supplyRailCounts);
@@ -552,16 +552,16 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
         return;
     }
 
-    //DH1KLM Which DDC sent this. The IQ packet carries no DDC index of its
-    //DH1KLM own, so the sender port is the only discriminator -- see
-    //DH1KLM ddcIndexForSenderPort()'s comment for how that is verified.
+    // Which DDC sent this. The IQ packet carries no DDC index of its
+    // own, so the sender port is the only discriminator -- see
+    // ddcIndexForSenderPort()'s comment for how that is verified.
     const auto ddcIndex = ddcIndexForSenderPort(
         static_cast<std::uint16_t>(senderPort), m_activeDdcCount);
     if (!ddcIndex) {
-        //DH1KLM DDC-shaped but from a port this session did not enable (another client, or a
-        //DH1KLM DDC left running): drop it without counting a drop. Warn once per port, since
-        //DH1KLM a source-port mismatch (other firmware, NAT, negotiated ports) would otherwise
-        //DH1KLM present only as onConnectTimeout()'s "no DDC0 IQ".
+        // DDC-shaped but from a port this session did not enable (another client, or a
+        // DDC left running): drop it without counting a drop. Warn once per port, since
+        // a source-port mismatch (other firmware, NAT, negotiated ports) would otherwise
+        // present only as onConnectTimeout()'s "no DDC0 IQ".
         if (!m_warnedUnexpectedPorts.contains(senderPort)) {
             m_warnedUnexpectedPorts.insert(senderPort);
             qCWarning(lcOriginalAnanP2).nospace()
@@ -575,27 +575,27 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
         return;
     }
     const std::size_t slot = static_cast<std::size_t>(*ddcIndex);
-    //DH1KLM The denominator rxPacketsLost is a fraction of: sequence-tracked DDC
-    //DH1KLM frames only. Mic Data and Status would dilute RadioModel's loss
-    //DH1KLM percentage several-fold at low DDC rates.
+    // The denominator rxPacketsLost is a fraction of: sequence-tracked DDC
+    // frames only. Mic Data and Status would dilute RadioModel's loss
+    // percentage several-fold at low DDC rates.
     ++m_rxPackets;
 
-    //DH1KLM Per-DDC gap detection; see m_expectedSeq's own comment for why a
-    //DH1KLM shared counter would manufacture drops once a second DDC streams.
+    // Per-DDC gap detection; see m_expectedSeq's own comment for why a
+    // shared counter would manufacture drops once a second DDC streams.
     if (m_expectedSeq[slot] && frame->seq != *m_expectedSeq[slot]) {
         ++m_drops;
         emit dropsUpdated(m_drops);
-        //DH1KLM A rewind or duplicate is not forward loss, but its samples still
-        //DH1KLM break continuity. Notify before delivery, independently of the legacy
-        //DH1KLM drop counter (which counts each mismatch, not each missing packet).
+        // A rewind or duplicate is not forward loss, but its samples still
+        // break continuity. Notify before delivery, independently of the legacy
+        // drop counter (which counts each mismatch, not each missing packet).
         emit ddcSequenceGap(*ddcIndex);
     }
     m_expectedSeq[slot] = frame->seq + 1;
 
-    //DH1KLM linkUp stays keyed on DDC0: it is the receiver every session has,
-    //DH1KLM and the connect timeout's message says "no DDC0 IQ". A session
-    //DH1KLM whose DDC1 streamed but whose DDC0 never did is a real failure,
-    //DH1KLM not a connected session.
+    // linkUp stays keyed on DDC0: it is the receiver every session has,
+    // and the connect timeout's message says "no DDC0 IQ". A session
+    // whose DDC1 streamed but whose DDC0 never did is a real failure,
+    // not a connected session.
     if (!m_linkUp && *ddcIndex == 0) {
         m_linkUp = true;
         m_connectTimeoutTimer->stop();

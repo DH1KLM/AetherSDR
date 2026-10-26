@@ -9,9 +9,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
-//DH1KLM The Updates document (RFC #5304): the automatic-check default, the
-//DH1KLM once-a-day throttle, skip matching, the known update restored across a
-//DH1KLM restart, and that every field shares one nested object under one key.
+// The Updates document (RFC #5304): the automatic-check default, the
+// once-a-day throttle, skip matching, the known update restored across a
+// restart, and that every field shares one nested object under one key.
 int main(int argc, char** argv)
 {
     TestSettingsProfile profile(QStringLiteral("update-settings"));
@@ -65,9 +65,9 @@ int main(int argc, char** argv)
     UpdateSettings::setSkippedVersion(QString());
     check(!UpdateSettings::isSkipped(QStringLiteral("26.10.4")), "clearing the skip");
 
-    //DH1KLM A known update survives a restart inside the throttle (no new request),
-    //DH1KLM and the badge rule drops it once skipped or once the running version
-    //DH1KLM catches up. The store branch needs a packaged build; not reachable here.
+    // A known update survives a restart inside the throttle (no new request),
+    // and the badge rule drops it once skipped or once the running version
+    // catches up. The store branch needs a packaged build; not reachable here.
     UpdateSettings::setSkippedVersion(QString());
     UpdateSettings::recordAnswer(now, QStringLiteral("26.10.3"));
     settings.load();
@@ -81,7 +81,7 @@ int main(int argc, char** argv)
     check(UpdateChecker::badgeVersion(QStringLiteral("v26.10.3<b>x"), QStringLiteral("26.10.2"))
               == QLatin1String("26.10.3"),
           "badge shows parsed digits, never the raw tag");
-    //DH1KLM The automatic-check toggle governs the badge, restored or live.
+    // The automatic-check toggle governs the badge, restored or live.
     UpdateChecker::setCheckOnStartup(false);
     check(UpdateChecker::knownBadgeVersion().isEmpty(),
           "no restored badge with the automatic check off");
@@ -103,9 +103,9 @@ int main(int argc, char** argv)
           "no badge before the first answer");
     UpdateSettings::setLastCheckUtc(now.addSecs(-48 * 3600));
 
-    //DH1KLM Pin the stored shape: one object under "Updates", JSON-typed fields.
-    //DH1KLM The accessors alone cannot catch a key typo'd the same way in both
-    //DH1KLM getter and setter.
+    // Pin the stored shape: one object under "Updates", JSON-typed fields.
+    // The accessors alone cannot catch a key typo'd the same way in both
+    // getter and setter.
     UpdateSettings::setSkippedVersion(QStringLiteral("26.10.4"));
     UpdateSettings::setCheckOnStartup(false);
     const QJsonObject stored = QJsonDocument::fromJson(

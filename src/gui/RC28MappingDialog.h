@@ -17,9 +17,9 @@ namespace AetherSDR {
 class HidEncoderManager;
 
 // RC-28 Button Mapping dialog — configure TX bar PTT mode, F1/F2 press and
-//DH1KLM hold actions, and view live device info + button activity. A canon dialog
-//DH1KLM (style guide, RFC #6226), opened from Settings → Controllers → Icom RC-28
-//DH1KLM Remote Encoder... (#3323).
+// hold actions, and view live device info + button activity. A canon dialog
+// (style guide, RFC #6226), opened from Settings → Controllers → Icom RC-28
+// Remote Encoder... (#3323).
 class RC28MappingDialog : public CanonWindow {
     Q_OBJECT
 
@@ -49,8 +49,8 @@ private:
     void refreshDeviceInfo();
     void populateActionCombo(QComboBox* combo, const QString& field,
                              const QString& defaultId, bool holdOnly = false);
-    //DH1KLM Connected, idle or warning: the dot and status line restyle from the
-    //DH1KLM rc28State property.
+    // Connected, idle or warning: the dot and status line restyle from the
+    // rc28State property.
     void setStatusState(const QString& state);
 
     QPointer<HidEncoderManager> m_encoder;

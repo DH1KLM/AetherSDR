@@ -12,7 +12,7 @@
 // Present-only, fail-closed decode for the Flex status decoders (#4070): a key
 // is applied ONLY when the wire reported it, and a malformed numeric value is
 // dropped, not applied as 0 (an optional target stays disengaged; a plain field
-//DH1KLM or map entry is not written). Keep the guarded parse in parseInt/parseUInt/parseReal only.
+// or map entry is not written). Keep the guarded parse in parseInt/parseUInt/parseReal only.
 namespace AetherSDR::flexkv {
 
 using Kv = QMap<QString, QString>;

@@ -174,7 +174,7 @@ void testResetStateClearsSamplers()
         && tx.apdSampler("ANT1").available == QStringList{"INTERNAL"});
 }
 
-//DH1KLM A transmit model on ANT1 at 14.268 MHz, RF power 100, tune power 10.
+// A transmit model on ANT1 at 14.268 MHz, RF power 100, tune power 10.
 void armTxSlice(TransmitModel& tx, double frequencyMhz = 14.268)
 {
     tx.setApdTxSliceResolver([frequencyMhz] {
@@ -197,7 +197,7 @@ TransmitDelta scopedEq(bool active, const QString& ant, double freq,
 
 void testUnscopedStatusStaysGlobal()
 {
-    //DH1KLM Firmware without ant/freq keeps today's behavior, resolver or not.
+    // Firmware without ant/freq keeps today's behavior, resolver or not.
     TransmitModel tx;
     tx.applyChanges(td([](TransmitDelta& d){ d.apdEqActive = true; }));
     report("unscoped equalizer_active=1 applies without a TX slice", tx.apdEqualizerActive());
@@ -275,7 +275,7 @@ void testLifecycleDrivesIndicator()
     report("pre-lifecycle equalizer_active=1 applies", tx.apdEqualizerActive());
 
     QSignalSpy spy(&tx, &TransmitModel::apdStateChanged);
-    //DH1KLM apd ant=ANT1 freq=14.268000 rfpower=100 state=IDLE deployed=0
+    // apd ant=ANT1 freq=14.268000 rfpower=100 state=IDLE deployed=0
     tx.applyChanges(td([](TransmitDelta& d){
         d.apdLifecycle = ApdLifecycleState::Idle;
         d.apdEqAntenna = QStringLiteral("ANT1");
@@ -306,7 +306,7 @@ void testLifecycleDrivesIndicator()
         report(name, tx.apdEqualizerActive() == onAir);
     }
 
-    //DH1KLM The lifecycle is radio-wide; only the indicator is scoped.
+    // The lifecycle is radio-wide; only the indicator is scoped.
     tx.applyChanges(td([](TransmitDelta& d){
         d.apdLifecycle = ApdLifecycleState::Active;
         d.apdEqAntenna = QStringLiteral("ANT1");

@@ -6,7 +6,7 @@
 
 namespace AetherSDR::anan {
 
-//DH1KLM: Empty retains the existing fork identity and all previously saved values.
+// Empty retains the existing fork identity and all previously saved values.
 class AnanImplementation {
 public:
     static QString originalId() { return QStringLiteral("tropo1234"); }

@@ -68,9 +68,9 @@ QList<QNetworkAddressEntry> liveAddressEntries()
 constexpr char kIdentityFeature[] = "Identity";
 constexpr char kNicknameField[] = "nickname";
 
-//DH1KLM How a probe target reads in the log. The global broadcast is named, not
-//DH1KLM printed: the log file keeps only an address's last octet, and
-//DH1KLM 255.255.255.255 would read like any /24's directed broadcast.
+// How a probe target reads in the log. The global broadcast is named, not
+// printed: the log file keeps only an address's last octet, and
+// 255.255.255.255 would read like any /24's directed broadcast.
 QString targetName(const QHostAddress& target)
 {
     return target == QHostAddress(QHostAddress::Broadcast)
@@ -83,7 +83,7 @@ QString targetName(const QHostAddress& target)
 void AnanDiscoveryLog::bindFailed(const QString& error)
 {
     if (m_bindFailureReported) {
-        return;   //DH1KLM already reported, and no bind has succeeded since
+        return;   // already reported, and no bind has succeeded since
     }
     m_bindFailureReported = true;
     qCWarning(lcDiscovery).noquote()
@@ -97,8 +97,8 @@ void AnanDiscoveryLog::bindSucceeded()
 
 void AnanDiscoveryLog::targetsListed(const QList<QHostAddress>& targets)
 {
-    //DH1KLM broadcastTargets() puts the global broadcast first; anything after it
-    //DH1KLM is a subnet's directed broadcast.
+    // broadcastTargets() puts the global broadcast first; anything after it
+    // is a subnet's directed broadcast.
     if (targets.size() > 1) {
         m_noSubnetReported = false;
     } else if (!m_noSubnetReported) {
@@ -112,7 +112,7 @@ void AnanDiscoveryLog::sendFailed(const QHostAddress& target, const QString& err
 {
     const QString key = QString::number(protocol) + QLatin1Char(':') + target.toString();
     if (m_sendFailures.contains(key)) {
-        return;   //DH1KLM already reported, and no probe has left for it since
+        return;   // already reported, and no probe has left for it since
     }
     m_sendFailures.insert(key);
     qCWarning(lcDiscovery).noquote()
@@ -134,19 +134,19 @@ void AnanDiscoveryLog::replyListed()
 
 void AnanDiscoveryLog::sweepClosed()
 {
-    //DH1KLM Both marks belong to the sweep being closed, answered or not.
+    // Both marks belong to the sweep being closed, answered or not.
     const int sentTo = static_cast<int>(std::exchange(m_sentTargets, {}).size());
     if (std::exchange(m_answered, false)) {
         m_silentSweeps = 0;
         return;
     }
     if (sentTo == 0) {
-        return;   //DH1KLM nothing was asked, so nothing went unanswered
+        return;   // nothing was asked, so nothing went unanswered
     }
     if (++m_silentSweeps != kSilentSweepsBeforeNotice) {
         return;
     }
-    //DH1KLM An absent OpenHPSDR radio is informational; many installations use other backends.
+    // An absent OpenHPSDR radio is informational; many installations use other backends.
     qCInfo(lcDiscovery).noquote()
         << QStringLiteral("ANAN discovery: no supported OpenHPSDR radio answered %1 sweeps to %2 %3")
                .arg(kSilentSweepsBeforeNotice)
@@ -240,7 +240,7 @@ bool AnanDiscovery::isRunning() const noexcept
 
 void AnanDiscovery::start(int intervalMs)
 {
-    //DH1KLM Retry socket creation on each sweep after a failed bind.
+    // Retry socket creation on each sweep after a failed bind.
     m_timer->start(intervalMs);
     sweepNow();   // don't make the operator wait a full interval for the first sweep
 }
@@ -331,7 +331,7 @@ void AnanDiscovery::onReadyRead()
         const auto reply = parseOpenHpsdrDiscoveryReply(
             {reinterpret_cast<const std::uint8_t*>(data.constData()),
              static_cast<std::size_t>(data.size())});
-        //DH1KLM: The registry knows all physical board IDs documented by
+        // The registry knows all physical board IDs documented by
         // Thetis/NereusSDR. Advertise only families with an implemented RX
         // profile; the session still validates its own Discovery reply.
         if (!reply || !reply->isSupportedOpenHpsdrBoard() || !receiveProfile(reply->boardId))
@@ -340,13 +340,13 @@ void AnanDiscovery::onReadyRead()
 
         RadioInfo info;
         info.family   = QStringLiteral("anan");
-        //DH1KLM: Carry the numeric P2 board ID as data; downstream connection
+        // Carry the numeric P2 board ID as data; downstream connection
         // setup must not reverse-engineer it from info.model.
         info.boardId   = reply->boardId;
         info.hpsdrProtocol = reply->wireProtocol;
         info.address  = dg.senderAddress();
         info.port     = kRadioPort;
-        //DH1KLM: Show the reported physical board family. Orion MkII is
+        // Show the reported physical board family. Orion MkII is
         // intentionally not mislabeled as one specific ANAN SKU because
         // Red Pitaya and AnvelinaPro3 can share this board family.
         info.model    = QString::fromLatin1(reply->boardDisplayName());
@@ -380,7 +380,7 @@ void AnanDiscovery::onReadyRead()
                 it.value().preferredProtocolMissedSweeps = 0;
             // Only re-emit when something the picker displays actually changed.
             const RadioInfo& prev = it.value().info;
-            //DH1KLM: One row per MAC. Prefer P2 unless the operator explicitly
+            // One row per MAC. Prefer P2 unless the operator explicitly
             // chose Red Pitaya P1 for this MAC; stale preferences age out.
             if (!acceptsDiscoveryProtocolUpdate(prev.hpsdrProtocol, info.hpsdrProtocol,
                     preferredProtocol, it.value().preferredProtocolMissedSweeps)) {

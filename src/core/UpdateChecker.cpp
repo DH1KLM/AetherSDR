@@ -27,8 +27,8 @@ static constexpr char kReleasesApiUrl[] =
     "https://api.github.com/repos/aethersdr/AetherSDR/releases/latest";
 
 namespace {
-//DH1KLM A real answer is tens of KB (the release body plus its asset list). The
-//DH1KLM transfer timeout is an idle timeout, so a trickling peer is stopped here.
+// A real answer is tens of KB (the release body plus its asset list). The
+// transfer timeout is an idle timeout, so a trickling peer is stopped here.
 constexpr qint64 kMaxResponseBytes = 1024 * 1024;
 
 const char* triggerName(UpdateChecker::Trigger trigger)
@@ -39,22 +39,22 @@ const char* triggerName(UpdateChecker::Trigger trigger)
 QString probeStoreName()
 {
 #ifdef Q_OS_WIN
-    //DH1KLM APPMODEL_ERROR_NO_PACKAGE: an installer or portable build. Anything else
-    //DH1KLM (ERROR_INSUFFICIENT_BUFFER for a zero-length probe) means an MSIX package.
+    // APPMODEL_ERROR_NO_PACKAGE: an installer or portable build. Anything else
+    // (ERROR_INSUFFICIENT_BUFFER for a zero-length probe) means an MSIX package.
     UINT32 nameLength = 0;
     if (GetCurrentPackageFullName(&nameLength, nullptr) != APPMODEL_ERROR_NO_PACKAGE) {
         return QStringLiteral("the Microsoft Store");
     }
 #elif defined(Q_OS_LINUX)
-    //DH1KLM Every Flatpak sandbox has /.flatpak-info at its root, whichever remote
-    //DH1KLM (or local build) it came from.
+    // Every Flatpak sandbox has /.flatpak-info at its root, whichever remote
+    // (or local build) it came from.
     if (QFile::exists(QStringLiteral("/.flatpak-info"))) {
         return QStringLiteral("Flatpak");
     }
 #endif
     return {};
 }
-} //DH1KLM namespace
+} // namespace
 
 UpdateChecker::UpdateChecker(QObject* parent, QNetworkAccessManager* network)
     : QObject(parent)
@@ -69,7 +69,7 @@ UpdateChecker::UpdateChecker(QObject* parent, QNetworkAccessManager* network)
 
 QString UpdateChecker::storeName()
 {
-    //DH1KLM How this copy was installed cannot change while it runs.
+    // How this copy was installed cannot change while it runs.
     static const QString name = probeStoreName();
     return name;
 }
@@ -145,9 +145,9 @@ bool UpdateChecker::checkAutomaticallyIfDue()
 void UpdateChecker::fail(const QString& reason)
 {
     qCWarning(lcUpdater) << triggerName(m_trigger) << "check failed:" << reason;
-    //DH1KLM A failed automatic check still starts the daily wait, so a blocking
-    //DH1KLM proxy or a rate-limited reply costs one request a day, not one a launch.
-    //DH1KLM The known release is left as it was.
+    // A failed automatic check still starts the daily wait, so a blocking
+    // proxy or a rate-limited reply costs one request a day, not one a launch.
+    // The known release is left as it was.
     if (m_startedAutomatically) {
         UpdateSettings::setLastCheckUtc(QDateTime::currentDateTimeUtc());
     }
@@ -175,9 +175,9 @@ bool UpdateChecker::checkNow(Trigger trigger)
     req.setRawHeader("User-Agent",
         QByteArrayLiteral("AetherSDR/") + QCoreApplication::applicationVersion().toUtf8());
     req.setTransferTimeout(15000);
-    //DH1KLM One fixed endpoint, read only for tag_name: a redirect is never a
-    //DH1KLM legitimate answer here. Set per request, so a supplied manager is left
-    //DH1KLM as its owner configured it; the 3xx is refused when the reply finishes.
+    // One fixed endpoint, read only for tag_name: a redirect is never a
+    // legitimate answer here. Set per request, so a supplied manager is left
+    // as its owner configured it; the 3xx is refused when the reply finishes.
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::ManualRedirectPolicy);
 
@@ -230,7 +230,7 @@ bool UpdateChecker::checkNow(Trigger trigger)
             return;
         }
 
-        //DH1KLM From here on only the parsed digits travel: the tag is network text.
+        // From here on only the parsed digits travel: the tag is network text.
         const QString latestText = latest.toString();
         UpdateSettings::recordAnswer(QDateTime::currentDateTimeUtc(), latestText);
         m_latest = parseRelease(body);

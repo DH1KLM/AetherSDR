@@ -4,7 +4,7 @@
 #include "CanonIndicators.h"
 #include "CanonScrollBarStyle.h"
 #include "FramelessResizer.h"
-#include "GuardedSlider.h"   //DH1KLM GuardedComboBox lives here
+#include "GuardedSlider.h"   // GuardedComboBox lives here
 #include "core/AppSettings.h"
 #include "core/HidEncoderManager.h"
 #include "core/ThemeManager.h"
@@ -64,11 +64,11 @@ static const ActionEntry kHoldActions[] = {
     {"ToggleXit",   "XIT"},
 };
 
-//DH1KLM The style guide's canon vocabulary (RFC #6226), as Radio Setup uses it:
-//DH1KLM transparent over CanonWindow's ground, each section a raised card with its
-//DH1KLM cyan title above it, key labels muted, fields and buttons on control, and
-//DH1KLM the activity log nested. The log's right-click menu is a child of the log,
-//DH1KLM so the transparent rule reaches it too; QMenu gets its panel back.
+// The style guide's canon vocabulary (RFC #6226), as Radio Setup uses it:
+// transparent over CanonWindow's ground, each section a raised card with its
+// cyan title above it, key labels muted, fields and buttons on control, and
+// the activity log nested. The log's right-click menu is a child of the log,
+// so the transparent rule reaches it too; QMenu gets its panel back.
 constexpr const char* kRc28Style = R"(
 QWidget {
     color: {{color.canon.inkSoft}};
@@ -202,8 +202,8 @@ RC28MappingDialog::RC28MappingDialog(HidEncoderManager* encoder,
     setObjectName(QStringLiteral("rc28MappingDialog"));
     theme::setContainer(this, QStringLiteral("canon/rc28Mapping"));
     setMinimumWidth(460);
-    //DH1KLM A tool window kept open while pressing buttons: it resizes, and it
-    //DH1KLM reopens where it was, claiming the rectangle PersistentDialog saved.
+    // A tool window kept open while pressing buttons: it resizes, and it
+    // reopens where it was, claiming the rectangle PersistentDialog saved.
     setGeometryKey(QStringLiteral("RC28MappingDialogGeometry"));
     FramelessResizer::install(this);
     applyCanonSheet(bodyWidget(), [] {
@@ -456,9 +456,9 @@ void RC28MappingDialog::setStatusState(const QString& state)
         l->style()->unpolish(l);
         l->style()->polish(l);
     }
-    //DH1KLM The label's text is the status, so the name carries it: a fixed name
-    //DH1KLM would hide the state from a screen reader. setAccessibleName() sends
-    //DH1KLM NameChanged itself, and only when the name differs.
+    // The label's text is the status, so the name carries it: a fixed name
+    // would hide the state from a screen reader. setAccessibleName() sends
+    // NameChanged itself, and only when the name differs.
     m_statusLabel->setAccessibleName(
         QStringLiteral("RC-28 connection status: %1").arg(m_statusLabel->text()));
 }

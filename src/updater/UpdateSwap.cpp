@@ -16,14 +16,14 @@ fs::path normalised(const fs::path& p)
 {
     fs::path n = p.lexically_normal();
     if (n.filename().empty()) {
-        n = n.parent_path();   //DH1KLM a trailing separator
+        n = n.parent_path();   // a trailing separator
     }
     return n;
 }
 
-//DH1KLM Paths are joined as paths, never through std::string: on Windows that is
-//DH1KLM the ANSI code page, and a name it cannot hold (漢字 on code page 1252)
-//DH1KLM throws.
+// Paths are joined as paths, never through std::string: on Windows that is
+// the ANSI code page, and a name it cannot hold (漢字 on code page 1252)
+// throws.
 fs::path sibling(const fs::path& install, const char* suffix)
 {
     const fs::path n = normalised(install);
@@ -82,9 +82,9 @@ void removeAll(const fs::path& p)
     fs::remove_all(p, ec);
 }
 
-//DH1KLM A rename that waits out a brief lock (an Explorer window or an antivirus
-//DH1KLM scan holding a handle inside the folder), up to timeout. Nothing is ever
-//DH1KLM killed to make a rename succeed.
+// A rename that waits out a brief lock (an Explorer window or an antivirus
+// scan holding a handle inside the folder), up to timeout. Nothing is ever
+// killed to make a rename succeed.
 void doRename(const Ops& ops, const fs::path& from, const fs::path& to, std::error_code& ec)
 {
     ec.clear();
@@ -112,9 +112,9 @@ bool renameRetry(const fs::path& from, const fs::path& to, Duration timeout, con
     }
 }
 
-//DH1KLM The staged tree to <install>.new. A rename when both are on one volume;
-//DH1KLM across volumes (per-user app data on C:, a portable copy on D:) a copy,
-//DH1KLM so the swap itself is always a same-volume rename.
+// The staged tree to <install>.new. A rename when both are on one volume;
+// across volumes (per-user app data on C:, a portable copy on D:) a copy,
+// so the swap itself is always a same-volume rename.
 bool place(const fs::path& staged, const fs::path& next, const Ops& ops)
 {
     std::error_code ec;
@@ -122,10 +122,10 @@ bool place(const fs::path& staged, const fs::path& next, const Ops& ops)
     if (!ec) {
         return true;
     }
-    //DH1KLM Only another volume is a reason to copy; a lock or a refusal is not.
+    // Only another volume is a reason to copy; a lock or a refusal is not.
     bool otherVolume = ec == std::errc::cross_device_link;
 #ifdef _WIN32
-    otherVolume = otherVolume || ec.value() == 17;   //DH1KLM ERROR_NOT_SAME_DEVICE
+    otherVolume = otherVolume || ec.value() == 17;   // ERROR_NOT_SAME_DEVICE
 #endif
     if (!otherVolume) {
         ops.log("the staged tree could not be moved beside the install: " + ec.message());
@@ -143,7 +143,7 @@ bool place(const fs::path& staged, const fs::path& next, const Ops& ops)
     return true;
 }
 
-//DH1KLM Whether the folder that holds the install accepts new entries.
+// Whether the folder that holds the install accepts new entries.
 bool parentWritable(const fs::path& install)
 {
     const fs::path probe = sibling(install, ".write-probe");
@@ -158,9 +158,9 @@ bool parentWritable(const fs::path& install)
     return true;
 }
 
-//DH1KLM Records the step about to be taken. The step is taken only if this
-//DH1KLM succeeds, so the journal on disk always describes a state the tree can be
-//DH1KLM in.
+// Records the step about to be taken. The step is taken only if this
+// succeeds, so the journal on disk always describes a state the tree can be
+// in.
 bool journal(const Ops& ops, const Paths& paths, const std::string& step)
 {
     const bool ok = ops.writeJournal ? ops.writeJournal(paths.journal, step) : writeText(paths.journal, step);
@@ -172,9 +172,9 @@ bool journal(const Ops& ops, const Paths& paths, const std::string& step)
 
 Outcome finish(const Plan& plan, const Ops& ops, const Paths& paths, Outcome outcome, bool restart)
 {
-    //DH1KLM The journal is what a later run repairs from: it stays while the
-    //DH1KLM swap is unfinished (Broken) or never started its repair because the
-    //DH1KLM app was still running (OldStillRunning).
+    // The journal is what a later run repairs from: it stays while the
+    // swap is unfinished (Broken) or never started its repair because the
+    // app was still running (OldStillRunning).
     if (outcome != Outcome::Broken && outcome != Outcome::OldStillRunning) {
         std::error_code ec;
         fs::remove(paths.journal, ec);
@@ -190,7 +190,7 @@ Outcome finish(const Plan& plan, const Ops& ops, const Paths& paths, Outcome out
     return outcome;
 }
 
-//DH1KLM Starts the installed tree's self-test and waits for its verdict.
+// Starts the installed tree's self-test and waits for its verdict.
 bool selfTestPasses(const Plan& plan, const Ops& ops, const Paths& paths)
 {
     std::error_code ec;
@@ -204,8 +204,8 @@ bool selfTestPasses(const Plan& plan, const Ops& ops, const Paths& paths)
     const auto deadline = ops.now() + plan.healthTimeout;
     for (;;) {
         if (ops.hasExited(p)) {
-            //DH1KLM The marker names the version that wrote it: an old binary left
-            //DH1KLM in place cannot pass for the new one.
+            // The marker names the version that wrote it: an old binary left
+            // in place cannot pass for the new one.
             const bool ok = present(paths.marker) && readText(paths.marker) == plan.version;
             if (!ok) {
                 ops.log("self-test exited without reporting " + plan.version);
@@ -221,7 +221,7 @@ bool selfTestPasses(const Plan& plan, const Ops& ops, const Paths& paths)
     }
 }
 
-} //DH1KLM namespace
+} // namespace
 
 std::string utf8(const fs::path& p)
 {
@@ -254,17 +254,17 @@ bool recover(const Plan& plan, const Ops& ops, bool* moved)
     const fs::path install = normalised(plan.install);
     const std::string step = readText(paths.journal);
     ops.log("found a swap journal (" + step + "); recovering");
-    //DH1KLM The new release's AetherSDR.exe, as the swap recorded it: an install
-    //DH1KLM holding any other file is not the tree it left (a reinstall since).
+    // The new release's AetherSDR.exe, as the swap recorded it: an install
+    // holding any other file is not the tree it left (a reinstall since).
     const size_t idAt = step.find(" id=");
     const std::string leftId = idAt == std::string::npos ? std::string() : step.substr(idAt + 4);
     const bool notOurs = !leftId.empty() && ops.fileId && isFolder(install)
                          && ops.fileId(install / plan.exeName) != leftId;
-    //DH1KLM A helper that died during the self-test or the rollback left a new
-    //DH1KLM release whose health is unknown: the version that ran before is known
-    //DH1KLM to work, so it goes back.
-    //DH1KLM swap-2 too: the journal says swap-2 until the self-test starts, so a
-    //DH1KLM helper that died just after .new became the install left it untested.
+    // A helper that died during the self-test or the rollback left a new
+    // release whose health is unknown: the version that ran before is known
+    // to work, so it goes back.
+    // swap-2 too: the journal says swap-2 until the self-test starts, so a
+    // helper that died just after .new became the install left it untested.
     const bool untested = (step.rfind("swap-2", 0) == 0 || step.rfind("selftest", 0) == 0
                            || step.rfind("rollback", 0) == 0)
                           && isFolder(install) && isFolder(paths.previous);
@@ -278,8 +278,8 @@ bool recover(const Plan& plan, const Ops& ops, bool* moved)
         }
         movedAny = true;
     }
-    //DH1KLM Whatever step a previous helper died in, the install must exist. The
-    //DH1KLM version that was running before is preferred: it is known to work.
+    // Whatever step a previous helper died in, the install must exist. The
+    // version that was running before is preferred: it is known to work.
     if (!isFolder(install)) {
         if (isFolder(paths.previous)) {
             if (!renameRetry(paths.previous, install, plan.renameTimeout, ops)) {
@@ -296,7 +296,7 @@ bool recover(const Plan& plan, const Ops& ops, bool* moved)
             return false;
         }
     }
-    removeAll(paths.next);   //DH1KLM a half-placed tree is never trusted
+    removeAll(paths.next);   // a half-placed tree is never trusted
     std::error_code ec;
     fs::remove(paths.journal, ec);
     if (moved) {
@@ -310,19 +310,19 @@ bool repair(const Plan& plan, const Ops& ops)
     const Paths paths = pathsFor(plan);
     if (!present(paths.journal)) {
         if (ops.disarmRepair) {
-            ops.disarmRepair();   //DH1KLM nothing owed
+            ops.disarmRepair();   // nothing owed
         }
         return true;
     }
-    //DH1KLM Armed again before anything else: if this repair is cut short, the
-    //DH1KLM next logon still runs it.
+    // Armed again before anything else: if this repair is cut short, the
+    // next logon still runs it.
     if (ops.armRepair) {
         ops.armRepair();
     }
     const auto appRunning = [&] { return ops.waitForOldExit && !ops.waitForOldExit(plan.exitTimeout); };
     if (appRunning()) {
         ops.log("AetherSDR is running from the install; the repair waits for the next logon");
-        return true;   //DH1KLM runnable: it is running
+        return true;   // runnable: it is running
     }
     bool moved = false;
     if (!recover(plan, ops, &moved)) {
@@ -350,26 +350,26 @@ Outcome run(const Plan& plan, const Ops& ops)
     const Paths paths = pathsFor(plan);
     const fs::path install = normalised(plan.install);
 
-    //DH1KLM Nothing is touched, not even a repair, while AetherSDR runs: a
-    //DH1KLM journal left by an earlier helper waits for the next exit too.
+    // Nothing is touched, not even a repair, while AetherSDR runs: a
+    // journal left by an earlier helper waits for the next exit too.
     if (!ops.waitForOldExit(plan.exitTimeout)) {
-        //DH1KLM Never kill it: the next quit tries again.
+        // Never kill it: the next quit tries again.
         return finish(plan, ops, paths, Outcome::OldStillRunning, false);
     }
     if (!recover(plan, ops)) {
         return finish(plan, ops, paths, Outcome::Broken, false);
     }
 
-    //DH1KLM Checks before anything changes.
+    // Checks before anything changes.
     if (!isFolder(install) || !present(install / plan.exeName) || !isFolder(plan.staged)
         || !present(plan.staged / plan.exeName) || present(paths.next) || !parentWritable(install)) {
         ops.log("pre-flight checks failed; nothing was changed");
         return finish(plan, ops, paths, Outcome::NotPossible, true);
     }
 
-    //DH1KLM Each step is taken only once the journal records it. When a write
-    //DH1KLM fails, the step is not taken and what was done so far is undone, so
-    //DH1KLM the last journal that did reach the disk still matches the tree.
+    // Each step is taken only once the journal records it. When a write
+    // fails, the step is not taken and what was done so far is undone, so
+    // the last journal that did reach the disk still matches the tree.
     if (!journal(ops, paths, "placing " + plan.version)) {
         return finish(plan, ops, paths, Outcome::NotPossible, true);
     }
@@ -377,29 +377,29 @@ Outcome run(const Plan& plan, const Ops& ops)
         return finish(plan, ops, paths, Outcome::NotPossible, true);
     }
 
-    //DH1KLM From the first rename on, a helper that dies may leave no install to
-    //DH1KLM start: the repair is armed first, or nothing is renamed.
+    // From the first rename on, a helper that dies may leave no install to
+    // start: the repair is armed first, or nothing is renamed.
     if (ops.armRepair && !ops.armRepair()) {
         ops.log("could not arm the repair; nothing was changed");
         removeAll(paths.next);
         return finish(plan, ops, paths, Outcome::NotPossible, true);
     }
-    //DH1KLM Which file the swap leaves at <install>: recover() rolls back only that.
+    // Which file the swap leaves at <install>: recover() rolls back only that.
     const std::string leftId = ops.fileId ? ops.fileId(paths.next / plan.exeName) : std::string();
     const std::string tag = plan.version + (leftId.empty() ? std::string() : " id=" + leftId);
     if (!journal(ops, paths, "swap-1 " + tag)) {
-        removeAll(paths.next);   //DH1KLM the install is untouched
+        removeAll(paths.next);   // the install is untouched
         return finish(plan, ops, paths, Outcome::NotPossible, true);
     }
-    //DH1KLM Only one previous version is kept, and the older one goes only now
-    //DH1KLM the swap is recorded.
+    // Only one previous version is kept, and the older one goes only now
+    // the swap is recorded.
     removeAll(paths.previous);
     if (!renameRetry(install, paths.previous, plan.renameTimeout, ops)) {
         removeAll(paths.next);
         return finish(plan, ops, paths, Outcome::SwapUndone, true);
     }
 
-    //DH1KLM From here on, undoing means putting .previous back.
+    // From here on, undoing means putting .previous back.
     const auto undo = [&]() {
         if (!renameRetry(paths.previous, install, plan.renameTimeout, ops)) {
             return finish(plan, ops, paths, Outcome::Broken, false);
@@ -414,11 +414,11 @@ Outcome run(const Plan& plan, const Ops& ops)
         return undo();
     }
 
-    //DH1KLM The new tree is in place, untested. Both failures below end the same
-    //DH1KLM way, by restoring .previous.
+    // The new tree is in place, untested. Both failures below end the same
+    // way, by restoring .previous.
     const auto rollBack = [&](Outcome outcome) {
-        //DH1KLM Taken even if this journal write fails: the one already on disk
-        //DH1KLM (swap-2 or selftest) makes recover() roll back the same way.
+        // Taken even if this journal write fails: the one already on disk
+        // (swap-2 or selftest) makes recover() roll back the same way.
         journal(ops, paths, "rollback " + tag);
         removeAll(paths.failed);
         if (!renameRetry(install, paths.failed, plan.renameTimeout, ops)
@@ -428,7 +428,7 @@ Outcome run(const Plan& plan, const Ops& ops)
         return finish(plan, ops, paths, outcome, true);
     };
     if (!journal(ops, paths, "selftest " + tag)) {
-        return rollBack(Outcome::SwapUndone);   //DH1KLM never tested, so never kept
+        return rollBack(Outcome::SwapUndone);   // never tested, so never kept
     }
     if (selfTestPasses(plan, ops, paths)) {
         std::error_code ec;
@@ -438,4 +438,4 @@ Outcome run(const Plan& plan, const Ops& ops)
     return rollBack(Outcome::RolledBack);
 }
 
-} //DH1KLM namespace AetherSDR::updater
+} // namespace AetherSDR::updater

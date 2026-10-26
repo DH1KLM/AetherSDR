@@ -691,8 +691,8 @@ Hl2Backend::Hl2Backend(QObject* parent) : IRadioBackend(parent)
             emit extensionError(id, reason);
     });
 
-    //DH1KLM `ioboard.status`'s two answers, consuming the outstanding id like
-    //DH1KLM bandscope.frame's above.
+    // `ioboard.status`'s two answers, consuming the outstanding id like
+    // bandscope.frame's above.
     connect(m_metis, &MetisClient::ioBoardStatusReady, this, [this](quint32 registers) {
         const quint64 id = std::exchange(m_ioBoardStatusRequest, 0);
         if (id == 0) {
@@ -5974,9 +5974,9 @@ void Hl2Backend::invokeExtension(const QString& ns, const QString& verb, quint64
                                       Qt::QueuedConnection);
             return;
         }
-        //DH1KLM The IO board's input pins, ATU state, fault code and firmware major,
-        //DH1KLM read from the board over I2C2. A device round trip, like
-        //DH1KLM bandscope.frame; MetisClient answers every request.
+        // The IO board's input pins, ATU state, fault code and firmware major,
+        // read from the board over I2C2. A device round trip, like
+        // bandscope.frame; MetisClient answers every request.
         if (verb == QLatin1String("ioboard.status")) {
             if (requestId == 0) {
                 return;

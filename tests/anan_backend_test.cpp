@@ -139,7 +139,7 @@ public:
     }
 };
 
-//DH1KLM Inspect the real idle P2 client on its I/O thread; no socket or peer is created.
+// Inspect the real idle P2 client on its I/O thread; no socket or peer is created.
 struct P2ClientTestAccess {
     static ReceiveAntennaBand route(const P2Client& client)
     {
@@ -267,7 +267,7 @@ static void bandViewMemoryChecks()
           && AnanLinkStatsTestAccess::center(backend) == 5'359'500,
           "band return restores the latest CTUN-off state instead of an older active view");
 
-    //DH1KLM Reproduce repeated 20m/40m switches after both bands have used B.
+    // Reproduce repeated 20m/40m switches after both bands have used B.
     const QVariantMap twentyWindow{{QStringLiteral("lowHz"), 14'240'000.0}, {QStringLiteral("highHz"), 14'260'000.0}};
     const QVariantMap forty{{QStringLiteral("lowHz"), 7'090'000.0}, {QStringLiteral("highHz"), 7'110'000.0}};
     for (const auto& band : {QStringLiteral("20m"), QStringLiteral("40m")}) {
@@ -333,7 +333,7 @@ static void bandViewMemoryChecks()
     }
 }
 
-//DH1KLM Drive the actual scoped settings, backend band selection and queued client apply together.
+// Drive the actual scoped settings, backend band selection and queued client apply together.
 static void bandAntennaChecks(bool restoreChild)
 {
     const QString serial = QStringLiteral("02:00:00:00:AB:01");
@@ -688,7 +688,7 @@ int main(int argc, char** argv)
         check(!AnanBackend::isKnownModeString(""), "an empty mode is not a mode");
     }
 
-    //DH1KLM: Refuse malformed live/connect input before any DSP or socket start.
+    // Refuse malformed live/connect input before any DSP or socket start.
     {
         AnanBackend backend;
         backend.setSliceFrequency(0, 14'200'000);
@@ -964,7 +964,7 @@ int main(int argc, char** argv)
         }
     }
 
-    //DH1KLM: Invalid zoom must not schedule a DSP rebuild on a live backend.
+    // Invalid zoom must not schedule a DSP rebuild on a live backend.
     {
         AnanBackend backend;
         AnanLinkStatsTestAccess::setConnected(backend, true);

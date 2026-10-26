@@ -1,6 +1,6 @@
-//DH1KLM Socket-free production Icom RC-28 Button Mapping window: canon chrome, the
-//DH1KLM resizer and saved geometry a tool window keeps, an opaque log menu, and the
-//DH1KLM mapping fields it reads and writes. No encoder, no hidapi device.
+// Socket-free production Icom RC-28 Button Mapping window: canon chrome, the
+// resizer and saved geometry a tool window keeps, an opaque log menu, and the
+// mapping fields it reads and writes. No encoder, no hidapi device.
 #include "TestSettingsProfile.h"
 #include "core/AppSettings.h"
 #include "core/HidEncoderManager.h"
@@ -38,8 +38,8 @@ void check(bool passed, const char* message)
     }
 }
 
-//DH1KLM A canon dialog (#6744) that still resizes like the PersistentDialog it
-//DH1KLM replaced, and restores the rectangle that dialog saved.
+// A canon dialog (#6744) that still resizes like the PersistentDialog it
+// replaced, and restores the rectangle that dialog saved.
 void canonToolWindow()
 {
     static const QString kKey = QStringLiteral("RC28MappingDialogGeometry");
@@ -51,10 +51,10 @@ void canonToolWindow()
         check(dialog.findChild<FramelessResizer*>() != nullptr, "the window installs FramelessResizer");
     }
 
-    //DH1KLM A rectangle saved before the migration: QWidget::saveGeometry() in base64.
+    // A rectangle saved before the migration: QWidget::saveGeometry() in base64.
     RC28MappingDialog restored(nullptr);
-    //DH1KLM restoreGeometry() fits the window and its frame to the screen, so ask for
-    //DH1KLM a height well inside it; the offscreen screen is 800 px tall.
+    // restoreGeometry() fits the window and its frame to the screen, so ask for
+    // a height well inside it; the offscreen screen is 800 px tall.
     const int minHeight = restored.minimumSizeHint().height();
     const int screenHeight = restored.screen()->availableGeometry().height();
     const QSize chosen(restored.minimumWidth() + 60,
@@ -79,8 +79,8 @@ void canonToolWindow()
           "hiding the window saves its size under the same key");
 }
 
-//DH1KLM The log's standard right-click menu is a child of the log, so the canon
-//DH1KLM sheet's transparent-everything rule reaches it unless QMenu gets its panel.
+// The log's standard right-click menu is a child of the log, so the canon
+// sheet's transparent-everything rule reaches it unless QMenu gets its panel.
 void logMenuIsOpaque()
 {
     RC28MappingDialog dialog(nullptr);
@@ -102,7 +102,7 @@ void logMenuIsOpaque()
     delete menu;
 }
 
-//DH1KLM The window fits a 1366x768 screen, which leaves about 730 px for it.
+// The window fits a 1366x768 screen, which leaves about 730 px for it.
 void fitsASmallScreen()
 {
     RC28MappingDialog dialog(nullptr);
@@ -111,8 +111,8 @@ void fitsASmallScreen()
     check(height <= 700, "the window's minimum height fits a 768-px screen");
 }
 
-//DH1KLM The status line's accessible name carries the state, and the multiple-
-//DH1KLM devices warning restyles the dot and the line in color.accent.warning.
+// The status line's accessible name carries the state, and the multiple-
+// devices warning restyles the dot and the line in color.accent.warning.
 void statusLineCarriesItsState()
 {
     RC28MappingDialog dialog(nullptr);
@@ -132,7 +132,7 @@ void statusLineCarriesItsState()
           "the status line's accessible name says Not connected");
 
     const QColor warning = ThemeManager::instance().color(status, QStringLiteral("color.accent.warning"));
-    //DH1KLM CONTROL: before the warning the line is not drawn in the warning color.
+    // CONTROL: before the warning the line is not drawn in the warning color.
     check(status->palette().color(QPalette::WindowText) != warning,
           "control: the idle status line is not in the warning color");
     QMetaObject::invokeMethod(&dialog, "onMultipleDevicesDetected",
@@ -145,7 +145,7 @@ void statusLineCarriesItsState()
           "the warning draws the dot and the line in color.accent.warning");
 }
 
-//DH1KLM The value beside the Pulses per step slider fits its widest value.
+// The value beside the Pulses per step slider fits its widest value.
 void sensitivityValueFits()
 {
     RC28MappingDialog dialog(nullptr);
@@ -170,7 +170,7 @@ void sensitivityValueFits()
     }
 }
 
-//DH1KLM The combos read the saved mapping and write a change back, announcing it.
+// The combos read the saved mapping and write a change back, announcing it.
 void mappingFieldsRoundTrip()
 {
     HidEncoderManager::setRc28MappingField(QStringLiteral("f1Press"), QStringLiteral("BandCycle"));
@@ -192,9 +192,9 @@ void mappingFieldsRoundTrip()
               && spy.first().at(1).toString() == QStringLiteral("VolumeUp"),
           "choosing an action announces the changed field");
 }
-//DH1KLM MainWindow opens the window with WA_DeleteOnClose. Every way out destroys
-//DH1KLM it, Esc included (QDialog::done() closes, it does not only hide), as the
-//DH1KLM PersistentDialog did, so the activity log starts empty on the next open.
+// MainWindow opens the window with WA_DeleteOnClose. Every way out destroys
+// it, Esc included (QDialog::done() closes, it does not only hide), as the
+// PersistentDialog did, so the activity log starts empty on the next open.
 void everyCloseDestroysTheWindow()
 {
     for (int path = 0; path < 4; ++path) {
@@ -227,7 +227,7 @@ void everyCloseDestroysTheWindow()
     }
 }
 
-} //DH1KLM namespace
+} // namespace
 
 int main(int argc, char** argv)
 {

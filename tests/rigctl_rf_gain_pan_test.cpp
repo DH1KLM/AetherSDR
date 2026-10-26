@@ -53,8 +53,8 @@ public:
     QString lastRfGainPanId;
     int rfGainWrites{0};
 
-    //DH1KLM Declares the one pan display control it implements, as a real backend
-    //DH1KLM must for RadioModel to route RF gain to it.
+    // Declares the one pan display control it implements, as a real backend
+    // must for RadioModel to route RF gain to it.
     RadioCapabilities capabilities() const override
     {
         RadioCapabilities caps;

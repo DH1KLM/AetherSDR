@@ -63,7 +63,7 @@ int signExtend24(std::int32_t raw) noexcept
     return raw;
 }
 
-//DH1KLM: Thetis console.cs setBPF1ForOrionIISaturn() defaults, with
+// Thetis console.cs setBPF1ForOrionIISaturn() defaults, with
 //the exact 1.5/2.1/5.5/11/22/35/61.44 MHz edges. Thetis' selection byte
 //is mapped to the Orion-MkII/Saturn Alex0 register by network.c:
 //0x10->bit6, 0x08->bit5, 0x04->bit4, 0x01->bit1, 0x02->bit2,
@@ -73,7 +73,7 @@ std::uint32_t saturnBpf1RegisterBits(std::uint32_t phaseWord) noexcept
 {
     constexpr double kPhaseScale = static_cast<double>(kDspClockHz) / 4294967296.0;
     const double hz = static_cast<double>(phaseWord) * kPhaseScale;
-    //DH1KLM: The phase word has finite resolution (~0.0286 Hz per step).
+    // The phase word has finite resolution (~0.0286 Hz per step).
     //Allow half a step around integer-Hz edges so an exact band-edge tune
     //does not fall through solely because phaseWord() rounded to its neighbour.
     constexpr double kHalfPhaseStepHz = 0.02;
@@ -94,7 +94,7 @@ std::uint32_t saturnBpf1RegisterBits(std::uint32_t phaseWord) noexcept
     return bits; // zero means Thetis' bypass region (outside configured rows)
 }
 
-//DH1KLM: Thetis setAlexHPF / setup.designer.cs defaults, in Hz.
+// Thetis setAlexHPF / setup.designer.cs defaults, in Hz.
 // Legacy 1.5 MHz HPF starts at 1.8 MHz, not the MkII BPF's 1.5 MHz.
 std::uint32_t legacyHpfRegisterBits(std::uint32_t word) noexcept
 {
@@ -114,7 +114,7 @@ std::uint32_t legacyHpfRegisterBits(std::uint32_t word) noexcept
     return 0; // Thetis' bypass region
 }
 
-//DH1KLM: Thetis setup.designer.cs LPF defaults, console.cs setAlexLPF,
+// Thetis setup.designer.cs LPF defaults, console.cs setAlexLPF,
 // and network.h rbpfilter relay positions. Only the Orion MkII RX profile
 // selects these; the qualified Saturn packet bytes stay unchanged.
 std::uint32_t receiveLpfRegisterBits(std::uint32_t word) noexcept
@@ -159,7 +159,7 @@ std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> 
     if (data[4] != 0x02 && data[4] != 0x03)
         return std::nullopt;
 
-    //DH1KLM: High-Priority Status is also 60 bytes and can share sequence
+    // High-Priority Status is also 60 bytes and can share sequence
     // zero plus command-looking byte 4. Require plausible Discovery identity
     // fields before treating a datagram as a board reply; otherwise a status
     // packet could accidentally authorize a Saturn-profile session.
@@ -169,7 +169,7 @@ std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> 
         macAllZero = macAllZero && data[i] == 0;
         macAllOnes = macAllOnes && data[i] == 0xFF;
     }
-    //DH1KLM: Thetis clsRadioDiscovery reads byte 12 as ProtocolSupported,
+    // Thetis clsRadioDiscovery reads byte 12 as ProtocolSupported,
     // without a decimal-version range gate. Patroclus legitimately sends 2;
     // the P2 packet signature above, not this opaque value, selects P2.
     if (macAllZero || macAllOnes || (data[5] & 0x01) != 0) {
@@ -215,7 +215,7 @@ std::array<std::uint8_t, 60> buildGeneral(int alexEnableMask, bool disablePa) no
                      // on deliberately.
     pkt[39] = 0x00; // BE + 3-byte -- the only format Discovery byte22==0
                      // declares (p.22, p.45). See discoveryDeclaresBigEndian3Byte().
-    //DH1KLM: Thetis CmdGeneral enables the two ALEX words in byte 59.
+    // Thetis CmdGeneral enables the two ALEX words in byte 59.
     // Orion MkII RX also disables the PA in byte 58; no TX path exists here.
     pkt[58] = disablePa ? 0x01 : 0x00;
     pkt[59] = static_cast<std::uint8_t>(alexEnableMask & 0x03);
@@ -236,7 +236,7 @@ std::array<std::uint8_t, 1444> buildDdcSpecific(std::span<const DdcConfig> ddcs,
     const std::uint8_t adcMask = numAdcs == 1 ? 0x01 : 0x03;
     pkt[5] = ditherEnabled ? adcMask : 0x00;
     pkt[6] = randomEnabled ? adcMask : 0x00;
-    //DH1KLM: Logical receiver 0 may occupy physical DDC2. Disabled rows
+    // Logical receiver 0 may occupy physical DDC2. Disabled rows
     // remain zero; never enable DDC0/1 just to reach the Orion MkII RX row.
     if (firstDdcIndex < 0 || firstDdcIndex >= kMaxDdcs) {
         return pkt;
@@ -303,7 +303,7 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
         ? std::min(ddcFreqWords.size(), static_cast<std::size_t>(kMaxDdcs - firstDdcIndex))
         : 0;
     for (std::size_t n = 0; n < count; ++n) {
-        //DH1KLM Correct only wire tuning; nominal frequencies still own ALEX/OC selection.
+        // Correct only wire tuning; nominal frequencies still own ALEX/OC selection.
         const double corrected = static_cast<double>(ddcFreqWords[n]) * frequencyCorrection;
         writeU32be(&pkt[9 + 4 * (n + static_cast<std::size_t>(firstDdcIndex))],
                    static_cast<std::uint32_t>(std::min(corrected, 4294967295.0)));
@@ -313,7 +313,7 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
     // ANT1 rather than emitting no antenna selection.
     std::uint32_t alex0 = std::uint32_t{1} << (23 + ((rxAntenna >= 1 && rxAntenna <= 3)
                                                      ? rxAntenna : 1));
-    //DH1KLM: Thetis Alex.Update pairs the RX-only input with RX_OUT.
+    // Thetis Alex.Update pairs the RX-only input with RX_OUT.
     // SetAntBits uses RL22 (bit 14) on MkII except input 1/BYPASS;
     // legacy ALEX and MkII input 1 use RX_OUT/RL17 (bit 11).
     const int input = filters ? filters->rxOnlyInput : 0;
@@ -330,7 +330,7 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
     }
     // Apply Thetis' Saturn BPF1 selection from the tuned phase word unless the
     // caller explicitly requests bypass; outside the configured rows, bypass.
-    //DH1KLM: Select the board's HPF/BPF table independently of DDC placement.
+    // Select the board's HPF/BPF table independently of DDC placement.
     const std::uint32_t rxWord = count > 0 ? ddcFreqWords[0] : 0;
     const double hz = static_cast<double>(rxWord) * kDspClockHz / 4294967296.0;
     const std::uint32_t bpfBits = filterPlan && filterPlan->receiveBits[0]
@@ -342,20 +342,20 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
     else
         alex0 |= bpfBits;
     if (selectReceiveLpf) {
-        //DH1KLM: Select the antenna-chain LPF as well as the ADC0 BPF1.
+        // Select the antenna-chain LPF as well as the ADC0 BPF1.
         const double lowHz = filterPlan && filterPlan->lowPassHz ? *filterPlan->lowPassHz : hz;
         alex0 |= filters ? lowPassFilterBits(*filters, lowHz)
                         : receiveLpfRegisterBits(phaseWord(lowHz));
     }
-    //DH1KLM Thetis network.c CmdHighPriority: only audio amplifier mute occupies bit 1.
+    // Thetis network.c CmdHighPriority: only audio amplifier mute occupies bit 1.
     pkt[1400] = muteSpeakerAmp ? 0x02 : 0x00;
-    //DH1KLM: Thetis CmdHighPriority byte 1401: OC1..7 occupy bits 1..7.
+    // Thetis CmdHighPriority byte 1401: OC1..7 occupy bits 1..7.
     pkt[1401] = run && filters ? static_cast<std::uint8_t>(receiveOcMask(*filters, hz) << 1) : 0;
-    //DH1KLM Thetis DB9 pins 1-4 are independent of band OC; stop clears them.
+    // Thetis DB9 pins 1-4 are independent of band OC; stop clears them.
     pkt[1402] = run && filters ? filters->userDigitalOutputs & 0x0f : 0;
     writeU32be(&pkt[1432], alex0);
     if (selectReceiveLpf) {
-        //DH1KLM: Thetis SetAntBits/SetAlexLPFBits also populate Alex1's upper
+        // Thetis SetAntBits/SetAlexLPFBits also populate Alex1's upper
         // relay word (P2 4.3+). RX-only operation follows the same antenna/LPF;
         // ADC1's lower word stays independent and no T/R or PTT bit is set.
         writeU32be(&pkt[1428], alex0 & 0xe7f00000u);
@@ -365,7 +365,7 @@ std::array<std::uint8_t, 1444> buildHighPriority(bool run,
     if (numAdcs > 1 && bypassAdc1Filters) {
         writeU16be(&pkt[1430], std::uint16_t{1} << 12);
     } else if (numAdcs > 1 && (filters || (filterPlan && filterPlan->receiveBits[1]))) {
-        //DH1KLM: One receiver: RX2 follows the same tuned frequency (Thetis SetAlex2HPFBits).
+        // One receiver: RX2 follows the same tuned frequency (Thetis SetAlex2HPFBits).
         const std::uint32_t adc1Bits = filterPlan && filterPlan->receiveBits[1]
             ? *filterPlan->receiveBits[1] : receiveFilterBits(*filters, hz, true);
         writeU16be(&pkt[1430], static_cast<std::uint16_t>(adc1Bits == 0
@@ -410,7 +410,7 @@ std::array<std::uint8_t, kSpeakerPacketBytes> buildSpeakerAudio(
         // right shift of a negative value is implementation-defined, and every
         // sample below -1 dBFS is negative half the time. The two's-complement
         // bit pattern is what the wire wants and what the cast produces.
-        //DH1KLM: Thetis LRAudioSwap exchanges Hermes/Hermes-II codec channels.
+        // Thetis LRAudioSwap exchanges Hermes/Hermes-II codec channels.
         const std::size_t source = swapChannels ? (i ^ std::size_t{1}) : i;
         if (source < count) {
             writeU16be(pkt.data() + 4 + i * sizeof(std::int16_t),

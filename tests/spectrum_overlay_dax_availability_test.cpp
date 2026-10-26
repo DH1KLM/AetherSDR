@@ -1,6 +1,6 @@
 // The overlay menu's DAX button stays hidden on a radio with no DAX plane,
-//DH1KLM across expand/collapse; the Scope row appears only for a radio with a scope
-//DH1KLM mode (Icom).
+// across expand/collapse; the Scope row appears only for a radio with a scope
+// mode (Icom).
 //
 // setDaxStreamsAvailable(false) hid the button with a bare setVisible(), and
 // updateLayout() -- which runs on every expand/collapse and assigns every menu
@@ -91,9 +91,9 @@ int main(int argc, char* argv[])
     setExpanded(addRx, true);
     check(!dax->isHidden(), "DAX available -> shown again on expand");
 
-    //DH1KLM The Scope row is an Icom-only cluster (#6168): it exists for that family
-    //DH1KLM alone (the applet-level hide gui.md allows), and within it the backend's
-    //DH1KLM label list dims it with a reason when the model or firmware has no choice.
+    // The Scope row is an Icom-only cluster (#6168): it exists for that family
+    // alone (the applet-level hide gui.md allows), and within it the backend's
+    // label list dims it with a reason when the model or firmware has no choice.
     auto* scopeRow = parent.findChild<QWidget*>(QStringLiteral("displayScopeModeRow"));
     check(scopeRow != nullptr, "the Scope row is discoverable");
     if (scopeRow) {
@@ -110,9 +110,9 @@ int main(int argc, char* argv[])
                                  QStringLiteral("Fixed")});
         check(!scopeRow->isHidden() && scopeRow->isEnabled(),
               "an Icom offering modes -> Scope row shown and enabled");
-        //DH1KLM A Fixed on one of the radio's own presets is published as "nothing
-        //DH1KLM lit" (index -1): a click on Fixed must then ask for Fixed, so the
-        //DH1KLM backend can reclaim its slot; with Fixed already lit it asks nothing.
+        // A Fixed on one of the radio's own presets is published as "nothing
+        // lit" (index -1): a click on Fixed must then ask for Fixed, so the
+        // backend can reclaim its slot; with Fixed already lit it asks nothing.
         std::vector<int> picks;
         QObject::connect(&menu, &SpectrumOverlayMenu::scopeModeChanged,
                          [&picks](int i) { picks.push_back(i); });

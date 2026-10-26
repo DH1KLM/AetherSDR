@@ -29,11 +29,11 @@ using BandField = TxBandRequest::Field;
 
 namespace {
 
-//DH1KLM The table is a grid of cells over a hairline-coloured ground: the 1 px
-//DH1KLM spacing between cells draws the rules. The body and everything in it start
-//DH1KLM transparent over the canon ground; the cell rules are scoped under #canonBody
-//DH1KLM so they outrank that, and popups (a field's right-click menu) are
-//DH1KLM descendants too, so they get their panel back.
+// The table is a grid of cells over a hairline-coloured ground: the 1 px
+// spacing between cells draws the rules. The body and everything in it start
+// transparent over the canon ground; the cell rules are scoped under #canonBody
+// so they outrank that, and popups (a field's right-click menu) are
+// descendants too, so they get their panel back.
 constexpr const char* kTxBandStyle = R"(
 QWidget#canonBody, QWidget#canonBody QWidget {
     background: transparent;
@@ -101,7 +101,7 @@ QWidget#canonBody QLabel[txBandCell="note"] {
 }
 )";
 
-//DH1KLM A cell that centres one widget, painted as a table cell.
+// A cell that centres one widget, painted as a table cell.
 QWidget* valueCell(QWidget* content)
 {
     auto* cell = new QWidget;
@@ -113,8 +113,8 @@ QWidget* valueCell(QWidget* content)
     return cell;
 }
 
-//DH1KLM The eight bandset check-box columns, in table order: the column header and
-//DH1KLM the spoken name each check box carries.
+// The eight bandset check-box columns, in table order: the column header and
+// the spoken name each check box carries.
 struct ToggleColumn {
     BandField field;
     const char* header;
@@ -154,7 +154,7 @@ QString windowTitleFor(const QString& profile)
     return QStringLiteral("TX Band Settings (Current TX Profile: %1)").arg(profile);
 }
 
-} //DH1KLM namespace
+} // namespace
 
 TxBandDialog::TxBandDialog(RadioModel* model, QWidget* parent)
     : CanonWindow(windowTitleFor(model ? model->transmitModel().activeProfile() : QString()),
@@ -162,9 +162,9 @@ TxBandDialog::TxBandDialog(RadioModel* model, QWidget* parent)
       m_model(model)
 {
     theme::setContainer(this, QStringLiteral("canon/txBand"));
-    //DH1KLM Size and position persist under TxBandDialogGeometry, the key earlier
-    //DH1KLM releases wrote, so a saved rectangle still restores; it resizes from
-    //DH1KLM every edge.
+    // Size and position persist under TxBandDialogGeometry, the key earlier
+    // releases wrote, so a saved rectangle still restores; it resizes from
+    // every edge.
     setGeometryKey(QStringLiteral("TxBandDialogGeometry"));
     FramelessResizer::install(this);
     applyCanonSheet(bodyWidget(), [] {
@@ -181,15 +181,15 @@ TxBandDialog::TxBandDialog(RadioModel* model, QWidget* parent)
 
     if (m_model) {
         m_profile = m_model->transmitModel().activeProfile();
-        //DH1KLM The table belongs to one TX profile and one radio session: a new
-        //DH1KLM one rebuilds it. A hidden window is rebuilt when it is next opened.
+        // The table belongs to one TX profile and one radio session: a new
+        // one rebuilds it. A hidden window is rebuilt when it is next opened.
         connect(&m_model->transmitModel(), &TransmitModel::stateChanged, this, [this] {
             if (isVisible() && m_model->transmitModel().activeProfile() != m_profile) {
                 rebuildTable();
             }
         });
-        //DH1KLM The model relays each status line before applying it, so the
-        //DH1KLM refresh runs once the burst has been applied.
+        // The model relays each status line before applying it, so the
+        // refresh runs once the burst has been applied.
         m_refreshTimer.setSingleShot(true);
         m_refreshTimer.setInterval(0);
         connect(&m_refreshTimer, &QTimer::timeout, this, &TxBandDialog::refreshValues);
@@ -211,8 +211,8 @@ void TxBandDialog::rebuildTable()
     if (m_headerTitle) {
         m_headerTitle->setText(windowTitle());
     }
-    //DH1KLM Focus returns to the same control in the new table; text typed into the
-    //DH1KLM old one belonged to the old profile and is dropped.
+    // Focus returns to the same control in the new table; text typed into the
+    // old one belonged to the old profile and is dropped.
     QWidget* focused = QApplication::focusWidget();
     const QString focusedName = focused && m_table && m_table->isAncestorOf(focused)
         ? focused->accessibleName() : QString();
@@ -231,9 +231,9 @@ void TxBandDialog::rebuildTable()
 
 void TxBandDialog::buildTable()
 {
-    //DH1KLM Parented to the body before anything is added, so each header label is
-    //DH1KLM polished by the body's sheet before it is measured: its minimum is the
-    //DH1KLM sheet's bold 10 px text, not the default font's.
+    // Parented to the body before anything is added, so each header label is
+    // polished by the body's sheet before it is measured: its minimum is the
+    // sheet's bold 10 px text, not the default font's.
     m_table = new QWidget(bodyWidget());
     m_table->setObjectName(QStringLiteral("txBandTable"));
     auto* vb = new QVBoxLayout(m_table);
@@ -337,8 +337,8 @@ void TxBandDialog::buildTable()
             chk->setChecked(on);
             const BandField field = column.field;
             connect(chk, &QCheckBox::toggled, this, [this, chk, bandId, field, session](bool on) {
-                //DH1KLM A change the radio refuses, or that is never sent, shows
-                //DH1KLM the radio's value again.
+                // A change the radio refuses, or that is never sent, shows
+                // the radio's value again.
                 m_model->requestTxBand({bandId, field, on}, session, chk,
                     [this, chk, bandId, field](const RadioSetupReply& reply) {
                         if (reply.kind == RadioSetupReply::Kind::Accepted) {
@@ -398,7 +398,7 @@ void TxBandDialog::buildTable()
 
 void TxBandDialog::hideEvent(QHideEvent* event)
 {
-    //DH1KLM Esc and Ctrl+W hide the window; minimizing is spontaneous and keeps it.
+    // Esc and Ctrl+W hide the window; minimizing is spontaneous and keeps it.
     if (!event->spontaneous()) {
         m_rebuildOnShow = true;
     }
@@ -407,8 +407,8 @@ void TxBandDialog::hideEvent(QHideEvent* event)
 
 void TxBandDialog::showEvent(QShowEvent* event)
 {
-    //DH1KLM Opening it again builds a fresh table, as closing with the corner button
-    //DH1KLM and reopening does.
+    // Opening it again builds a fresh table, as closing with the corner button
+    // and reopening does.
     if (m_rebuildOnShow && m_model) {
         m_rebuildOnShow = false;
         rebuildTable();
@@ -422,7 +422,7 @@ void TxBandDialog::refreshValues()
         return;
     }
     const auto& bands = m_model->txBandSettings();
-    //DH1KLM Rows are the radio's bands by id and name, in id order (QMap's order).
+    // Rows are the radio's bands by id and name, in id order (QMap's order).
     bool sameBands = bands.size() == m_rows.size();
     for (int i = 0; sameBands && i < m_rows.size(); ++i) {
         const auto it = std::next(bands.constBegin(), i);
@@ -432,9 +432,9 @@ void TxBandDialog::refreshValues()
         rebuildTable();
         return;
     }
-    //DH1KLM Only a value the radio changed since it was last shown is written, so a
-    //DH1KLM click or entry the radio has not yet echoed is left as the operator set
-    //DH1KLM it, and a field with uncommitted typing keeps it.
+    // Only a value the radio changed since it was last shown is written, so a
+    // click or entry the radio has not yet echoed is left as the operator set
+    // it, and a field with uncommitted typing keeps it.
     for (Row& row : m_rows) {
         const auto& b = bands[row.bandId];
         for (auto [edit, shown, value] : {std::tuple{row.rfPower, &row.rfPowerShown, b.rfPower},

@@ -592,8 +592,8 @@ void MainWindow::buildMenuBar()
 #ifdef HAVE_HIDAPI
     auto* rc28Action = controllersMenu->addAction("Icom RC-28 Remote Encoder...");
     connect(rc28Action, &QAction::triggered, this, [this] {
-        //DH1KLM A canon dialog, so not showOrRaisePersistent(): that applies View →
-        //DH1KLM Frameless Window, which a CanonWindow does not follow.
+        // A canon dialog, so not showOrRaisePersistent(): that applies View →
+        // Frameless Window, which a CanonWindow does not follow.
         if (!m_rc28MappingDialog) {
             auto* dlg = new RC28MappingDialog(m_hidEncoder, this);
             dlg->setAttribute(Qt::WA_DeleteOnClose);
@@ -860,8 +860,8 @@ void MainWindow::buildMenuBar()
             statusBar()->showMessage("Not connected to radio", 3000);
             return;
         }
-        //DH1KLM A canon workspace window: created directly rather than through
-        //DH1KLM showOrRaisePersistent(), which would apply View → Frameless Window.
+        // A canon workspace window: created directly rather than through
+        // showOrRaisePersistent(), which would apply View → Frameless Window.
         if (!m_txBandDialog) {
             auto* dialog = new TxBandDialog(&m_radioModel, this);
             dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -1771,7 +1771,7 @@ void MainWindow::buildMenuBar()
     refreshWindowMenu();
 
     auto* helpMenu = menuBar()->addMenu("&Help");
-    helpMenu->setToolTipsVisible(true);  //DH1KLM a dimmed item states its reason on hover
+    helpMenu->setToolTipsVisible(true);  // a dimmed item states its reason on hover
 
     // ── Documentation ─────────────────────────────────────────────────────
     // The online manual (docs.aethersdr.com), its printable PDF, and the Log
@@ -1906,7 +1906,7 @@ void MainWindow::buildMenuBar()
     m_autoUpdateAction = autoUpdateAct;
     autoUpdateAct->setCheckable(true);
     if (const QString store = UpdateChecker::storeName(); !store.isEmpty()) {
-        //DH1KLM The store owns updates here, so the background check never runs.
+        // The store owns updates here, so the background check never runs.
         const QString reason =
             QStringLiteral("Updates for this copy come from %1.").arg(store);
         autoUpdateAct->setChecked(false);
@@ -2297,10 +2297,10 @@ void MainWindow::showSplitBadgeMenu(int sliceId, const QPoint& globalPos)
 
 
 namespace {
-//DH1KLM Long enough that the update check does not compete with radio discovery
-//DH1KLM and the first connect for the network at launch.
+// Long enough that the update check does not compete with radio discovery
+// and the first connect for the network at launch.
 constexpr int kAutomaticUpdateCheckDelayMs = 15000;
-} //DH1KLM namespace
+} // namespace
 
 void MainWindow::wireUpdateChecker()
 {
@@ -2318,7 +2318,7 @@ void MainWindow::wireUpdateChecker()
             m_titleBar->setUpdateAvailable({});
         }
     });
-    //DH1KLM Results and failures are shown in the Updates window, not in prompts.
+    // Results and failures are shown in the Updates window, not in prompts.
 
     QTimer::singleShot(kAutomaticUpdateCheckDelayMs, m_updateChecker, [checker = m_updateChecker] {
         checker->checkAutomaticallyIfDue();
@@ -2327,8 +2327,8 @@ void MainWindow::wireUpdateChecker()
 
 void MainWindow::restoreKnownUpdate()
 {
-    //DH1KLM The daily throttle may skip this launch's check, so the badge comes back
-    //DH1KLM from the release the last answer recorded, under the same rules.
+    // The daily throttle may skip this launch's check, so the badge comes back
+    // from the release the last answer recorded, under the same rules.
     const QString known = UpdateChecker::knownBadgeVersion();
     if (known.isEmpty() || !m_titleBar) {
         return;
@@ -2338,7 +2338,7 @@ void MainWindow::restoreKnownUpdate()
 
 void MainWindow::showUpdatesWindow(bool checkNow)
 {
-    //DH1KLM A CanonWindow (style guide, RFC #6226): created or raised directly.
+    // A CanonWindow (style guide, RFC #6226): created or raised directly.
     if (!m_updatesWindow) {
         auto* w = new UpdatesWindow(m_updateChecker, &m_radioModel, this);
         w->setAttribute(Qt::WA_DeleteOnClose);
@@ -2351,7 +2351,7 @@ void MainWindow::showUpdatesWindow(bool checkNow)
         m_updatesWindow = w;
     }
     if (checkNow) {
-        //DH1KLM Through the window, so an open one shows the check starting.
+        // Through the window, so an open one shows the check starting.
         m_updatesWindow->checkNow();
     }
     m_updatesWindow->show();
@@ -2361,10 +2361,10 @@ void MainWindow::showUpdatesWindow(bool checkNow)
 
 void MainWindow::setAutomaticUpdateCheck(bool on)
 {
-    //DH1KLM One handler for the Help toggle and the window's Check daily box, so
-    //DH1KLM the two never disagree. The toggle governs the badge too: off retires
-    //DH1KLM it, and on brings a known update back at once when the daily wait
-    //DH1KLM skips the request.
+    // One handler for the Help toggle and the window's Check daily box, so
+    // the two never disagree. The toggle governs the badge too: off retires
+    // it, and on brings a known update back at once when the daily wait
+    // skips the request.
     UpdateChecker::setCheckOnStartup(on);
     if (m_autoUpdateAction) {
         const QSignalBlocker block(m_autoUpdateAction);

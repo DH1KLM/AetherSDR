@@ -1,6 +1,6 @@
-//DH1KLM Socket-free: the VPN source-path picker keeps the address the operator chose
-//DH1KLM while the radio address is edited through other families. Reads this host's
-//DH1KLM interface list; skips (77) without an adapter carrying two IPv6 addresses.
+// Socket-free: the VPN source-path picker keeps the address the operator chose
+// while the radio address is edited through other families. Reads this host's
+// interface list; skips (77) without an adapter carrying two IPv6 addresses.
 #include "TestSettingsProfile.h"
 #include "core/NetworkPathResolver.h"
 #include "gui/ConnectionPanel.h"
@@ -35,7 +35,7 @@ int main(int argc, char** argv)
         qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication app(argc, argv);
 
-    //DH1KLM A GUA and a ULA on one adapter, as an IPv6 LAN gives.
+    // A GUA and a ULA on one adapter, as an IPv6 LAN gives.
     const auto v6 = NetworkPathResolver::enumerateCandidates(QAbstractSocket::IPv6Protocol);
     NetworkPathCandidate gua, ula;
     for (const auto& c : v6) {
@@ -59,7 +59,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    //DH1KLM A ULA radio; the operator deliberately picks the adapter's GUA.
+    // A ULA radio; the operator deliberately picks the adapter's GUA.
     const QString ulaRadio = QStringLiteral("fd58:eee:46e8::10");
     ip->setText(ulaRadio);
     const int guaRow = source->findText(gua.label());
@@ -67,7 +67,7 @@ int main(int argc, char** argv)
     source->setCurrentIndex(guaRow);
     QMetaObject::invokeMethod(source, "activated", Qt::DirectConnection, Q_ARG(int, guaRow));
 
-    //DH1KLM Retype the address: empty and partial text read as IPv4 on the way.
+    // Retype the address: empty and partial text read as IPv4 on the way.
     ip->setText(QString());
     ip->setText(QStringLiteral("fd58"));
     check(source->currentText() != gua.label(), "an IPv4 list is shown while the text is not IPv6");
@@ -75,7 +75,7 @@ int main(int argc, char** argv)
     check(source->currentText() == gua.label(),
           "the picked GUA comes back, not the ULA the prefix rule alone would choose");
 
-    //DH1KLM Choosing Auto is a pick too and must not be undone by later typing.
+    // Choosing Auto is a pick too and must not be undone by later typing.
     source->setCurrentIndex(0);
     QMetaObject::invokeMethod(source, "activated", Qt::DirectConnection, Q_ARG(int, 0));
     ip->setText(QString());

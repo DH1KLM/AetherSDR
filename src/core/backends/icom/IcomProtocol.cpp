@@ -550,9 +550,9 @@ ConnectionUsage parseConnectionUsage(std::span<const std::uint8_t> pkt)
         return usage;
     }
 
-    //DH1KLM wfview's conninfo_packet receive layout carries a full little-endian
-    //DH1KLM busy word, a 16-byte owner name and the owner's IPv4 address. Only the
-    //DH1KLM explicit owner-free shape can revoke a current media session.
+    // wfview's conninfo_packet receive layout carries a full little-endian
+    // busy word, a 16-byte owner name and the owner's IPv4 address. Only the
+    // explicit owner-free shape can revoke a current media session.
     const std::uint32_t busy = getLe32(pkt, 0x60);
     if (busy == 0) {
         const bool ownerEmpty = pkt[0x64] == 0;

@@ -27,8 +27,8 @@ or that every supported hardware profile has passed a hardware test.
 
 `docs/anan-working-state.md` is a local, ignored working agreement and status
 record. It is not a tracked contributor or user reference and must not be
-used as the sole documentation of functional changes. Code comments and
-`//DH1KLM` markers likewise do not replace functional documentation.
+used as the sole documentation of functional changes. Code comments likewise
+do not replace functional documentation.
 
 ## Requested Saturn choices
 

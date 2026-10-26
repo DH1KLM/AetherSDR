@@ -9,15 +9,15 @@
 #include <algorithm>
 #include <cmath>
 
-//DH1KLM One line per settings change (FFT AVG, FPS, rate). Off by default -- it fires
-//DH1KLM on every slider step; enable with QT_LOGGING_RULES="aether.anan.pan.info=true".
+// One line per settings change (FFT AVG, FPS, rate). Off by default -- it fires
+// on every slider step; enable with QT_LOGGING_RULES="aether.anan.pan.info=true".
 Q_LOGGING_CATEGORY(lcOriginalAnanPan, "aether.anan.pan", QtWarningMsg)
 
 namespace AetherSDR::anan_original {
 
 namespace {
 
-//DH1KLM WDSP analyzer constants (see aether_wdsp.h's analyzer block).
+// WDSP analyzer constants (see aether_wdsp.h's analyzer block).
 constexpr int kWindowKaiser = 5;
 constexpr double kKaiserPiAlpha = 14.0;
 constexpr int kDetectorAverage = 2;
@@ -45,35 +45,35 @@ AnanPanAnalyzer::Derived AnanPanAnalyzer::derive(const Settings& s) noexcept
 
     d.fftSize = std::max(kMinFftSize, nextPowerOfTwo(std::max(1, s.numPoints)));
 
-    //DH1KLM One full FFT per display frame: each FFT advances by rate / fps fresh
-    //DH1KLM samples and re-uses the rest of its window from the previous one. At a
-    //DH1KLM high rate the advance exceeds the FFT, the overlap is zero, and the FFTs
-    //DH1KLM simply tile the stream.
+    // One full FFT per display frame: each FFT advances by rate / fps fresh
+    // samples and re-uses the rest of its window from the previous one. At a
+    // high rate the advance exceeds the FFT, the overlap is zero, and the FFTs
+    // simply tile the stream.
     d.overlap = static_cast<int>(
         std::max(0.0, std::ceil(static_cast<double>(d.fftSize) - rate / fps)));
 
-    //DH1KLM How far the input may run ahead of the FFTs before the analyzer skips
-    //DH1KLM samples: one FFT plus a tenth of a second of either input or FFT work,
-    //DH1KLM whichever is less. Capped so it stays inside the 2 * kMaxFftSize ring.
+    // How far the input may run ahead of the FFTs before the analyzer skips
+    // samples: one FFT plus a tenth of a second of either input or FFT work,
+    // whichever is less. Capped so it stays inside the 2 * kMaxFftSize ring.
     const double ahead = std::min(0.1 * rate, 0.1 * d.fftSize * fps);
     d.maxWriteahead = std::min(d.fftSize + static_cast<int>(ahead),
                                2 * kMaxFftSize - kBlockSize);
 
-    //DH1KLM Recursive average with time constant averageTimeMs. WDSP applies the
-    //DH1KLM weight once per FFT, not once per display frame, so the weight is
-    //DH1KLM derived from the analyzer's real FFT rate, rate / (fftSize - overlap):
-    //DH1KLM equal to fps while one FFT fits per frame (every rate up to 384 ksps at
-    //DH1KLM 25 fps, where this reduces to deskHPSDR's exp(-1 / (fps * t))), and
-    //DH1KLM higher once the overlap saturates at zero (768 and 1536 ksps), where
-    //DH1KLM deskHPSDR's per-frame weight would deliver 1.9x / 3.75x less averaging
-    //DH1KLM time than the control says. 0 = none.
+    // Recursive average with time constant averageTimeMs. WDSP applies the
+    // weight once per FFT, not once per display frame, so the weight is
+    // derived from the analyzer's real FFT rate, rate / (fftSize - overlap):
+    // equal to fps while one FFT fits per frame (every rate up to 384 ksps at
+    // 25 fps, where this reduces to deskHPSDR's exp(-1 / (fps * t))), and
+    // higher once the overlap saturates at zero (768 and 1536 ksps), where
+    // deskHPSDR's per-frame weight would deliver 1.9x / 3.75x less averaging
+    // time than the control says. 0 = none.
     if (s.averageTimeMs > 0) {
         const double fftsPerSecond =
             rate / static_cast<double>(std::max(1, d.fftSize - d.overlap));
         const double framesPerTau = fftsPerSecond * (s.averageTimeMs / 1000.0);
         d.avBackmult = std::exp(-1.0 / framesPerTau);
-        //DH1KLM Only WDSP's window-averaging mode (2) reads this, and this class never
-        //DH1KLM selects it; set so the value is well-defined for the log line.
+        // Only WDSP's window-averaging mode (2) reads this, and this class never
+        // selects it; set so the value is well-defined for the log line.
         d.numAverage = std::clamp(static_cast<int>(framesPerTau), 2, kMaxAverage);
     } else {
         d.avBackmult = 0.0;
@@ -118,11 +118,11 @@ AnanPanAnalyzer::AnanPanAnalyzer(int disp, const Settings& settings)
 
 AnanPanAnalyzer::~AnanPanAnalyzer()
 {
-    //DH1KLM DestroyAnalyzer() waits for the dispatcher thread but NOT for FFT worker
-    //DH1KLM threads still in flight, then frees the buffers they use. SetAnalyzer()
-    //DH1KLM does wait for them (and stops the dispatcher), so run it once as a drain
-    //DH1KLM barrier. Same FFT size, so nothing is re-planned; no further Spectrum0()
-    //DH1KLM call follows, so nothing restarts the dispatcher.
+    // DestroyAnalyzer() waits for the dispatcher thread but NOT for FFT worker
+    // threads still in flight, then frees the buffers they use. SetAnalyzer()
+    // does wait for them (and stops the dispatcher), so run it once as a drain
+    // barrier. Same FFT size, so nothing is re-planned; no further Spectrum0()
+    // call follows, so nothing restarts the dispatcher.
     const Derived d = derive(m_settings);
     int highSideLo = 0;
     auto lock = WdspChannel::fftwSetupLock();   // DestroyAnalyzer destroys FFTW plans
@@ -138,8 +138,8 @@ void AnanPanAnalyzer::applySettings()
     m_fftSize = d.fftSize;
     int highSideLo = 0;
     {
-        //DH1KLM Plans FFTW_PATIENT when the size changes, which it does only on the
-        //DH1KLM first call after create().
+        // Plans FFTW_PATIENT when the size changes, which it does only on the
+        // first call after create().
         auto lock = WdspChannel::fftwSetupLock();
         SetAnalyzer(m_disp,
                     1,                  // one pixel output
@@ -161,9 +161,9 @@ void AnanPanAnalyzer::applySettings()
     }
     SetDisplayDetectorMode(m_disp, 0, kDetectorAverage);
     applyAveraging();
-    //DH1KLM Normalise to the bandwidth of one output point: tell the analyzer the
-    //DH1KLM "sample rate" is the point count, so its one-hertz normalisation lands
-    //DH1KLM on one point instead.
+    // Normalise to the bandwidth of one output point: tell the analyzer the
+    // "sample rate" is the point count, so its one-hertz normalisation lands
+    // on one point instead.
     SetDisplayNormOneHz(m_disp, 0, 1);
     SetDisplaySampleRate(m_disp, m_settings.numPoints);
 }
@@ -172,9 +172,9 @@ void AnanPanAnalyzer::applyAveraging()
 {
     const Derived d = derive(m_settings);
     m_avBackmult = d.avBackmult;
-    //DH1KLM One line per settings change (FPS or the operator's averaging controls),
-    //DH1KLM stating exactly what WDSP is given -- the only way to see from a bench
-    //DH1KLM session what the analyzer is actually doing.
+    // One line per settings change (FPS or the operator's averaging controls),
+    // stating exactly what WDSP is given -- the only way to see from a bench
+    // session what the analyzer is actually doing.
     qCInfo(lcOriginalAnanPan).nospace()
         << "analyzer slot " << m_disp << ": " << m_settings.sampleRateHz << " Hz, "
         << m_settings.numPoints << " points, FFT " << d.fftSize << ", overlap "
@@ -188,15 +188,15 @@ void AnanPanAnalyzer::applyAveraging()
         SetDisplayAverageMode(m_disp, 0, kAverageNone);
         return;
     }
-    //DH1KLM Seed: with no weight on history the first frame IS the average. The
-    //DH1KLM real weight goes in once that frame has been taken (takeFrame()) -- so
-    //DH1KLM a frame the worker finished BEFORE this switch, still waiting in
-    //DH1KLM GetPixels because takeFrame() only polls when a display frame is due,
-    //DH1KLM must not be the one that counts: it was computed under the old mode,
-    //DH1KLM and seeding from it would leave the new mode's fresh -160 dB history
-    //DH1KLM in place and fade the panadapter in from black. Discard it first. (A
-    //DH1KLM worker mid-FFT at this instant can still land one; that window is the
-    //DH1KLM FFT's compute time, not a display interval.)
+    // Seed: with no weight on history the first frame IS the average. The
+    // real weight goes in once that frame has been taken (takeFrame()) -- so
+    // a frame the worker finished BEFORE this switch, still waiting in
+    // GetPixels because takeFrame() only polls when a display frame is due,
+    // must not be the one that counts: it was computed under the old mode,
+    // and seeding from it would leave the new mode's fresh -160 dB history
+    // in place and fade the panadapter in from black. Discard it first. (A
+    // worker mid-FFT at this instant can still land one; that window is the
+    // FFT's compute time, not a display interval.)
     if (!m_seeded) {
         int stale = 0;
         GetPixels(m_disp, 0, m_scratch.data(), &stale);
@@ -211,9 +211,9 @@ void AnanPanAnalyzer::setAverageTimeMs(int ms)
     ms = std::max(0, ms);
     if (ms == m_settings.averageTimeMs)
         return;
-    //DH1KLM Entering log-recursive mode resets WDSP's history to -160 dB, so switching
-    //DH1KLM averaging on from none must re-seed; a change of time within the mode
-    //DH1KLM keeps the history and only moves the weight.
+    // Entering log-recursive mode resets WDSP's history to -160 dB, so switching
+    // averaging on from none must re-seed; a change of time within the mode
+    // keeps the history and only moves the weight.
     if (m_settings.averageTimeMs <= 0)
         m_seeded = false;
     m_settings.averageTimeMs = ms;
@@ -225,8 +225,8 @@ void AnanPanAnalyzer::setLogAverage(bool on)
     if (on == m_settings.logAverage)
         return;
     m_settings.logAverage = on;
-    //DH1KLM Switching WDSP's average mode resets its history (to -160 dB for log,
-    //DH1KLM to ~0 power for linear), so the next frame must seed it.
+    // Switching WDSP's average mode resets its history (to -160 dB for log,
+    // to ~0 power for linear), so the next frame must seed it.
     if (m_settings.averageTimeMs > 0)
         m_seeded = false;
     applyAveraging();
@@ -237,8 +237,8 @@ void AnanPanAnalyzer::setFramesPerSecond(int fps)
     if (fps <= 0 || fps == m_settings.framesPerSecond)
         return;
     m_settings.framesPerSecond = fps;
-    //DH1KLM SetAnalyzer() resets the analyzer's input ring; drop our partial block
-    //DH1KLM with it so the next block starts clean.
+    // SetAnalyzer() resets the analyzer's input ring; drop our partial block
+    // with it so the next block starts clean.
     m_stagedCount = 0;
     applySettings();
 }
@@ -250,10 +250,10 @@ void AnanPanAnalyzer::setNumPoints(int points)
         return;
     m_settings.numPoints = points;
     m_scratch.assign(static_cast<std::size_t>(points), 0.0f);
-    //DH1KLM The averaging history is kept per point, in the old layout: seed from
-    //DH1KLM the next frame instead of blending two different point grids.
+    // The averaging history is kept per point, in the old layout: seed from
+    // the next frame instead of blending two different point grids.
     m_seeded = false;
-    //DH1KLM SetAnalyzer() resets the input ring, as in setFramesPerSecond().
+    // SetAnalyzer() resets the input ring, as in setFramesPerSecond().
     m_stagedCount = 0;
     applySettings();
 }
@@ -279,8 +279,8 @@ std::size_t AnanPanAnalyzer::dropStagedPartial() noexcept
 
 bool AnanPanAnalyzer::takeFrame(std::vector<float>& pointsDb)
 {
-    //DH1KLM GetPixels copies straight into its argument, so read into a scratch
-    //DH1KLM buffer and leave `pointsDb` untouched when there is no new frame.
+    // GetPixels copies straight into its argument, so read into a scratch
+    // buffer and leave `pointsDb` untouched when there is no new frame.
     int flag = 0;
     GetPixels(m_disp, 0, m_scratch.data(), &flag);
     if (flag == 0)

@@ -251,8 +251,8 @@ void preserveLocksAndNumericBoundary()
 
 void unlockAfterStop(const QVector<float>& samples)
 {
-    //DH1KLM Zero Beat reads estimatedPitch(): a value unlocked after a stop is dead,
-    //DH1KLM one unlocked while running is still live (#5745).
+    // Zero Beat reads estimatedPitch(): a value unlocked after a stop is dead,
+    // one unlocked while running is still live (#5745).
     {
         Fixture fixture;
         if (!fixture.feedWithoutDelivery(samples)) { return; }

@@ -5,11 +5,11 @@
 
 namespace AetherSDR {
 
-//DH1KLM The address as a unicast endpoint, IPv4 or IPv6, or a null address when it
-//DH1KLM cannot be one (null, unspecified, broadcast, multicast, or IPv6 link-local
-//DH1KLM with no scope, which names no interface to reach it on). An IPv4-mapped IPv6
-//DH1KLM address folds to plain IPv4, so one radio compares equal however a socket
-//DH1KLM reports it.
+// The address as a unicast endpoint, IPv4 or IPv6, or a null address when it
+// cannot be one (null, unspecified, broadcast, multicast, or IPv6 link-local
+// with no scope, which names no interface to reach it on). An IPv4-mapped IPv6
+// address folds to plain IPv4, so one radio compares equal however a socket
+// reports it.
 inline QHostAddress usableUnicastAddress(const QHostAddress& address)
 {
     bool isV4 = false;
@@ -29,7 +29,7 @@ inline QHostAddress usableUnicastAddress(const QHostAddress& address)
     return address;
 }
 
-//DH1KLM "host:port", with an IPv6 host in brackets.
+// "host:port", with an IPv6 host in brackets.
 inline QString endpointText(const QHostAddress& address, quint16 port)
 {
     const QString host = address.toString();
@@ -38,4 +38,4 @@ inline QString endpointText(const QHostAddress& address, quint16 port)
         : QStringLiteral("%1:%2").arg(host).arg(port);
 }
 
-}  //DH1KLM namespace AetherSDR
+}  // namespace AetherSDR

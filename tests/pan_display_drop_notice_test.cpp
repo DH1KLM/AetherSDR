@@ -1,6 +1,6 @@
-//DH1KLM Socket-free display notice coverage: local rendering is not a dropped radio
-//DH1KLM command. Declared backend support, not the presence of an unrelated command
-//DH1KLM plane, selects radio writes. GUI ordering is inspected separately as text.
+// Socket-free display notice coverage: local rendering is not a dropped radio
+// command. Declared backend support, not the presence of an unrelated command
+// plane, selects radio writes. GUI ordering is inspected separately as text.
 
 #include "TestSettingsProfile.h"
 #include "core/backends/flex/FlexBackend.h"
@@ -310,8 +310,8 @@ void storedDisplayReplayIsSilent()
         check(f.dropped.size() == 3, caps.family + ": explicit operator requests still announce");
     }
 
-    //DH1KLM Geometry-only display support, as declared by the demo backend. Do not
-    //DH1KLM construct SimBackend here: its transport threads initialize sockets.
+    // Geometry-only display support, as declared by the demo backend. Do not
+    // construct SimBackend here: its transport threads initialize sockets.
     RadioCapabilities geometryOnly = icomCapabilities();
     geometryOnly.panDisplayControl = PanDisplayControl{
         {PanDisplayField::Geometry}, {PanGeometryComponent::Center}};
@@ -397,7 +397,7 @@ void commandPlaneGetsTheWireText()
     }
 }
 
-//DH1KLM An unrelated command plane cannot manufacture a missing backend verb.
+// An unrelated command plane cannot manufacture a missing backend verb.
 void commandPlaneOutranksTheRowUnit()
 {
     RadioConnection connection;

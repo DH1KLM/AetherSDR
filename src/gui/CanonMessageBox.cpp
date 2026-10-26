@@ -13,12 +13,12 @@ namespace AetherSDR {
 
 namespace {
 
-//DH1KLM The texts wrap at the narrower width; one long unbreakable token (a path in
-//DH1KLM a command to copy) widens the box up to the wider one rather than clipping.
+// The texts wrap at the narrower width; one long unbreakable token (a path in
+// a command to copy) widens the box up to the wider one rather than clipping.
 constexpr int kTextWidth = 420;
 constexpr int kMaxTextWidth = 720;
 
-} //DH1KLM namespace
+} // namespace
 
 CanonMessageBox::CanonMessageBox(const QString& title, const QString& text, QWidget* parent)
     : CanonWindow(title, parent)
@@ -37,15 +37,15 @@ CanonMessageBox::CanonMessageBox(const QString& title, const QString& text, QWid
     auto* root = new QVBoxLayout(bodyWidget());
     root->setContentsMargins(18, 14, 18, 16);
     root->setSpacing(12);
-    //DH1KLM Texts carry manifest and device strings (a product name, a version, a
-    //DH1KLM path): never render them as rich text, the title included.
+    // Texts carry manifest and device strings (a product name, a version, a
+    // path): never render them as rich text, the title included.
     QWidget* header = makeCanonHeader(title);
     if (auto* heading = header->findChild<QLabel*>(QStringLiteral("canonHeaderTitle")))
         heading->setTextFormat(Qt::PlainText);
     root->addWidget(header);
 
-    //DH1KLM A screen reader announces a QMessageBox's text when it opens; this
-    //DH1KLM dialog is told the same through its description.
+    // A screen reader announces a QMessageBox's text when it opens; this
+    // dialog is told the same through its description.
     setAccessibleDescription(text);
     m_text = new QLabel(text);
     m_text->setObjectName(QStringLiteral("canonMessageText"));
@@ -88,8 +88,8 @@ void CanonMessageBox::setTextSelectable(bool on)
 
 QPushButton* CanonMessageBox::addButton(const QString& text, Role role)
 {
-    //DH1KLM Auto-default, as in QMessageBox: a focused button takes Return itself,
-    //DH1KLM and the default button takes it only while no other button has focus.
+    // Auto-default, as in QMessageBox: a focused button takes Return itself,
+    // and the default button takes it only while no other button has focus.
     auto* button = new QPushButton(text);
     button->setAutoDefault(true);
     if (role == Role::Destructive) {
@@ -119,13 +119,13 @@ void CanonMessageBox::setDefaultButton(QPushButton* button)
 void CanonMessageBox::showEvent(QShowEvent* event)
 {
     CanonWindow::showEvent(event);
-    m_clicked = nullptr;   //DH1KLM this showing's answer, not a previous one's
+    m_clicked = nullptr;   // this showing's answer, not a previous one's
     if (m_default) {
         m_default->setFocus();
     }
-    //DH1KLM As QMessageBox does, so a screen reader reads the texts as it opens.
+    // As QMessageBox does, so a screen reader reads the texts as it opens.
     QAccessibleEvent alert(this, QAccessible::Alert);
     QAccessible::updateAccessibility(&alert);
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

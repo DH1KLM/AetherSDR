@@ -1,7 +1,7 @@
 #pragma once
-//DH1KLM An in-memory QNetworkAccessManager for UpdateChecker tests: createRequest
-//DH1KLM returns a reply the test finishes by hand, so a check can be held in flight.
-//DH1KLM No sockets, no peer.
+// An in-memory QNetworkAccessManager for UpdateChecker tests: createRequest
+// returns a reply the test finishes by hand, so a check can be held in flight.
+// No sockets, no peer.
 
 #include <QNetworkAccessManager>
 #include <QNetworkReply>

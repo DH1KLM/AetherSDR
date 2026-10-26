@@ -1329,8 +1329,8 @@ void CopyAssistController::setBackend(AsrBackendKind kind, const QString& tierId
 
 void CopyAssistController::abandonEnable(const QString& reason)
 {
-    //DH1KLM The toggle synchronously runs normal shutdown, including its "Disabled"
-    //DH1KLM status. Publish the failure afterward so that shutdown cannot erase it.
+    // The toggle synchronously runs normal shutdown, including its "Disabled"
+    // status. Publish the failure afterward so that shutdown cannot erase it.
     m_panel->setAsrEnabled(false);
     m_enableAfterGpuDiscovery = false;
     m_panel->setBusy(false);

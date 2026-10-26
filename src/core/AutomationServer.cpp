@@ -11558,7 +11558,7 @@ QJsonObject AutomationServer::doPan(const QString& action, const QString& arg)
         return QJsonObject{
             {QStringLiteral("ok"), anyRequested},
             {QStringLiteral("pan"), QStringLiteral("close")},
-            {QStringLiteral("requested"), anyRequested},   //DH1KLM radio echoes removal; re-poll get pans
+            {QStringLiteral("requested"), anyRequested},   // radio echoes removal; re-poll get pans
             {QStringLiteral("closed"), closed},
         };
     }

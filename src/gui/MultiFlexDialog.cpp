@@ -16,9 +16,9 @@
 
 namespace AetherSDR {
 
-//DH1KLM Every color is a canon token: the window sits under canon/multiFlex. The
-//DH1KLM Enabled / Disabled button keeps its on/off green and red, through the
-//DH1KLM success and danger tokens.
+// Every color is a canon token: the window sits under canon/multiFlex. The
+// Enabled / Disabled button keeps its on/off green and red, through the
+// success and danger tokens.
 static const char* kDialogStyle = R"(
 QLabel {
     background: transparent;
@@ -66,7 +66,7 @@ QPushButton#disconnectClientButton:disabled {
 }
 )";
 
-//DH1KLM The dashboard's paddings, after the shared canon table rules.
+// The dashboard's paddings, after the shared canon table rules.
 static const char* kDialogTableStyle = R"(
 QTableWidget::item {
     padding: 4px 8px;
@@ -78,10 +78,10 @@ QHeaderView::section {
 
 namespace {
 
-//DH1KLM Keeps an item's own color on a selected row: the PTT tick stays green and
-//DH1KLM our station stays cyan on the selection band, where Qt would draw them in
-//DH1KLM the highlighted-text color. Items with no color of their own take the
-//DH1KLM table's text color there, as on an unselected row.
+// Keeps an item's own color on a selected row: the PTT tick stays green and
+// our station stays cyan on the selection band, where Qt would draw them in
+// the highlighted-text color. Items with no color of their own take the
+// table's text color there, as on an unselected row.
 class KeepItemColorDelegate : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -98,7 +98,7 @@ protected:
     }
 };
 
-} //DH1KLM namespace
+} // namespace
 
 constexpr int kDisconnectActionColumnWidth = 144;
 constexpr int kDisconnectButtonWidth = 128;
@@ -109,11 +109,11 @@ MultiFlexDialog::MultiFlexDialog(RadioModel* model, QWidget* parent)
 {
     setObjectName(QStringLiteral("MultiFlexDialog"));
     theme::setContainer(this, QStringLiteral("canon/multiFlex"));
-    //DH1KLM Size and position persist under the key it used as a PersistentDialog,
-    //DH1KLM so saved geometry carries over; it resizes from every edge.
+    // Size and position persist under the key it used as a PersistentDialog,
+    // so saved geometry carries over; it resizes from every edge.
     setGeometryKey(QStringLiteral("MultiFlexDialogGeometry"));
-    //DH1KLM Return must not click the default button: that is the Enabled /
-    //DH1KLM Disabled toggle, which turns multiFLEX off on the radio.
+    // Return must not click the default button: that is the Enabled /
+    // Disabled toggle, which turns multiFLEX off on the radio.
     setReturnClicksDefault(false);
     setMinimumSize(680, 280);
     resize(760, 320);
@@ -174,13 +174,13 @@ MultiFlexDialog::MultiFlexDialog(RadioModel* model, QWidget* parent)
     connect(m_model, &RadioModel::otherClientsChanged, this, [this]() { refresh(); });
     connect(m_model, &RadioModel::infoChanged, this, [this]() { refresh(); });
     connect(m_table, &QTableWidget::itemSelectionChanged, this, [this]() { refresh(); });
-    //DH1KLM The PTT tick and our own station's name carry token colors per item;
-    //DH1KLM a theme change recolors them in place.
+    // The PTT tick and our own station's name carry token colors per item;
+    // a theme change recolors them in place.
     connect(&ThemeManager::instance(), &ThemeManager::themeChanged,
             this, &MultiFlexDialog::applyItemColors);
-    //DH1KLM The dashboard belongs to one radio session: losing the radio closes it,
-    //DH1KLM so its controls never act on a radio that is gone and no pending
-    //DH1KLM disconnect outlives the session.
+    // The dashboard belongs to one radio session: losing the radio closes it,
+    // so its controls never act on a radio that is gone and no pending
+    // disconnect outlives the session.
     connect(m_model, &RadioModel::connectionStateChanged, this, [this](bool connected) {
         if (!connected)
             close();
@@ -194,7 +194,7 @@ void MultiFlexDialog::refresh()
     if (m_refreshing) return;
     m_refreshing = true;
 
-    //DH1KLM Enable button: green when on, red when off (the sheet's multiFlexOn rules)
+    // Enable button: green when on, red when off (the sheet's multiFlexOn rules)
     bool enabled = m_model->multiFlexEnabled();
     m_enableBtn->setText(enabled ? "Enabled" : "Disabled");
     if (m_enableBtn->property("multiFlexOn") != QVariant(enabled)) {

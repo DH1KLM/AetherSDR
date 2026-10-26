@@ -18,8 +18,8 @@ namespace AetherSDR {
 
 class RadioModel;
 
-//DH1KLM TX Band Settings: per-band power, inhibit and keying outputs, in a canon
-//DH1KLM workspace window.
+// TX Band Settings: per-band power, inhibit and keying outputs, in a canon
+// workspace window.
 class TxBandDialog : public CanonWindow {
     Q_OBJECT
 
@@ -36,8 +36,8 @@ private:
         QString bandName;
         QPointer<QLineEdit> rfPower;
         QPointer<QLineEdit> tunePower;
-        QList<QPointer<QCheckBox>> toggles;  //DH1KLM the eight bandset columns, in order
-        //DH1KLM The radio's values as last written into the widgets.
+        QList<QPointer<QCheckBox>> toggles;  // the eight bandset columns, in order
+        // The radio's values as last written into the widgets.
         int rfPowerShown{0};
         int tunePowerShown{0};
         QList<bool> togglesShown;
@@ -49,7 +49,7 @@ private:
 
     RadioModel* m_model{nullptr};
     QString m_profile;
-    std::function<bool()> m_sameSession;  //DH1KLM the table's radio session is still current
+    std::function<bool()> m_sameSession;  // the table's radio session is still current
     QVBoxLayout* m_layout{nullptr};
     QPointer<QLabel> m_headerTitle;
     QPointer<QWidget> m_table;

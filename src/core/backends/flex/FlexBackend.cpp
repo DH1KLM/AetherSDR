@@ -715,7 +715,7 @@ RadioCapabilities FlexBackend::capabilities() const
     caps.hostDroopCalibration = false;   // no known DDC edge droop on this radio
     // Global / TX / mic profiles are a SmartSDR feature on every current model.
     caps.hasProfiles = true;
-    //DH1KLM Published FlexLib 4.3.16 adds the CW profile type (Radio.cs:8780-8919).
+    // Published FlexLib 4.3.16 adds the CW profile type (Radio.cs:8780-8919).
     if (firmwareAtLeast(QVersionNumber(4, 3, 16))) {
         caps.cwProfileControl = RadioCapabilities::CwProfileControl{};
     }
@@ -731,8 +731,8 @@ RadioCapabilities FlexBackend::capabilities() const
         && firmwareVersion >= QVersionNumber(4, 3, 16)) {
         caps.autoAgcThresholdControl = RadioCapabilities::AutoAgcThresholdControl{
             QStringLiteral("auto_agc_t")};
-        //DH1KLM FLEX-8000 and Aurora only, under the Relative Noise Floor Scaling
-        //DH1KLM license (FlexLib v4.3.16 FeatureLicense.cs:212, Panadapter.cs:549).
+        // FLEX-8000 and Aurora only, under the Relative Noise Floor Scaling
+        // license (FlexLib v4.3.16 FeatureLicense.cs:212, Panadapter.cs:549).
         if (mc.platform == RadioPlatform::BigBend) {
             caps.noiseFloorRangeControl = RadioCapabilities::NoiseFloorRangeControl{
                 QStringLiteral("noise_floor")};
@@ -1473,8 +1473,8 @@ void FlexBackend::decodeMeterStatus(const QString& rawBody)
         MeterDef def;
         def.index = index;
         carry(f, "src", def.source);
-        //DH1KLM num is a uint (FlexLib Meter.SourceIndex): decimal for most meters,
-        //DH1KLM 0x%08X for a handle-owned one, which can exceed INT_MAX.
+        // num is a uint (FlexLib Meter.SourceIndex): decimal for most meters,
+        // 0x%08X for a handle-owned one, which can exceed INT_MAX.
         if (const auto num = parseUInt(f, "num", 0))
             def.sourceIndex = static_cast<int>(*num);
         carry(f, "nam", def.name);
@@ -1890,8 +1890,8 @@ void FlexBackend::decodeApdStatus(const QMap<QString, QString>& kvs)
     // Bare flag (no `=`): the model clears apdEqActive + emits the reset signal.
     if (kvs.contains(QStringLiteral("equalizer_reset")))
         d.apdEqualizerReset = true;
-    //DH1KLM Matched by name, as FlexLib APD.cs does: an unrecognized token stays
-    //DH1KLM disengaged rather than guessing a state.
+    // Matched by name, as FlexLib APD.cs does: an unrecognized token stays
+    // disengaged rather than guessing a state.
     static const QHash<QString, ApdLifecycleState> kLifecycle{
         {QStringLiteral("OFF"), ApdLifecycleState::Off},
         {QStringLiteral("IDLE"), ApdLifecycleState::Idle},
@@ -2108,8 +2108,8 @@ void FlexBackend::decodeProfileStatus(const QString& profileType, const QString&
         return;
     }
 
-    //DH1KLM FlexLib 4.3.16 reports the CW profile's dirty flag as
-    //DH1KLM unsaved_changes_cw (Radio.cs:12002); the suffix names the profile type.
+    // FlexLib 4.3.16 reports the CW profile's dirty flag as
+    // unsaved_changes_cw (Radio.cs:12002); the suffix names the profile type.
     static const QLatin1String unsavedPrefix("unsaved_changes_");
     if (key.startsWith(unsavedPrefix) && key.size() > unsavedPrefix.size()) {
         d.type = key.mid(unsavedPrefix.size());
@@ -2139,7 +2139,7 @@ void FlexBackend::decodeProfileFlags(const QMap<QString, QString>& kvs)
     carry(kvs, "exporting", d.exporting);
     if (d.importing || d.exporting)
         emit profileChanged(d);
-    //DH1KLM Same unsaved_changes_<type> rule as decodeProfileStatus.
+    // Same unsaved_changes_<type> rule as decodeProfileStatus.
     static const QLatin1String unsavedPrefix("unsaved_changes_");
     for (auto it = kvs.cbegin(); it != kvs.cend(); ++it) {
         if (it.key().startsWith(unsavedPrefix) && it.key().size() > unsavedPrefix.size()) {

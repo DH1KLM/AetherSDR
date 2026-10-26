@@ -6,7 +6,7 @@
 #include <span>
 
 namespace AetherSDR::anan {
-//DH1KLM: A fresh, smoothed per-bin floor, referred to WDSP's fixed 4096-point reference.
+// A fresh, smoothed per-bin floor, referred to WDSP's fixed 4096-point reference.
 class AnanAutoAgc {
 public:
     static constexpr int kReferencePoints = 4096;

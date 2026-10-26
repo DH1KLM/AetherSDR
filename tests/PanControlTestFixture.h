@@ -33,7 +33,7 @@ public:
     { radio.m_profileLoadRadioStateWriteHoldUntilMs = 0; radio.flushPendingProfileLoadPanWrites(); }
 };
 
-//DH1KLM Records production encoder requests without binding or connecting a transport.
+// Records production encoder requests without binding or connecting a transport.
 class RecordingPanBackend final : public FlexBackend {
 public:
     struct Write { QString command; RadioControlCompletion completion; };
@@ -66,7 +66,7 @@ public:
 };
 
 struct PanControlFixture {
-    RadioConnection identity; //DH1KLM Unopened, used only for the client-handle value.
+    RadioConnection identity; // Unopened, used only for the client-handle value.
     RadioModel radio;
     RecordingPanBackend* backend{nullptr};
     PanControlFixture()
@@ -75,8 +75,8 @@ struct PanControlFixture {
         backend = owned.get();
         radio.setBackendForTest(std::move(owned), QStringLiteral("flex"), backend->panStream());
         TxOperationIntegrationTestAccess::identity(radio, identity, backend);
-        //DH1KLM Injection installs universal receivers. Forward the existing Flex
-        //DH1KLM display extension as setupBackend does for a production session.
+        // Injection installs universal receivers. Forward the existing Flex
+        // display extension as setupBackend does for a production session.
         QObject::connect(backend, &IRadioBackend::extensionStatus, &radio,
             [this](const QString& ns, const QString& kind, const QVariantMap& fields) {
                 PanadapterModel* pan = radio.panadapter(fields.value(QStringLiteral("panId")).toString());
@@ -100,4 +100,4 @@ struct PanControlFixture {
     void clear() { backend->writes.clear(); backend->onWrite = {}; }
 };
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

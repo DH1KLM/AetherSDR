@@ -337,8 +337,8 @@ void GreenHeronApplet::buildUI()
         m_portSpin->setValue(GreenHeron::kDefaultPort);
         m_portSpin->setFixedWidth(52);
         m_portSpin->setAlignment(Qt::AlignRight);
-        //DH1KLM NoButtons collapses the styled editor on Qt 6.12; hide the stepper
-        //DH1KLM subcontrols instead so the port remains visible and editable.
+        // NoButtons collapses the styled editor on Qt 6.12; hide the stepper
+        // subcontrols instead so the port remains visible and editable.
         ThemeManager::instance().applyStyleSheet(
             m_portSpin, QStringLiteral(
                 "QSpinBox { %1 }"

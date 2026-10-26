@@ -553,8 +553,8 @@ void PanadapterModel::applyStateExtension(const QVariantMap& fields)
             }
         }
     }
-    //DH1KLM FlexLib parses noise_floor_range with TryParseDouble and skips a
-    //DH1KLM malformed value (Panadapter.cs:1056); a non-finite one is malformed too.
+    // FlexLib parses noise_floor_range with TryParseDouble and skips a
+    // malformed value (Panadapter.cs:1056); a non-finite one is malformed too.
     if (fields.contains(QStringLiteral("noise_floor_range"))) {
         bool ok = false;
         const double db = fields.value(QStringLiteral("noise_floor_range")).toString().toDouble(&ok);

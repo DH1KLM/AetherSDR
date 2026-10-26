@@ -160,7 +160,7 @@ FirmwareInstallModel::FirmwareInstallModel(Ctr2ProxyModel* relay, QObject* paren
                     }
                     m_waiting = false;
                     m_waitStart = {};
-                    m_accessDenied = false;   //DH1KLM over the USB link, not a serial port
+                    m_accessDenied = false;   // over the USB link, not a serial port
                     onJobFinished(ok, ok ? QString() : message);
                 });
     }

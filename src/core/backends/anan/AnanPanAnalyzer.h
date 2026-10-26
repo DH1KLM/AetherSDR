@@ -94,7 +94,7 @@ public:
     // `pointsDb` (resized to numPoints(), dB, lowest frequency first) and
     // return true. Returns false, leaving `pointsDb` untouched, otherwise.
     bool takeFrame(std::vector<float>& pointsDb);
-    //DH1KLM: Independent unaveraged output of the same FFT for noise-floor measurement.
+    // Independent unaveraged output of the same FFT for noise-floor measurement.
     bool takeNoiseFrame(std::vector<float>& pointsDb);
 
     // The derived analyzer parameters for a given setting -- exposed so tests

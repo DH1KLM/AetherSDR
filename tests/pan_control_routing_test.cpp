@@ -351,7 +351,7 @@ void staleDisplayAndGainInfo()
     check(TxOperationIntegrationTestAccess::pending(f.radio) == 1, "prepublication removal cannot be correlated to a reused ID");
     check(f.radio.panadapter(id) == pan, "adversarial replies preserve unrelated pan identity");
 }
-} //DH1KLM namespace
+} // namespace
 
 int main(int argc, char** argv)
 {

@@ -1,4 +1,4 @@
-//DH1KLM: ASIO format, FIFO and settings checks without loading a real audio driver.
+// ASIO format, FIFO and settings checks without loading a real audio driver.
 #include "TestSettingsProfile.h"
 #include "core/AppSettings.h"
 #include "core/AsioOutput.h"
@@ -21,7 +21,7 @@ static void check(bool condition, const char* message)
 {
     if (!condition) { std::cerr << message << '\n'; std::exit(1); }
 }
-//DH1KLM: A 40 ms delayed 10 ms refill is shorter than the playback safety prefill.
+// A 40 ms delayed 10 ms refill is shorter than the playback safety prefill.
 static void delayedRefills()
 {
     for (const int rate : {44100, 48000, 96000, 192000}) {

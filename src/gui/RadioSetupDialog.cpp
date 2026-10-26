@@ -1255,7 +1255,7 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
     // so saved geometry carries over; it resizes from every edge. 40 px taller
     // than before for the canon header.
     setGeometryKey(QStringLiteral("RadioSetupDialogGeometry"));
-    //DH1KLM: Keep the initial workspace size, but allow resizing on every
+    // Keep the initial workspace size, but allow resizing on every
     // edge. CanonWindow restores and saves both dimensions under the same key.
     setMinimumSize(800, 600);
     resize(960, 760);
@@ -1410,7 +1410,7 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
         if (m_hl2HardwareReseed)
             m_hl2HardwareReseed();
     });
-    //DH1KLM: Hardware controls are discovered through their extension verbs.
+    // Hardware controls are discovered through their extension verbs.
     QTreeWidgetItem* ananHardwareItem = addPage(radioCategory, QStringLiteral("ANAN Hardware"),
         QStringLiteral("anan alex hpf bpf lpf hardware filters bypass model override sample rate adc dither random speaker audio connection defaults"),
         [this] { return buildAnanHardwareTab(); });
@@ -1645,7 +1645,7 @@ bool RadioSetupDialog::isCapabilityPageAvailable(const QTreeWidgetItem* item) co
                 .value(QStringLiteral("settingsVersion")).toInt() == 1;
     }
     if (index == m_ananHardwarePageIndex) {
-        //DH1KLM: Choose the Saturn implementation before connecting; other active families retain their own pages.
+        // Choose the Saturn implementation before connecting; other active families retain their own pages.
         return !m_model->isConnected() || m_model->backendDeclaresExtension(QStringLiteral("anan"));
     }
     if (index == m_droopCalibrationPageIndex) {
@@ -1802,8 +1802,8 @@ void RadioSetupDialog::updateRadioCapabilityVisibility()
 void RadioSetupDialog::done(int result)
 {
     // QDialog routes Escape, reject() and accept() through done(), bypassing
-    //DH1KLM closeEvent. Keep those paths behind the same guard without redirecting
-    //DH1KLM reject() to close() (which recurses during Qt's close path).
+    // closeEvent. Keep those paths behind the same guard without redirecting
+    // reject() to close() (which recurses during Qt's close path).
     if (!m_peripheralRemovalPending) {
         // Escape is a close like the corner button: it keeps the
         // uncommitted Peripherals edits too.
@@ -1956,8 +1956,8 @@ QWidget* RadioSetupDialog::buildRadioTab()
                                           kInfoLeftLabelWidth);
         grid->addWidget(m_rebootInfoField, 3, 0);
 
-        //DH1KLM The radio's firmware, as it reports it. Updating it lives in the
-        //DH1KLM Updates window (File → Update...).
+        // The radio's firmware, as it reports it. Updating it lives in the
+        // Updates window (File → Update...).
         auto* fwVersion = makeValueLabel(displayOrDash(m_model->softwareVersion()));
         grid->addWidget(makeCopyableInfoField(QStringLiteral("FW Version"),
                                               QStringLiteral("FW Version:"), fwVersion),

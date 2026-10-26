@@ -18,8 +18,8 @@ constexpr const char* kClosesWhenDone =
     "This window will automatically close when wisdom generation is complete.";
 constexpr const char* kCancelPending =
     "Cancel requested — waiting for the current FFT plan to finish.";
-//DH1KLM The planner reports nothing for the length of one FFTW_PATIENT plan, which
-//DH1KLM can be minutes; after this long the reassurance line says it is still alive.
+// The planner reports nothing for the length of one FFTW_PATIENT plan, which
+// can be minutes; after this long the reassurance line says it is still alive.
 constexpr qint64 kQuietMs = 10000;
 
 constexpr const char* kWisdomStyle = R"(
@@ -65,25 +65,25 @@ QPushButton:disabled {
 }
 )";
 
-} //DH1KLM namespace
+} // namespace
 
 Nr2WisdomDialog::Nr2WisdomDialog(QWidget* parent)
     : CanonWindow(QString::fromUtf8(kTitle), parent)
 {
     setObjectName(QStringLiteral("nr2WisdomDialog"));
     theme::setContainer(this, QStringLiteral("canon/nr2Wisdom"));
-    //DH1KLM Modeless: generation can take minutes, and the operator keeps using the
-    //DH1KLM radio meanwhile. A tool window floats above the main window without
-    //DH1KLM its own taskbar entry, and appearing does not take the focus.
+    // Modeless: generation can take minutes, and the operator keeps using the
+    // radio meanwhile. A tool window floats above the main window without
+    // its own taskbar entry, and appearing does not take the focus.
     setWindowModality(Qt::NonModal);
     setWindowFlag(Qt::Tool, true);
     setAttribute(Qt::WA_ShowWithoutActivating, true);
 #ifdef Q_OS_MACOS
-    //DH1KLM Qt maps Qt::Tool to an NSPanel, which AppKit hides whenever the
-    //DH1KLM application deactivates. QWidgetPrivate::create() forwards this to the
-    //DH1KLM QWindow property _q_macAlwaysShowToolWindow, which sets
-    //DH1KLM NSWindow.hidesOnDeactivate; it is read when the window is created, so it
-    //DH1KLM must stay ahead of the first show() or winId().
+    // Qt maps Qt::Tool to an NSPanel, which AppKit hides whenever the
+    // application deactivates. QWidgetPrivate::create() forwards this to the
+    // QWindow property _q_macAlwaysShowToolWindow, which sets
+    // NSWindow.hidesOnDeactivate; it is read when the window is created, so it
+    // must stay ahead of the first show() or winId().
     setAttribute(Qt::WA_MacAlwaysShowToolWindow, true);
 #endif
     setMinimumWidth(500);
@@ -127,8 +127,8 @@ Nr2WisdomDialog::Nr2WisdomDialog(QWidget* parent)
     m_reassurance->setObjectName(QStringLiteral("nr2WisdomReassuranceLabel"));
     m_reassurance->setAccessibleName(QStringLiteral("FFTW wisdom generation reassurance"));
     m_reassurance->setWordWrap(true);
-    //DH1KLM Reserve the row while hidden: the line toggles on every quiet interval,
-    //DH1KLM and without the reservation each toggle would resize the window (#4728).
+    // Reserve the row while hidden: the line toggles on every quiet interval,
+    // and without the reservation each toggle would resize the window (#4728).
     QSizePolicy reassurancePolicy = m_reassurance->sizePolicy();
     reassurancePolicy.setRetainSizeWhenHidden(true);
     m_reassurance->setSizePolicy(reassurancePolicy);
@@ -203,9 +203,9 @@ void Nr2WisdomDialog::requestCancel()
         return;
     }
     m_cancelRequested = true;
-    //DH1KLM The activity line is left to tickActivity(), which switches it to an
-    //DH1KLM animated "Canceling..." that keeps showing the app is alive while the
-    //DH1KLM plan in flight finishes.
+    // The activity line is left to tickActivity(), which switches it to an
+    // animated "Canceling..." that keeps showing the app is alive while the
+    // plan in flight finishes.
     m_reassurance->setText(QString::fromUtf8(kCancelPending));
     m_reassurance->show();
     announce(m_reassurance);
@@ -232,8 +232,8 @@ void Nr2WisdomDialog::tickActivity()
         return;
     }
     const bool quiet = m_lastActivity.elapsed() >= kQuietMs;
-    //DH1KLM isHidden(), not isVisible(): the line's own state, whether or not the
-    //DH1KLM window is on screen.
+    // isHidden(), not isVisible(): the line's own state, whether or not the
+    // window is on screen.
     if (quiet && m_reassurance->isHidden()) {
         m_reassurance->show();
         announce(m_reassurance);
@@ -255,4 +255,4 @@ void Nr2WisdomDialog::announce(QLabel* label)
     QAccessible::updateAccessibility(&event);
 }
 
-} //DH1KLM namespace AetherSDR
+} // namespace AetherSDR

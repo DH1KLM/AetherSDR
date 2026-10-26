@@ -4393,7 +4393,7 @@ void AudioEngine::requestRxSinkRate()
     }
     const int producerRate = m_rxProducerRate.load();
     if (m_asioOutput) {
-        //DH1KLM: ASIO owns its configured device clock; producer changes use the existing resampler.
+        // ASIO owns its configured device clock; producer changes use the existing resampler.
         m_rxSinkProducerRate = producerRate;
         m_pendingRxSinkRate.reset();
         return;

@@ -332,17 +332,17 @@ std::pair<int, int> RigctlProtocol::passbandEdges(const QString& m, int passband
     if (m == "CW" || m == "CWL"
         || m == "AM" || m == "SAM" || m == "DSB"
         || m == "FM" || m == "NFM" || m == "DFM") {
-        //DH1KLM Symmetric around 0 — CW BFO offset and AM/FM carrier are at audio DC.
+        // Symmetric around 0 — CW BFO offset and AM/FM carrier are at audio DC.
         return {-passband / 2, passband / 2};
     }
     if (m == "LSB" || m == "DIGL" || m == "FDVL") {
-        //DH1KLM Lower sideband — same edge geometry as LSB (FlexLib v4.3.16
-        //DH1KLM Slice.cs:799 groups FDVL with LSB/DIGL). Offset-aware placement for
-        //DH1KLM narrow widths is handled in the GUI path; rigctld uses the
-        //DH1KLM wide-fallback geometry from VfoWidget::applyFilterPreset.
+        // Lower sideband — same edge geometry as LSB (FlexLib v4.3.16
+        // Slice.cs:799 groups FDVL with LSB/DIGL). Offset-aware placement for
+        // narrow widths is handled in the GUI path; rigctld uses the
+        // wide-fallback geometry from VfoWidget::applyFilterPreset.
         return {-passband, -95};
     }
-    //DH1KLM USB, DIGU, RTTY, FDV, FDVU, etc. — high-side from 95 Hz
+    // USB, DIGU, RTTY, FDV, FDVU, etc. — high-side from 95 Hz
     return {95, passband};
 }
 
@@ -907,8 +907,8 @@ QString RigctlProtocol::cmdSetMode(const QString& args)
     if (!slice) return rprt(-8);
 
     QString sdrMode = hamlibToSmartSDR(hamlibMode);
-    //DH1KLM A FreeDV slice reports as PKTUSB/PKTLSB; the same mode coming back must
-    //DH1KLM not switch the slice out of FreeDV.
+    // A FreeDV slice reports as PKTUSB/PKTLSB; the same mode coming back must
+    // not switch the slice out of FreeDV.
     if (slice->mode().startsWith(QLatin1String("FDV"))
         && smartsdrToHamlib(slice->mode()) == hamlibMode)
         sdrMode = slice->mode();

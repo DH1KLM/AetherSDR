@@ -43,7 +43,7 @@ private:
     RadioModel* m_model;
     QTabWidget* m_tabs;
 
-    //DH1KLM Per-tab widgets (indexed by type: "global", "transmit", "mic", "cw")
+    // Per-tab widgets (indexed by type: "global", "transmit", "mic", "cw")
     struct TabWidgets {
         QLineEdit*   nameEdit;
         QListWidget* list;

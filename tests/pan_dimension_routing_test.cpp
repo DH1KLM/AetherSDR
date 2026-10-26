@@ -1,5 +1,5 @@
-//DH1KLM Socket-free behavior at the shared GUI/model seam. Real capability records
-//DH1KLM select Flex pixels, native analyzer points, or a fixed-geometry local no-op.
+// Socket-free behavior at the shared GUI/model seam. Real capability records
+// select Flex pixels, native analyzer points, or a fixed-geometry local no-op.
 #include "TestSettingsProfile.h"
 #include "PanControlTestFixture.h"
 #include "gui/PanSpanControlGate.h"
@@ -60,7 +60,7 @@ void native(const QString& family)
     auto owned = std::make_unique<NativeBackend>();
     NativeBackend* backend = owned.get();
     backend->caps = caps;
-    //DH1KLM The injected topology has capacity; cold discovery defaults can be one.
+    // The injected topology has capacity; cold discovery defaults can be one.
     backend->caps.maxPanadapters = 5;
     radio.setBackendForTest(std::move(owned), family);
     emit backend->panCenterBandwidthChanged(QStringLiteral("native-first"), 14.1, 0.384);

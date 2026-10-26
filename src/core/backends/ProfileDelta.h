@@ -14,9 +14,9 @@ namespace AetherSDR {
 // RadioModel::applyProfileChanges routes it to the right target (TransmitModel
 // tx/mic profiles, the global-profile list, or the import/export flags).
 //
-//DH1KLM `type` is "tx" | "mic" | "global" | "cw" for a list/current/unsaved update,
-//DH1KLM or empty for a flags-only update (importing/exporting arrive without a
-//DH1KLM profile type).
+// `type` is "tx" | "mic" | "global" | "cw" for a list/current/unsaved update,
+// or empty for a flags-only update (importing/exporting arrive without a
+// profile type).
 struct ProfileDelta {
     QString type;
     std::optional<QStringList> list;      // '^'-separated names, split by the backend

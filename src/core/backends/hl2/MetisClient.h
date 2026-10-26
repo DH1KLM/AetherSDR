@@ -270,10 +270,10 @@ public:
     // read data and neither is allowed; on an echo address it would leave the six-bit
     // address as the only match.
     Q_INVOKABLE bool requestRegister(int addr, quint32 data, bool subsystemRead = false);
-    //DH1KLM Read the IO board's status registers over RQST/ACK (kIoBoardStatusReadData).
-    //DH1KLM The only request that reaches 0x3d, and a read, so the allow-list above
-    //DH1KLM stays shut. Answered exactly once, by ioBoardStatusReady or
-    //DH1KLM ioBoardStatusFailed, never by the controlReply* signals.
+    // Read the IO board's status registers over RQST/ACK (kIoBoardStatusReadData).
+    // The only request that reaches 0x3d, and a read, so the allow-list above
+    // stays shut. Answered exactly once, by ioBoardStatusReady or
+    // ioBoardStatusFailed, never by the controlReply* signals.
     Q_INVOKABLE void requestIoBoardStatus();
 
     // I/O-THREAD ONLY, like linkCounters(). Returned by reference because the
@@ -369,7 +369,7 @@ public:
 
     // Build the EP2 packet this client would send next, without sending it.
     // Exists so the gate can be tested on the exact bytes that would go out.
-    //DH1KLM `nowMs` is controlNowMs()'s clock; it only spaces I2C bus 2 traffic.
+    // `nowMs` is controlNowMs()'s clock; it only spaces I2C bus 2 traffic.
     std::array<std::uint8_t, kUsbPacketSize> buildNextControlPacket();
     std::array<std::uint8_t, kUsbPacketSize> buildNextControlPacket(qint64 nowMs);
 
@@ -474,8 +474,8 @@ signals:
     // machine is in quarantine, so the next requestRegister() will refuse for
     // a while. Consumers must not retry immediately in this handler.
     void controlRequestFailed(int addr, bool refused);
-    //DH1KLM requestIoBoardStatus()'s answer: registers 6..9 as read (decodeIoBoardStatus),
-    //DH1KLM never the echo of an ignored read, or why there is no reading.
+    // requestIoBoardStatus()'s answer: registers 6..9 as read (decodeIoBoardStatus),
+    // never the echo of an ignored read, or why there is no reading.
     void ioBoardStatusReady(quint32 registers);
     void ioBoardStatusFailed(const QString& reason);
 
@@ -618,7 +618,7 @@ private:
     [[nodiscard]] qint64 controlNowMs() const noexcept;
     // Emit whatever verdict the machine has settled, if any.
     void publishControlVerdict();
-    //DH1KLM A request that ends without an answer, on the signal its caller listens to.
+    // A request that ends without an answer, on the signal its caller listens to.
     void publishControlFailure(int addr, bool refused);
     // Confirm that the packet buildNextControlPacket() just produced reached the
     // socket, and start the RQST deadline if it carried the request bank. Takes
@@ -837,18 +837,18 @@ private:
     // onControlPacketSent() runs, "is it still Queued" cannot distinguish a
     // request that went out from one that never did.
     bool m_requestOnBuiltPacket = false;
-    //DH1KLM I2C bus 2 spacing. i2c_bus2.v ignores any command that reaches it mid-
-    //DH1KLM transaction, so the IO board status read and the bus-2 writes either side
-    //DH1KLM of it go out at least kI2cBusSpacingMs apart. A config bank whose bus-2
-    //DH1KLM bits changed counts as a write (frame A's filter bits start one), and the
-    //DH1KLM read never shares its packet. Stamped on the packet built, committed when
-    //DH1KLM onControlPacketSent() sees it reach the socket. The ms clock rounds down,
-    //DH1KLM hence 2 for "over 1 ms".
+    // I2C bus 2 spacing. i2c_bus2.v ignores any command that reaches it mid-
+    // transaction, so the IO board status read and the bus-2 writes either side
+    // of it go out at least kI2cBusSpacingMs apart. A config bank whose bus-2
+    // bits changed counts as a write (frame A's filter bits start one), and the
+    // read never shares its packet. Stamped on the packet built, committed when
+    // onControlPacketSent() sees it reach the socket. The ms clock rounds down,
+    // hence 2 for "over 1 ms".
     static constexpr qint64 kI2cBusSpacingMs = 2;
     qint64 m_builtAtMs = 0;
     bool   m_busReadOnBuiltPacket = false;
     bool   m_i2cWriteOnBuiltPacket = false;
-    //DH1KLM configBus2Bits() of the config bank; kConfigBus2Unknown before a session's first.
+    // configBus2Bits() of the config bank; kConfigBus2Unknown before a session's first.
     static constexpr std::uint32_t kConfigBus2Unknown = 0xFFFFFFFFu;
     std::uint32_t m_configBus2OnBuiltPacket = kConfigBus2Unknown;
     std::uint32_t m_lastConfigBus2Sent = kConfigBus2Unknown;

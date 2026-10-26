@@ -393,11 +393,11 @@ inline constexpr std::uint8_t kWaveData    = 0x00;
 // number-one "my panadapter is black" cause.
 inline constexpr std::uint8_t kOnOff       = 0x10;
 inline constexpr std::uint8_t kDataOutput  = 0x11;
-inline constexpr std::uint8_t kMainSub     = 0x12;   //DH1KLM 00 MAIN / 01 SUB (IC-9700); fixed 00 elsewhere
+inline constexpr std::uint8_t kMainSub     = 0x12;   // 00 MAIN / 01 SUB (IC-9700); fixed 00 elsewhere
 inline constexpr std::uint8_t kSingleDual  = 0x13;   // IC-705: fixed 00
-inline constexpr std::uint8_t kMode        = 0x14;   //DH1KLM 00 centre, 01 fixed, 02 scroll-c, 03 scroll-f
-inline constexpr std::uint8_t kSpan        = 0x15;   //DH1KLM centre and scroll-c modes
-inline constexpr std::uint8_t kEdgeNumber  = 0x16;   //DH1KLM fixed and scroll-f modes, 01..04
+inline constexpr std::uint8_t kMode        = 0x14;   // 00 centre, 01 fixed, 02 scroll-c, 03 scroll-f
+inline constexpr std::uint8_t kSpan        = 0x15;   // centre and scroll-c modes
+inline constexpr std::uint8_t kEdgeNumber  = 0x16;   // fixed and scroll-f modes, 01..04
 inline constexpr std::uint8_t kHold        = 0x17;
 inline constexpr std::uint8_t kReference   = 0x19;   // -20.0..+20.0 dB, 0.5 steps
 inline constexpr std::uint8_t kSweepSpeed  = 0x1A;   // 0000..0002
@@ -668,10 +668,10 @@ repeaterToneConfirmationForWrite(std::uint8_t to, const CivFrame& write);
 [[nodiscard]] std::vector<std::uint8_t> cmdReadId(std::uint8_t to);
 [[nodiscard]] std::vector<std::uint8_t> cmdScopeOnOff(std::uint8_t to, bool on);
 [[nodiscard]] std::vector<std::uint8_t> cmdScopeDataOutput(std::uint8_t to, bool on);
-//DH1KLM 0x27 0x14 / 0x16: `mode` is 00 centre, 01 fixed, 02 SCROLL-C, 03 SCROLL-F.
-//DH1KLM `selector` is the scope these address: always 00 on single-scope radios,
-//DH1KLM 00 MAIN / 01 SUB on the IC-9700 (guide ed. 4 p. 25). Which modes a radio
-//DH1KLM accepts depends on firmware; the caller gates on the profile and on FA.
+// 0x27 0x14 / 0x16: `mode` is 00 centre, 01 fixed, 02 SCROLL-C, 03 SCROLL-F.
+// `selector` is the scope these address: always 00 on single-scope radios,
+// 00 MAIN / 01 SUB on the IC-9700 (guide ed. 4 p. 25). Which modes a radio
+// accepts depends on firmware; the caller gates on the profile and on FA.
 [[nodiscard]] std::vector<std::uint8_t> cmdScopeMode(std::uint8_t to, std::uint8_t mode,
                                                       std::uint8_t selector = 0x00);
 [[nodiscard]] std::vector<std::uint8_t> cmdScopeEdgeNumber(std::uint8_t to, int edge,
@@ -680,21 +680,21 @@ repeaterToneConfirmationForWrite(std::uint8_t to, const CivFrame& write);
                                                                 std::uint8_t selector = 0x00);
 [[nodiscard]] std::vector<std::uint8_t> cmdReadScopeMode(std::uint8_t to,
                                                           std::uint8_t selector = 0x00);
-//DH1KLM 0x27 0x1E: range number, edge number, lower and upper edge (5-byte LE BCD).
-//DH1KLM No selector byte on any model. This writes the stored Fixed Edges preset the
-//DH1KLM operator edits on the radio, so write only an owned slot, and throttle it.
+// 0x27 0x1E: range number, edge number, lower and upper edge (5-byte LE BCD).
+// No selector byte on any model. This writes the stored Fixed Edges preset the
+// operator edits on the radio, so write only an owned slot, and throttle it.
 [[nodiscard]] std::vector<std::uint8_t> cmdScopeFixedEdge(std::uint8_t to, int rangeNumber,
                                                            int edge, std::uint64_t lowerHz,
                                                            std::uint64_t upperHz);
 
-//DH1KLM One Fixed Edges range: the edge preset is addressed by (range, edge number),
-//DH1KLM and a window may not cross the range's bounds (the radio answers FA).
+// One Fixed Edges range: the edge preset is addressed by (range, edge number),
+// and a window may not cross the range's bounds (the radio answers FA).
 struct ScopeEdgeRange {
-    int number = 0;              //DH1KLM the wire value
-    std::uint64_t lowerHz = 0;   //DH1KLM settable lower bound, inclusive
-    std::uint64_t upperHz = 0;   //DH1KLM settable upper bound, inclusive
+    int number = 0;              // the wire value
+    std::uint64_t lowerHz = 0;   // settable lower bound, inclusive
+    std::uint64_t upperHz = 0;   // settable upper bound, inclusive
 };
-//DH1KLM IC-7300MK2 / IC-7300 / IC-705 share ranges 01-13 (MK2 guide p. 26).
+// IC-7300MK2 / IC-7300 / IC-705 share ranges 01-13 (MK2 guide p. 26).
 inline constexpr std::array<ScopeEdgeRange, 13> kScopeEdgeRangesHf{{
     {1,         30'000,  1'600'000},
     {2,      1'600'000,  2'000'000},
@@ -732,14 +732,14 @@ inline constexpr std::array<ScopeEdgeRange, 3> kScopeEdgeRangesIc9700{{
 inline constexpr std::uint64_t kScopeFixedEdgeMaxWidthHz = 1'000'000;
 inline constexpr std::uint64_t kScopeFixedEdgeMinWidthHz = 5'000;
 
-//DH1KLM The range `hz` falls in, or nullopt. A shared boundary resolves upward to the
-//DH1KLM range it starts, except at the top of the last range.
+// The range `hz` falls in, or nullopt. A shared boundary resolves upward to the
+// range it starts, except at the top of the last range.
 [[nodiscard]] std::optional<ScopeEdgeRange> scopeEdgeRangeFor(std::span<const ScopeEdgeRange> ranges,
                                                               std::uint64_t hz) noexcept;
 
-//DH1KLM A requested window made legal for `range`: width clamped to
-//DH1KLM [kScopeFixedEdgeMinWidthHz, min(1 MHz, range width)], edges on whole kHz
-//DH1KLM (the radio ignores sub-kHz digits), then shifted, not shrunk, into the range.
+// A requested window made legal for `range`: width clamped to
+// [kScopeFixedEdgeMinWidthHz, min(1 MHz, range width)], edges on whole kHz
+// (the radio ignores sub-kHz digits), then shifted, not shrunk, into the range.
 struct ScopeEdgeWindow {
     std::uint64_t lowerHz = 0;
     std::uint64_t upperHz = 0;

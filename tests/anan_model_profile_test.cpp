@@ -1,4 +1,4 @@
-//DH1KLM: Source-pinned logical models, independent of sockets and GUI labels.
+// Source-pinned logical models, independent of sockets and GUI labels.
 #include "core/backends/anan/P2Protocol.h"
 #include "core/backends/anan/AnanReceiveCalibration.h"
 #include <array>
@@ -18,7 +18,7 @@ static void check(bool value, const char* claim)
 {
     if (!value) { std::cerr << "FAIL: " << claim << '\n'; std::exit(1); }
 }
-//DH1KLM: ANT1/2/3 use P2 ALEX bits 24..26 and P1 bank-0 C4 bits 0..1.
+// ANT1/2/3 use P2 ALEX bits 24..26 and P1 bank-0 C4 bits 0..1.
 // Switching antennas must preserve the rest of the receive configuration.
 static void antennaIsolation(const ReceiveProfile& profile, bool supportsP1)
 {
@@ -73,7 +73,7 @@ static void antennaIsolation(const ReceiveProfile& profile, bool supportsP1)
         }
     }
 }
-//DH1KLM: Thetis network.h bits 8..11/14 and networkproto1.c bank-0 C3.
+// Thetis network.h bits 8..11/14 and networkproto1.c bank-0 C3.
 static void receiveInputIsolation(const ReceiveProfile& profile, bool supportsP1)
 {
     const bool mkII = profile.filterKind == ReceiveFilterKind::MkIIBpf;
@@ -125,7 +125,7 @@ static void receiveInputIsolation(const ReceiveProfile& profile, bool supportsP1
     config.rxOnlyInput = 4;
     check(!p1::receiveControl(0, config), "invalid P1 receive input refused");
 }
-//DH1KLM: Independent ADC1 boundaries must survive ADC0 bypass and input routing.
+// Independent ADC1 boundaries must survive ADC0 bypass and input routing.
 static void adc1FilterIsolation(const ReceiveProfile& profile)
 {
     auto filters = defaultFilterConfig(profile.filterKind == ReceiveFilterKind::MkIIBpf);
@@ -353,7 +353,7 @@ static void ctunTuning()
           "invalid sample geometry and reversed filters are refused");
 }
 
-//DH1KLM Independent SWL relay state, HF priority and RX-only wire encoding.
+// Independent SWL relay state, HF priority and RX-only wire encoding.
 static void swlRouting()
 {
     auto filters = defaultFilterConfig(false);
@@ -386,7 +386,7 @@ static void swlRouting()
 }
 int main()
 {
-    //DH1KLM Known positive/negative carrier offsets follow Thetis' correction direction.
+    // Known positive/negative carrier offsets follow Thetis' correction direction.
     check(std::abs(*calibratedFrequencyFactor(1.0, 10000000, 100)-1.00001) < 1e-12,
           "positive reference offset increases oscillator tuning");
     check(!calibratedFrequencyFactor(1.0, 0, 100)
@@ -398,7 +398,7 @@ int main()
           "reference peak uses the raw FFT centre and correct sign");
     reference[530] = -41;
     check(!calibrationPeak(reference,48000), "ambiguous reference carrier refused");
-    //DH1KLM Exercise every supported native model's P1/P2 tuning without changing its relays.
+    // Exercise every supported native model's P1/P2 tuning without changing its relays.
     for (const auto& entry : kAnanModels) {
         if (entry.model == AnanModel::Automatic || entry.model == AnanModel::Hpsdr
             || entry.model == AnanModel::HermesLite2) { continue; }
@@ -420,7 +420,7 @@ int main()
         const auto control = p1::receiveControl(0x04, config);
         check(control && readU32be(control->data()+1) == 10000100, "P1 encodes calibrated integer Hz");
     }
-    //DH1KLM Thetis user nibble is independent of OC and never carries keying bits.
+    // Thetis user nibble is independent of OC and never carries keying bits.
     for (int mask = 0; mask <= 15; ++mask) {
         FilterConfig filters = defaultFilterConfig(false);
         filters.userDigitalOutputs = static_cast<std::uint8_t>(mask);
@@ -464,7 +464,7 @@ int main()
             check(!receiveProfile(wrong, model), "unrelated/unqualified wire ID cannot inherit model profile");
         }
     }
-    //DH1KLM: The explicit override may cross every implemented ANAN board
+    // The explicit override may cross every implemented ANAN board
     // family; its effective layout must equal the selected native profile.
     for (const int board : {1, 2, 3, 4, 5, 10, 20}) {
         for (const auto& entry : kAnanModels) {

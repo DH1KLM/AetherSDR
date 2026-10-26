@@ -10,7 +10,7 @@
 #include <vector>
 
 namespace AetherSDR::anan {
-//DH1KLM Thetis NetworkIO scales oscillator tuning; display and meter use separate offsets.
+// Thetis NetworkIO scales oscillator tuning; display and meter use separate offsets.
 struct ReceiveCalibration {
     double frequencyFactor = 1.0;
     std::array<double, 2> meterOffsetDb{};
@@ -31,7 +31,7 @@ inline bool validReceiveCalibration(const ReceiveCalibration& value) noexcept
     return true;
 }
 struct CalibrationPeak { double offsetHz; double levelDb; double snrDb; };
-//DH1KLM FFT-shifted spectrum: bin N/2 is DC. Reject weak, ambiguous or edge peaks.
+// FFT-shifted spectrum: bin N/2 is DC. Reject weak, ambiguous or edge peaks.
 inline std::optional<CalibrationPeak> calibrationPeak(std::span<const float> bins, double rateHz,
                                                      double expectedOffsetHz = 0)
 {
@@ -62,7 +62,7 @@ inline std::optional<CalibrationPeak> calibrationPeak(std::span<const float> bin
         ? std::clamp(0.5*(bins[peak-1]-bins[peak+1])/curvature, -0.5, 0.5) : 0.0;
     return CalibrationPeak{(peak+shift-center)*width, bins[peak]-0.25*(bins[peak-1]-bins[peak+1])*shift, snr};
 }
-//DH1KLM At a known carrier centred on the dial, Thetis' 1+offset/f also extends to a saved factor.
+// At a known carrier centred on the dial, Thetis' 1+offset/f also extends to a saved factor.
 inline std::optional<double> calibratedFrequencyFactor(double previous, double referenceHz, double offsetHz) noexcept
 {
     if (!validFrequencyFactor(previous) || !std::isfinite(referenceHz) || referenceHz < 100000
@@ -70,4 +70,4 @@ inline std::optional<double> calibratedFrequencyFactor(double previous, double r
     const double factor = previous + offsetHz/referenceHz;
     return validFrequencyFactor(factor) ? std::optional<double>(factor) : std::nullopt;
 }
-} //DH1KLM namespace AetherSDR::anan
+} // namespace AetherSDR::anan
