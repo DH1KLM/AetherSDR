@@ -1,4 +1,5 @@
 #include "ConnectionPanel.h"
+#include <utility>
 #include "core/AppSettings.h"
 #include "core/backends/ConnectionSharingPolicy.h"  // in-use share gate (#4448), shared with MainWindow_Session
 #include "core/backends/anan/AnanSettings.h"
@@ -948,13 +949,31 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualAnanProfileCombo->setToolTip(tr("Saved per radio. Automatic keeps the physical-board profile."));
     AetherSDR::applyComboStyle(m_manualAnanProfileCombo, comboExtraRules);
     m_manualAnanProfileCombo->addItem(tr("Use saved model"), -100);
-    m_manualAnanProfileCombo->addItem(anan::AnanImplementation::label(true), -200);
-    for (const auto& entry : anan::kAnanModels) {
-        m_manualAnanProfileCombo->addItem(
-            entry.model == anan::AnanModel::AnanG2 ? anan::AnanImplementation::label(false)
-                : QString::fromLatin1(entry.name.data(), entry.name.size()), static_cast<int>(entry.model));
-        if (entry.model == anan::AnanModel::Hpsdr || entry.model == anan::AnanModel::HermesLite2) {
-            const QString reason = entry.model == anan::AnanModel::HermesLite2
+    //DH1KLM: Picker order and captions are independent of stable model IDs and board detection.
+    const std::pair<anan::AnanModel, const char*> receiveProfiles[]{
+        {anan::AnanModel::Automatic, "Automatic physical-board profile"},
+        {anan::AnanModel::Hpsdr, "OpenHPSDR / Atlas / Metis"},
+        {anan::AnanModel::Hermes, "HERMES"},
+        {anan::AnanModel::HermesLite2, "HERMES-LITE 2"},
+        {anan::AnanModel::Anan10, "ANAN-10"},
+        {anan::AnanModel::Anan10E, "ANAN-10E"},
+        {anan::AnanModel::Anan100, "ANAN-100"},
+        {anan::AnanModel::Anan100B, "ANAN-100B"},
+        {anan::AnanModel::Anan100D, "ANAN-100D"},
+        {anan::AnanModel::Anan200D, "ANAN-200D"},
+        //DH1KLM: {anan::AnanModel::OrionMkII, "Orion MkII"}, board designation, not a transceiver.
+        {anan::AnanModel::Anan7000, "ANAN-7000DLE"},
+        {anan::AnanModel::Anan8000, "ANAN-8000DLE"},
+        {anan::AnanModel::AnanG2E, "ANAN-G2E"},
+        {anan::AnanModel::AnanG2, "ANAN-G2"},
+        //DH1KLM: {anan::AnanModel::AnanG21K, "ANAN-G2 1K"}, omitted from this picker by request.
+        {anan::AnanModel::AnvelinaPro3, "ANVELINA-Pro III"},
+        {anan::AnanModel::RedPitaya, "RED-PITAYA"}
+    };
+    for (const auto& [model, caption] : receiveProfiles) {
+        m_manualAnanProfileCombo->addItem(QString::fromLatin1(caption), static_cast<int>(model));
+        if (model == anan::AnanModel::Hpsdr || model == anan::AnanModel::HermesLite2) {
+            const QString reason = model == anan::AnanModel::HermesLite2
                 ? tr("Use the dedicated Hermes-Lite 2 connection type (P1).")
                 : tr("Atlas/Metis receive control initialization is not yet qualified.");
             auto* items = qobject_cast<QStandardItemModel*>(m_manualAnanProfileCombo->model());
@@ -967,6 +986,7 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
             }
         }
     }
+    m_manualAnanProfileCombo->addItem(anan::AnanImplementation::label(true), -200);
     m_manualAnanProfileRow = addManualRow(QStringLiteral("Receive profile:"), m_manualAnanProfileCombo);
     //DH1KLM: Partial state reads the exact radio's saved choice after discovery
     // supplies its MAC, so a second device never inherits the first override.

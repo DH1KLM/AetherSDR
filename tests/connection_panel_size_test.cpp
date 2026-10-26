@@ -8,6 +8,7 @@
 #include "core/backends/anan/AnanSettings.h"
 #include "gui/ConnectionPanel.h"
 #include "core/backends/anan/AnanImplementation.h"
+#include "core/backends/anan/AnanModel.h"
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -854,6 +855,24 @@ int main(int argc, char** argv)
 
     {
         ConnectionPanel variants;
+        auto* profiles = variants.findChild<QComboBox*>(QStringLiteral("connectionManualAnanProfileCombo"));
+        const QStringList expectedProfiles{QStringLiteral("Use saved model"),
+            QStringLiteral("Automatic physical-board profile"), QStringLiteral("OpenHPSDR / Atlas / Metis"),
+            QStringLiteral("HERMES"), QStringLiteral("HERMES-LITE 2"), QStringLiteral("ANAN-10"),
+            QStringLiteral("ANAN-10E"), QStringLiteral("ANAN-100"), QStringLiteral("ANAN-100B"),
+            QStringLiteral("ANAN-100D"), QStringLiteral("ANAN-200D"), QStringLiteral("ANAN-7000DLE"),
+            QStringLiteral("ANAN-8000DLE"), QStringLiteral("ANAN-G2E"), QStringLiteral("ANAN-G2"),
+            QStringLiteral("ANVELINA-Pro III"), QStringLiteral("RED-PITAYA"),
+            anan::AnanImplementation::label(true)};
+        QStringList actualProfiles;
+        if (profiles) {
+            for (int i = 0; i < profiles->count(); ++i) { actualProfiles.append(profiles->itemText(i)); }
+        }
+        report("receive profile captions and model order", actualProfiles == expectedProfiles);
+        report("renamed profiles retain their stable routing IDs", profiles
+            && profiles->itemData(profiles->findText(QStringLiteral("ANAN-G2"))).toInt() == static_cast<int>(anan::AnanModel::AnanG2)
+            && profiles->itemData(profiles->findText(anan::AnanImplementation::label(true))).toInt() == -200);
+
         RadioInfo radio;
         radio.family = QStringLiteral("anan");
         radio.serial = QStringLiteral("SATURN-CHOICES");

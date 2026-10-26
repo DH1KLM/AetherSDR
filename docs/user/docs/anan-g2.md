@@ -49,7 +49,8 @@ Select the implementation under **Settings → Radio Setup → ANAN Hardware →
 Saturn implementation** while disconnected. This sets the next Saturn
 connection preference. Discovery lists both choices for the same physical
 MAC/IP; selecting a row explicitly chooses that implementation. Under
-**Connect by IP**, choose either name in **Receive profile**, or use
+**Connect by IP**, choose **ANAN-G2** for DH1KLM or
+**Saturn (ANAN G2) — tropo1234** for the original in **Receive profile**, or use
 **Use saved model** to retain the saved implementation. Other hardware,
 including HermesC10 / ANAN-G2E, uses the extended implementation.
 
@@ -499,9 +500,13 @@ This does not detect packets lost on the network or confirm the radio's rate.
 
 In **Connect by IP**, choose **Radio type → ANAN / OpenHPSDR (P1/P2)**, then:
 
-1. Set **Receive profile** to your exact model. The list includes Hermes,
-   ANAN-10/10E/100/100B/100D/200D, Orion MkII, ANAN-7000DLE/8000DLE,
-   ANAN-G2/G2 1K/G2E, Anvelina Pro 3 and Red Pitaya.
+1. Set **Receive profile** to your exact model. The transceiver choices are
+   ordered as HERMES, HERMES-LITE 2, ANAN-10, ANAN-10E, ANAN-100, ANAN-100B,
+   ANAN-100D, ANAN-200D, ANAN-7000DLE, ANAN-8000DLE, ANAN-G2E, ANAN-G2,
+   ANVELINA-Pro III and RED-PITAYA. The original Saturn implementation follows
+   as a separate choice. Orion MkII and ANAN-G2 1K are omitted from this picker;
+   existing saved profiles and physical-board detection remain valid.
+   **OpenHPSDR / Atlas / Metis** retains its unavailable status until qualified.
 2. Set **Protocol** to **Protocol 1**, **Protocol 2**, or **Automatic** to
    accept a responding protocol. This selects discovery; it does not change
    radio firmware.
