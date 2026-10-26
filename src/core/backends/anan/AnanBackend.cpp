@@ -1,4 +1,5 @@
 #include "core/backends/anan/AnanFilterOptions.h"
+#include "AnanMicOptions.h"
 #include "core/backends/anan/AnanCalibrationOptions.h"
 #include "core/backends/anan/AnanBackend.h"
 #include "core/AppActivity.h"
@@ -2159,6 +2160,18 @@ void AnanBackend::publishReceiveAntennas()
 
 void AnanBackend::loadHardwareFilters(int boardId)
 {
+    m_pendingParams.mic = {};
+    const auto* micModel = ananModelInfo(m_pendingParams.model);
+    const int micBoard = m_pendingParams.model == AnanModel::Automatic ? boardId : (micModel ? micModel->nativeBoardId : -1);
+    if (hasMicWiring(micBoard) && m_pendingParams.model != AnanModel::RedPitaya) {
+        m_pendingParams.mic = parseMicOptions(AnanSettings::microphone(m_radioSerial,
+            static_cast<int>(m_pendingParams.model), boardId, m_pendingParams.protocol)).value_or(MicOptions{});
+        if (!hasXlrMic(micBoard, m_pendingParams.protocol)) { m_pendingParams.mic.xlr = false; }
+    }
+    if (m_client && m_discoveryInfoReceived) {
+        const auto mic = m_pendingParams.mic;
+        QMetaObject::invokeMethod(m_client, [client = m_client, mic] { client->setMicOptions(mic); }, Qt::QueuedConnection);
+    }
     m_receiveCalibration = parseCalibrationOptions(AnanSettings::receiveCalibration(m_radioSerial,
         static_cast<int>(m_pendingParams.model), boardId, m_pendingParams.protocol)).value_or(ReceiveCalibration{});
     m_pendingParams.frequencyCorrection = m_receiveCalibration.frequencyFactor;
@@ -2399,6 +2412,25 @@ void AnanBackend::acceptCalibrationSpectrum(const std::vector<float>& bins, qint
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && (verb == QLatin1String("mic.get") || verb == QLatin1String("mic.set"))) {
+        const QVariantMap state = microphoneState();
+        if (verb == QLatin1String("mic.set")) {
+            const QVariantMap request = arg.toMap();
+            const auto options = parseMicOptions(request.value(QStringLiteral("options")).toMap());
+            if (!state.value(QStringLiteral("available")).toBool() || m_rateChanging || m_receiveBuilding
+                || request.value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))
+                || !options || (options->xlr && !state.value(QStringLiteral("xlrAvailable")).toBool())
+                || !AnanSettings::setMicrophone(m_radioSerial, static_cast<int>(m_pendingParams.model),
+                    m_discoveredBoardId, m_pendingParams.protocol, micOptions(*options))) {
+                emit extensionError(requestId, QStringLiteral("Microphone options were not changed: unsupported, stale or unsaved request."));
+                return;
+            }
+            m_pendingParams.mic = *options;
+            QMetaObject::invokeMethod(m_client, [client = m_client, value = *options] { client->setMicOptions(value); }, Qt::QueuedConnection);
+        }
+        emit extensionResult(requestId, microphoneState());
+        return;
+    }
     if (ns == QLatin1String("anan") && (verb == QLatin1String("autoagc.get") || verb == QLatin1String("autoagc.set"))) {
         if (!m_connected) { emit extensionError(requestId, QStringLiteral("Connect an ANAN receiver to configure Auto AGC-T.")); return; }
         if (verb == QLatin1String("autoagc.set")) {
@@ -3260,4 +3292,15 @@ void AnanBackend::applyTuneToRadioAndPan()
     emit operatingStateChanged();
 }
 
+QVariantMap AnanBackend::microphoneState() const
+{
+    const int board = effectiveBoardId();
+    const bool available = m_connected && m_discoveryInfoReceived && !m_radioSerial.isEmpty()
+        && hasMicWiring(board) && m_pendingParams.model != AnanModel::RedPitaya;
+    return {{QStringLiteral("available"), available},
+        {QStringLiteral("xlrAvailable"), available && hasXlrMic(board, m_pendingParams.protocol)},
+        {QStringLiteral("identity"), QStringLiteral("%1:%2:%3:%4:%5").arg(m_radioSerial).arg(m_connectGeneration)
+            .arg(static_cast<int>(m_pendingParams.model)).arg(m_discoveredBoardId).arg(m_pendingParams.protocol)},
+        {QStringLiteral("options"), micOptions(m_pendingParams.mic)}};
+}
 }  // namespace AetherSDR::anan

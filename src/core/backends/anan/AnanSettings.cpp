@@ -1,4 +1,5 @@
 #include "core/backends/anan/AnanSettings.h"
+#include "AnanMicOptions.h"
 #include "AnanImplementation.h"
 #include "core/backends/anan/AnanCalibrationOptions.h"
 #include "core/backends/anan/P2Protocol.h"
@@ -422,4 +423,31 @@ bool AnanSettings::setRedPitayaP1ForRadio(const QString& serial, bool enabled)
     return scope.setFeature(QStringLiteral("HardwareProfile"), 1, doc);
 }
 
+QVariantMap AnanSettings::microphone(const QString& serial, int model, int board, int protocol)
+{
+    if (serial.trimmed().isEmpty()) { return {}; }
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    const auto doc = RadioSettingsScope(QStringLiteral("anan"), serial)
+        .featureExact(QStringLiteral("Microphone"), &version, &status);
+    if (status != AppSettings::FeatureReadStatus::Present || version != 1) { return {}; }
+    return doc.value(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol)).toObject().toVariantMap();
+}
+bool AnanSettings::setMicrophone(const QString& serial, int model, int board, int protocol, const QVariantMap& options)
+{
+    const auto parsed = parseMicOptions(options);
+    const auto* descriptor = ananModelInfo(static_cast<AnanModel>(model));
+    const int effective = model == static_cast<int>(AnanModel::Automatic) ? board : (descriptor ? descriptor->nativeBoardId : -1);
+    if (serial.trimmed().isEmpty() || !parsed || !descriptor || !receiveProfile(board)
+        || (protocol != 1 && protocol != 2) || !hasMicWiring(effective)
+        || model == static_cast<int>(AnanModel::RedPitaya) || (parsed->xlr && !hasXlrMic(effective, protocol))) { return false; }
+    const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("Microphone"), &version, &status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
+    doc.insert(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol), QJsonObject::fromVariantMap(options));
+    return scope.setFeature(QStringLiteral("Microphone"), 1, doc);
+}
 }  // namespace AetherSDR::anan

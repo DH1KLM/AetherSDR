@@ -1,4 +1,5 @@
 #pragma once
+#include "AnanMicHardware.h"
 
 #include <array>
 #include <complex>
@@ -29,6 +30,7 @@ struct ReceiveConfig {
     int antenna = 1;
     int rxOnlyInput = 0;
     bool mkIIBpf = false;
+    MicOptions mic;
     std::uint8_t rxOcMask = 0;
     std::uint8_t userDigitalOutputs = 0;
     double frequencyCorrection = 1.0;

@@ -77,6 +77,7 @@ public:
         // continuous outbound stream (750 packets/s, ~260 kB/s).
         bool speakerAudioEnabled = false;
         bool speakerAmpMuted = false;
+        MicOptions mic;
 
         // Multi-DDC session. EMPTY (default) = single DDC0 built from ddc0RateKsps/
         // ddc0AdcIndex. Non-empty is authoritative and those two fields are ignored;
@@ -102,6 +103,7 @@ public:
     Q_INVOKABLE void setDdc0FrequencyHz(double hz);
     Q_INVOKABLE void setFrequencyCorrection(double factor);
     Q_INVOKABLE void setSpeakerAmpMuted(bool muted);
+    void setMicOptions(const MicOptions& options);
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
 
@@ -224,6 +226,11 @@ private slots:
     void onSpeakerDrainTick();
 
 private:
+    MicOptions m_mic;
+    bool m_micAvailable = false;
+    bool m_xlrAvailable = false;
+    std::uint32_t m_micSequence = 0;
+    void sendMicOptions();
     ReceiveFilterPlan m_receiveFilterPlan;
     friend struct P2ClientTestAccess;
     // onReadyRead()'s socket-free half: drops anything not from m_host, so

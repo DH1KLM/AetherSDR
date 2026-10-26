@@ -117,6 +117,24 @@ int main(int argc, char** argv)
         }
         check(offset && offset->isEnabled() && offset->value() == 20.0,
               "Auto AGC-T setup reads the actual session offset before enabling edits");
+        auto* micBias = dialog.findChild<QComboBox*>(QStringLiteral("ananMicBias"));
+        auto* micInput = dialog.findChild<QComboBox*>(QStringLiteral("ananMicInput"));
+        auto* micApply = dialog.findChild<QPushButton*>(QStringLiteral("ananMicApply"));
+        wait.restart();
+        while (micBias && !micBias->isEnabled() && wait.elapsed() < 2000) {
+            app.processEvents(); QThread::msleep(10);
+        }
+        check(micBias && micBias->isEnabled() && micInput && micInput->isEnabled() && micApply,
+              "Saturn P2 setup exposes live microphone wiring and XLR choices");
+        micBias->setCurrentIndex(1);
+        micInput->setCurrentIndex(1);
+        micApply->click();
+        QSignalSpy micReplies(backend, &IRadioBackend::extensionResult);
+        backend->invokeExtension(QStringLiteral("anan"), QStringLiteral("mic.get"), 9986, {});
+        const QVariantMap micOptions = micReplies.isEmpty() ? QVariantMap{}
+            : micReplies.last().at(1).toMap().value(QStringLiteral("options")).toMap();
+        check(micOptions.value(QStringLiteral("bias")).toBool() && micOptions.value(QStringLiteral("xlr")).toBool(),
+              "Apply microphone options reaches the validated backend and saves the selected wiring");
         offset->setValue(30.0);
         QSignalSpy replies(backend, &IRadioBackend::extensionResult);
         backend->invokeExtension(QStringLiteral("anan"), QStringLiteral("autoagc.get"), 9987, {});

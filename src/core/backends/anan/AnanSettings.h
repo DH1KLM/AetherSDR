@@ -25,6 +25,8 @@ public:
         bool overrideDetection = false;
     };
     static QVariantMap hardwareFilters(const QString& serial, int model, int board);
+    static QVariantMap microphone(const QString& serial, int model, int board, int protocol);
+    static bool setMicrophone(const QString& serial, int model, int board, int protocol, const QVariantMap& options);
     static QVariantMap receiveCalibration(const QString& serial, int model, int board, int protocol);
     static bool setReceiveCalibration(const QString& serial, int model, int board, int protocol,
                                       const QVariantMap& options);

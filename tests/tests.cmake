@@ -1361,7 +1361,13 @@ target_include_directories(anan_implementation_test PRIVATE src tests)
 target_link_libraries(anan_implementation_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME anan_implementation_test COMMAND anan_implementation_test)
 
-#DH1KLM: Socket-free automatic threshold scale, WDSP readback and per-slice lifetime guards.
+#DH1KLM: Socket-free microphone wire encoding, availability and exact settings ownership.
+add_executable(anan_mic_options_test tests/anan_mic_options_test.cpp)
+target_include_directories(anan_mic_options_test PRIVATE src tests)
+target_link_libraries(anan_mic_options_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME anan_mic_options_test COMMAND anan_mic_options_test)
+
+#DH1KLM: Existing Auto AGC-T tests remain separate from microphone hardware controls.
 add_executable(anan_auto_agc_test tests/anan_auto_agc_test.cpp)
 target_include_directories(anan_auto_agc_test PRIVATE src tests)
 target_link_libraries(anan_auto_agc_test PRIVATE aethercore Qt6::Core Qt6::Test)
@@ -9946,6 +9952,7 @@ set(AETHER_SETTINGS_CONSUMERS
     anan_backend_test
     anan_implementation_test
     anan_auto_agc_test
+    anan_mic_options_test
     anan_multi_receive_test
     radio_setup_anan_sample_rate_test
     anan_noise_blanker_readback_test

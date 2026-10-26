@@ -190,6 +190,18 @@ std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> 
     return r;
 }
 
+std::array<std::uint8_t, 60> buildMicControl(const MicOptions& options, std::uint32_t sequence) noexcept
+{
+    std::array<std::uint8_t, 60> packet{};
+    writeU32be(packet.data(), sequence);
+    packet[4] = 1;
+    packet[14] = 0;
+    packet[15] = 192;
+    packet[50] = (options.ptt ? 0 : 0x04) | (options.ring ? 0x08 : 0)
+        | (options.bias ? 0x10 : 0) | (options.xlr ? 0x20 : 0);
+    return packet;
+}
+
 std::array<std::uint8_t, 60> buildGeneral(int alexEnableMask, bool disablePa) noexcept
 {
     std::array<std::uint8_t, 60> pkt{};

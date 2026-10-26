@@ -88,6 +88,8 @@ bool P1Client::prepare(const Params& params)
             return false;
     }
     m_params = params;
+    m_micAvailable = false;
+    m_config.mic = {};
     m_receiveFilterPlan = {};
     m_params.redPitayaP1 = redPitaya;
     m_config = {};
@@ -205,6 +207,9 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
             return;
         }
         m_config.numAdcs = m_profile->numAdcs;
+        m_micAvailable = hasMicWiring(effectiveBoard) && m_params.model != AnanModel::RedPitaya;
+        m_config.mic = m_micAvailable ? m_params.mic : MicOptions{};
+        m_config.mic.xlr = false;
         m_config.receivers = m_profile->frameSlotCount;
         m_config.adcIndex = m_params.ddc0AdcIndex;
         updateFilters();
@@ -426,6 +431,12 @@ void P1Client::publishCounters()
     if (m_socket)
         m_counters.localEndpoint = QStringLiteral("%1:%2").arg(m_socket->localAddress().toString()).arg(m_socket->localPort());
     emit linkCountersUpdated(m_counters);
+}
+void P1Client::setMicOptions(const MicOptions& options)
+{
+    if (!m_validated || !m_micAvailable || options.xlr) { return; }
+    m_config.mic = options;
+    m_params.mic = options;
 }
 } // namespace AetherSDR::anan
 

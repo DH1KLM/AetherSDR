@@ -36,6 +36,7 @@ public:
     void setRxAntenna(int antenna);
     void setReceiveFilterPlan(const ReceiveFilterPlan& plan) { m_receiveFilterPlan = plan; }
     void setHardwareFilters(const QVariantMap& options);
+    void setMicOptions(const MicOptions& options);
     void setReceiveHardware(const QVariantMap& options, int antenna);
     bool setDdcRateLive(int ddc, int rateKsps);
     void enqueueSpeakerAudio(const QByteArray& audio);
@@ -52,6 +53,7 @@ signals:
     void discoveryInfoReceived(quint8 boardId, quint8 firmwareVer, quint8 reportedReceivers);
 
 private:
+    bool m_micAvailable = false;
     ReceiveFilterPlan m_receiveFilterPlan;
     friend struct P1ClientTestAccess;
     bool prepare(const Params& params);

@@ -155,6 +155,108 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
     auto* identityGroup = new QGroupBox(QStringLiteral("Board Identity"), infoPage);
     auto* identityLayout = new QVBoxLayout(identityGroup);
     infoLayout->addWidget(identityGroup);
+    auto* micGroup = new QGroupBox(QStringLiteral("Microphone Hardware Options"), infoPage);
+    auto* micForm = new QFormLayout(micGroup);
+    const auto micChoice = [=](const QString& name, const QStringList& choices) {
+        auto* combo = new GuardedComboBox(micGroup);
+        combo->setObjectName(name);
+        combo->setAccessibleName(name);
+        combo->addItems(choices);
+        return combo;
+    };
+    auto* micContact = micChoice(QStringLiteral("ananMicContact"), {QStringLiteral("Tip"), QStringLiteral("Ring")});
+    auto* micBias = micChoice(QStringLiteral("ananMicBias"), {QStringLiteral("Off"), QStringLiteral("On")});
+    auto* micPtt = micChoice(QStringLiteral("ananMicPtt"), {QStringLiteral("Off"), QStringLiteral("On")});
+    auto* micInput = micChoice(QStringLiteral("ananMicInput"), {QStringLiteral("3.5 mm"), QStringLiteral("XLR")});
+    micContact->setAccessibleName(QStringLiteral("Radio microphone contact"));
+    micBias->setAccessibleName(QStringLiteral("Radio microphone bias"));
+    micPtt->setAccessibleName(QStringLiteral("Radio microphone PTT permission"));
+    micInput->setAccessibleName(QStringLiteral("Radio microphone input"));
+    micForm->addRow(QStringLiteral("Mic:"), micContact);
+    micForm->addRow(QStringLiteral("Bias:"), micBias);
+    micForm->addRow(QStringLiteral("PTT:"), micPtt);
+    micForm->addRow(QStringLiteral("Input:"), micInput);
+    auto* micHint = new QLabel(QStringLiteral("Connect a supported Orion/Saturn receiver. These settings configure the radio's microphone socket; ANAN operation remains receive-only."), micGroup);
+    micHint->setWordWrap(true);
+    micForm->addRow(micHint);
+    auto* micApply = new QPushButton(QStringLiteral("Apply microphone options"), micGroup);
+    micApply->setObjectName(QStringLiteral("ananMicApply"));
+    micApply->setAccessibleName(micApply->text());
+    micForm->addRow(micApply);
+    micGroup->setEnabled(false);
+    micGroup->setAccessibleDescription(micHint->text());
+    infoLayout->addWidget(micGroup);
+    struct MicView { QString identity; bool dirty = false; bool filling = false; bool busy = false; };
+    const auto micView = std::make_shared<MicView>();
+    const auto micRequest = [=, this](bool write) {
+        if (micView->busy || !m_model || !m_model->isConnected()
+            || !m_model->backendDeclaresExtension(QStringLiteral("anan"))) {
+            if (!m_model || !m_model->isConnected()) { micGroup->setEnabled(false); }
+            return;
+        }
+        const QPointer<IRadioBackend> backend = m_model->backend();
+        auto* guard = new QObject(micGroup);
+        static quint64 nextMicId = 0x4d4943000000ULL;
+        const quint64 request = ++nextMicId;
+        micView->busy = true;
+        QVariantMap payload;
+        if (write) {
+            payload = {{QStringLiteral("identity"), micView->identity}, {QStringLiteral("options"), QVariantMap{
+                {QStringLiteral("ring"), micContact->currentIndex() == 1}, {QStringLiteral("bias"), micBias->currentIndex() == 1},
+                {QStringLiteral("ptt"), micPtt->currentIndex() == 1}, {QStringLiteral("xlr"), micInput->currentIndex() == 1}}}};
+        }
+        connect(backend, &IRadioBackend::extensionResult, guard, [=, this](quint64 reply, const QVariant& result) {
+            if (reply != request) { return; }
+            micView->busy = false;
+            guard->deleteLater();
+            if (!backend || m_model->backend() != backend || !m_model->isConnected()) { return; }
+            const QVariantMap data = result.toMap();
+            const QString identity = data.value(QStringLiteral("identity")).toString();
+            if (write || identity != micView->identity) { micView->dirty = false; }
+            micView->identity = identity;
+            const bool available = data.value(QStringLiteral("available")).toBool();
+            micGroup->setEnabled(available);
+            micGroup->setAccessibleDescription(available ? QStringLiteral("Radio microphone wiring; saved per device, model and protocol")
+                : QStringLiteral("Unavailable: this hardware profile has no supported software microphone wiring controls"));
+            micHint->setText(available ? QStringLiteral("Applies to the radio socket and is saved for this device/model/protocol. PTT On permits the microphone switch; it does not enable ANAN transmit support.") : micGroup->accessibleDescription());
+            const bool xlr = data.value(QStringLiteral("xlrAvailable")).toBool();
+            micInput->setEnabled(xlr);
+            micInput->setAccessibleDescription(xlr ? QStringLiteral("Saturn/G2 microphone input")
+                : QStringLiteral("Unavailable: XLR selection requires Saturn/G2 with Protocol 2"));
+            micInput->setToolTip(micInput->accessibleDescription());
+            if (!micView->dirty) {
+                micView->filling = true;
+                const QVariantMap options = data.value(QStringLiteral("options")).toMap();
+                micContact->setCurrentIndex(options.value(QStringLiteral("ring")).toBool() ? 1 : 0);
+                micBias->setCurrentIndex(options.value(QStringLiteral("bias")).toBool() ? 1 : 0);
+                micPtt->setCurrentIndex(options.value(QStringLiteral("ptt")).toBool() ? 1 : 0);
+                micInput->setCurrentIndex(options.value(QStringLiteral("xlr")).toBool() ? 1 : 0);
+                micView->filling = false;
+            }
+        });
+        connect(backend, &IRadioBackend::extensionError, guard, [=](quint64 reply, const QString& error) {
+            if (reply != request) { return; }
+            micView->busy = false;
+            micHint->setText(error);
+            guard->deleteLater();
+        });
+        QTimer::singleShot(1500, guard, [=] { micView->busy = false; guard->deleteLater(); });
+        m_model->invokeBackendExtension(QStringLiteral("anan"), write ? QStringLiteral("mic.set") : QStringLiteral("mic.get"), request, payload);
+    };
+    for (QComboBox* combo : {micContact, micBias, micPtt, micInput}) {
+        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), micGroup, [=](int) {
+            if (!micView->filling) { micView->dirty = true; }
+        });
+    }
+    connect(micApply, &QPushButton::clicked, micGroup, [=] { micRequest(true); });
+    auto* micTimer = new QTimer(micGroup);
+    micTimer->setInterval(500);
+    connect(micTimer, &QTimer::timeout, micGroup, [=] { if (micGroup->isVisible()) { micRequest(false); } });
+    connect(m_model, &RadioModel::connectionStateChanged, micGroup, [=](bool) {
+        micView->dirty = false;
+        micGroup->setEnabled(false);
+    });
+    micTimer->start();
     auto* facts = new QFormLayout;
     identityLayout->addLayout(facts);
     const QStringList factNames{QStringLiteral("Board:"), QStringLiteral("Protocol:"), QStringLiteral("ADC count:"),

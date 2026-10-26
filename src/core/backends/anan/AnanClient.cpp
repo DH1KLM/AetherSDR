@@ -66,6 +66,11 @@ void AnanClient::setFrequencyCorrection(double factor)
     if (m_protocol == 1) { m_p1->setFrequencyCorrection(factor); }
     else { m_p2->setFrequencyCorrection(factor); }
 }
+void AnanClient::setMicOptions(const MicOptions& options)
+{
+    if (m_protocol == 1) { m_p1->setMicOptions(options); }
+    else { m_p2->setMicOptions(options); }
+}
 void AnanClient::setFrontEndAttenuation(int adc, int db, int alexDb)
 {
     if (m_protocol == 1) { m_p1->setFrontEndAttenuation(adc, db, alexDb); }

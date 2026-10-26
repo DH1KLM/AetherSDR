@@ -298,6 +298,7 @@ private:
     int effectiveBoardId() const;
     QVariantMap hardwareFilterStatus() const;
     void loadHardwareFilters(int boardId);
+    QVariantMap microphoneState() const;
     double receiveTuningRateHz() const;
     void pushReceiveShift(double shiftHz);
     int maximumReceiveAttenuation() const;
@@ -320,6 +321,7 @@ private:
     friend class AnanNoiseBlankerTestAccess;
     friend class AnanLinkStatsTestAccess;
     friend class AnanAutoAgcTestAccess;
+    friend class AnanMicTestAccess;
     friend class AnanSupplyRailTestAccess;
     void beginDspSetup();
     void finishDspSetup(quint64 generation, bool ok, const QString& error);

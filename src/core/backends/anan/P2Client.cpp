@@ -97,6 +97,9 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     }
 
     m_ddc0FreqWord = 0;
+    m_mic = params.mic;
+    m_micAvailable = m_xlrAvailable = false;
+    m_micSequence = 0;
     m_firstDdcIndex = 0;
     m_frequencyCorrection = params.frequencyCorrection;
     m_selectReceiveLpf = false;
@@ -540,6 +543,7 @@ void P2Client::onKeepaliveTick()
                                         m_firstDdcIndex),
                        m_host, kDdcSpecificPort, m_txBytes);
             sendTo(*m_socket, *general, m_host, kRadioPort, m_txBytes);
+            sendMicOptions();
         }
     }
     sendTo(*m_socket,
@@ -674,6 +678,11 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 }
                 m_swapSpeakerChannels = profile.swapSpeakerChannels;
                 m_discoveryValidated = true;
+                const int micBoard = m_model == AnanModel::Automatic ? reply->boardId : ananModelInfo(m_model)->nativeBoardId;
+                m_micAvailable = hasMicWiring(micBoard) && m_model != AnanModel::RedPitaya;
+                m_xlrAvailable = m_micAvailable && hasXlrMic(micBoard, 2);
+                if (!m_micAvailable) { m_mic = {}; }
+                if (!m_xlrAvailable) { m_mic.xlr = false; }
                 qCInfo(lcAnanP2) << "ANAN P2: validated board" << reply->boardId
                     << "model" << QString::fromLatin1(ananModelInfo(m_model)->name.data()) << "override" << m_overrideDetection
                     << "first physical DDC" << m_firstDdcIndex << "ADCs" << m_numAdcs
@@ -693,6 +702,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 }
                 if (m_socket) {
                     sendTo(*m_socket, *m_generalPacket, m_host, kRadioPort, m_txBytes);
+                    sendMicOptions();
                     sendTo(*m_socket,
                           buildDdcSpecific(m_activeDdcs, m_numAdcs,
                                            m_ditherEnabled, m_randomEnabled, m_firstDdcIndex),
@@ -834,5 +844,17 @@ bool P2Client::setReceiveStreams(const std::vector<DdcConfig>& streams,
     m_ddc0FreqWord = m_receiveWords[0];
     onKeepaliveTick();
     return true;
+}
+void P2Client::sendMicOptions()
+{
+    if (m_running && m_discoveryValidated && m_socket && m_micAvailable) {
+        sendTo(*m_socket, buildMicControl(m_mic, m_micSequence++), m_host, kMicControlPort, m_txBytes);
+    }
+}
+void P2Client::setMicOptions(const MicOptions& options)
+{
+    if (!m_discoveryValidated || !m_micAvailable || (options.xlr && !m_xlrAvailable)) { return; }
+    m_mic = options;
+    sendMicOptions();
 }
 } // namespace AetherSDR::anan

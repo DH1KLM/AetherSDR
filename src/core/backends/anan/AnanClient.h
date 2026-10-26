@@ -16,6 +16,7 @@ public:
     Q_INVOKABLE void setDdc0FrequencyHz(double hz);
     Q_INVOKABLE void setFrequencyCorrection(double factor);
     Q_INVOKABLE void setSpeakerAmpMuted(bool muted);
+    void setMicOptions(const MicOptions& options);
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
     Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);

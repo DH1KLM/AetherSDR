@@ -66,6 +66,28 @@ The saved implementation is reused by automatic connection and reconnect.
 Original connection options marked **next connect** take effect on the next
 connection; its band-pass-filter and amplifier-mute controls apply live.
 
+## Microphone hardware options
+
+Under **Settings → Radio Setup → ANAN Hardware → Radio Info → Microphone Hardware Options**,
+choose **Mic** (Tip or Ring), **Bias** (Off or On), **PTT** (Off or On) and **Input**
+(3.5 mm or XLR), then click **Apply microphone options**. These configure the
+radio's physical microphone connector, independently of the PC microphone and ASIO.
+They apply live and are saved separately for each device, model and protocol.
+There is no hardware readback; the controls show the saved/requested configuration.
+
+Tip/Ring, bias and microphone PTT permission are supported for Orion/ANAN-200D,
+Orion MkII/ANAN-7000DLE/8000DLE, Anvelina Pro III and Saturn/G2 profiles under
+their supported P1/P2 connections. XLR selection requires Saturn/G2 with P2.
+Unsupported options stay dimmed with a reason. Hermes, Angelia/ANAN-100D,
+G2E and Red Pitaya have no supported software microphone wiring controls here.
+The original tropo1234 implementation is unchanged.
+
+Defaults are Tip, bias Off, PTT Off and 3.5 mm. **PTT On** permits the microphone
+switch in the radio's configuration; it does not add ANAN transmit support.
+The backend remains receive-only: microphone audio is not routed into a TX chain,
+and these settings send no MOX, RF drive or transmit IQ. Alex/Apollo selection is
+not part of this panel.
+
 ## Automatic AGC-T
 
 In the DH1KLM implementation, click **A** beside the AGC controls in the

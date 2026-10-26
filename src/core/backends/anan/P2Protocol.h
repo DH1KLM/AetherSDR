@@ -1,4 +1,5 @@
 #pragma once
+#include "AnanMicHardware.h"
 
 #include "core/backends/anan/P1Protocol.h"
 #include "core/backends/anan/AnanModel.h"
@@ -32,6 +33,7 @@ inline constexpr std::uint16_t kRadioPort = 1024;
 // radio identifies them by arrival port; sent to kRadioPort they are silently
 // ignored by p2app.
 inline constexpr std::uint16_t kDdcSpecificPort = 1025;
+inline constexpr std::uint16_t kMicControlPort = 1026;
 inline constexpr std::uint16_t kHighPriorityPort = 1027;
 
 // The radio's listening port for DDC Audio -- demodulated receiver audio sent
@@ -189,6 +191,9 @@ struct DiscoveryReply {
 // Orion MkII (ANAN-7000DLE target) receives on DDC2 without diversity/PS.
 //DH1KLM: Legacy ALEX HPFs and MkII BPFs have different frequency tables.
 enum class ReceiveFilterKind { MkIIBpf, LegacyHpf };
+
+//DH1KLM: TX-Specific carries microphone wiring at byte 50; CW and TX data remain disabled.
+[[nodiscard]] std::array<std::uint8_t, 60> buildMicControl(const MicOptions& options, std::uint32_t sequence = 0) noexcept;
 
 struct ReceiveProfile {
     int numAdcs;
