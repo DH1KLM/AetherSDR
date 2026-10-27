@@ -1355,6 +1355,51 @@ int main()
               "amplifier mute changes only Thetis HP byte 1400 bit 1, preserving filters, DDCs and RX-only run");
     }
 
+    {
+        std::array<std::complex<float>, kTxIqSamplesPerPacket> samples{};
+        const auto silence = buildTxIq(samples, 0x12345678);
+        check(silence && silence->size() == 1444 && kTxIqPort == 1029,
+              "TX IQ has Thetis packet length and destination port");
+        check(silence && (*silence)[0] == 0x12 && (*silence)[1] == 0x34
+              && (*silence)[2] == 0x56 && (*silence)[3] == 0x78,
+              "TX IQ sequence is big endian");
+        bool zeroPayload = silence.has_value();
+        if (silence) {
+            for (std::size_t i = 4; i < silence->size(); ++i) {
+                zeroPayload = zeroPayload && (*silence)[i] == 0;
+            }
+        }
+        check(zeroPayload, "TX silence fills the entire payload with zero");
+        samples[0] = {1.0f, -1.0f};
+        samples[1] = {0.5f, -0.5f};
+        samples.back() = {2.0f, -2.0f};
+        const auto encoded = buildTxIq(samples, 0xffffffff);
+        const std::array<std::uint8_t, 12> expected{
+            0x7f,0xff,0xff,0x80,0x00,0x01,0x40,0x00,0x00,0xc0,0x00,0x00};
+        bool matched = encoded.has_value();
+        if (encoded) {
+            for (std::size_t i = 0; i < expected.size(); ++i) {
+                matched = matched && (*encoded)[4+i] == expected[i];
+            }
+            for (std::size_t i = 0; i < 6; ++i) {
+                matched = matched && (*encoded)[1438+i] == expected[i];
+            }
+        }
+        check(matched, "TX I/Q order, signed BE24, rounding and saturation match Thetis");
+        check(!buildTxIq({}, 0) && !buildTxIq(std::span(samples).first(239), 0),
+              "TX IQ rejects incomplete blocks");
+        std::array<std::complex<float>, 241> oversized{};
+        check(!buildTxIq(oversized, 0), "TX IQ rejects oversized blocks");
+        samples.back() = {std::numeric_limits<float>::quiet_NaN(), 0};
+        check(!buildTxIq(samples, 0), "TX IQ rejects NaN even in the last sample");
+        samples.back() = {0, std::numeric_limits<float>::infinity()};
+        check(!buildTxIq(samples, 0), "TX IQ rejects infinite Q");
+        const auto wrapped = buildTxIq(std::span(oversized).first(240), 0);
+        check(wrapped && (*wrapped)[0] == 0 && (*wrapped)[1] == 0
+              && (*wrapped)[2] == 0 && (*wrapped)[3] == 0,
+              "TX IQ accepts sequence zero after wrap");
+    }
+
     if (g_failures == 0)
         std::fprintf(stderr, "anan_p2_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

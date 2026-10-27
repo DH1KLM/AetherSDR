@@ -109,6 +109,23 @@ operating-state migration between implementations. The per-MAC `Implementation`
 feature remembers selection; its family-wide default is explicitly set from
 Setup when no Saturn identity is available. Unknown variants fail closed.
 
+## TX development branch
+
+`codex/anan-tx-implementation` starts from the receive-qualified integration
+state. The first TX building block is a socket-free P2 IQ encoder: a 32-bit
+big-endian sequence followed by 240 signed 24-bit I/Q pairs, 1444 bytes in
+total, for the default radio port 1029. Its conversion follows Thetis
+`ChannelMaster/network.c` (`Outbound` and `WriteUDPFrame`), including rounding
+half away from zero. Nereus `P2RadioConnection::composeTxIqFrame` confirms the
+packet shape, component order and symmetric saturation range; its truncating
+conversion is not used. Non-finite samples and incorrectly sized blocks are
+rejected as a whole.
+
+This encoder has no transport caller. Both ANAN variants remain receive-only
+in the application. TX DSP, packet pacing, model-specific transmit filters,
+drive control, operation-fenced PTT/TUNE, stop/timeout handling and hardware
+qualification remain to be implemented before enabling transmission.
+
 ## Verification
 
 Validation is recorded separately in the local working state after the

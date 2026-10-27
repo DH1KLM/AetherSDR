@@ -19,8 +19,9 @@
 // THIRD_PARTY_LICENSES), Saturn FPGA RTL, and p2app, the radio-side server
 // (provenance: docs/architecture/anan-p2-backend-design.md §2.9). Page numbers
 // below are spec pages. Socket- and Qt-free; P2Client owns the sockets.
-// RX-ONLY BY CONSTRUCTION: no DUC-Specific, TX drive or PTT encoder exists here
-// (TX is RFC §2.11 Phase 3, behind the engine's TX arbiter). buildSpeakerAudio()
+// The live backend remains RX-only. buildTxIq() only serializes samples and
+// has no transport caller; TX admission remains behind the engine's arbiter.
+// buildSpeakerAudio()
 // is not transmit: it sends demodulated receiver audio to the radio's speaker
 // codec, never reaches the DUC/PA/T-R relay, and cannot key anything.
 
@@ -45,6 +46,16 @@ inline constexpr std::uint16_t kHighPriorityPort = 1027;
 // a speaker packet carries no type discriminator, only a 4-byte sequence, so
 // the port IS the packet's identity. Sent anywhere else it is silently dropped.
 inline constexpr std::uint16_t kSpeakerAudioPort = 1028;
+
+inline constexpr std::uint16_t kTxIqPort = 1029;
+inline constexpr std::size_t kTxIqSamplesPerPacket = 240;
+inline constexpr std::size_t kTxIqPacketBytes = 4 + kTxIqSamplesPerPacket * 6;
+using TxIqPacket = std::array<std::uint8_t, kTxIqPacketBytes>;
+
+// Thetis network.c Outbound/WriteUDPFrame: sequence followed by signed BE24 I,Q.
+// Reject malformed blocks as a whole; transport authorization belongs to the caller.
+[[nodiscard]] std::optional<TxIqPacket> buildTxIq(
+    std::span<const std::complex<float>> samples, std::uint32_t sequence) noexcept;
 
 // The port DDC0 IQ nominally originates FROM per the General Packet's byte
 // 17-18 default (spec p.19-20). NOT load-bearing for where the PC receives

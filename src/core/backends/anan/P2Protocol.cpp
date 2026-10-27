@@ -2,6 +2,7 @@
 #include "core/backends/anan/AnanReceiveCalibration.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace AetherSDR::anan {
@@ -188,6 +189,32 @@ std::optional<DiscoveryReply> parseDiscoveryReply(std::span<const std::uint8_t> 
     r.endianByteRaw = data[22];
     r.p2appBuild = data[23];
     return r;
+}
+
+std::optional<TxIqPacket> buildTxIq(
+    std::span<const std::complex<float>> samples, std::uint32_t sequence) noexcept
+{
+    if (samples.size() != kTxIqSamplesPerPacket) {
+        return std::nullopt;
+    }
+    TxIqPacket packet{};
+    writeU32be(packet.data(), sequence);
+    std::size_t offset = 4;
+    for (const std::complex<float>& sample : samples) {
+        for (const float component : {sample.real(), sample.imag()}) {
+            if (!std::isfinite(component)) {
+                return std::nullopt;
+            }
+            const double bounded = std::clamp(static_cast<double>(component), -1.0, 1.0);
+            const std::int32_t value = static_cast<std::int32_t>(
+                std::round(bounded * kFullScale24Bit));
+            const std::uint32_t bits = static_cast<std::uint32_t>(value);
+            packet[offset++] = static_cast<std::uint8_t>(bits >> 16);
+            packet[offset++] = static_cast<std::uint8_t>(bits >> 8);
+            packet[offset++] = static_cast<std::uint8_t>(bits);
+        }
+    }
+    return packet;
 }
 
 std::array<std::uint8_t, 60> buildMicControl(const MicOptions& options, std::uint32_t sequence) noexcept
