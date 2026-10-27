@@ -121,7 +121,19 @@ packet shape, component order and symmetric saturation range; its truncating
 conversion is not used. Non-finite samples and incorrectly sized blocks are
 rejected as a whole.
 
-This encoder has no transport caller. Both ANAN variants remain receive-only
+`AnanTxGate` supplies a transport-thread terminal admission building block.
+It starts disabled and retains the original `TxCoordinator::Operation` for
+every key and IQ write. The dispatch lease spans the synchronous terminal
+callback; IQ also requires its captured media context. Enabling never keys,
+and different producer fences cannot replace a live key even inside the same
+coordinator operation. Cancellation and expiry permit only stop cleanup;
+failed/ambiguous key writes block admission until an off write succeeds.
+Session reset rejects old cleanup, and transport teardown clears the local
+state with the gate disabled. No callback result is qualified radio-idle
+evidence. The socket-free test exercises the real coordinator with injected
+terminal writes, including deadlines, revocation and stale producer cleanup.
+
+The encoder and gate have no live transport caller. Both ANAN variants remain receive-only
 in the application. TX DSP, packet pacing, model-specific transmit filters,
 drive control, operation-fenced PTT/TUNE, stop/timeout handling and hardware
 qualification remain to be implemented before enabling transmission.

@@ -1311,6 +1311,12 @@ add_executable(anan_p2_protocol_test
 target_include_directories(anan_p2_protocol_test PRIVATE src)
 add_test(NAME anan_p2_protocol_test COMMAND anan_p2_protocol_test)
 
+# Socket-free ANAN TX terminal gate: real coordinator, injected writes only.
+add_executable(anan_tx_gate_test tests/anan_tx_gate_test.cpp src/core/TxCoordinator.cpp)
+target_include_directories(anan_tx_gate_test PRIVATE src)
+target_link_libraries(anan_tx_gate_test PRIVATE Qt6::Core)
+add_test(NAME anan_tx_gate_test COMMAND anan_tx_gate_test)
+
 # Actual multi-receive DSP with injected writes; no socket peer.
 add_executable(anan_multi_receive_test tests/anan_multi_receive_test.cpp)
 target_include_directories(anan_multi_receive_test PRIVATE src tests)
