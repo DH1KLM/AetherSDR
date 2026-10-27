@@ -1,4 +1,6 @@
 #include "AnanBackend.h"
+#include "AnanSettings.h"
+#include "AnanTransmitPower.h"
 
 #include <QMetaObject>
 #include <atomic>
@@ -18,6 +20,25 @@ struct AudioCredit final {
     ~AudioCredit() { ledger->fetch_sub(bytes, std::memory_order_relaxed); }
 };
 constexpr std::size_t kMaximumPendingAudioBytes = 8192;
+}
+
+QVariantMap AnanBackend::transmitPowerState() const
+{
+    const auto defaults = defaultTransmitPower(m_pendingParams.model);
+    const bool available = m_connected && m_discoveryInfoReceived && defaults && !m_radioSerial.isEmpty();
+    const QString identity = QStringLiteral("%1:%2:%3:%4:%5").arg(m_radioSerial).arg(m_connectGeneration)
+        .arg(static_cast<int>(m_pendingParams.model)).arg(m_discoveredBoardId).arg(m_pendingParams.protocol);
+    const QVariantMap saved = available ? AnanSettings::transmitPower(m_radioSerial,
+        static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol) : QVariantMap{};
+    const auto parsed = parseTransmitPower(saved);
+    QVariantList bands;
+    for (const char* name : kPaBands) { bands.append(QString::fromLatin1(name)); }
+    return {{QStringLiteral("available"),available}, {QStringLiteral("identity"),identity},
+        {QStringLiteral("bands"),bands}, {QStringLiteral("saved"),parsed.has_value()},
+        {QStringLiteral("options"),parsed ? transmitPowerOptions(*parsed)
+            : defaults ? transmitPowerOptions(*defaults) : QVariantMap{}},
+        {QStringLiteral("reference"),defaults ? transmitPowerOptions(*defaults) : QVariantMap{}},
+        {QStringLiteral("txEnabled"),false}};
 }
 
 void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,

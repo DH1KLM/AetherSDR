@@ -88,6 +88,22 @@ The backend remains receive-only: microphone audio is not routed into a TX chain
 and these settings send no MOX, RF drive or transmit IQ. Alex/Apollo selection is
 not part of this panel.
 
+## Transmit power profile preview
+
+In the extended implementation, open **Settings → Radio Setup → ANAN Hardware →
+Transmit**. The table holds **PA gain (dB)** and **Power limit (W)** for each
+amateur band. **Use Thetis defaults** restores reference gains and zero power
+limits; these gains are not measurements of your amplifier.
+
+Set **Preview band** and **Requested power**, then click **Calculate preview**.
+The calculation limits the target to the band's power limit and shows the volume
+scalar and raw drive using the Thetis conversion. A zero limit produces zero
+drive. This is a calculation preview, not an RF power measurement.
+
+**Save PA profile** stores the table separately for each radio, receive profile,
+board and protocol. It does not enable transmission. ANAN transmit remains
+unavailable in the desktop application; this page sends no keying or transmit IQ.
+The original tropo1234 implementation is unchanged.
 ## Automatic AGC-T
 
 In the DH1KLM implementation, click **A** beside the AGC controls in the

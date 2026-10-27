@@ -1,4 +1,5 @@
 #include "RadioSetupDialog.h"
+#include "AnanTransmitPowerPage.h"
 #include "models/RadioModel.h"
 #include "core/ThemeManager.h"
 #include <QApplication>
@@ -151,6 +152,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
     auto* antennaPage = tab(tabs, QStringLiteral("Antenna / ALEX"));
     auto* ocPage = tab(tabs, QStringLiteral("OC Outputs"));
     auto* calibrationPage = tab(tabs, QStringLiteral("Calibration"));
+    tabs->addTab(createAnanTransmitPowerPage(m_model,tabs),QStringLiteral("Transmit"));
     auto* infoLayout = new QVBoxLayout(infoPage);
     auto* identityGroup = new QGroupBox(QStringLiteral("Board Identity"), infoPage);
     auto* identityLayout = new QVBoxLayout(identityGroup);

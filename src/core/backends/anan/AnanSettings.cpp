@@ -1,5 +1,6 @@
 #include "core/backends/anan/AnanSettings.h"
 #include "AnanMicOptions.h"
+#include "AnanTransmitPower.h"
 #include "AnanImplementation.h"
 #include "core/backends/anan/AnanCalibrationOptions.h"
 #include "core/backends/anan/P2Protocol.h"
@@ -421,6 +422,31 @@ bool AnanSettings::setRedPitayaP1ForRadio(const QString& serial, bool enabled)
         return false;
     doc.insert(QStringLiteral("redPitayaP1"), enabled);
     return scope.setFeature(QStringLiteral("HardwareProfile"), 1, doc);
+}
+
+QVariantMap AnanSettings::transmitPower(const QString& serial, int model, int board, int protocol)
+{
+    if (serial.trimmed().isEmpty()) { return {}; }
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    const auto doc = RadioSettingsScope(QStringLiteral("anan"),serial)
+        .featureExact(QStringLiteral("TransmitPower"), &version, &status);
+    if (status != AppSettings::FeatureReadStatus::Present || version != 1) { return {}; }
+    return doc.value(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol)).toObject().toVariantMap();
+}
+bool AnanSettings::setTransmitPower(const QString& serial, int model, int board, int protocol, const QVariantMap& options)
+{
+    if (serial.trimmed().isEmpty() || !parseTransmitPower(options)
+        || !defaultTransmitPower(static_cast<AnanModel>(model)) || !receiveProfile(board)
+        || (protocol != 1 && protocol != 2)) { return false; }
+    const RadioSettingsScope scope(QStringLiteral("anan"),serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("TransmitPower"), &version, &status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
+    doc.insert(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol), QJsonObject::fromVariantMap(options));
+    return scope.setFeature(QStringLiteral("TransmitPower"),1,doc);
 }
 
 QVariantMap AnanSettings::microphone(const QString& serial, int model, int board, int protocol)

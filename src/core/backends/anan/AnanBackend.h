@@ -301,6 +301,7 @@ private:
     QVariantMap hardwareFilterStatus() const;
     void loadHardwareFilters(int boardId);
     QVariantMap microphoneState() const;
+    QVariantMap transmitPowerState() const;
     double receiveTuningRateHz() const;
     void pushReceiveShift(double shiftHz);
     int maximumReceiveAttenuation() const;

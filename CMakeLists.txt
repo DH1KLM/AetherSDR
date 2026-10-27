@@ -1389,6 +1389,7 @@ set(GUI_SOURCES
     src/gui/RadioSetupDialog.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
     src/gui/RadioSetupDialog_Anan.cpp
+    src/gui/AnanTransmitPowerPage.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Peripherals.cpp

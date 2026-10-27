@@ -4,6 +4,9 @@
 #include "core/backends/anan/AnanImplementation.h"
 #include "core/AppSettings.h"
 #include "gui/RadioSetupDialog.h"
+#include "gui/AnanTransmitPowerPage.h"
+#include <QTableWidget>
+#include <QLabel>
 #include "models/RadioModel.h"
 #include <QApplication>
 #include <QComboBox>
@@ -80,6 +83,43 @@ int main(int argc, char** argv)
     TestSettingsProfile profile(QStringLiteral("anan-rate-ui"));
     QApplication app(argc, argv);
     AppSettings::instance().load();
+    {
+        RadioModel model;
+        auto owned = std::make_unique<anan::AnanBackend>();
+        auto* backend = owned.get();
+        anan::AnanLinkStatsTestAccess::prepare(*backend,2,false,5,anan::AnanModel::Anan7000);
+        model.setBackendForTest(std::move(owned),QStringLiteral("anan"));
+        std::unique_ptr<QWidget> page(createAnanTransmitPowerPage(&model,nullptr));
+        page->show();
+        auto* table = page->findChild<QTableWidget*>(QStringLiteral("ananTxPowerTable"));
+        QElapsedTimer deadline; deadline.start();
+        while (table->rowCount() != 11 && deadline.elapsed() < 2500) {
+            app.processEvents(); QThread::msleep(1);
+        }
+        check(table->isEnabled() && table->rowCount() == 11, "real PA page loads eleven band references");
+        auto* gain = static_cast<QDoubleSpinBox*>(table->cellWidget(0,1));
+        auto* limit = static_cast<QDoubleSpinBox*>(table->cellWidget(0,2));
+        gain->setValue(50); limit->setValue(100);
+        auto* watts = page->findChild<QDoubleSpinBox*>(QStringLiteral("ananTxPowerWatts"));
+        watts->setValue(200);
+        page->findChild<QPushButton*>(QStringLiteral("ananTxPowerPreview"))->click();
+        app.processEvents();
+        auto* result = page->findChild<QLabel*>(QStringLiteral("ananTxPowerResult"));
+        check(result->text().contains(QStringLiteral("raw drive: 72/255")), "PA preview uses unsaved gain and capped watts");
+        page->findChild<QPushButton*>(QStringLiteral("ananTxPowerApply"))->click();
+        app.processEvents();
+        const auto saved = anan::AnanSettings::transmitPower(QStringLiteral("sample-rate-ui-test-2-0"),
+            static_cast<int>(anan::AnanModel::Anan7000),5,2);
+        check(saved.value(QStringLiteral("limitsWatts")).toList().value(0).toDouble() == 100,
+              "PA page saves exact model protocol profile");
+        check(!backend->capabilities().canTransmit, "saving PA profile never enables transmit");
+        QSignalSpy errors(backend,&IRadioBackend::extensionError);
+        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("txpower.set"),123456,
+            QVariantMap{{QStringLiteral("identity"),QStringLiteral("stale")},{QStringLiteral("options"),saved}});
+        check(errors.count() == 1, "stale PA identity cannot save");
+        page->findChild<QPushButton*>(QStringLiteral("ananTxPowerDefaults"))->click();
+        check(limit->value() == 0 && std::abs(gain->value()-47.9) < 0.01, "Thetis defaults reset preview limits to zero");
+    }
     {
         RadioModel model;
         RadioSetupDialog dialog(&model);

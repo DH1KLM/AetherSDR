@@ -192,6 +192,20 @@ power control, P1 transmit and hardware qualification remain open. The original 
 unchanged. Tests inject the real client's terminal writes and clocks without
 opening radio sockets.
 
+The extended Setup also provides an operator PA-profile table and a calculation
+preview, through `anan.txpower.*` extensions. One versioned `TransmitPower`
+document per radio holds separate model/board/protocol entries. Requests carry
+the current connection identity; stale identities, malformed values and active
+TX operations refuse edits. No profile value grants transmit admission.
+
+The reference gains follow local Thetis `DefaultPAGainsForBands`; every band
+starts with a zero operator power limit. The preview clamps requested watts to
+that limit and reproduces `SetPowerUsingTargetDBM`, `Audio.RadioVolume` and
+`NetworkIO.SetOutputPower`, including the 1.02 factor and integer truncation.
+A gain of 100 dB remains a gain, never a full-drive sentinel. Preview output is
+not applied to the live transmitter. Actual PA calibration, modulation scaling
+(including the TX DSP's fixed headroom) and measured RF power remain unqualified.
+The UI includes only backend-neutral model/seam headers; it adds no wire path.
 ## Verification
 
 Validation is recorded separately in the local working state after the

@@ -1,5 +1,6 @@
 #include "core/backends/anan/AnanFilterOptions.h"
 #include "AnanMicOptions.h"
+#include "AnanTransmitPower.h"
 #include "core/backends/anan/AnanCalibrationOptions.h"
 #include "core/backends/anan/AnanBackend.h"
 #include "core/AppActivity.h"
@@ -2402,6 +2403,37 @@ void AnanBackend::acceptCalibrationSpectrum(const std::vector<float>& bins, qint
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && (verb == QLatin1String("txpower.get")
+        || verb == QLatin1String("txpower.set") || verb == QLatin1String("txpower.preview"))) {
+        QVariantMap state = transmitPowerState();
+        if (verb != QLatin1String("txpower.get")) {
+            const QVariantMap fields = arg.toMap();
+            const auto profile = parseTransmitPower(fields.value(QStringLiteral("options")).toMap());
+            if (!state.value(QStringLiteral("available")).toBool() || !profile || m_rateChanging || m_receiveBuilding
+                || fields.value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))
+                || m_transmitOperation.permitsDispatch(TxCoordinator::monotonicMs())) {
+                emit extensionError(requestId,QStringLiteral("Select a current, idle radio and an explicit receive profile before editing TX power."));
+                return;
+            }
+            if (verb == QLatin1String("txpower.set")) {
+                if (!AnanSettings::setTransmitPower(m_radioSerial,static_cast<int>(m_pendingParams.model),
+                        m_discoveredBoardId,m_pendingParams.protocol,transmitPowerOptions(*profile))) {
+                    emit extensionError(requestId,QStringLiteral("TX power profile could not be saved.")); return;
+                }
+                state = transmitPowerState();
+            } else {
+                const QVariant band = fields.value(QStringLiteral("band")), watts = fields.value(QStringLiteral("watts"));
+                const bool numeric = watts.metaType().id() == QMetaType::Int || watts.metaType().id() == QMetaType::Double;
+                const auto preview = numeric && band.metaType().id() == QMetaType::Int
+                    ? previewTransmitPower(*profile,band.toInt(),watts.toDouble()) : std::nullopt;
+                if (!preview) { emit extensionError(requestId,QStringLiteral("Select a valid PA band and power target.")); return; }
+                state.insert(QStringLiteral("preview"),QVariantMap{{QStringLiteral("watts"),preview->watts},
+                    {QStringLiteral("audioVolume"),preview->audioVolume}, {QStringLiteral("drive"),preview->drive}});
+            }
+        }
+        emit extensionResult(requestId,state);
+        return;
+    }
     if (ns == QLatin1String("anan") && (verb == QLatin1String("mic.get") || verb == QLatin1String("mic.set"))) {
         const QVariantMap state = microphoneState();
         if (verb == QLatin1String("mic.set")) {

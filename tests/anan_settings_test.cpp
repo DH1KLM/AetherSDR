@@ -20,6 +20,8 @@
 #include <QJsonObject>
 
 #include <cstdio>
+#include <limits>
+#include "core/backends/anan/AnanTransmitPower.h"
 
 using namespace AetherSDR;
 using namespace AetherSDR::anan;
@@ -520,6 +522,35 @@ int main(int argc, char** argv)
     check(rates.contains(48) && rates.contains(1536),
           "including both ends of the range");
 
+    {
+        auto power = defaultTransmitPower(AnanModel::Anan7000);
+        check(power.has_value() && !defaultTransmitPower(AnanModel::Automatic), "PA reference requires explicit supported model");
+        check(previewTransmitPower(*power,0,100)->drive == 0, "zero band limit produces no drive");
+        power->gainsDb[0] = 50;
+        power->limitsWatts[0] = 100;
+        const auto preview = previewTransmitPower(*power,0,200);
+        check(preview && preview->watts == 100 && preview->drive == 72
+              && std::abs(preview->audioVolume - std::sqrt(0.05)/0.8) < 1e-12,
+              "Thetis logarithmic gain, band cap and integer truncation agree");
+        check(!previewTransmitPower(*power,-1,10) && !previewTransmitPower(*power,11,10)
+              && !previewTransmitPower(*power,0,std::numeric_limits<double>::infinity()), "invalid preview input refused");
+        power->gainsDb[0] = 100;
+        check(previewTransmitPower(*power,0,100)->drive == 0, "100 dB never means full drive");
+        const auto options = transmitPowerOptions(*power);
+        check(AnanSettings::setTransmitPower(QStringLiteral("PA-MAC"),static_cast<int>(AnanModel::Anan7000),5,2,options), "PA profile saves");
+        check(AnanSettings::transmitPower(QStringLiteral("PA-MAC"),static_cast<int>(AnanModel::Anan7000),5,2) == options, "PA profile round trip");
+        check(AnanSettings::transmitPower(QStringLiteral("OTHER"),static_cast<int>(AnanModel::Anan7000),5,2).isEmpty()
+              && AnanSettings::transmitPower(QStringLiteral("PA-MAC"),static_cast<int>(AnanModel::Anan7000),5,1).isEmpty()
+              && AnanSettings::transmitPower(QStringLiteral("PA-MAC"),static_cast<int>(AnanModel::Anan8000),5,2).isEmpty(), "PA scope isolates device model and protocol");
+        auto malformed = options;
+        auto gains = malformed.value(QStringLiteral("gainsDb")).toList(); gains[0] = true;
+        malformed.insert(QStringLiteral("gainsDb"),gains);
+        check(!parseTransmitPower(malformed)
+              && !AnanSettings::setTransmitPower(QStringLiteral("PA-MAC"),static_cast<int>(AnanModel::Anan7000),5,2,malformed), "boolean gain cannot overwrite profile");
+        const RadioSettingsScope scope(QStringLiteral("anan"),QStringLiteral("PA-FUTURE"));
+        check(scope.setFeature(QStringLiteral("TransmitPower"),99,QJsonObject{{QStringLiteral("future"),true}}), "seed future PA schema");
+        check(!AnanSettings::setTransmitPower(QStringLiteral("PA-FUTURE"),static_cast<int>(AnanModel::Anan7000),5,2,options), "future PA schema preserved");
+    }
     if (g_failures == 0)
         std::printf("anan_settings_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;
