@@ -149,13 +149,32 @@ by 1.25 ms. Each callback emits at most one packet; long stalls, overflow,
 invalid samples and changed media provenance discard the queue. Underflow
 emits a zero packet while preserving an incomplete sample group. Every write
 passes through the TX gate with its captured operation and media context.
-The transport owner must clear the stream on unkey and stop on a refused pump;
-there is no live timer or socket wiring yet.
+`P2Client` now owns the socket/timer adapter. Explicit configuration and enable
+precede a separately authorized key request; neither configuration nor enable
+keys the radio. A 1 ms precise timer polls authorization even before IQ arrives
+and pumps sample-clocked packets once a media block starts. Unkey discards queued
+IQ immediately, including release detected by the shared keepalive before a
+replacement key arrives. Failed writes disable TX and attempt key-off; an unsuccessful
+off tears down the transport with the hardware watchdog still enabled. A local
+UDP write is never radio-idle evidence.
 
-The components have no live transport caller. Both ANAN variants remain receive-only
-in the application. Model-specific transmit filters,
-drive control, operation-fenced PTT/TUNE, stop/timeout handling and hardware
-qualification remain to be implemented before enabling transmission.
+All live High-Priority senders share the admitted TX envelope. Thetis
+`network.c` and `netInterface.c` define the DUC frequency, raw drive, antenna,
+LPF, T/R relay and Alex1 status fields. TX uses its own frequency and LPF table;
+RX-only LPF bypass and OC routing do not become TX settings. TX OC outputs are
+explicit and default to zero. Alex1 mirrors T/R status without asserting the
+Alex0 relay bit; MkII BPF2 grounding is independent of ADC count. Key-off restores
+the latest complete RX state. TX-Specific sets the 192 ksps DUC rate and 31 dB
+TX ADC attenuation, matching Thetis initialization.
+
+The transport covers native board IDs 1–5, 10 and 20. Ambiguous IDs 5 and 10
+require explicit model selection. Cross-board receive overrides, Red Pitaya,
+Anvelina Pro III and G2 1K have no TX admission. Receive support is unchanged.
+Both desktop ANAN variants still advertise receive-only: the main backend's
+PTT/TUNE and audio-source routing, calibrated power control, P1 transmit and
+hardware qualification remain open. The original Saturn implementation is
+unchanged. Tests inject the real client's terminal writes and clocks without
+opening radio sockets.
 
 ## Verification
 

@@ -96,6 +96,11 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
         return false;
     }
 
+    m_transmitProfile.reset();
+    m_transmitControl.reset();
+    m_transmitGate.transportClosed();
+    m_transmitStream.transportClosed();
+    m_highPrioritySequence = 0;
     m_ddc0FreqWord = 0;
     m_mic = params.mic;
     m_micAvailable = m_xlrAvailable = false;
@@ -189,6 +194,9 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
 
 void P2Client::stop()
 {
+    clearTransmitAudio();
+    m_transmitGate.setEnabled(false, TxCoordinator::monotonicMs(),
+        [this](bool key) { return writeTransmitKey(key); });
     m_keepaliveTimer->stop();
     m_linkCountersTimer->stop();
     m_connectTimeoutTimer->stop();
@@ -202,7 +210,7 @@ void P2Client::stop()
     m_speakerOverflowLogged = false;
     m_speakerUnderflowReports = 0;
     m_lastSpeakerFifoLevel = 0;
-    if (m_socket) {
+    if (hasControlTransport()) {
         // Only send the selected profile's stop after its identity
         // was validated. Preserve physical DDC mapping through teardown.
         if (m_discoveryValidated) {
@@ -211,16 +219,22 @@ void P2Client::stop()
             const std::vector<std::uint32_t> stopWords = m_selectReceiveLpf
                 ? sharedFreqWords()
                 : std::vector<std::uint32_t>(static_cast<std::size_t>(m_activeDdcCount), 0);
-            sendTo(*m_socket,
-                  buildHighPriority(false, stopWords, m_bypassAdc0Filters, m_bypassAdc1Filters,
+            sendControl(buildHighPriority(false, stopWords, m_bypassAdc0Filters, m_bypassAdc1Filters,
                                     m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
                                     m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb, &m_receiveFilterPlan, m_frequencyCorrection, false),
-                  m_host, kHighPriorityPort, m_txBytes);
+                  kHighPriorityPort);
         }
-        m_socket->close();
-        m_socket->deleteLater();
-        m_socket = nullptr;
+        if (m_socket) {
+            m_socket->close();
+            m_socket->deleteLater();
+            m_socket = nullptr;
+        }
     }
+    m_transmitGate.transportClosed();
+    m_transmitStream.transportClosed();
+    m_transmitOperation = {};
+    m_transmitProfile.reset();
+    m_transmitControl.reset();
     m_running = false;
     m_generalPacket.reset();
     m_generalClock.invalidate();
@@ -398,13 +412,8 @@ void P2Client::setDdc0FrequencyHz(double hz)
     }
     m_ddc0FreqWord = phaseWord(hz);
     m_receiveWords[0] = m_ddc0FreqWord;
-    if (m_running && m_socket && m_discoveryValidated)
-        sendTo(*m_socket,
-              buildHighPriority(true, sharedFreqWords(),
-                                m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
-                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb, &m_receiveFilterPlan, m_frequencyCorrection, m_speakerAmpMuted),
-              m_host, kHighPriorityPort, m_txBytes);
+    if (m_running && hasControlTransport() && m_discoveryValidated)
+        sendHighPriority();
 }
 void P2Client::setSpeakerAmpMuted(bool muted)
 {
@@ -441,13 +450,8 @@ void P2Client::setRxAntenna(int antenna)
     if (antenna < 1 || antenna > 3)
         return;
     m_rxAntenna = antenna;
-    if (m_running && m_socket && m_discoveryValidated) {
-        sendTo(*m_socket,
-              buildHighPriority(true, sharedFreqWords(),
-                                m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
-                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb, &m_receiveFilterPlan, m_frequencyCorrection, m_speakerAmpMuted),
-              m_host, kHighPriorityPort, m_txBytes);
+    if (m_running && hasControlTransport() && m_discoveryValidated) {
+        sendHighPriority();
     }
 }
 
@@ -471,13 +475,8 @@ void P2Client::setStepAttenuationDb(int adcIndex, int db)
     }
     // Now rather than on the next keepalive: the operator is moving a
     // control and should hear the change, not wait up to 100 ms for it.
-    if (m_running && m_socket && m_discoveryValidated) {
-        sendTo(*m_socket,
-              buildHighPriority(true, sharedFreqWords(),
-                                m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
-                                m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb, &m_receiveFilterPlan, m_frequencyCorrection, m_speakerAmpMuted),
-              m_host, kHighPriorityPort, m_txBytes);
+    if (m_running && hasControlTransport() && m_discoveryValidated) {
+        sendHighPriority();
     }
 }
 
@@ -531,27 +530,26 @@ std::optional<std::array<std::uint8_t, 60>> P2Client::takeGeneralRefresh(qint64 
 
 void P2Client::onKeepaliveTick()
 {
-    if (!m_running || !m_socket || !m_discoveryValidated)
+    if (!m_running || !hasControlTransport() || !m_discoveryValidated)
         return;
     // Match Thetis KeepAliveLoop's 500 ms General refresh. HP alone
     // keeps RUN alive but cannot recover a lost ALEX-enable General packet.
     if (m_generalClock.isValid()) {
         if (const auto general = takeGeneralRefresh(m_generalClock.elapsed())) {
             if (m_independentTuning)
-                sendTo(*m_socket,
-                       buildDdcSpecific(m_activeDdcs, m_numAdcs, m_ditherEnabled, m_randomEnabled,
-                                        m_firstDdcIndex),
-                       m_host, kDdcSpecificPort, m_txBytes);
-            sendTo(*m_socket, *general, m_host, kRadioPort, m_txBytes);
-            sendMicOptions();
+                sendControl(buildDdcSpecific(m_activeDdcs, m_numAdcs, m_ditherEnabled, m_randomEnabled,
+                                        m_firstDdcIndex), kDdcSpecificPort);
+            if (!sendControl(*general, kRadioPort) && m_transmitGate.enabled()) {
+                abortTransmit(QStringLiteral("TX general refresh failed"));
+                return;
+            }
+            if (!sendMicOptions() && m_transmitGate.enabled()) {
+                abortTransmit(QStringLiteral("TX-specific refresh failed"));
+                return;
+            }
         }
     }
-    sendTo(*m_socket,
-          buildHighPriority(true, sharedFreqWords(),
-                            m_bypassAdc0Filters, m_bypassAdc1Filters,
-                            m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna,
-                            m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb, &m_receiveFilterPlan, m_frequencyCorrection, m_speakerAmpMuted),
-          m_host, kHighPriorityPort, m_txBytes);
+    sendHighPriority();
 }
 
 void P2Client::onConnectTimeout()
@@ -691,6 +689,8 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 // Cache only the resolved session profile; never rebuild
                 // retries from an automatic/default model or unvalidated reply.
                 m_generalPacket = buildGeneral(profile.alexEnableMask, profile.disablePa);
+                m_receiveDisablePa = profile.disablePa;
+                m_transmitProfile = p2TransmitProfile(reply->boardId, m_model);
                 m_generalClock.start();
                 m_nextGeneralRefreshMs = kGeneralRefreshMs;
                 // Publish identity only after profile validation, so the
@@ -707,12 +707,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                           buildDdcSpecific(m_activeDdcs, m_numAdcs,
                                            m_ditherEnabled, m_randomEnabled, m_firstDdcIndex),
                           m_host, kDdcSpecificPort, m_txBytes);
-                    sendTo(*m_socket,
-                          buildHighPriority(true, sharedFreqWords(),
-                                            m_bypassAdc0Filters, m_bypassAdc1Filters,
-                                            m_adc0AttenuationDb, m_adc1AttenuationDb,
-                                            m_rxAntenna, m_firstDdcIndex, m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr, m_alexAttenuationDb, &m_receiveFilterPlan, m_frequencyCorrection, m_speakerAmpMuted),
-                          m_host, kHighPriorityPort, m_txBytes);
+                    sendHighPriority();
                     m_keepaliveTimer->start();
                     if (m_speakerAudioEnabled) {
                         m_speakerClock.restart();
@@ -845,11 +840,19 @@ bool P2Client::setReceiveStreams(const std::vector<DdcConfig>& streams,
     onKeepaliveTick();
     return true;
 }
-void P2Client::sendMicOptions()
+bool P2Client::sendMicOptions()
 {
-    if (m_running && m_discoveryValidated && m_socket && m_micAvailable) {
-        sendTo(*m_socket, buildMicControl(m_mic, m_micSequence++), m_host, kMicControlPort, m_txBytes);
+    if (m_running && m_discoveryValidated && hasControlTransport()
+        && (m_micAvailable || m_transmitGate.enabled())) {
+        auto packet = buildMicControl(m_mic, m_micSequence++);
+        if (m_transmitGate.enabled()) {
+            // Thetis netInterface.c initialization: TX step attenuation starts at 31 dB.
+            packet[58] = m_numAdcs > 1 ? 31 : 0;
+            packet[59] = 31;
+        }
+        return sendControl(packet, kMicControlPort);
     }
+    return true;
 }
 void P2Client::setMicOptions(const MicOptions& options)
 {

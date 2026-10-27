@@ -1328,6 +1328,11 @@ target_include_directories(anan_p2_tx_stream_test PRIVATE src)
 target_link_libraries(anan_p2_tx_stream_test PRIVATE Qt6::Core)
 add_test(NAME anan_p2_tx_stream_test COMMAND anan_p2_tx_stream_test)
 
+# Real P2Client with injected terminal datagrams; no sockets or radio peer.
+add_executable(anan_p2_transmit_test tests/anan_p2_transmit_test.cpp)
+target_link_libraries(anan_p2_transmit_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME anan_p2_transmit_test COMMAND anan_p2_transmit_test)
+
 # Actual multi-receive DSP with injected writes; no socket peer.
 add_executable(anan_multi_receive_test tests/anan_multi_receive_test.cpp)
 target_include_directories(anan_multi_receive_test PRIVATE src tests)

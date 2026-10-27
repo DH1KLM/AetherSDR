@@ -775,7 +775,7 @@ int main(int argc, char** argv)
         check(c.maxSlices == 5 && c.maxPanadapters == 1,
               "five software slices; unknown hardware conservatively offers "
               "one capture");
-        check(!c.canTransmit, "canTransmit is false -- P2Client has no PTT capability");
+        check(!c.canTransmit, "desktop ANAN transmit admission remains disabled");
         check(c.hostModulates, "hostModulates true -- client-side WDSP, like the HL2");
         check(!c.radioOwnsDbmScale, "client computes the dBm scale");
         check(!c.hasTuner && !c.hasTunerMemories,

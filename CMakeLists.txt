@@ -944,6 +944,7 @@ set(CORE_SOURCES
     src/core/backends/anan/AnanClient.cpp    #DH1KLM: backend-private P1/P2 dispatch
     src/core/backends/anan/P2Protocol.cpp    # aetherd ANAN P2 Phase 1b (openHPSDR Protocol 2 wire codec)
     src/core/backends/anan/P2Client.cpp      # aetherd ANAN P2 Phase 1b (UDP wire + DDC0 ingest)
+    src/core/backends/anan/P2Client_Transmit.cpp
     src/core/backends/anan/AnanDiscovery.cpp # aetherd ANAN P2 Phase 1b (P2 discovery -> picker)
     src/core/backends/anan/AnanPanAnalyzer.cpp  # ANAN panadapter via WDSP's display analyzer
     src/core/backends/anan/AnanRxDsp.cpp     # aetherd ANAN P2 Phase 1b (IQ -> WdspChannel demod + spectrum)

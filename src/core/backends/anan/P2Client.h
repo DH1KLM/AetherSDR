@@ -3,6 +3,8 @@
 
 #include "core/backends/anan/P2Protocol.h"
 #include "core/backends/anan/AnanSpeakerPacing.h"
+#include "core/backends/anan/AnanP2TxControl.h"
+#include "core/backends/anan/AnanP2TxStream.h"
 
 #include <QByteArray>
 #include <QElapsedTimer>
@@ -28,7 +30,8 @@ namespace AetherSDR::anan {
 // High Priority with run=1), the keepalive that holds the radio in RUN, and DDC
 // IQ ingest. Lives on AnanBackend's I/O thread (like MetisClient for HL2) so a
 // GUI stall cannot starve the radio's watchdog.
-// RX-ONLY: no PTT exists here or in buildHighPriority() (TX is RFC §2.11 Phase 3).
+// TX stays disabled until configured and explicitly enabled; the desktop backend
+// still advertises receive-only. Key/IQ writes retain the engine's original grant.
 // The caller resolves the host, but this socket sends Discovery and validates the
 // physical board ID before any board-profile-specific session packets. Every
 // radio->PC stream goes to the source port of the Discovery packet (spec p.43, p.51,
@@ -92,6 +95,12 @@ public:
     // the stop (AnanBackend::kRateChangeConnectTimeoutMs).
     Q_INVOKABLE bool start(const Params& params, int connectTimeoutMs = kConnectTimeoutMs);
     Q_INVOKABLE void stop();
+
+    bool configureTransmit(const P2TxControl& control);
+    bool enableTransmit(bool enabled);
+    bool setTransmitKeying(bool key, const TxCoordinator::Operation& operation);
+    bool enqueueTransmitIq(std::span<const std::complex<float>> iq,
+        const TxCoordinator::Operation& operation, const TxCoordinator::Context& context);
 
     // Retune logical RX0 (physical DDC0 Saturn, DDC2 Orion MkII).
     // No frequency is set by start() itself (see the class
@@ -181,6 +190,7 @@ public:
     };
 
 signals:
+    void transmitFault(const QString& reason);
     void linkUp();       // first valid DDC0 frame seen
     void linkDown();     // stop() called, or a link failure once that exists
     // No DDC0 frame arrived within the connect-timeout window -- the radio
@@ -220,17 +230,40 @@ signals:
     void supplyRailSampled(int counts);
 
 private slots:
+    void onTransmitTick();
     void onReadyRead();
     void onKeepaliveTick();
     void onConnectTimeout();
     void onSpeakerDrainTick();
 
 private:
+    std::optional<ReceiveProfile> m_transmitProfile;
+    std::optional<P2TxControl> m_transmitControl;
+    AnanTxGate m_transmitGate;
+    AnanP2TxStream m_transmitStream;
+    TxCoordinator::Operation m_transmitOperation;
+    QTimer* m_transmitTimer = nullptr;
+    QElapsedTimer m_transmitClock;
+    bool m_transmitStreamStarted = false;
+    bool m_receiveDisablePa = true;
+    std::uint32_t m_highPrioritySequence = 0;
+    std::function<qint64(std::span<const std::uint8_t>, quint16)> m_controlSendOverride;
+    std::function<qint64()> m_transmitTimeOverride;
+    [[nodiscard]] qint64 transmitElapsedNs() const
+    { return m_transmitTimeOverride ? m_transmitTimeOverride() : m_transmitClock.nsecsElapsed(); }
+    [[nodiscard]] bool hasControlTransport() const { return m_socket || bool(m_controlSendOverride); }
+    bool sendControl(std::span<const std::uint8_t> packet, quint16 port);
+    HighPriorityPacket receiveHighPriority() const;
+    bool writeTransmitKey(bool key);
+    bool sendHighPriority();
+    void clearTransmitAudio();
+    void ensureTransmitTimer();
+    void abortTransmit(const QString& reason);
     MicOptions m_mic;
     bool m_micAvailable = false;
     bool m_xlrAvailable = false;
     std::uint32_t m_micSequence = 0;
-    void sendMicOptions();
+    bool sendMicOptions();
     ReceiveFilterPlan m_receiveFilterPlan;
     friend struct P2ClientTestAccess;
     // onReadyRead()'s socket-free half: drops anything not from m_host, so
