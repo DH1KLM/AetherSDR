@@ -133,8 +133,27 @@ state with the gate disabled. No callback result is qualified radio-idle
 evidence. The socket-free test exercises the real coordinator with injected
 terminal writes, including deadlines, revocation and stale producer cleanup.
 
-The encoder and gate have no live transport caller. Both ANAN variants remain receive-only
-in the application. TX DSP, packet pacing, model-specific transmit filters,
+`AnanTxDsp` supplies the initial USB/LSB TXA path: 24 kHz client audio,
+96 kHz internal DSP (Thetis `cmaster.c`), and 192 kHz P2 I/Q. Each exchange
+consumes 128 audio samples and produces 1024 I/Q pairs. The signed 300–2700 Hz
+passband selects the sideband; TXA output keeps HPSDR wire handedness. Exchanges
+wait for readiness at the caller, not inside WDSP. Invalid input, expired media
+and DSP errors retire the over. Explicit begin/end discards TXA's queued data
+and filter history. A fixed 0.5 output scale reserves digital headroom;
+non-finite or excessive internal output is refused rather than clipped. This
+is not PA calibration or a completed microphone/ALC control surface.
+
+`AnanP2TxStream` preserves samples across DSP block boundaries in a fixed
+3840-sample queue (20 ms at 192 kHz). Injected monotonic deadlines space packets
+by 1.25 ms. Each callback emits at most one packet; long stalls, overflow,
+invalid samples and changed media provenance discard the queue. Underflow
+emits a zero packet while preserving an incomplete sample group. Every write
+passes through the TX gate with its captured operation and media context.
+The transport owner must clear the stream on unkey and stop on a refused pump;
+there is no live timer or socket wiring yet.
+
+The components have no live transport caller. Both ANAN variants remain receive-only
+in the application. Model-specific transmit filters,
 drive control, operation-fenced PTT/TUNE, stop/timeout handling and hardware
 qualification remain to be implemented before enabling transmission.
 

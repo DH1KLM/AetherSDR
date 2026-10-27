@@ -1317,6 +1317,17 @@ target_include_directories(anan_tx_gate_test PRIVATE src)
 target_link_libraries(anan_tx_gate_test PRIVATE Qt6::Core)
 add_test(NAME anan_tx_gate_test COMMAND anan_tx_gate_test)
 
+# Real WDSP TXA and sample-clocked packetizer, with no radio sockets.
+add_executable(anan_tx_dsp_test tests/anan_tx_dsp_test.cpp)
+target_link_libraries(anan_tx_dsp_test PRIVATE aethercore Qt6::Core)
+add_test(NAME anan_tx_dsp_test COMMAND anan_tx_dsp_test)
+set_tests_properties(anan_tx_dsp_test PROPERTIES TIMEOUT 120)
+add_executable(anan_p2_tx_stream_test tests/anan_p2_tx_stream_test.cpp
+    src/core/TxCoordinator.cpp src/core/backends/anan/P1Protocol.cpp src/core/backends/anan/P2Protocol.cpp)
+target_include_directories(anan_p2_tx_stream_test PRIVATE src)
+target_link_libraries(anan_p2_tx_stream_test PRIVATE Qt6::Core)
+add_test(NAME anan_p2_tx_stream_test COMMAND anan_p2_tx_stream_test)
+
 # Actual multi-receive DSP with injected writes; no socket peer.
 add_executable(anan_multi_receive_test tests/anan_multi_receive_test.cpp)
 target_include_directories(anan_multi_receive_test PRIVATE src tests)
