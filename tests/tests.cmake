@@ -1332,6 +1332,10 @@ add_test(NAME anan_p2_tx_stream_test COMMAND anan_p2_tx_stream_test)
 add_executable(anan_p2_transmit_test tests/anan_p2_transmit_test.cpp)
 target_link_libraries(anan_p2_transmit_test PRIVATE aethercore Qt6::Core Qt6::Network)
 add_test(NAME anan_p2_transmit_test COMMAND anan_p2_transmit_test)
+add_executable(anan_tx_audio_test tests/anan_tx_audio_test.cpp)
+target_link_libraries(anan_tx_audio_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME anan_tx_audio_test COMMAND anan_tx_audio_test)
+set_tests_properties(anan_tx_audio_test PROPERTIES TIMEOUT 120)
 
 # Actual multi-receive DSP with injected writes; no socket peer.
 add_executable(anan_multi_receive_test tests/anan_multi_receive_test.cpp)

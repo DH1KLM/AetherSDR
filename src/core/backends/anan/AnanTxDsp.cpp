@@ -13,6 +13,7 @@ bool AnanTxDsp::configure(WdspChannel::Mode mode, std::string* error)
 {
     end();
     m_channel.reset();
+    m_mode.reset();
     if (mode != WdspChannel::Mode::Usb && mode != WdspChannel::Mode::Lsb) {
         if (error) { *error = "ANAN TX currently supports USB and LSB only"; }
         return false;
@@ -36,6 +37,7 @@ bool AnanTxDsp::configure(WdspChannel::Mode mode, std::string* error)
         if (error) { *error = "ANAN TX initial discard failed"; }
         return false;
     }
+    m_mode = mode;
     return true;
 }
 

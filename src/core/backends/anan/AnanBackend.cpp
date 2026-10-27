@@ -540,7 +540,7 @@ RadioCapabilities AnanBackend::capabilities() const
     c.receivePanBandwidthControl = ReceivePanRangeControl{SliceFrequencyControl::Authority::Engine,
         48'000, m_pendingParams.protocol == 1
             ? (m_pendingParams.redPitayaP1 ? 384'000 : 192'000) : 1'536'000};
-    c.canTransmit = false;         // P2Client has no PTT capability -- see class comment
+    c.canTransmit = false;         // Desktop admission awaits TX setup and calibrated drive.
     c.txPowerMaxWatts = 0.0;
     c.hostModulates = true;        // client-side WDSP, like the HL2
     c.takesTxAudioOverSeam = true; // moot while canTransmit is false
@@ -837,6 +837,8 @@ void AnanBackend::seedDroopCorrectionTables(bool useSaturnDefaults)
 
 void AnanBackend::connectRadio(const RadioConnectRequest& request)
 {
+    m_transmitOperation = {};
+    m_transmitQueuedBytes = std::make_shared<std::atomic<std::size_t>>(0);
     clearAdditionalRx();
     m_rxAntenna = AnanSettings::rxAntenna();
     const QHostAddress hostAddr(request.host);
@@ -1152,6 +1154,8 @@ void AnanBackend::startP2ClientSession(quint64 generation)
 
 void AnanBackend::disconnectRadio()
 {
+    m_transmitOperation = {};
+    m_transmitQueuedBytes = std::make_shared<std::atomic<std::size_t>>(0);
     m_receiveCalibrationRun.reset();
     ++m_receiveCalibrationToken;
     clearAdditionalRx();
@@ -1990,20 +1994,6 @@ void AnanBackend::setCwPitch(int hz)
     if (m_ctun) { scheduleTuneApply(); }
     pushModeFilterShift();
     emitSliceState();
-}
-
-void AnanBackend::setKeying(bool key, const AetherSDR::TxCoordinator::Operation& operation, const AetherSDR::TxCoordinator::Completion& completion)
-{
-    Q_UNUSED(operation);
-    Q_UNUSED(completion);
-    // canTransmit is false and P2Client has no PTT capability -- there is
-    // nothing this method could do even if the engine's TX guard (which
-    // gates every call site above this seam) let a key-on request through.
-    // A key-on request reaching here at all means that guard was bypassed,
-    // which is itself the bug to chase -- not something to silently absorb.
-    if (key)
-        qWarning("AnanBackend::setKeying(true) called on a receive-only backend "
-                 "(canTransmit=false) -- the engine TX guard should have refused this");
 }
 
 QString AnanBackend::persistDroopTables(const QMap<int, anan::DroopCorrectionTable>& tables)

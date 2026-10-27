@@ -37,8 +37,8 @@ namespace AetherSDR::anan {
 //    - CTUN holds the DDC centre while the slice tunes digitally within its sampled span.
 //    - capabilities() reports the physical board family; gateware, receiver count and board
 //      id come from this session's Discovery reply once it lands.
-//    - setKeying() is a no-op: canTransmit is false and P2Client has no PTT
-//      (TX is RFC §2.11 Phase 3).
+//    - Internal P2 TX commands require a separately prepared audio/transport
+//      session; desktop transmit admission remains disabled during rollout.
 //  Receive handedness lives entirely in AnanRxDsp (see docs/HERMES.md §16).
 class AnanBackend : public IRadioBackend {
     Q_OBJECT
@@ -113,6 +113,8 @@ public:
     void setPanPixelWidth(const QString& panId, int pixels) override;
     void setCwPitch(int hz) override;
     void setKeying(bool key, const AetherSDR::TxCoordinator::Operation& operation, const AetherSDR::TxCoordinator::Completion& completion = {}) override;
+    void submitTxAudio(const QByteArray& pcm, int sampleRateHz, TxAudioSource source,
+        const TxCoordinator::Context& context) override;
     void invokeExtension(const QString& ns, const QString& verb,
                          quint64 requestId, const QVariant& arg = {}) override;
     // Transport snapshot for the status bar's Network field and Network
@@ -455,6 +457,9 @@ private:
 
     QThread* m_ioThread = nullptr;
     AnanClient* m_client = nullptr;    // lives on m_ioThread; nullptr parent (moveToThread requires it)
+    TxCoordinator::Operation m_transmitOperation;
+    std::shared_ptr<std::atomic<std::size_t>> m_transmitQueuedBytes
+        = std::make_shared<std::atomic<std::size_t>>(0);
     AnanRxDsp* m_dsp = nullptr;      // lives on m_ioThread; nullptr parent
     // Build-only thread for a rate change's background AnanRxDsp::buildChannel()
     // call -- never touches P2Client or the real-time IQ path, so it can never

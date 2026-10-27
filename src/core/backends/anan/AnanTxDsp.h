@@ -6,6 +6,7 @@
 #include <array>
 #include <complex>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -26,6 +27,7 @@ public:
     bool configure(WdspChannel::Mode mode, std::string* error = nullptr);
     bool begin(const TxCoordinator::Context& context, qint64 now);
     bool end();
+    [[nodiscard]] std::optional<WdspChannel::Mode> mode() const noexcept { return m_mode; }
     Result process(std::span<const float> mono, const TxCoordinator::Context& context,
                    qint64 now, std::span<std::complex<float>> output);
 
@@ -33,6 +35,7 @@ private:
     std::unique_ptr<WdspChannel> m_channel;
     TxCoordinator::Context m_context;
     bool m_active = false;
+    std::optional<WdspChannel::Mode> m_mode;
     std::array<float, kInputSamples> m_zeroQ{};
     std::array<float, kOutputSamples> m_i{};
     std::array<float, kOutputSamples> m_q{};

@@ -1,6 +1,12 @@
 #pragma once
 
 #include "core/backends/anan/P1Client.h"
+#include "core/backends/anan/AnanTxDsp.h"
+#include "core/backends/TxAudioSource.h"
+
+#include <array>
+#include <memory>
+#include <optional>
 
 namespace AetherSDR::anan {
 // Backend-private protocol dispatch. Both child clients follow this
@@ -9,10 +15,18 @@ class AnanClient : public QObject {
     Q_OBJECT
 public:
     explicit AnanClient(QObject* parent = nullptr);
+    ~AnanClient() override;
     struct Params : P2Client::Params { int protocol = 2; };
     using LinkCounters = P2Client::LinkCounters;
     bool start(const Params& params, int timeoutMs = 2000);
     Q_INVOKABLE void stop();
+    // Build the DSP on the existing planning worker before transferring it here.
+    bool prepareTransmit(std::unique_ptr<AnanTxDsp> dsp, const P2TxControl& control);
+    [[nodiscard]] std::optional<WdspChannel::Mode> transmitMode() const
+    { return m_transmitDsp ? m_transmitDsp->mode() : std::nullopt; }
+    bool setTransmitKeying(bool key, const TxCoordinator::Operation& operation);
+    bool submitTransmitAudio(const QByteArray& pcm, int rate, TxAudioSource source,
+        const TxCoordinator::Operation& operation, const TxCoordinator::Context& context);
     Q_INVOKABLE void setDdc0FrequencyHz(double hz);
     Q_INVOKABLE void setFrequencyCorrection(double factor);
     Q_INVOKABLE void setSpeakerAmpMuted(bool muted);
@@ -28,6 +42,7 @@ public:
     Q_INVOKABLE bool setDdcRateLive(int ddc, int rateKsps);
     Q_INVOKABLE void enqueueSpeakerAudio(const QByteArray& audio);
 signals:
+    void transmitFault(const QString& reason);
     void linkUp();
     void linkDown();
     void connectionError(const QString& reason);
@@ -38,6 +53,20 @@ signals:
     void discoveryInfoReceived(quint8 boardId, quint8 firmwareVer, quint8 reportedReceivers);
     void supplyRailSampled(int counts);
 private:
+    static constexpr std::size_t kTransmitAudioCapacity = 2048;
+    std::unique_ptr<AnanTxDsp> m_transmitDsp;
+    TxCoordinator::Operation m_transmitOperation;
+    TxCoordinator::Context m_transmitContext;
+    std::optional<TxAudioSource> m_transmitSource;
+    std::array<float, kTransmitAudioCapacity> m_transmitAudio{};
+    std::size_t m_transmitHead = 0;
+    std::size_t m_transmitCount = 0;
+    QTimer* m_transmitAudioTimer = nullptr;
+    bool m_transmitKeyed = false;
+    bool m_transmitMediaStarted = false;
+    void clearTransmitAudio();
+    void failTransmit(const QString& reason);
+    void pumpTransmitAudio();
     friend struct AnanClientTestAccess;
     P1Client* m_p1;
     P2Client* m_p2;

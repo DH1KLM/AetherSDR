@@ -43,6 +43,12 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
     connect(m_p2, &P2Client::supplyRailSampled, this, [this](int counts) {
         if (m_protocol == 2) emit supplyRailSampled(counts);
     });
+    connect(m_p2, &P2Client::transmitFault, this, [this](const QString& reason) {
+        clearTransmitAudio();
+        m_transmitKeyed = false;
+        m_transmitOperation = {};
+        emit transmitFault(reason);
+    });
 }
 
 bool AnanClient::start(const Params& params, int timeoutMs)
@@ -53,9 +59,14 @@ bool AnanClient::start(const Params& params, int timeoutMs)
     m_protocol = params.protocol;
     return m_protocol == 1 ? m_p1->start(params, timeoutMs) : m_p2->start(params, timeoutMs);
 }
+AnanClient::~AnanClient() { stop(); }
 void AnanClient::stop()
 {
     if (m_protocol == 1) m_p1->stop(); else m_p2->stop();
+    clearTransmitAudio();
+    m_transmitDsp.reset();
+    m_transmitOperation = {};
+    m_transmitKeyed = false;
 }
 void AnanClient::setDdc0FrequencyHz(double hz)
 {

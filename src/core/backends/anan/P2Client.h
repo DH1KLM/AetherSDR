@@ -101,6 +101,9 @@ public:
     bool setTransmitKeying(bool key, const TxCoordinator::Operation& operation);
     bool enqueueTransmitIq(std::span<const std::complex<float>> iq,
         const TxCoordinator::Operation& operation, const TxCoordinator::Context& context);
+    [[nodiscard]] bool transmitActive() const { return m_transmitGate.keyCommandAccepted(); }
+    [[nodiscard]] std::size_t transmitQueueFreeSamples() const
+    { return AnanP2TxStream::kCapacity - m_transmitStream.queuedSamples(); }
 
     // Retune logical RX0 (physical DDC0 Saturn, DDC2 Orion MkII).
     // No frequency is set by start() itself (see the class

@@ -167,12 +167,28 @@ Alex0 relay bit; MkII BPF2 grounding is independent of ADC count. Key-off restor
 the latest complete RX state. TX-Specific sets the 192 ksps DUC rate and 31 dB
 TX ADC attenuation, matching Thetis initialization.
 
+`AnanClient` bridges prepared TXA channels and 24 kHz host-order int16 stereo
+PCM. It averages the channels, preserves the original operation/media context
+and origin, and exchanges one nonblocking 128-sample block per pump. The PCM
+ring holds at most 2048 frames; P2 capacity applies backpressure before DSP
+exchange. Rate/format errors, overflow, changed source and expired provenance
+stop TX. Key-off reaches the transport before discarding DSP history. A new
+over reuses plans without replaying partial PCM or a previous filter tail.
+Channel construction remains the planning worker's responsibility; preparation
+is not automatic during receive-only startup.
+
+`AnanBackend` carries the canonical keying command and processed-audio seam to
+that adapter on the existing I/O thread. It verifies protocol, model and prepared
+mode, and limits queued PCM to 8192 bytes. Shared RAII credits return that budget
+even when Qt discards a queued delivery, while connection changes replace the
+budget ledger. Completion marks local queue consumption only, not radio idle.
+
 The transport covers native board IDs 1–5, 10 and 20. Ambiguous IDs 5 and 10
 require explicit model selection. Cross-board receive overrides, Red Pitaya,
 Anvelina Pro III and G2 1K have no TX admission. Receive support is unchanged.
-Both desktop ANAN variants still advertise receive-only: the main backend's
-PTT/TUNE and audio-source routing, calibrated power control, P1 transmit and
-hardware qualification remain open. The original Saturn implementation is
+Both desktop ANAN variants still advertise receive-only: operator-facing TX
+preparation/admission, microphone gain, finite-stream drain, TUNE, calibrated
+power control, P1 transmit and hardware qualification remain open. The original Saturn implementation is
 unchanged. Tests inject the real client's terminal writes and clocks without
 opening radio sockets.
 
