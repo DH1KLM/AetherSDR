@@ -306,8 +306,7 @@ private:
     void prepareTransmitDsp();
     void cancelTransmitPreparation();
     QString transmitPreparationIdentity() const;
-    // The existing planner alone constructs and destroys this channel.
-    std::unique_ptr<AnanTxDsp> m_plannedTransmitDsp;
+
     std::shared_ptr<std::atomic<bool>> m_transmitPlanCancelled;
     quint64 m_transmitPlanTicket = 0;
     QString m_transmitPlanIdentity;

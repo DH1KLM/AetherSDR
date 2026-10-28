@@ -62,6 +62,7 @@ bool AnanClient::start(const Params& params, int timeoutMs)
 AnanClient::~AnanClient() { stop(); }
 void AnanClient::stop()
 {
+    m_transmitConfigured = false;
     if (m_protocol == 1) m_p1->stop(); else m_p2->stop();
     clearTransmitAudio();
     m_transmitDsp.reset();

@@ -27,6 +27,9 @@
 
 using namespace AetherSDR;
 namespace AetherSDR::anan {
+struct AnanClientTestAccess {
+    static bool configured(const AnanClient& client) { return client.m_transmitConfigured; }
+};
 class AnanLinkStatsTestAccess {
 public:
     static void prepare(AnanBackend& backend, int protocol, bool redPitaya, int board = 5,
@@ -56,16 +59,18 @@ public:
     static bool plannedChannel(AnanBackend& backend)
     {
         bool present = false;
-        QMetaObject::invokeMethod(backend.m_dspBuildContext,[&] { present = backend.m_plannedTransmitDsp != nullptr; },Qt::BlockingQueuedConnection);
+        QMetaObject::invokeMethod(backend.m_dspBuildContext,[] {},Qt::BlockingQueuedConnection);
+        QMetaObject::invokeMethod(backend.m_client,[&] { present = backend.m_client->transmitMode().has_value(); },Qt::BlockingQueuedConnection);
         return present;
     }
     static bool planReady(const AnanBackend& backend) { return backend.m_transmitPlanReady; }
     static bool transportPrepared(AnanBackend& backend)
     {
         bool present = false;
-        QMetaObject::invokeMethod(backend.m_client,[&] { present = backend.m_client->transmitMode().has_value(); },Qt::BlockingQueuedConnection);
+        QMetaObject::invokeMethod(backend.m_client,[&] { present = AnanClientTestAccess::configured(*backend.m_client); },Qt::BlockingQueuedConnection);
         return present;
-    }    static void publish(AnanBackend& backend) { backend.emitPanState(); backend.emitSliceState(); }
+    }
+    static void publish(AnanBackend& backend) { backend.emitPanState(); backend.emitSliceState(); }
     static void connected(AnanBackend& backend, bool connected) { backend.m_connected = connected; }
     static void calibrationMode(AnanBackend& backend)
     {
@@ -152,7 +157,7 @@ int main(int argc, char** argv)
             app.processEvents(); QThread::msleep(1);
         }
         check(anan::AnanLinkStatsTestAccess::planReady(*backend)
-              && anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "actual TX DSP is built asynchronously on existing planner");
+              && anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "actual TX DSP is built on planner and staged on the I/O thread");
         check(!anan::AnanLinkStatsTestAccess::transportPrepared(*backend)
               && !backend->capabilities().canTransmit, "DSP preparation does not install transport or enable TX");
         backend->setSliceMode(0,QStringLiteral("LSB"));

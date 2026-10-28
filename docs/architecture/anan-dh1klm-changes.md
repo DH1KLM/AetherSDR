@@ -206,14 +206,21 @@ A gain of 100 dB remains a gain, never a full-drive sentinel. Preview output is
 not applied to the live transmitter. Actual PA calibration, modulation scaling
 (including the TX DSP's fixed headroom) and measured RF power remain unqualified.
 The UI includes only backend-neutral model/seam headers; it adds no wire path.
-`txdsp.prepare` explicitly builds a standalone `AnanTxDsp` on the existing
-`anan-dsp-build` worker. The planner retains ownership; no transfer to
-`AnanClient`, P2 configuration or TX admission occurs. Completion carries only
-a ticket and status to the backend, never a channel whose queued callback could
-be destroyed on the GUI thread. Cancellation tokens are checked before and after
-WDSP construction. Replaced jobs, mode changes and connection generations cannot
-publish a stale ready state. Queued discard and the destructor's final worker
-barrier release WDSP/FFTW resources on the planner before it is joined.
+`txdsp.prepare` explicitly builds an `AnanTxDsp` on the existing
+`anan-dsp-build` worker and stages it in `AnanClient` on the existing I/O thread.
+Staging has no P2 configuration or enable side effect. A separate transport-
+configured flag refuses keying even with a valid operation while only a staged
+channel exists. The desktop still advertises receive-only.
+
+Shared handles defer the final destruction of DSP resources to the planner,
+including cancelled or dropped queued transfers. Completion carries only a
+ticket and status to the backend. Cancellation is checked before and after
+construction and before staging; mode and connection identities fence readiness.
+Shutdown stops I/O first, drains planning producers, drains their late I/O
+transfers and stops I/O again, then drains retirement before joining the planner.
+No queued transfer can outlive its retirement context. Actual prepared TX paths,
+failed preparation and replacement also use the same retirement ownership.
+
 ## Verification
 
 Validation is recorded separately in the local working state after the

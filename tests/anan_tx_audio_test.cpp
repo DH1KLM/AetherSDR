@@ -1,4 +1,6 @@
 #include "core/backends/anan/AnanClient.h"
+#include "core/backends/anan/AnanPlannedResource.h"
+#include <atomic>
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -63,6 +65,7 @@ QByteArray pcm(std::size_t frames, std::size_t offset = 0)
 }
 struct Fixture {
     qint64 clockNs = 0;
+    std::size_t controlWrites = 0;
     std::vector<TxIqPacket> packets;
     TxCoordinator coordinator{[](const auto&, auto) {}};
     TxCoordinator::Actor actor = coordinator.registerActor({true,0});
@@ -74,6 +77,7 @@ struct Fixture {
     {
         P2ClientTestAccess::prepare(AnanClientTestAccess::p2(client), clockNs,
             [this](auto bytes, quint16 port) {
+                ++controlWrites;
                 if (port == kTxIqPort) {
                     check(coordinator.hasInFlightDispatches(), "PCM-to-IQ terminal write retains its grant");
                     TxIqPacket packet{};
@@ -152,6 +156,46 @@ void pcmToWire()
     f.producer.invalidate();
     AnanClientTestAccess::pump(f.client);
     check(!f.keyed(), "expired media stops the voice envelope");
+}
+void plannedRetirement()
+{
+    QThread worker;
+    QObject planner;
+    QThread* caller = QThread::currentThread();
+    planner.moveToThread(&worker);
+    worker.start();
+    std::atomic<QThread*> retiredOn{nullptr};
+    struct Probe {
+        std::atomic<QThread*>& retiredOn;
+        ~Probe() { retiredOn.store(QThread::currentThread()); }
+    };
+    auto resource = retainPlannedResource(std::make_unique<Probe>(retiredOn),&planner);
+    resource.reset();
+    QMetaObject::invokeMethod(&planner,[] {},Qt::BlockingQueuedConnection);
+    check(retiredOn.load() == &worker, "last consumer reference retires on planner");
+    retiredOn.store(nullptr);
+    {
+        QObject droppedDelivery;
+        auto pending = retainPlannedResource(std::make_unique<Probe>(retiredOn),&planner);
+        QMetaObject::invokeMethod(&droppedDelivery,[pending = std::move(pending)] {},Qt::QueuedConnection);
+    }
+    QMetaObject::invokeMethod(&planner,[] {},Qt::BlockingQueuedConnection);
+    check(retiredOn.load() == &worker, "discarded queued delivery also retires on planner");
+    QMetaObject::invokeMethod(&planner,[&] { planner.moveToThread(caller); },Qt::BlockingQueuedConnection);
+    worker.quit(); worker.wait();
+}
+
+void stagedDoesNotKey()
+{
+    Fixture f;
+    const std::size_t before = f.controlWrites;
+    auto dsp = std::make_unique<AnanTxDsp>();
+    check(dsp->configure(WdspChannel::Mode::Usb), "staging fixture builds real DSP");
+    check(f.client.stageTransmitDsp(retainPlannedResource(std::move(dsp),nullptr)), "local staging accepts valid DSP");
+    check(!f.client.setTransmitKeying(true,f.operation) && !f.keyed(), "staged DSP alone refuses even authorized key request");
+    f.client.discardStagedTransmit();
+    check(!f.client.transmitMode(), "discard removes staged DSP");
+    check(f.controlWrites == before, "staging, refused key and discard send no radio packets");
 }
 void refusalPaths()
 {

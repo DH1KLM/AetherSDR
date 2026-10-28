@@ -236,6 +236,9 @@ AnanBackend::AnanBackend(QObject* parent)
     // io thread takes in WdspChannel::setShift, so lower would be a priority
     // inversion. Idle except during a rebuild.
     AetherSDR::startStreamThread(m_dspBuildThread);
+    QMetaObject::invokeMethod(m_client,[client = m_client, planner = m_dspBuildContext] {
+        client->setTransmitPlanner(planner);
+    },Qt::BlockingQueuedConnection);
 
     // Both live on the I/O thread -- a same-thread call either way, but
     // explicit to document intent and match Hl2Backend's own explicit
@@ -427,7 +430,10 @@ AnanBackend::~AnanBackend()
     if(m_client&&m_ioThread&&m_ioThread->isRunning())
         QMetaObject::invokeMethod(m_client,[]{},Qt::BlockingQueuedConnection);
     if (m_dspBuildThread) {
-        QMetaObject::invokeMethod(m_dspBuildContext,[this] { m_plannedTransmitDsp.reset(); },Qt::BlockingQueuedConnection);
+        // Finish producers, drain their late I/O deliveries, then drain retirement.
+        QMetaObject::invokeMethod(m_dspBuildContext,[] {},Qt::BlockingQueuedConnection);
+        QMetaObject::invokeMethod(m_client,"stop",Qt::BlockingQueuedConnection);
+        QMetaObject::invokeMethod(m_dspBuildContext,[] {},Qt::BlockingQueuedConnection);
         m_dspBuildThread->quit();
         m_dspBuildThread->wait();
     }

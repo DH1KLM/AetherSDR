@@ -121,7 +121,7 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
             cancelDsp->setEnabled(preparing || ready);
             const QString failure = preparation.value(QStringLiteral("error")).toString();
             dspStatus->setText(preparing ? QStringLiteral("Preparing TX DSP on the planning worker. Transmission remains disabled.")
-                : ready ? QStringLiteral("TX DSP prepared for %1. Not installed in the transmitter; transmission remains disabled.").arg(preparation.value(QStringLiteral("mode")).toString())
+                : ready ? QStringLiteral("TX DSP prepared for %1. Staged in the audio path; radio transmit remains disabled.").arg(preparation.value(QStringLiteral("mode")).toString())
                 : failure.isEmpty() ? QStringLiteral("TX DSP not prepared. Transmission remains disabled.")
                 : QStringLiteral("TX DSP preparation failed: %1").arg(failure));
             state->reference = data.value(QStringLiteral("reference")).toMap();

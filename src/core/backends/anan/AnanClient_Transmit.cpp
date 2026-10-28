@@ -1,4 +1,5 @@
 #include "AnanClient.h"
+#include "AnanPlannedResource.h"
 
 #include <QTimer>
 
@@ -8,14 +9,32 @@
 namespace AetherSDR::anan {
 bool AnanClient::prepareTransmit(std::unique_ptr<AnanTxDsp> dsp, const P2TxControl& control)
 {
-    if (m_protocol != 2 || m_transmitKeyed || !dsp || !dsp->mode()) { return false; }
+    auto owned = retainPlannedResource(std::move(dsp),m_transmitPlanner);
+    if (m_protocol != 2 || m_transmitKeyed || !owned || !owned->mode()) { return false; }
+    m_transmitConfigured = false;
     if (!m_p2->enableTransmit(false) || !m_p2->configureTransmit(control)
         || !m_p2->enableTransmit(true)) { return false; }
+    clearTransmitAudio();
+    m_transmitDsp = std::move(owned);
+    m_transmitConfigured = true;
+    return true;
+}
+
+
+bool AnanClient::stageTransmitDsp(std::shared_ptr<AnanTxDsp> dsp)
+{
+    if (m_protocol != 2 || m_transmitKeyed || m_transmitConfigured || !dsp || !dsp->mode()) { return false; }
     clearTransmitAudio();
     m_transmitDsp = std::move(dsp);
     return true;
 }
 
+void AnanClient::discardStagedTransmit()
+{
+    if (m_transmitConfigured || m_transmitKeyed) { return; }
+    clearTransmitAudio();
+    m_transmitDsp.reset();
+}
 void AnanClient::clearTransmitAudio()
 {
     if (m_transmitAudioTimer) { m_transmitAudioTimer->stop(); }
@@ -40,7 +59,7 @@ void AnanClient::failTransmit(const QString& reason)
 
 bool AnanClient::setTransmitKeying(bool key, const TxCoordinator::Operation& operation)
 {
-    if (m_protocol != 2 || (key && !m_transmitDsp)) { return false; }
+    if (m_protocol != 2 || (key && (!m_transmitDsp || !m_transmitConfigured))) { return false; }
     if (!key && !operation.sameAuthority(m_transmitOperation)) { return false; }
     if (key && !m_p2->transmitActive()) { clearTransmitAudio(); }
     if (key && !m_transmitDsp) { m_p2->enableTransmit(false); return false; }

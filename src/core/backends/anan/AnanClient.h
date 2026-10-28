@@ -22,6 +22,9 @@ public:
     Q_INVOKABLE void stop();
     // Build the DSP on the existing planning worker before transferring it here.
     bool prepareTransmit(std::unique_ptr<AnanTxDsp> dsp, const P2TxControl& control);
+    void setTransmitPlanner(QObject* planner) { m_transmitPlanner = planner; }
+    bool stageTransmitDsp(std::shared_ptr<AnanTxDsp> dsp);
+    void discardStagedTransmit();
     [[nodiscard]] std::optional<WdspChannel::Mode> transmitMode() const
     { return m_transmitDsp ? m_transmitDsp->mode() : std::nullopt; }
     bool setTransmitKeying(bool key, const TxCoordinator::Operation& operation);
@@ -54,7 +57,9 @@ signals:
     void supplyRailSampled(int counts);
 private:
     static constexpr std::size_t kTransmitAudioCapacity = 2048;
-    std::unique_ptr<AnanTxDsp> m_transmitDsp;
+    std::shared_ptr<AnanTxDsp> m_transmitDsp;
+    QObject* m_transmitPlanner = nullptr;
+    bool m_transmitConfigured = false;
     TxCoordinator::Operation m_transmitOperation;
     TxCoordinator::Context m_transmitContext;
     std::optional<TxAudioSource> m_transmitSource;

@@ -1,6 +1,7 @@
 #include "AnanBackend.h"
 #include "AnanSettings.h"
 #include "AnanTransmitPower.h"
+#include "AnanPlannedResource.h"
 
 #include <QMetaObject>
 #include <atomic>
@@ -56,8 +57,8 @@ void AnanBackend::cancelTransmitPreparation()
     m_transmitPlanReady = false;
     m_transmitPlanIdentity.clear();
     m_transmitPlanError.clear();
-    if (m_dspBuildContext && m_dspBuildThread && m_dspBuildThread->isRunning()) {
-        QMetaObject::invokeMethod(m_dspBuildContext,[this] { m_plannedTransmitDsp.reset(); },Qt::QueuedConnection);
+    if (m_client && m_ioThread && m_ioThread->isRunning()) {
+        QMetaObject::invokeMethod(m_client,[client = m_client] { client->discardStagedTransmit(); },Qt::QueuedConnection);
     }
 }
 
@@ -88,15 +89,21 @@ void AnanBackend::prepareTransmitDsp()
         std::string error;
         const bool ok = channel->configure(mode,&error);
         if (cancelled->load()) { return; }
-        if (ok) { m_plannedTransmitDsp = std::move(channel); }
-        QMetaObject::invokeMethod(this,[this,ticket,ok,error = QString::fromStdString(error)] {
-            if (ticket != m_transmitPlanTicket) { return; }
-            if (!m_connected || m_transmitPlanIdentity != transmitPreparationIdentity()) {
-                cancelTransmitPreparation(); return;
-            }
-            m_transmitPlanBuilding = false;
-            m_transmitPlanReady = ok;
-            m_transmitPlanError = ok ? QString() : error;
+        auto prepared = retainPlannedResource(std::move(channel),m_dspBuildContext);
+        QMetaObject::invokeMethod(m_client,[this,cancelled,ticket,ok,prepared = std::move(prepared),
+                                          error = QString::fromStdString(error)]() mutable {
+            if (cancelled->load()) { return; }
+            const bool installed = ok && m_client->stageTransmitDsp(std::move(prepared));
+            QMetaObject::invokeMethod(this,[this,ticket,installed,error] {
+                if (ticket != m_transmitPlanTicket) { return; }
+                if (!m_connected || m_transmitPlanIdentity != transmitPreparationIdentity()) {
+                    cancelTransmitPreparation(); return;
+                }
+                m_transmitPlanBuilding = false;
+                m_transmitPlanReady = installed;
+                m_transmitPlanError = installed ? QString() : error.isEmpty()
+                    ? QStringLiteral("TX audio path refused the prepared DSP") : error;
+            },Qt::QueuedConnection);
         },Qt::QueuedConnection);
     },Qt::QueuedConnection);
 }
