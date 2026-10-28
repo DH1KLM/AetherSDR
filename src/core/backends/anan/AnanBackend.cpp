@@ -314,6 +314,7 @@ AnanBackend::AnanBackend(QObject* parent)
         }
     });
     connect(m_client, &AnanClient::linkDown, this, [this] {
+        cancelTransmitPreparation();
         m_connected = false;
         if (!m_rateChanging) {
             clearAdditionalRx();
@@ -327,6 +328,16 @@ AnanBackend::AnanBackend(QObject* parent)
     });
     connect(m_client, &AnanClient::connectionError, this,
             [this](const QString& reason) { emit connectionError(reason); });
+    connect(m_client,&AnanClient::transmitFault,this,[this](const QString& reason) {
+        disableTransmitSession();
+        m_txSessionError = reason;
+    });
+    auto* txWatch = new QTimer(this);
+    txWatch->setInterval(200);
+    connect(txWatch,&QTimer::timeout,this,[this] {
+        if (m_txSessionEnabled && !transmitSessionCurrent()) { disableTransmitSession(); }
+    });
+    txWatch->start();
     // Drops reach the readout through the counters snapshot below, which
     // carries the same total on a fixed cadence. Not wired per-drop: the
     // LinkStats tick is deliberately periodic rather than event-driven, so a
@@ -461,6 +472,8 @@ RadioCapabilities AnanBackend::capabilities() const
         {PanLifecycleAction::Create, PanLifecycleAction::Remove}};
     // No setTune() implementation, so no tune generator to select a mode on.
     c.twoToneGenerator = std::nullopt;
+    c.tuneCarrierControl = TuneCarrierControl{TuneCarrierControl::Modes::None};
+    c.hasCwTune = false;
     c.firmwareUpdateSource = std::nullopt;  // gateware number; no published list covers it.
     // No VOX, monitor or speech-processor setters. PROC would be the host
     // ClientComp, but canTransmit is false below, so nothing serves it and the
@@ -549,17 +562,16 @@ RadioCapabilities AnanBackend::capabilities() const
     c.receivePanBandwidthControl = ReceivePanRangeControl{SliceFrequencyControl::Authority::Engine,
         48'000, m_pendingParams.protocol == 1
             ? (m_pendingParams.redPitayaP1 ? 384'000 : 192'000) : 1'536'000};
-    c.canTransmit = false;         // Desktop admission awaits TX setup and calibrated drive.
-    c.txPowerMaxWatts = 0.0;
+    c.canTransmit = transmitSessionCurrent();
+    c.txPowerMaxWatts = c.canTransmit && m_txSessionProfile
+        ? m_txSessionProfile->limitsWatts[m_txSessionBand] : 0.0;
+    if (c.canTransmit) { c.maxSlices = 1; c.maxPanadapters = 1; }
     c.hostModulates = true;        // client-side WDSP, like the HL2
-    c.takesTxAudioOverSeam = true; // moot while canTransmit is false
-    // Host-modulated like the HL2, so when this backend gains a drive path it
-    // will own the register and report intent, not a readback (#5518). Declared
-    // rather than left absent because the ownership answer is already known; it
-    // populates no TransmitDelta::rfPower today, so nothing publishes drive yet.
+    c.takesTxAudioOverSeam = true;
+    // Drive is engine intent, not measured forward power or hardware readback.
     c.transmitDriveControl = RadioCapabilities::TransmitDriveControl{
         SliceFrequencyControl::Authority::Engine, /*tunePowerAppliesLive=*/false};
-    c.hasRadioPttReadback = false; // no PTT at all, so no readback either
+    c.hasRadioPttReadback = false; // no qualified physical PTT readback
     c.radioPttObservation = std::nullopt;
     c.hasTuner = false;            // G2 has no internal ATU (Apache Labs spec)
     c.hasTunerMemories = false;    // no internal ATU, so no tuner-memory surface
@@ -1240,6 +1252,7 @@ void AnanBackend::pushModeFilterShift()
 
 void AnanBackend::setSliceFrequency(int sliceId, double hz)
 {
+    if (sliceId == 0 && hz != m_sliceFreqHz) { disableTransmitSession(); }
     if (m_receiveBuilding) {
         emitSliceState();
         return;
@@ -1672,6 +1685,7 @@ void AnanBackend::retryPendingRateChange()
 
 void AnanBackend::beginRateChange(int newRateKsps)
 {
+    cancelTransmitPreparation();
     // A live rate change: build the new WdspChannel on m_dspBuildThread FIRST (up to
     // ~a minute cold) while the old channel and session keep running undisturbed;
     // only then does finishRateChange() mute, swap and send the new rate to the
@@ -2139,6 +2153,7 @@ void AnanBackend::applyReceiveAntennaRouting(bool force)
     const auto route = receiveAntennaRoute();
     const bool changed = m_appliedAntenna != route.antenna || m_appliedRxOnly != route.rxOnly;
     if (!force && !changed) { return; }
+    disableTransmitSession();
     auto config = *m_pendingParams.filters;
     config.rxOnlyInput = route.rxOnly;
     const auto options = filterOptions(config);
@@ -2415,6 +2430,26 @@ void AnanBackend::acceptCalibrationSpectrum(const std::vector<float>& bins, qint
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && (verb == QLatin1String("txsession.enable") || verb == QLatin1String("txsession.disable"))) {
+        const auto fields = arg.toMap();
+        const auto state = transmitPowerState();
+        if (fields.value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))) {
+            emit extensionError(requestId,QStringLiteral("TX session request belongs to a retired connection.")); return;
+        }
+        if (verb == QLatin1String("txsession.disable")) { disableTransmitSession(); }
+        else {
+            const QString refusal = transmitSessionRefusal();
+            const QVariant antenna = fields.value(QStringLiteral("antenna"));
+            if (!refusal.isEmpty() || m_txSessionEnabled || m_txSessionArming
+                || fields.value(QStringLiteral("sessionIdentity")).toString() != transmitSessionIdentity()
+                || antenna.metaType().id() != QMetaType::Int || antenna.toInt() < 1 || antenna.toInt() > 3) {
+                emit extensionError(requestId,refusal.isEmpty() ? QStringLiteral("Reload the current TX session and select ANT1, ANT2 or ANT3.") : refusal); return;
+            }
+            enableTransmitSession(antenna.toInt());
+        }
+        emit extensionResult(requestId,transmitPowerState());
+        return;
+    }
     if (ns == QLatin1String("anan") && (verb == QLatin1String("txdsp.prepare") || verb == QLatin1String("txdsp.cancel"))) {
         const QVariantMap state = transmitPowerState();
         const QVariantMap preparation = state.value(QStringLiteral("preparation")).toMap();
@@ -2438,6 +2473,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             const QVariantMap fields = arg.toMap();
             const auto profile = parseTransmitPower(fields.value(QStringLiteral("options")).toMap());
             if (!state.value(QStringLiteral("available")).toBool() || !profile || m_rateChanging || m_receiveBuilding
+                || m_txSessionEnabled || m_txSessionArming
                 || fields.value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))
                 || m_transmitOperation.permitsDispatch(TxCoordinator::monotonicMs())) {
                 emit extensionError(requestId,QStringLiteral("Select a current, idle radio and an explicit receive profile before editing TX power."));
@@ -3069,6 +3105,13 @@ void AnanBackend::emitSliceState()
     d.filterLow = m_filterLowHz;
     d.filterHigh = m_filterHighHz;
     d.active = m_activeReceiveSlice == 0;
+    d.txSlice = transmitSessionCurrent();
+    if (m_pendingParams.model == AnanModel::Anan200D) { d.xitOn = false; d.xitFreq = 0; }
+    if (d.txSlice.value() && m_txSessionControl) {
+        const QString antenna = QStringLiteral("ANT%1").arg(m_txSessionControl->antenna);
+        d.txAntennaList = QStringList{antenna};
+        d.txAntenna = antenna;
+    }
     // A different radio replaces the slice model but retains this backend.
     // Publish the retained NB request so that fresh model agrees with the DSP.
     d.nb = m_nbKind != AetherSDR::NoiseBlankerKind::Off;
@@ -3320,6 +3363,7 @@ void AnanBackend::scheduleTuneApply()
 
 void AnanBackend::applyTuneToRadioAndPan()
 {
+    if (m_txSessionEnabled && !transmitSessionCurrent()) { disableTransmitSession(); }
     const auto tuning = receiveTuning(
         m_ctun || m_receiveLayout.occupants(primaryPanIndex()) > 1,
         m_ddcCenterHz, m_sliceFreqHz,

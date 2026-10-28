@@ -325,8 +325,17 @@ void stopOnlyFences()
     check(!coordinator.finishLocalIntent(fence) && !coordinator.acknowledgeStopped(fence),
           "cleanup fence grants no ownership or recovery authority");
     const TxCoordinator::Actor actor = coordinator.registerActor({true, 0});
-    check(coordinator.acquire(actor, 0).accepted(), "owner starts after idle cleanup fence");
+    const auto admitted = coordinator.acquire(actor, 0);
+    check(admitted.accepted(), "owner starts after idle cleanup fence");
     check(!fence.permitsCleanup(), "idle queued key-up cannot affect a newer operation");
+    const auto active = admitted.operation;
+    const auto cleanup = coordinator.cleanupFence();
+    check(cleanup.sameSession(active) && !cleanup.sameAuthority(active),
+          "owner stop fence shares the admitted session without acquiring key authority");
+    TxCoordinator foreign([](const auto&, auto) {});
+    check(!foreign.cleanupFence().sameSession(active), "foreign cleanup cannot stop another coordinator's session");
+    coordinator.reset();
+    check(!cleanup.sameSession(active), "retired session identities cannot clean up a later connection");
 }
 
 void terminalDispatchBarrier()

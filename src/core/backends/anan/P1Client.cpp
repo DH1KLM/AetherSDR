@@ -1,6 +1,7 @@
 #include "core/backends/anan/P1Client.h"
 #include "core/backends/anan/AnanReceiveCalibration.h"
 #include "core/backends/anan/AnanFilterOptions.h"
+#include "AnanUdpReceiveBuffer.h"
 
 #include <QNetworkDatagram>
 #include <QLoggingCategory>
@@ -120,6 +121,9 @@ bool P1Client::start(const Params& params, int timeoutMs)
     if (!m_socket->bind(QHostAddress::AnyIPv4, 0)) {
         stop(); return false;
     }
+    const auto receiveBuffer = requestUdpReceiveBuffer(*m_socket);
+    qCInfo(lcAnanP1).noquote() << QStringLiteral("ANAN P1: UDP receive buffer requested=%1 bytes; granted=%2")
+        .arg(kUdpReceiveBufferBytes).arg(receiveBuffer ? QString::number(*receiveBuffer) + QStringLiteral(" bytes") : QStringLiteral("unavailable"));
     connect(m_socket, &QUdpSocket::readyRead, this, [this] {
         while (m_socket && m_socket->hasPendingDatagrams()) {
             const auto datagram = m_socket->receiveDatagram();

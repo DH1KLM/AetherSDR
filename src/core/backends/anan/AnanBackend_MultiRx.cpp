@@ -201,6 +201,7 @@ bool AnanBackend::createPanadapter()
 }
 bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
 {
+    if (m_txSessionEnabled || m_txSessionArming) { return false; }
     if (!m_connected || !m_discoveryInfoReceived || m_rateChanging || m_receiveBuilding ||
         m_pendingBandwidthKsps != 0 || m_droopCalibrator.isRunning())
         return false;
@@ -496,6 +497,12 @@ void AnanBackend::publishAdditionalRx(int id)
 }
 ReceiveDispatch AnanBackend::requestSliceControl(int id, const SliceControlRequest& request)
 {
+    if (m_connected && id == 0 && m_pendingParams.model == AnanModel::Anan200D && request.valid()
+        && (request.field == SliceControlRequest::Field::Xit || request.field == SliceControlRequest::Field::TxAntenna)) {
+        if (request.field == SliceControlRequest::Field::Xit) { disableTransmitSession(); }
+        emitSliceState();
+        return ReceiveDispatch::Unsupported;
+    }
     if (!m_connected || !m_receiveLayout.slice(id) || !request.valid() ||
         request.field != SliceControlRequest::Field::ActiveSlice)
         return ReceiveDispatch::Unsupported;
@@ -514,6 +521,7 @@ void AnanBackend::setActiveSlice(int id)
 }
 bool AnanBackend::removeSlice(int id)
 {
+    disableTransmitSession();
     if (!m_connected || m_receiveBuilding || m_rateChanging)
         return false;
     const auto before = m_receiveLayout.streams();

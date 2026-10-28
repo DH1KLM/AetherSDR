@@ -1,6 +1,7 @@
 #include "P2Client.h"
 #include <QTimer>
 #include <QUdpSocket>
+#include <algorithm>
 
 namespace AetherSDR::anan {
 bool P2Client::sendControl(std::span<const std::uint8_t> packet, quint16 port)
@@ -120,7 +121,10 @@ bool P2Client::setTransmitKeying(bool key, const TxCoordinator::Operation& opera
         [this](bool value) { return writeTransmitKey(value); });
     if (accepted) {
         m_transmitOperation = key ? operation : TxCoordinator::Operation{};
-        if (key) { ensureTransmitTimer(); }
+        if (key) {
+            std::fill(m_speakerPending.begin(),m_speakerPending.end(),0);
+            ensureTransmitTimer();
+        }
     } else if (m_transmitGate.stopPending()) {
         abortTransmit(QStringLiteral("TX key write failed"));
     }

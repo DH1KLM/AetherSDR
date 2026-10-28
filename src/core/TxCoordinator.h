@@ -104,6 +104,7 @@ public:
         [[nodiscard]] bool permitsCleanup() const;
         [[nodiscard]] bool sameOperation(const Operation& other) const;
         [[nodiscard]] bool sameAuthority(const Operation& other) const;
+        [[nodiscard]] bool sameSession(const Operation& other) const;
         [[nodiscard]] bool independent() const;
         // Restrict an existing grant with a producer's immutable cancellation
         // predicate. The trusted caller captures only worker-safe state; the

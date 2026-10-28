@@ -1,4 +1,5 @@
 #include "core/backends/anan/P2Client.h"
+#include "AnanUdpReceiveBuffer.h"
 #include "core/backends/anan/AnanReceiveCalibration.h"
 #include "core/backends/anan/AnanFilterOptions.h"
 
@@ -157,6 +158,9 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
         m_socket = nullptr;
         return false;
     }
+    const auto receiveBuffer = requestUdpReceiveBuffer(*m_socket);
+    qCInfo(lcAnanP2).noquote() << QStringLiteral("ANAN P2: UDP receive buffer requested=%1 bytes; granted=%2")
+        .arg(kUdpReceiveBufferBytes).arg(receiveBuffer ? QString::number(*receiveBuffer) + QStringLiteral(" bytes") : QStringLiteral("unavailable"));
     connect(m_socket, &QUdpSocket::readyRead, this, &P2Client::onReadyRead);
 
     m_running = true;
@@ -350,7 +354,11 @@ void P2Client::enqueueSpeakerAudio(const QByteArray& interleavedInt16)
                               << "Logged once per session.";
         }
     }
-    m_speakerPending.insert(m_speakerPending.end(), samples, samples + count);
+    if (m_transmitGate.keyCommandAccepted() || m_transmitGate.stopPending()) {
+        m_speakerPending.insert(m_speakerPending.end(),count,0);
+    } else {
+        m_speakerPending.insert(m_speakerPending.end(), samples, samples + count);
+    }
 }
 
 void P2Client::onSpeakerDrainTick()

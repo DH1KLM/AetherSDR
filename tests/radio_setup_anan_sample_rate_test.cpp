@@ -24,11 +24,40 @@
 #include <memory>
 #include <tuple>
 #include <vector>
+#include <atomic>
+#include <functional>
 
 using namespace AetherSDR;
 namespace AetherSDR::anan {
+struct TxSessionTrace {
+    std::atomic<int> keyOn{0}, lastKey{0}, drive{0};
+    std::atomic<quint32> frequencyWord{0}, alex{0};
+};
 struct AnanClientTestAccess {
     static bool configured(const AnanClient& client) { return client.m_transmitConfigured; }
+    static P2Client& p2(AnanClient& client) { return *client.m_p2; }
+};
+struct P2ClientTestAccess {
+    static void attach(P2Client& client, TxSessionTrace& trace) {
+        client.m_running = true; client.m_linkUp = true; client.m_discoveryValidated = true;
+        client.m_expectedBoardId = 5; client.m_model = AnanModel::Anan200D; client.m_overrideDetection = true;
+        client.m_numAdcs = 2; client.m_firstDdcIndex = 2;
+        client.m_receiveFilterKind = ReceiveFilterKind::LegacyHpf;
+        client.m_activeDdcs = {{48,0}}; client.m_activeDdcCount = 1;
+        client.m_transmitProfile = p2TransmitProfile(5,AnanModel::Anan200D,true);
+        client.m_generalPacket = buildGeneral(3,true); client.m_receiveDisablePa = true;
+        client.m_controlSendOverride = [&trace](auto bytes, quint16 port) {
+            if (port == kHighPriorityPort && bytes.size() == 1444) {
+                const bool key = (bytes[4] & 2) != 0;
+                trace.lastKey.store(key); if (key) { ++trace.keyOn; }
+                trace.drive.store(bytes[345]);
+                const auto word = [&](int offset) { return (quint32(bytes[offset])<<24) | (quint32(bytes[offset+1])<<16)
+                    | (quint32(bytes[offset+2])<<8) | bytes[offset+3]; };
+                trace.frequencyWord.store(word(329)); trace.alex.store(word(1432));
+            }
+            return static_cast<qint64>(bytes.size());
+        };
+    }
 };
 class AnanLinkStatsTestAccess {
 public:
@@ -71,6 +100,25 @@ public:
         QMetaObject::invokeMethod(backend.m_client,[&] { present = AnanClientTestAccess::configured(*backend.m_client); },Qt::BlockingQueuedConnection);
         return present;
     }
+    static void injectTransport(AnanBackend& backend, TxSessionTrace& trace) {
+        QMetaObject::invokeMethod(backend.m_client,[&] {
+            P2ClientTestAccess::attach(AnanClientTestAccess::p2(*backend.m_client),trace);
+        },Qt::BlockingQueuedConnection);
+    }
+    static void blockIo(AnanBackend& backend, QSemaphore& entered, QSemaphore& release) {
+        QMetaObject::invokeMethod(backend.m_client,[&] { entered.release(); release.acquire(); },Qt::QueuedConnection);
+    }
+    static void drainIo(AnanBackend& backend) {
+        QMetaObject::invokeMethod(backend.m_client,[] {},Qt::BlockingQueuedConnection);
+    }
+    static QString sessionDiagnostic(AnanBackend& backend) {
+        const auto stored = AnanSettings::transmitPower(backend.m_radioSerial,static_cast<int>(backend.m_pendingParams.model),
+            backend.m_discoveredBoardId,backend.m_pendingParams.protocol);
+        const auto limit = stored.value(QStringLiteral("limitsWatts")).toList().value(5);
+        return QStringLiteral("PA diagnostic: band=%1 VFO=%2 stored20m=%3 type=%4 parsed=%5")
+            .arg(backend.receiveAntennaBandIndex()).arg(backend.m_sliceFreqHz,0,'f',0)
+            .arg(limit.toDouble()).arg(QString::fromLatin1(limit.metaType().name())).arg(parseTransmitPower(stored).has_value());
+    }
     static void publish(AnanBackend& backend) { backend.emitPanState(); backend.emitSliceState(); }
     static void connected(AnanBackend& backend, bool connected) { backend.m_connected = connected; }
     static void calibrationMode(AnanBackend& backend)
@@ -107,11 +155,12 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
     AppSettings::instance().load();
     {
+        anan::TxSessionTrace trace;
         RadioModel model;
-        auto owned = std::make_unique<anan::AnanBackend>();
-        auto* backend = owned.get();
+        check(model.rebuildBackendForTest(QStringLiteral("anan")), "production ANAN bindings are available without a radio");
+        auto* backend = static_cast<anan::AnanBackend*>(model.backend());
         anan::AnanLinkStatsTestAccess::prepare(*backend,2,false,5,anan::AnanModel::Anan200D,true);
-        model.setBackendForTest(std::move(owned),QStringLiteral("anan"));
+        anan::AnanLinkStatsTestAccess::publish(*backend);
         std::unique_ptr<QWidget> page(createAnanTransmitPowerPage(&model,nullptr));
         page->show();
         auto* table = page->findChild<QTableWidget*>(QStringLiteral("ananTxPowerTable"));
@@ -161,6 +210,56 @@ int main(int argc, char** argv)
               && anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "actual TX DSP is built on planner and staged on the I/O thread");
         check(!anan::AnanLinkStatsTestAccess::transportPrepared(*backend)
               && !backend->capabilities().canTransmit, "DSP preparation does not install transport or enable TX");
+        anan::AnanLinkStatsTestAccess::injectTransport(*backend,trace);
+        const auto await = [&](const std::function<bool()>& predicate) {
+            QElapsedTimer limit; limit.start();
+            while (!predicate() && limit.elapsed() < 3000) { app.processEvents(); QThread::msleep(1); }
+            return predicate();
+        };
+        static_cast<QDoubleSpinBox*>(table->cellWidget(5,1))->setValue(50);
+        static_cast<QDoubleSpinBox*>(table->cellWidget(5,2))->setValue(10);
+        page->findChild<QPushButton*>(QStringLiteral("ananTxPowerApply"))->click(); app.processEvents();
+        auto* enableTx = page->findChild<QPushButton*>(QStringLiteral("ananTxSessionEnable"));
+        auto* disableTx = page->findChild<QPushButton*>(QStringLiteral("ananTxSessionDisable"));
+        page->findChild<QComboBox*>(QStringLiteral("ananTxSessionAntenna"))->setCurrentIndex(1);
+        if (!await([&] { return enableTx->isEnabled(); })) {
+            std::cerr << page->findChild<QLabel*>(QStringLiteral("ananTxSessionStatus"))->text().toStdString() << '\n';
+            std::cerr << anan::AnanLinkStatsTestAccess::sessionDiagnostic(*backend).toStdString() << '\n';
+            check(false,"saved band limit and prepared DSP allow explicit session enable");
+        }
+        enableTx->click();
+        check(await([&] { return backend->capabilities().canTransmit; }), "real Setup enables only the acknowledged 200D session");
+        check(trace.keyOn.load() == 0 && model.transmitModel().rfPower() == 0,
+              "enabling session starts at zero requested power and never keys");
+        check(!model.transmitModel().tuneAvailable(), "unimplemented TUNE remains unavailable in all ANAN modes");
+        model.transmitModel().startTune();
+        check(!model.transmitModel().isTuning() && trace.keyOn.load() == 0, "TUNE cannot take an unimplemented path");
+        model.transmitModel().setRfPower(25);
+        model.transmitModel().setMox(true);
+        check(await([&] { return trace.lastKey.load() == 1; }), "desktop MOX reaches guarded P2 keying through RadioModel");
+        check(trace.drive.load() == 11 && trace.frequencyWord.load() == anan::phaseWord(14'175'000)
+              && (trace.alex.load() & 0x07000000u) == (1u<<25), "MOX uses captured VFO, ANT2 and band-limited logarithmic drive");
+        model.transmitModel().setRfPower(50);
+        check(await([&] { return trace.drive.load() == 16; }), "desktop RF power changes update the active 200D drive");
+        TxCoordinator foreign([](const auto&, auto) {});
+        backend->setKeying(false,foreign.cleanupFence());
+        anan::AnanLinkStatsTestAccess::drainIo(*backend);
+        check(trace.lastKey.load() == 1, "foreign cleanup cannot release this radio's active MOX");
+        model.transmitModel().setMox(false);
+        check(await([&] { return trace.lastKey.load() == 0; }), "canonical owner stop fence releases MOX");
+        const int keyedBefore = trace.keyOn.load();
+        QSemaphore ioEntered, ioRelease;
+        anan::AnanLinkStatsTestAccess::blockIo(*backend,ioEntered,ioRelease);
+        check(ioEntered.tryAcquire(1,5000), "I/O barrier captures pending key-on");
+        model.transmitModel().setMox(true);
+        disableTx->click();
+        ioRelease.release();
+        anan::AnanLinkStatsTestAccess::drainIo(*backend);
+        check(await([&] { return !backend->capabilities().canTransmit && !model.transmitModel().isMox(); })
+              && trace.keyOn.load() == keyedBefore, "disable cancels queued key-on before any RF control write");
+        model.transmitModel().setMox(true);
+        anan::AnanLinkStatsTestAccess::drainIo(*backend);
+        check(trace.keyOn.load() == keyedBefore, "disabled session cannot be revived by another MOX request");
         backend->setSliceMode(0,QStringLiteral("LSB"));
         check(!anan::AnanLinkStatsTestAccess::planReady(*backend)
               && !anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "mode change retires prepared USB channel on planner");

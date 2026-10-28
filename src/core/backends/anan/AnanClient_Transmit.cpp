@@ -35,6 +35,33 @@ void AnanClient::discardStagedTransmit()
     clearTransmitAudio();
     m_transmitDsp.reset();
 }
+
+bool AnanClient::armStagedTransmit(const P2TxControl& control)
+{
+    if (m_transmitKeyed && !m_p2->transmitActive()) {
+        clearTransmitAudio();
+        m_transmitKeyed = false;
+        m_transmitOperation = {};
+    }
+    if (m_protocol != 2 || !m_transmitDsp || !m_transmitDsp->mode() || m_transmitKeyed) { return false; }
+    m_transmitConfigured = false;
+    if (!m_p2->enableTransmit(false) || !m_p2->configureTransmit(control)
+        || !m_p2->enableTransmit(true)) { return false; }
+    clearTransmitAudio();
+    m_transmitConfigured = true;
+    return true;
+}
+
+void AnanClient::disarmTransmit()
+{
+    m_transmitConfigured = false;
+    m_transmitKeyed = false;
+    m_transmitOperation = {};
+    if (!m_p2->enableTransmit(false)) { m_p2->stop(); }
+    clearTransmitAudio();
+    m_transmitDsp.reset();
+}
+
 bool AnanClient::setTransmitPower(const TransmitPowerProfile& profile, int band, int percent,
                                   const TxCoordinator::Operation& operation)
 {

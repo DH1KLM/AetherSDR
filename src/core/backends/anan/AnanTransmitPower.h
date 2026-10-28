@@ -53,7 +53,9 @@ inline std::optional<TransmitPowerProfile> parseTransmitPower(const QVariantMap&
     TransmitPowerProfile profile;
     for (std::size_t i = 0; i < 11; ++i) {
         const auto number = [](const QVariant& value) {
-            return value.metaType().id() == QMetaType::Double || value.metaType().id() == QMetaType::Int;
+            const int type = value.metaType().id();
+            return type == QMetaType::Double || type == QMetaType::Float || type == QMetaType::Int
+                || type == QMetaType::UInt || type == QMetaType::LongLong || type == QMetaType::ULongLong;
         };
         if (!number(gains[i]) || !number(limits[i])) { return {}; }
         const double gain = gains[i].toDouble(), limit = limits[i].toDouble();

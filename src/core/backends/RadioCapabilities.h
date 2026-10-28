@@ -27,6 +27,11 @@ struct TuneOutputSuppressionControl {
     int maximumBandId = 255;
 };
 
+struct TuneCarrierControl {
+    enum class Modes { None, NonCw, All };
+    Modes modes = Modes::None;
+};
+
 struct TxPowerBand {
     double lowHz = 0.0;
     double highHz = 0.0;
@@ -562,6 +567,8 @@ struct RadioCapabilities {
     bool hasFmRepeaterOffset = true;
     // Some audio-tone tune implementations cannot key a CW carrier.
     bool hasCwTune = true;
+    // Absent preserves the legacy hasCwTune policy; engaged describes setTune coverage.
+    std::optional<TuneCarrierControl> tuneCarrierControl;
 
     // The radio generates a genuine two-tone test signal, not a tune carrier (Flex
     // `transmit set tune_mode=two_tone`; other backends key a single carrier).

@@ -1,9 +1,11 @@
 #include "core/backends/anan/P2Client.h"
+#include "core/backends/anan/AnanUdpReceiveBuffer.h"
 
 #include <QCoreApplication>
 #include <QTimer>
 
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <cstdio>
@@ -44,6 +46,13 @@ struct P2ClientTestAccess {
     static bool timerActive(const P2Client& client) { return client.m_transmitTimer && client.m_transmitTimer->isActive(); }
     static auto receive(const P2Client& client) { return client.receiveHighPriority(); }
     static std::size_t queued(const P2Client& client) { return client.m_transmitStream.queuedSamples(); }
+    static void speaker(P2Client& client) {
+        client.m_speakerAudioEnabled = true;
+        client.enqueueSpeakerAudio(QByteArray(16,'\1'));
+    }
+    static bool speakerSilent(const P2Client& client) {
+        return std::all_of(client.m_speakerPending.begin(),client.m_speakerPending.end(),[](auto value) { return value == 0; });
+    }
 };
 }
 
@@ -121,6 +130,8 @@ void controlsAndAudio(int board, bool override200D = false)
           "DUC is 192 ksps with TX ADC attenuation");
     check(f.client.setTransmitKeying(true, operation), "explicit admitted key reaches real client send path");
     check(P2ClientTestAccess::timerActive(f.client), "authority polling starts even before the first IQ block");
+    P2ClientTestAccess::speaker(f.client);
+    check(P2ClientTestAccess::speakerSilent(f.client), "radio speaker stream is silent while this client keys TX");
     const auto keyed = f.last(kHighPriorityPort);
     check(keyed[4] == 3 && keyed[345] == 12 && word(keyed,329) == phaseWord(14'175'000),
           "TX PTT, raw drive and independent TX frequency encode correctly");
@@ -257,6 +268,19 @@ void rekeyBetweenKeepaliveAndTimer()
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    {
+        // Only our local socket's OS option is tested; no radio peer or datagrams.
+        QUdpSocket socket;
+        const bool bound = socket.bind(QHostAddress(QHostAddress::LocalHost),0);
+        check(bound,"UDP receive-buffer test binds an ephemeral local socket");
+        if (bound) {
+            const auto granted = requestUdpReceiveBuffer(socket);
+            check(kUdpReceiveBufferBytes == 1'024'000 && granted && *granted > 0,
+                  "Thetis-sized UDP receive buffer reports the actual OS result");
+            std::printf("UDP SO_RCVBUF requested=%d granted=%lld bytes\n",kUdpReceiveBufferBytes,
+                static_cast<long long>(granted.value_or(-1)));
+        }
+    }
     for (int board : {1,2,3,4,5,10,20}) { controlsAndAudio(board); }
     controlsAndAudio(5,true);
     faultsAndRestrictions();

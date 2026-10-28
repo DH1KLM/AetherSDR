@@ -1229,6 +1229,9 @@ void RadioModel::setupBackend(const QString& family)
     connect(m_backend.get(), &IRadioBackend::capabilitiesChanged, this,
             [this] {
         publishCapabilities(isConnected());
+        if (!backendCapabilities().canTransmit && activeTxActivities() != 0) {
+            cancelLocalTransmit();
+        }
         refreshCwProfilesOnCapabilityChange();
         // All currently supported wake profiles transmit. If an RX-only Icom
         // profile is added, readiness must use an explicit identity signal.
@@ -4669,8 +4672,12 @@ void RadioModel::updateTuneAvailability()
 {
     const SliceModel* slice = txSlice();
     const bool cwMode = slice && slice->mode().startsWith(QLatin1String("CW"));
-    m_transmitModel.setTuneAvailable(!isConnected() || !cwMode
-                                     || backendCapabilities().hasCwTune);
+    const RadioCapabilities caps = backendCapabilities();
+    const bool available = caps.tuneCarrierControl
+        ? caps.tuneCarrierControl->modes == TuneCarrierControl::Modes::All
+            || (caps.tuneCarrierControl->modes == TuneCarrierControl::Modes::NonCw && !cwMode)
+        : !cwMode || caps.hasCwTune;
+    m_transmitModel.setTuneAvailable(!isConnected() || available);
 }
 
 void RadioModel::publishCapabilities(bool connected)

@@ -112,6 +112,11 @@ public:
     void setPanWeightedAverage(const QString& panId, bool on) override;
     void setPanPixelWidth(const QString& panId, int pixels) override;
     void setCwPitch(int hz) override;
+    void setTxPower(int percent) override;
+    ReceiveDispatch requestTransmitControl(const TransmitControlRequest& request,
+                                          TunePowerContext context) override;
+    ReceiveDispatch requestTxSlice(int sliceId, bool enabled, const RadioControlCompletion& completion = {},
+                                  const RadioControlFence& current = {}) override;
     void setKeying(bool key, const AetherSDR::TxCoordinator::Operation& operation, const AetherSDR::TxCoordinator::Completion& completion = {}) override;
     void submitTxAudio(const QByteArray& pcm, int sampleRateHz, TxAudioSource source,
         const TxCoordinator::Context& context) override;
@@ -303,6 +308,23 @@ private:
     QVariantMap microphoneState() const;
     QVariantMap transmitPowerState();
     QVariantMap transmitPreparationState();
+    QVariantMap transmitSessionState();
+    QString transmitSessionIdentity() const;
+    QString transmitSessionRefusal() const;
+    void enableTransmitSession(int antenna);
+    void disableTransmitSession();
+    bool transmitSessionCurrent() const;
+    std::optional<TransmitPowerProfile> m_txSessionProfile;
+    std::optional<P2TxControl> m_txSessionControl;
+    std::shared_ptr<std::atomic<bool>> m_txSessionPermit;
+    QString m_txSessionIdentity;
+    QString m_txSessionError;
+    quint64 m_txSessionRevision = 0;
+    bool m_txSessionEnabled = false;
+    bool m_txSessionArming = false;
+    int m_txSessionBand = -1;
+    int m_txPowerPercent = 0;
+    TxCoordinator::Operation m_transmitDispatchOperation;
     void prepareTransmitDsp();
     void cancelTransmitPreparation();
     QString transmitPreparationIdentity() const;

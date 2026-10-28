@@ -544,6 +544,10 @@ int main(int argc, char** argv)
         const auto options = transmitPowerOptions(*power);
         check(AnanSettings::setTransmitPower(QStringLiteral("PA-MAC"),static_cast<int>(AnanModel::Anan7000),5,2,options), "PA profile saves");
         check(AnanSettings::transmitPower(QStringLiteral("PA-MAC"),static_cast<int>(AnanModel::Anan7000),5,2) == options, "PA profile round trip");
+        const auto reloadedPower = parseTransmitPower(AnanSettings::transmitPower(QStringLiteral("PA-MAC"),
+            static_cast<int>(AnanModel::Anan7000),5,2));
+        check(reloadedPower && reloadedPower->limitsWatts[0] == 100 && reloadedPower->gainsDb[0] == 100,
+              "stored JSON integral values remain usable for transmit admission");
         check(AnanSettings::transmitPower(QStringLiteral("OTHER"),static_cast<int>(AnanModel::Anan7000),5,2).isEmpty()
               && AnanSettings::transmitPower(QStringLiteral("PA-MAC"),static_cast<int>(AnanModel::Anan7000),5,1).isEmpty()
               && AnanSettings::transmitPower(QStringLiteral("PA-MAC"),static_cast<int>(AnanModel::Anan8000),5,2).isEmpty(), "PA scope isolates device model and protocol");

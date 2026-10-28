@@ -91,6 +91,13 @@ TxCoordinator::Operation TxCoordinator::Operation::withKeyingPermit(std::functio
     return operation;
 }
 
+bool TxCoordinator::Operation::sameSession(const Operation& other) const
+{
+    return permitsCleanup() && other.permitsCleanup()
+        && m_state->generation == other.m_state->generation
+        && m_state->actor->coordinator.lock() == other.m_state->actor->coordinator.lock();
+}
+
 TxCoordinator::Operation TxCoordinator::Operation::heldKeying() const
 {
     return heldActivities(static_cast<unsigned>(Activity::Mox) | static_cast<unsigned>(Activity::CwPtt));

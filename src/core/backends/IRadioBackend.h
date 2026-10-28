@@ -762,7 +762,7 @@ public:
     // "transmit tune N" as text, so FlexBackend ignores this. A backend generating
     // its own carrier needs tunePowerPercent: otherwise it can only key at the RF
     // Power level setTxPower() last pushed. Without a command plane, declaring
-    // canTransmit and transmitDriveControl promises tunePowerPercent is honoured,
+    // canTransmit, a supported tune carrier and transmitDriveControl promise tunePowerPercent is honoured,
     // and tunePowerAppliesLive promises setTunePower(): RadioModel then withholds
     // the "transmit set tunepower=" drop notice (while keyed, only with the latter).
     virtual void setTune(bool on, int tunePowerPercent, const AetherSDR::TxCoordinator::Operation& operation, const AetherSDR::TxCoordinator::Completion& completion = {})

@@ -26,6 +26,8 @@ public:
     void setTransmitPlanner(QObject* planner) { m_transmitPlanner = planner; }
     bool stageTransmitDsp(std::shared_ptr<AnanTxDsp> dsp);
     void discardStagedTransmit();
+    bool armStagedTransmit(const P2TxControl& control);
+    void disarmTransmit();
     bool setTransmitPower(const TransmitPowerProfile& profile, int band, int percent,
                           const TxCoordinator::Operation& operation);
     [[nodiscard]] std::optional<WdspChannel::Mode> transmitMode() const

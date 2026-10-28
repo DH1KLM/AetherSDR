@@ -1,18 +1,18 @@
 ---
 title: "ANAN / OpenHPSDR"
 slug: "/anan-g2"
-description: "Experimental OpenHPSDR P1/P2 reception; P2 tested with ANAN-G2 and ANAN-7000DLE."
-status: "Experimental, receive-only"
+description: "Experimental OpenHPSDR P1/P2 reception and opt-in ANAN-200D P2 USB/LSB transmit."
+status: "Experimental; ANAN-200D P2 voice TX"
 applies_to: ["ANAN-G2/G2 1K", "ANAN-7000DLE/8000DLE", "ANAN-10/100", "ANAN-10E/100B", "ANAN-100D", "ANAN-200D", "ANAN-G2E", "Anvelina Pro 3", "Red Pitaya"]
 ---
 
 :::info[Status]
 
-**Status:** Experimental, receive-only · **Applies to:** ANAN-G2/G2 1K, ANAN-7000DLE/8000DLE, ANAN-10/100, ANAN-10E/100B, ANAN-100D, ANAN-200D, ANAN-G2E, Anvelina Pro 3, Red Pitaya
+**Status:** Experimental; ANAN-200D P2 voice TX · **Applies to:** ANAN-G2/G2 1K, ANAN-7000DLE/8000DLE, ANAN-10/100, ANAN-10E/100B, ANAN-100D, ANAN-200D, ANAN-G2E, Anvelina Pro 3, Red Pitaya
 
 :::
 
-AetherSDR can receive with an Apache Labs **ANAN-G2** over openHPSDR Protocol 2. Support is **experimental and receive-only**: multiple software slices and independent receive windows, no transmit yet. FlexRadio remains the supported target (see [Supported Radios](./supported-radios.md)). An **EXPERIMENTAL** badge shows in the title bar while a G2 is connected.
+AetherSDR provides experimental OpenHPSDR reception with multiple software slices and independent receive windows. ANAN-G2 remains receive-only. The extended backend also offers opt-in ANAN-200D P2 USB/LSB transmission, described below; RF hardware qualification is still pending. FlexRadio remains the supported target (see [Supported Radios](./supported-radios.md)). An **EXPERIMENTAL** badge shows while a G2 is connected.
 
 The **ANAN-7000DLE** has an experimental Orion MkII receive profile. It uses
 physical DDC2, two ADCs, and Thetis-compatible ADC0 BPF1 and antenna-chain
@@ -83,47 +83,68 @@ G2E and Red Pitaya have no supported software microphone wiring controls here.
 The original tropo1234 implementation is unchanged.
 
 Defaults are Tip, bias Off, PTT Off and 3.5 mm. **PTT On** permits the microphone
-switch in the radio's configuration; it does not add ANAN transmit support.
-The backend remains receive-only: microphone audio is not routed into a TX chain,
-and these settings send no MOX, RF drive or transmit IQ. Alex/Apollo selection is
-not part of this panel.
+switch in the radio's configuration; it does not enable a TX session.
+The connector settings send no MOX or transmit IQ. The first voice TX path uses
+PC microphone audio; radio microphone audio and physical radio PTT have not been
+qualified. Alex/Apollo selection is not part of this panel.
 
 ## Transmit power profile preview
 
-In the extended implementation, open **Settings → Radio Setup → ANAN Hardware →
-Transmit**. The table holds **PA gain (dB)** and **Power limit (W)** for each
-amateur band. **Use Thetis defaults** restores reference gains and zero power
-limits; these gains are not measurements of your amplifier.
+Open **Settings → Radio Setup → ANAN Hardware → Transmit** in the extended
+implementation. The table holds **PA gain (dB)** and **Power limit (W)** per band.
+**Use Thetis defaults** restores reference gains and zero power limits. These
+reference gains are not measurements of your amplifier.
 
-Set **Preview band** and **Requested power**, then click **Calculate preview**.
-The calculation limits the target to the band's power limit and shows the volume
-scalar and raw drive using the Thetis conversion. A zero limit produces zero
-drive. This is a calculation preview, not an RF power measurement.
+**Preview band**, **Requested power** and **Calculate preview** calculate a
+limited target, volume scalar and raw drive using the Thetis conversion. A zero
+band limit produces zero drive. **Save PA profile** stores the table separately
+for each radio, selected model, board and protocol. Saving or calculating never
+keys the radio or enables a TX session.
 
-**Save PA profile** stores the table separately for each radio, receive profile,
-board and protocol. It does not enable transmission. ANAN transmit remains
-unavailable in the desktop application; this page sends no keying or transmit IQ.
-The original tropo1234 implementation is unchanged.
+### Enable an ANAN-200D voice TX session
 
-The first TX model being qualified is **ANAN-200D**. DSP preparation supports
-native Orion discovery (P2 board ID 4) and the explicit **ANAN-200D** override
-for a device reporting board ID 5. In that override, the selected 200D profile
-uses Orion/legacy ALEX control; discovery does not select MkII transmit filters.
-Other cross-board TX overrides remain unsupported. This is software qualification
-only; desktop transmission remains unavailable pending further integration
-and hardware checks. The original tropo1234 G2 implementation is unchanged.
+The first model is **ANAN-200D**, with native P2 Orion discovery (board ID 4), or
+an explicit **ANAN-200D** override for a device reporting board ID 5. The override
+uses Orion/legacy ALEX transmit control. Other cross-board TX overrides and the
+original tropo1234 G2 implementation remain outside this feature.
 
-In the same tab, **Prepare TX DSP** builds a USB or LSB transmit DSP channel on
-the existing planning worker and stages it in the existing audio path. It requires an
-idle supported Protocol 2 profile; unsupported combinations stay dimmed with a reason.
-The status text reports preparation or readiness. **Discard TX DSP** cancels a
-pending request or releases a prepared channel. A running FFTW planning call may
-finish internally before its cancelled result is released.
+1. Connect using **P2** and keep one primary receive slice (**Slice A**) in
+   **USB** or **LSB**. Select the regional band plan you use.
+2. Save a PA profile with a limit above **0 W** and at most **100 W** for the
+   current band. Other bands may remain disabled. The fixed TX passband is
+   **300–2700 Hz** and must fit inside a continuous region of the selected plan.
+3. Click **Prepare TX DSP**. Preparation runs on the existing planning worker.
+   **Discard TX DSP** cancels or releases preparation without keying.
+4. Choose **TX antenna** (**ANT1**, **ANT2** or **ANT3**) and click
+   **Enable ANAN TX**. This configures the session but does not key the radio.
+   **RF Power** starts at **0%**.
+5. Set **RF Power** in the TX applet, then use **MOX** or software **PTT** with
+   PC microphone audio. Power is a percentage of the saved current-band limit,
+   converted through the PA gain; it is requested power, not measured RF output.
+6. Use **MOX/PTT Off** to return to receive, or **Disable ANAN TX** to revoke the
+   session and release its DSP. After disabling, prepare and enable again.
 
-Changing the primary receive mode, disconnecting or changing the connection
-invalidates the preparation. Nothing is restored automatically on reconnect.
-Preparation is local only: the radio transmit transport stays unconfigured,
-and no transmit-control packets, IQ data or RF output are requested.
+The session binds the connection, primary VFO, mode, antenna and saved PA profile.
+It is never restored automatically. Frequency, mode, rate, calibration or relevant
+RF front-end changes revoke it. Additional receive slices/windows are refused while
+it is enabled. Change the TX antenna in Setup while disabled; slice antenna edits
+cannot silently replace the captured TX antenna. XIT is not implemented in this
+first path; an XIT request is reset and revokes the session.
+
+**TUNE** stays dimmed. CW, other TX modes, P1 TX, finite/generated-audio drain and
+radio microphone/PTT qualification remain open. Forward-power/SWR telemetry and
+PA calibration are not qualified; the software tests do not establish actual RF
+power, signal quality or protection. The radio speaker stream is silenced while
+this client keys P2 TX.
+
+## UDP receive buffer
+
+The extended backend requests **1,024,000 bytes** (**0xFA000**, matching Thetis)
+for the P1 and P2 UDP receive sockets after binding. The connection log records
+both the requested size and the value granted by the operating system, for
+example `ANAN P2: UDP receive buffer requested=1024000 bytes; granted=1024000 bytes`.
+An unreadable OS result is logged as `granted=unavailable`. The OS may grant a
+different size. The original tropo1234 implementation is unchanged.
 
 ## Automatic AGC-T
 
@@ -461,7 +482,7 @@ profiles display the control disabled with a reason. Alex-2 retains its bypass
 indicator and independent band table on supported MkII profiles.
 The shared RF reference frequency drives both banks; changing ADC1 limits does
 not create another receiver or alter ADC0 limits. TX/PureSignal bypass and
-**Disable 6m LNA on TX** remain disabled because ANAN transmit is unsupported.
+**Disable 6m LNA on TX** remain disabled because these transmit front-end controls are not implemented.
 The 6m LNA and TX/PureSignal bypass switches are grouped above the HPF/BPF
 filter grid; **6m/ByPass on RX** is below the LPF grid.
 

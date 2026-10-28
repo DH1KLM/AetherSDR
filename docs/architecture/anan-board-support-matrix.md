@@ -109,7 +109,9 @@ to initial RX configuration, all tuning/keepalive/stop packets, live rate
 changes and IQ source-port demultiplexing. DDC0/1 remain disabled for normal
 Orion MkII reception. The backend additionally supports shared-window software slices and independent
 receive streams (up to five logical streams, with physical/profile/discovery
-limits). No diversity, PureSignal or TX is enabled.
+limits). Diversity and PureSignal remain unavailable. ANAN-200D P2 USB/LSB TX
+has a separate, explicit single-slice session gate; other desktop TX profiles
+remain closed. See the ANAN user guide for the session limits.
 
 The Orion MkII LPF ranges come from Thetis `setup.designer.cs` defaults:
 0–2.5, 2.500001–5, 5.000001–8, 8.000001–16.5, 16.500001–24,

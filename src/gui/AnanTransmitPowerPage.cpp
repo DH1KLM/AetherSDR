@@ -23,7 +23,7 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
 {
     auto* page = new QWidget(parent);
     auto* layout = new QVBoxLayout(page);
-    auto* hint = new QLabel(QStringLiteral("Profile and calculation preview only. This page does not enable transmission. Thetis defaults are reference values, not measurements of your PA. A zero power limit disables that band in the preview."),page);
+    auto* hint = new QLabel(QStringLiteral("Experimental ANAN-200D P2 voice TX: save a PA profile, prepare the USB/LSB DSP, select the TX antenna, then enable TX for this connection. Enabling does not key the radio. RF Power starts at 0%; use MOX/PTT to transmit. TUNE is unavailable. Thetis gains are reference values, not PA measurements."),page);
     hint->setWordWrap(true);
     layout->addWidget(hint);
     auto* group = new QGroupBox(QStringLiteral("Transmit power profile"),page);
@@ -60,6 +60,18 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
     dspStatus->setObjectName(QStringLiteral("ananTxDspStatus"));
     dspStatus->setWordWrap(true);
     prepareDsp->setEnabled(false); cancelDsp->setEnabled(false);
+    auto* txAntenna = new QComboBox(group);
+    txAntenna->setObjectName(QStringLiteral("ananTxSessionAntenna"));
+    txAntenna->setAccessibleName(QStringLiteral("Transmit antenna for this session"));
+    for (int port = 1; port <= 3; ++port) { txAntenna->addItem(QStringLiteral("ANT%1").arg(port),port); }
+    auto* enableTx = new QPushButton(QStringLiteral("Enable ANAN TX"),group);
+    enableTx->setObjectName(QStringLiteral("ananTxSessionEnable"));
+    auto* disableTx = new QPushButton(QStringLiteral("Disable ANAN TX"),group);
+    disableTx->setObjectName(QStringLiteral("ananTxSessionDisable"));
+    auto* sessionStatus = new QLabel(QStringLiteral("TX disabled for this connection."),group);
+    sessionStatus->setObjectName(QStringLiteral("ananTxSessionStatus"));
+    sessionStatus->setWordWrap(true);
+    enableTx->setEnabled(false); disableTx->setEnabled(false);
     auto* controls = new QFormLayout;
     controls->addRow(QStringLiteral("Preview band:"),band);
     controls->addRow(QStringLiteral("Requested power:"),watts);
@@ -67,11 +79,15 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
     controls->addRow(defaults,apply);
     controls->addRow(prepareDsp,cancelDsp);
     controls->addRow(dspStatus);
+    controls->addRow(QStringLiteral("TX antenna:"),txAntenna);
+    controls->addRow(enableTx,disableTx);
+    controls->addRow(sessionStatus);
     form->addLayout(controls);
     layout->addWidget(group,1);
     group->setEnabled(false);
     group->setAccessibleDescription(QStringLiteral("Connect an ANAN and select an explicit receive profile to configure PA reference values."));
-    struct State { QString identity; QVariantMap reference; bool busy = false; bool dirty = false; bool filling = false; };
+    struct State { QString identity; QString sessionIdentity; QVariantMap reference; quint64 latest = 0;
+        int pending = 0; bool dirty = false; bool filling = false; };
     const auto state = std::make_shared<State>();
     const auto options = [=] {
         QVariantList gains, limits;
@@ -93,35 +109,62 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
         state->filling = false;
     };
     const auto request = [=](const QString& verb) {
-        if (state->busy || !model->isConnected() || !model->backendDeclaresExtension(QStringLiteral("anan"))) { return; }
+        if ((state->pending != 0 && verb == QLatin1String("txpower.get")) || !model->isConnected()
+            || !model->backendDeclaresExtension(QStringLiteral("anan"))) { return; }
         const QPointer<IRadioBackend> backend = model->backend();
         auto* guard = new QObject(page);
         static quint64 next = 0x504147000000ULL;
         const quint64 id = ++next;
-        state->busy = true;
+        const QVariantMap submittedOptions = options();
+        const auto finished = std::make_shared<bool>(false);
+        ++state->pending;
+        const auto finish = [state,finished] { if (!*finished) { *finished = true; --state->pending; } };
         QObject::connect(backend,&IRadioBackend::extensionResult,guard,[=](quint64 reply,const QVariant& result) {
             if (reply != id) { return; }
-            state->busy = false; guard->deleteLater();
+            finish(); guard->deleteLater();
             if (!backend || model->backend() != backend || !model->isConnected()) { return; }
+            if (id < state->latest) { return; }
+            state->latest = id;
             const QVariantMap data = result.toMap();
             const QString identity = data.value(QStringLiteral("identity")).toString();
-            if (state->identity != identity || verb == QLatin1String("txpower.set")) { state->dirty = false; }
+            if (state->identity != identity || (verb == QLatin1String("txpower.set") && options() == submittedOptions)) { state->dirty = false; }
             state->identity = identity;
             const bool available = data.value(QStringLiteral("available")).toBool();
             group->setEnabled(available);
-            group->setAccessibleDescription(available ? QStringLiteral("PA configuration preview only; transmit remains disabled")
+            group->setAccessibleDescription(available ? QStringLiteral("Experimental PA and ANAN TX session controls")
                 : QStringLiteral("Unavailable: connect an ANAN and select an explicit supported receive profile"));
             const auto preparation = data.value(QStringLiteral("preparation")).toMap();
             const bool preparing = preparation.value(QStringLiteral("building")).toBool();
             const bool ready = preparation.value(QStringLiteral("ready")).toBool();
             const bool supported = preparation.value(QStringLiteral("available")).toBool();
-            prepareDsp->setEnabled(supported && !preparing);
+            const auto session = data.value(QStringLiteral("session")).toMap();
+            state->sessionIdentity = session.value(QStringLiteral("identity")).toString();
+            const bool armed = session.value(QStringLiteral("enabled")).toBool();
+            const bool arming = session.value(QStringLiteral("arming")).toBool();
+            const QString reason = state->dirty ? QStringLiteral("Save the PA profile before enabling TX.")
+                : session.value(QStringLiteral("reason")).toString();
+            enableTx->setEnabled(session.value(QStringLiteral("available")).toBool() && !state->dirty);
+            enableTx->setAccessibleDescription(reason);
+            enableTx->setToolTip(reason);
+            disableTx->setEnabled(armed || arming);
+            txAntenna->setEnabled(!armed && !arming);
+            table->setEnabled(!armed && !arming);
+            apply->setEnabled(!armed && !arming);
+            defaults->setEnabled(!armed && !arming);
+            preview->setEnabled(!armed && !arming);
+            sessionStatus->setText(arming ? QStringLiteral("Enabling TX session; radio is not keyed.")
+                : armed ? QStringLiteral("TX enabled: Slice A, %1 MHz, ANT%2, band limit %3 W. MOX/PTT controls transmission; TUNE is unavailable.")
+                    .arg(session.value(QStringLiteral("frequencyHz")).toDouble()/1e6,0,'f',6)
+                    .arg(session.value(QStringLiteral("antenna")).toInt())
+                    .arg(session.value(QStringLiteral("limitWatts")).toDouble())
+                : QStringLiteral("TX disabled. %1").arg(reason));
+            prepareDsp->setEnabled(supported && !preparing && !armed && !arming);
             prepareDsp->setAccessibleDescription(supported ? QStringLiteral("Builds a DSP channel without keying or sending radio packets")
                 : QStringLiteral("Requires an idle supported P2 radio in USB or LSB"));
-            cancelDsp->setEnabled(preparing || ready);
+            cancelDsp->setEnabled((preparing || ready) && !armed && !arming);
             const QString failure = preparation.value(QStringLiteral("error")).toString();
             dspStatus->setText(preparing ? QStringLiteral("Preparing TX DSP on the planning worker. Transmission remains disabled.")
-                : ready ? QStringLiteral("TX DSP prepared for %1. Staged in the audio path; radio transmit remains disabled.").arg(preparation.value(QStringLiteral("mode")).toString())
+                : ready ? QStringLiteral("TX DSP prepared for %1 and staged in the audio path.").arg(preparation.value(QStringLiteral("mode")).toString())
                 : failure.isEmpty() ? QStringLiteral("TX DSP not prepared. Transmission remains disabled.")
                 : QStringLiteral("TX DSP preparation failed: %1").arg(failure));
             state->reference = data.value(QStringLiteral("reference")).toMap();
@@ -141,7 +184,7 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
                         spin->setSuffix(column == 1 ? QStringLiteral(" dB") : QStringLiteral(" W"));
                         table->setCellWidget(row,column,spin);
                         QObject::connect(spin,QOverload<double>::of(&QDoubleSpinBox::valueChanged),page,[=] {
-                            if (!state->filling) { state->dirty = true; output->setText(QStringLiteral("Preview not calculated")); }
+                            if (!state->filling) { state->dirty = true; enableTx->setEnabled(false); output->setText(QStringLiteral("Preview not calculated")); }
                         });
                     }
                 }
@@ -156,20 +199,28 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
             }
         });
         QObject::connect(backend,&IRadioBackend::extensionError,guard,[=](quint64 reply,const QString& error) {
-            if (reply != id) { return; } state->busy = false; guard->deleteLater(); if (backend && model->backend() == backend && model->isConnected()) { output->setText(error); }
+            if (reply != id) { return; } finish(); guard->deleteLater(); if (backend && model->backend() == backend && model->isConnected()) { output->setText(error); }
         });
-        QTimer::singleShot(1500,guard,[=] { state->busy = false; guard->deleteLater(); });
+        QTimer::singleShot(1500,guard,[=] { finish(); guard->deleteLater(); });
         const QVariantMap payload = verb == QLatin1String("txpower.get") ? QVariantMap{} : QVariantMap{
-            {QStringLiteral("identity"),state->identity},{QStringLiteral("options"),options()},
+            {QStringLiteral("identity"),state->identity},{QStringLiteral("options"),submittedOptions},
+            {QStringLiteral("sessionIdentity"),state->sessionIdentity},{QStringLiteral("antenna"),txAntenna->currentData()},
             {QStringLiteral("band"),band->currentIndex()},{QStringLiteral("watts"),watts->value()}};
         model->invokeBackendExtension(QStringLiteral("anan"),verb,id,payload);
     };
+    QObject::connect(enableTx,&QPushButton::clicked,page,[=] { if (!state->dirty) { enableTx->setEnabled(false); request(QStringLiteral("txsession.enable")); } });
+    QObject::connect(disableTx,&QPushButton::clicked,page,[=] { request(QStringLiteral("txsession.disable")); });
     QObject::connect(prepareDsp,&QPushButton::clicked,page,[=] { request(QStringLiteral("txdsp.prepare")); });
     QObject::connect(cancelDsp,&QPushButton::clicked,page,[=] { request(QStringLiteral("txdsp.cancel")); });
     QObject::connect(apply,&QPushButton::clicked,page,[=] { request(QStringLiteral("txpower.set")); });
     QObject::connect(preview,&QPushButton::clicked,page,[=] { request(QStringLiteral("txpower.preview")); });
-    QObject::connect(defaults,&QPushButton::clicked,page,[=] { fill(state->reference); state->dirty = true; output->setText(QStringLiteral("Preview not calculated")); });
-    QObject::connect(model,&RadioModel::connectionStateChanged,page,[=] { state->dirty = false; state->identity.clear(); group->setEnabled(false); group->setAccessibleDescription(QStringLiteral("Unavailable: connect an ANAN and select an explicit supported receive profile")); output->setText(QStringLiteral("Preview not calculated")); });
+    QObject::connect(defaults,&QPushButton::clicked,page,[=] { fill(state->reference); state->dirty = true; enableTx->setEnabled(false); output->setText(QStringLiteral("Preview not calculated")); });
+    QObject::connect(model,&RadioModel::connectionStateChanged,page,[=] {
+        state->dirty = false; state->identity.clear(); group->setEnabled(false);
+        group->setAccessibleDescription(QStringLiteral("Unavailable: connect an ANAN and select an explicit supported receive profile"));
+        output->setText(QStringLiteral("Preview not calculated")); sessionStatus->setText(QStringLiteral("TX disabled: connection changed."));
+        enableTx->setEnabled(false); disableTx->setEnabled(false);
+    });
     QObject::connect(band,QOverload<int>::of(&QComboBox::currentIndexChanged),page,[=] { output->setText(QStringLiteral("Preview not calculated")); });
     QObject::connect(watts,QOverload<double>::of(&QDoubleSpinBox::valueChanged),page,[=] { output->setText(QStringLiteral("Preview not calculated")); });
     auto* timer = new QTimer(page);
