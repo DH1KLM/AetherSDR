@@ -306,6 +306,42 @@ AudioStats runAm(AnanRxDsp& dsp, int inputRateHz, double seconds, double tailSec
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    {
+        for (const int rate : {48000, 192000, 384000, 1536000}) {
+            AnanRxDsp dsp;
+            AnanRxDsp::Config config;
+            config.inputSampleRateHz = rate;
+            config.audioSampleRateHz = 24000;
+            config.panPoints = 256;
+            config.agcMode = 0;
+            config.agcFixedGainDb = 0;
+            std::string error;
+            check(dsp.configure(config,&error), "live-default RX configures for a socket-backlog burst");
+            std::size_t frames = 0;
+            const auto connection = QObject::connect(&dsp,&AnanRxDsp::audioReady,&dsp,
+                [&](const std::vector<float>& audio) { frames += audio.size() / 2; });
+            constexpr int blocks = 128;
+            const int samples = blocks * config.dspBlockSize;
+            for (int first = 0; first < samples; first += 238) {
+                const int count = std::min(238,samples - first);
+                std::vector<std::complex<float>> iq(static_cast<std::size_t>(count));
+                for (int n = 0; n < count; ++n) {
+                    const double phase = 2 * kPi * 1000 * (first+n) / rate;
+                    iq[static_cast<std::size_t>(n)] = {static_cast<float>(0.125 * std::cos(phase)),
+                        static_cast<float>(0.125 * std::sin(phase))};
+                }
+                dsp.processIqBlock(iq);
+            }
+            const auto counts = dsp.processTally();
+            std::fprintf(stderr,"RX burst %d Hz: OK=%llu underrun=%llu frames=%zu\n",rate,
+                static_cast<unsigned long long>(counts.ok),static_cast<unsigned long long>(counts.underrun),frames);
+            check(counts.ok == blocks && counts.underrun == 0 && counts.faults() == 0,
+                  "live RX defaults preserve every DSP exchange when IQ arrives in a backlog burst");
+            check(frames == static_cast<std::size_t>(samples) * config.audioSampleRateHz / rate,
+                  "backlog burst produces the exact audio duration without skipped blocks");
+            QObject::disconnect(connection);
+        }
+    }
 
     // Shared by the spectrum groups below: a spectrum-only configuration --
     // linear AGC so nothing else rescales, output blocking so the audio side

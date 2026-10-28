@@ -1138,8 +1138,8 @@ bool runStoppedCloseTest()
 //
 // NON-BLOCKING, unlike every other case in this file, and that is deliberate.
 // The crash rate is scheduling-dependent and the non-blocking form is both the
-// faster reproducer here and what production actually uses: Hl2RxDsp and
-// AnanRxDsp leave Config::blockForOutput false. Measured per-cycle on this box
+// faster reproducer here. Hl2RxDsp and the explicit non-blocking probes still
+// leave blockForOutput false. Measured per-cycle on this box
 // with patch 9 reverted, 8 of 30 non-blocking against 1 of 30 blocking — both
 // non-zero, so this is not a mode-specific defect, but the cheaper one is the
 // right one to run every build. CYCLES is sized against that 8-in-30: at 24

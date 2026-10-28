@@ -83,10 +83,10 @@ public:
         // The gain with AGC off (WDSP's fixed gain). WdspChannel's default;
         // AnanBackend supplies the operator's.
         double agcFixedGainDb = 10.0;
-        // false (live): processIq is non-blocking. true: waits for each
-        // output block (deterministic for an offline/burst feed -- what the
-        // handedness test uses).
-        bool blockForOutput = false;
+        // Match Thetis cmaster.c create_rcvr and Nereus openRxChannelWdsp:
+        // wait for output so a UDP-backlog burst cannot outrun WDSP's
+        // two-slot exchange rings. Explicit false remains available to probes.
+        bool blockForOutput = true;
         // WDSP's impulse noise blankers (ANB and NOB), run on the raw IQ ahead
         // of the channel -- see WdspChannel::setNoiseBlanker(). In Config so a
         // rate-change rebuild opens the new channel with the operator's

@@ -139,6 +139,11 @@ this client keys P2 TX.
 
 ## Mouse-related receive diagnostics
 
+The extended ANAN receiver waits for each WDSP output exchange, following
+Thetis and Nereus. This keeps a burst of queued UDP IQ packets from overrunning
+the asynchronous exchange pipeline. It applies to P1 and P2; the original
+tropo1234 receiver and the system audio-buffer setting are unchanged.
+
 For audible peaks or S-meter jumps during mouse movement, enable **Performance**
 under **Help → Support & Diagnostics... → Application Logs**. The existing UI
 heartbeat then logs `RxTrace` windows of approximately **100 ms**. Disable the
