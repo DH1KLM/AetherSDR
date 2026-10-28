@@ -1,4 +1,6 @@
 #include "AudioEngine.h"
+#include "PerfTelemetry.h"
+#include "RxDiagnosticTrace.h"
 #include "RxChainRunner.h"
 #include "RxClientEffects.h"
 #include <QSignalBlocker>
@@ -2737,6 +2739,17 @@ void AudioEngine::drainRxAudio(qsizetype freeBytes)
                 alignedStereoFloatBytes(
                     std::min<qsizetype>(len, chunk.size()));
             if (capturedBytes > 0) {
+                if (lcPerf().isDebugEnabled()) {
+                    static thread_local rxtrace::Window trace;
+                    const qint64 now = PerfTelemetry::nowNs();
+                    trace.begin(rxtrace::Sample::Stage::Playback, -1, sampleRate, now);
+                    for (qsizetype offset = 0; offset < capturedBytes; offset += sizeof(float)) {
+                        float value = 0;
+                        std::memcpy(&value, chunk.constData() + offset, sizeof(value));
+                        trace.data.pcm.add(static_cast<double>(value) * value, now);
+                    }
+                    trace.finish(PerfTelemetry::nowNs());
+                }
                 captureAutomationAudio(
                     QStringLiteral("final"), QStringLiteral("mix"),
                     QString(), chunk.left(capturedBytes),

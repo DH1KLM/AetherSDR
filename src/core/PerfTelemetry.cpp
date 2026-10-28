@@ -1,6 +1,9 @@
 #include "PerfTelemetry.h"
 #include "LogManager.h"
+#include "RxDiagnosticTrace.h"
 
+#include <QCoreApplication>
+#include <QEvent>
 #include <QLoggingCategory>
 #include <QMutexLocker>
 #include <QStringList>
@@ -8,6 +11,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cmath>
 #include <utility>
 
@@ -27,6 +31,48 @@ constexpr double kWaterfallUpdateStallMs = 12.0;
 constexpr double kRenderStallMs = 16.0;
 constexpr double kUdpDrainStallMs = 8.0;
 constexpr double kInputStallMs = 16.0;
+
+class MouseTraceObserver final : public QObject {
+    bool eventFilter(QObject*, QEvent* event) override
+    {
+        if (event->type() == QEvent::MouseMove && lcPerf().isDebugEnabled()) {
+            rxtrace::Trace::instance().mouse(PerfTelemetry::nowNs());
+        }
+        return false;
+    }
+};
+
+void drainRxTrace()
+{
+    static MouseTraceObserver observer;
+    static bool installed = false;
+    if (!installed && QCoreApplication::instance()) {
+        QCoreApplication::instance()->installEventFilter(&observer);
+        installed = true;
+    }
+    rxtrace::Sample sample;
+    for (int n = 0; n < 128 && rxtrace::Trace::instance().take(sample); ++n) {
+        const auto ms = [](std::int64_t ns) { return QString::number(static_cast<double>(ns) / 1e6, 'f', 3); };
+        qCDebug(lcPerf).noquote().nospace()
+            << "RxTrace stage=" << (sample.stage == rxtrace::Sample::Stage::Anan ? "anan" : "playback")
+            << " channel=" << sample.channel << " rate=" << sample.rate
+            << " startMs=" << ms(sample.startNs) << " endMs=" << ms(sample.endNs)
+            << " mouseEvents=" << sample.mouseEnd - sample.mouseStart << " lastMouseMs=" << ms(sample.lastMouseNs)
+            << " iqRmsDb=" << sample.iq.rmsDb() << " iqPeakDb=" << sample.iq.peakDb() << " iqPeakMs=" << ms(sample.iq.peakNs)
+            << " dspRmsDb=" << sample.dsp.rmsDb() << " dspPeakDb=" << sample.dsp.peakDb() << " dspPeakMs=" << ms(sample.dsp.peakNs)
+            << " pcmRmsDb=" << sample.pcm.rmsDb() << " pcmPeakDb=" << sample.pcm.peakDb() << " pcmPeakMs=" << ms(sample.pcm.peakNs)
+            << " iqSamples=" << sample.iq.samples << " dspSamples=" << sample.dsp.samples << " pcmSamples=" << sample.pcm.samples
+            << " fullScale=" << sample.pcm.fullScale << " invalid=" << sample.iq.invalid + sample.dsp.invalid + sample.pcm.invalid
+            << " wdspOk=" << sample.results[0] << " wdspUnderrun=" << sample.results[1]
+            << " wdspBusy=" << sample.results[2] << " wdspInvalid=" << sample.results[3]
+            << " wdspAlloc=" << sample.results[4] << " wdspError=" << sample.results[5]
+            << " firstUnderrunMs=" << ms(sample.firstUnderrunNs) << " lastUnderrunMs=" << ms(sample.lastUnderrunNs)
+            << " iqGapMaxMs=" << ms(sample.inputGapMaxNs) << " exchangeMaxMs=" << ms(sample.exchangeMaxNs)
+            << " callbackMaxMs=" << ms(sample.callbackMaxNs) << " meterMaxDb=" << sample.meterMaxDb
+            << " meterMaxMs=" << ms(sample.meterMaxNs) << " sequenceGaps=" << sample.gaps
+            << " traceDropped=" << rxtrace::Trace::instance().dropped();
+    }
+}
 
 QString frameKindName(PerfTelemetry::FrameKind kind)
 {
@@ -440,6 +486,8 @@ void PerfTelemetry::recordUiHeartbeat()
     const qint64 now = nowNs();
     if (!beginRecord(now))
         return;
+
+    drainRxTrace();
 
     double lagMs = 0.0;
     const bool dragActive = m_dragActive.load(std::memory_order_relaxed);

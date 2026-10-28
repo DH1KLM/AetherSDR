@@ -1,16 +1,28 @@
 #include "core/backends/anan/AnanRxDsp.h"
+#include "core/LogManager.h"
+#include "core/PerfTelemetry.h"
+#include "core/RxDiagnosticTrace.h"
 
 #include <QDebug>
 #include <QLoggingCategory>
 #include <QMetaType>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 
 Q_LOGGING_CATEGORY(lcAnanRxDsp, "aether.anan.rxdsp")
 
 namespace AetherSDR::anan {
+namespace {
+rxtrace::Window* diagnosticWindow(int channel)
+{
+    static thread_local std::array<rxtrace::Window, 32> windows;
+    if (!lcPerf().isDebugEnabled() || channel < 0 || channel >= static_cast<int>(windows.size())) { return nullptr; }
+    return &windows[static_cast<std::size_t>(channel)];
+}
+}
 
 AnanRxDsp::AnanRxDsp(QObject* parent) : QObject(parent)
 {
@@ -475,6 +487,9 @@ bool AnanRxDsp::spectrumFrameDue()
 
 void AnanRxDsp::onSequenceGap()
 {
+    if (m_channel) {
+        if (auto* trace = diagnosticWindow(m_channel->channelId())) { ++trace->data.gaps; }
+    }
     m_autoAgcFloor.reset();
     if (!m_analyzer) {
         return;   // between rebuilds; the new analyzer starts empty
@@ -492,6 +507,16 @@ void AnanRxDsp::processIqBlock(const std::vector<std::complex<float>>& iq)
 {
     if (!m_channel)
         return;
+
+    auto* trace = diagnosticWindow(m_channel->channelId());
+    if (trace) {
+        const qint64 now = PerfTelemetry::nowNs();
+        trace->begin(rxtrace::Sample::Stage::Anan, m_channel->channelId(), m_config.inputSampleRateHz, now);
+        for (const auto value : iq) {
+            const double i = value.real(), q = value.imag();
+            trace->data.iq.add(i * i + q * q, now);
+        }
+    }
 
     // Handedness: read docs/HERMES.md §16 before touching this. WDSP's RXA as
     // configured here selects the opposite sign to its passband bounds, and the HPSDR
@@ -555,7 +580,18 @@ void AnanRxDsp::processIqBlock(const std::vector<std::complex<float>>& iq)
         }
         consumed += block;
 
+        const qint64 exchangeStart = trace ? PerfTelemetry::nowNs() : 0;
         const auto res = m_channel->processIq(m_i, m_q, m_left, m_right);
+        if (trace) {
+            const qint64 now = PerfTelemetry::nowNs();
+            trace->data.exchangeMaxNs = std::max(trace->data.exchangeMaxNs, static_cast<std::int64_t>(now - exchangeStart));
+            const std::size_t resultIndex = static_cast<std::size_t>(res);
+            if (resultIndex < trace->data.results.size()) { ++trace->data.results[resultIndex]; }
+            if (res == WdspChannel::ProcessResult::Underrun) {
+                if (!trace->data.firstUnderrunNs) { trace->data.firstUnderrunNs = now; }
+                trace->data.lastUnderrunNs = now;
+            }
+        }
         // Count every outcome, Ok included -- the Ok count is the denominator
         // a fault total has to be read against. Same rule, same words and the
         // same bounded log schedule as Hl2RxDsp::processIqBlock: these two
@@ -584,9 +620,16 @@ void AnanRxDsp::processIqBlock(const std::vector<std::complex<float>>& iq)
         }
 
         const std::size_t outN = m_left.size();
+        const qint64 outputTime = trace ? PerfTelemetry::nowNs() : 0;
         for (std::size_t k = 0; k < outN; ++k) {
             m_stereo[2 * k] = m_dcBlockL.process(m_left[k]);
             m_stereo[2 * k + 1] = m_dcBlockR.process(m_right[k]);
+            if (trace) {
+                const double left = m_left[k], right = m_right[k];
+                const double pcmLeft = m_stereo[2*k], pcmRight = m_stereo[2*k+1];
+                trace->data.dsp.add(left * left, outputTime); trace->data.dsp.add(right * right, outputTime);
+                trace->data.pcm.add(pcmLeft * pcmLeft, outputTime); trace->data.pcm.add(pcmRight * pcmRight, outputTime);
+            }
         }
         QVector<float> samples(m_stereo.begin(), m_stereo.end());
         if (const auto frame = m_pcmProducer.produce(std::move(samples))) {
@@ -602,14 +645,19 @@ void AnanRxDsp::processIqBlock(const std::vector<std::complex<float>>& iq)
         // per 48k-equivalent block (~47/s at every DDC0 rate). Blocks that underrun
         // above do not tick it.
         if (!m_audioMuted && m_meterTap.tick()) {
-            emit meterUpdate(static_cast<float>(
-                m_channel->meter(WdspChannel::Meter::SignalAverage)));
+            const float meter = static_cast<float>(m_channel->meter(WdspChannel::Meter::SignalAverage));
+            if (trace && meter > trace->data.meterMaxDb) {
+                trace->data.meterMaxDb = meter;
+                trace->data.meterMaxNs = PerfTelemetry::nowNs();
+            }
+            emit meterUpdate(meter);
         }
     }
 
     if (consumed > 0)
         m_iqBuffer.erase(m_iqBuffer.begin(),
                          m_iqBuffer.begin() + static_cast<std::ptrdiff_t>(consumed));
+    if (trace) { trace->finish(PerfTelemetry::nowNs()); }
 }
 
 }  // namespace AetherSDR::anan

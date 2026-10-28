@@ -137,6 +137,43 @@ PA calibration are not qualified; the software tests do not establish actual RF
 power, signal quality or protection. The radio speaker stream is silenced while
 this client keys P2 TX.
 
+## Mouse-related receive diagnostics
+
+For audible peaks or S-meter jumps during mouse movement, enable **Performance**
+under **Help → Support & Diagnostics... → Application Logs**. The existing UI
+heartbeat then logs `RxTrace` windows of approximately **100 ms**. Disable the
+filter after the capture. This applies to the extended backend; the original
+tropo1234 implementation is unchanged.
+
+- `stage=anan`: raw wire IQ RMS/peak before WDSP, successful WDSP output
+  RMS/peak, post-DC-blocker PCM RMS/peak, actual emitted signal-meter maximum,
+  and separate counts for WDSP `Ok`, internal `Underrun`, `Busy`, invalid buffer,
+  allocation violation and engine error. Packet-sequence gaps, maximum IQ callback
+  gap, callback duration and WDSP exchange duration are recorded separately.
+- `stage=playback`: the final mixed float PCM accepted by the output device,
+  after the client chain and mixing/clamping. This is before device volume,
+  ASIO callback gain and any hardware processing; its timestamp is the write,
+  not when the sound leaves the speaker. Playback buffers introduce a delay
+  between the upstream and playback traces.
+- `startMs`, `endMs`, peak times, meter time and first/last internal underrun
+  times use the same monotonic clock as the performance telemetry.
+  `mouseEvents` counts Qt-delivered application mouse-move events in the window;
+  it is not the physical mouse polling rate. `lastMouseMs` identifies the most
+  recent such event. Events outside the application's delivered event stream
+  are not counted.
+- Levels are uncalibrated dBFS: complex IQ energy uses I²+Q²; real audio energy
+  averages both channels. `fullScale` counts PCM samples at or above full scale;
+  `invalid` counts non-finite samples. Sample counts distinguish absent data
+  from silence. Invalid samples are counted, not included in RMS calculations.
+
+Producer paths only accumulate fixed-size statistics and publish into a bounded
+queue. The UI writes the log. `traceDropped` exposes lost diagnostic windows if
+that queue fills; a capture with increasing drops is incomplete. Zero packet
+loss and zero playback underruns do not exclude internal WDSP underruns, and
+an internal underrun during initial channel filling does not by itself explain
+an audible peak. Compare periods with a stationary mouse against periods of
+movement before attributing a cause.
+
 ## UDP receive buffer
 
 The extended backend requests **1,024,000 bytes** (**0xFA000**, matching Thetis)

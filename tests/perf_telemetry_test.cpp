@@ -18,17 +18,24 @@
 
 #include "core/LogManager.h"
 #include "core/PerfTelemetry.h"
+#include "core/RxDiagnosticTrace.h"
 
 #include <QCoreApplication>
+#include <QEvent>
 #include <QLoggingCategory>
 #include <QString>
 #include <QStringList>
 #include <QtGlobal>
 
 #include <cstdio>
+#include <cmath>
+#include <atomic>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
+#include <limits>
+#include <thread>
 
 using AetherSDR::PerfTelemetry;
 
@@ -390,6 +397,77 @@ void testWindowTiming()
     }
 }
 
+void testRxTrace()
+{
+    using namespace AetherSDR::rxtrace;
+    Trace& trace = Trace::instance();
+    Sample value;
+    while (trace.take(value)) {}
+    const auto dropped = trace.dropped();
+    bool allAccepted = true;
+    for (int n = 0; n < 128; ++n) {
+        Sample entry; entry.channel = n;
+        allAccepted = trace.publish(entry) && allAccepted;
+    }
+    report("bounded RX trace accepts free slots", allAccepted);
+    report("full RX trace drops without waiting", !trace.publish({}) && trace.dropped() == dropped + 1);
+    bool fifo = true;
+    for (int n = 0; n < 128; ++n) { fifo = trace.take(value) && value.channel == n && fifo; }
+    report("RX trace retains FIFO order and reuses slots", fifo && !trace.take(value));
+    std::atomic<int> accepted{0};
+    const auto producer = [&](int channel) {
+        for (int n = 0; n < 48; ++n) {
+            Sample entry; entry.channel = channel; entry.rate = channel * 1000;
+            if (trace.publish(entry)) { ++accepted; }
+        }
+    };
+    const auto beforeRace = trace.dropped();
+    std::thread first(producer,1), second(producer,2);
+    first.join(); second.join();
+    int taken = 0; bool intact = true;
+    while (trace.take(value)) { ++taken; intact = intact && value.rate == value.channel * 1000; }
+    report("concurrent RX producers preserve samples or report drops", intact && taken == accepted.load()
+        && static_cast<std::uint64_t>(taken) + trace.dropped() - beforeRace == 96);
+
+    constexpr qint64 start = 900'000'000'000LL;
+    prime(start);
+    PerfTelemetry::instance().recordUiHeartbeat();
+    const auto mouseBefore = trace.mouseCount();
+    QObject receiver;
+    QEvent move(QEvent::MouseMove);
+    QCoreApplication::sendEvent(&receiver,&move);
+    report("application mouse activity shares the RX trace clock", trace.mouseCount() == mouseBefore + 1 && trace.lastMouse() == start);
+    QLoggingCategory::setFilterRules(QStringLiteral("aether.perf.debug=false"));
+    QCoreApplication::sendEvent(&receiver,&move);
+    report("disabled Performance does not record mouse activity", trace.mouseCount() == mouseBefore + 1);
+    QLoggingCategory::setFilterRules(QStringLiteral("aether.perf.debug=true"));
+    Window window;
+    window.begin(Sample::Stage::Anan,3,384000,start);
+    window.data.iq.add(0.25,start);
+    window.data.iq.add(1.0,start+1);
+    window.data.iq.add(std::numeric_limits<double>::infinity(),start+2);
+    report("RX level RMS excludes invalid data", std::abs(window.data.iq.rmsDb()-10*std::log10(0.625)) < 1e-9);
+    window.data.results[1] = 1;
+    window.data.firstUnderrunNs = start+3;
+    window.data.lastUnderrunNs = start+3;
+    window.finish(start+99'000'000);
+    report("RX trace aggregates rather than publishing each DSP block", !trace.take(value));
+    window.begin(Sample::Stage::Anan,3,384000,start+100'000'000);
+    window.finish(start+101'000'000);
+    PerfTelemetry::setClockOverrideForTest(start+102'000'000);
+    PerfTelemetry::instance().recordUiHeartbeat();
+    const auto lines = linesStartingWith("RxTrace");
+    report("RX trace drains with internal underruns and finite peak levels", lines.size() == 1
+        && fieldValue(lines.front(),QStringLiteral("wdspUnderrun")) == QLatin1String("1")
+        && fieldValue(lines.front(),QStringLiteral("iqPeakDb")) == QLatin1String("0")
+        && fieldValue(lines.front(),QStringLiteral("invalid")) == QLatin1String("1"));
+    report("published RX window resets its levels", window.data.iq.samples == 0);
+    Level levels;
+    levels.add(0.25,start); levels.add(1,start+1);
+    report("RX level energy and peak timestamps are retained", std::abs(levels.rmsDb()-10*std::log10(0.625)) < 1e-9
+        && levels.peakNs == start+1 && levels.fullScale == 1);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -406,6 +484,7 @@ int main(int argc, char** argv)
     testFrameRestartCounter();
     testPercentile95Boundaries();
     testWindowTiming();
+    testRxTrace();
 
     qInstallMessageHandler(nullptr);
     PerfTelemetry::setClockOverrideForTest(0);
