@@ -206,6 +206,14 @@ A gain of 100 dB remains a gain, never a full-drive sentinel. Preview output is
 not applied to the live transmitter. Actual PA calibration, modulation scaling
 (including the TX DSP's fixed headroom) and measured RF power remain unqualified.
 The UI includes only backend-neutral model/seam headers; it adds no wire path.
+`txdsp.prepare` explicitly builds a standalone `AnanTxDsp` on the existing
+`anan-dsp-build` worker. The planner retains ownership; no transfer to
+`AnanClient`, P2 configuration or TX admission occurs. Completion carries only
+a ticket and status to the backend, never a channel whose queued callback could
+be destroyed on the GUI thread. Cancellation tokens are checked before and after
+WDSP construction. Replaced jobs, mode changes and connection generations cannot
+publish a stale ready state. Queued discard and the destructor's final worker
+barrier release WDSP/FFTW resources on the planner before it is joined.
 ## Verification
 
 Validation is recorded separately in the local working state after the

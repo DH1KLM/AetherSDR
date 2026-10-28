@@ -52,11 +52,21 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
     auto* output = new QLabel(QStringLiteral("Preview not calculated"),group);
     output->setObjectName(QStringLiteral("ananTxPowerResult"));
     output->setWordWrap(true);
+    auto* prepareDsp = new QPushButton(QStringLiteral("Prepare TX DSP"),group);
+    prepareDsp->setObjectName(QStringLiteral("ananTxDspPrepare"));
+    auto* cancelDsp = new QPushButton(QStringLiteral("Discard TX DSP"),group);
+    cancelDsp->setObjectName(QStringLiteral("ananTxDspCancel"));
+    auto* dspStatus = new QLabel(QStringLiteral("TX DSP not prepared. Transmission remains disabled."),group);
+    dspStatus->setObjectName(QStringLiteral("ananTxDspStatus"));
+    dspStatus->setWordWrap(true);
+    prepareDsp->setEnabled(false); cancelDsp->setEnabled(false);
     auto* controls = new QFormLayout;
     controls->addRow(QStringLiteral("Preview band:"),band);
     controls->addRow(QStringLiteral("Requested power:"),watts);
     controls->addRow(preview,output);
     controls->addRow(defaults,apply);
+    controls->addRow(prepareDsp,cancelDsp);
+    controls->addRow(dspStatus);
     form->addLayout(controls);
     layout->addWidget(group,1);
     group->setEnabled(false);
@@ -101,6 +111,19 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
             group->setEnabled(available);
             group->setAccessibleDescription(available ? QStringLiteral("PA configuration preview only; transmit remains disabled")
                 : QStringLiteral("Unavailable: connect an ANAN and select an explicit supported receive profile"));
+            const auto preparation = data.value(QStringLiteral("preparation")).toMap();
+            const bool preparing = preparation.value(QStringLiteral("building")).toBool();
+            const bool ready = preparation.value(QStringLiteral("ready")).toBool();
+            const bool supported = preparation.value(QStringLiteral("available")).toBool();
+            prepareDsp->setEnabled(supported && !preparing);
+            prepareDsp->setAccessibleDescription(supported ? QStringLiteral("Builds a DSP channel without keying or sending radio packets")
+                : QStringLiteral("Requires an idle native P2 radio in USB or LSB"));
+            cancelDsp->setEnabled(preparing || ready);
+            const QString failure = preparation.value(QStringLiteral("error")).toString();
+            dspStatus->setText(preparing ? QStringLiteral("Preparing TX DSP on the planning worker. Transmission remains disabled.")
+                : ready ? QStringLiteral("TX DSP prepared for %1. Not installed in the transmitter; transmission remains disabled.").arg(preparation.value(QStringLiteral("mode")).toString())
+                : failure.isEmpty() ? QStringLiteral("TX DSP not prepared. Transmission remains disabled.")
+                : QStringLiteral("TX DSP preparation failed: %1").arg(failure));
             state->reference = data.value(QStringLiteral("reference")).toMap();
             const auto names = data.value(QStringLiteral("bands")).toList();
             if (table->rowCount() != names.size()) {
@@ -141,6 +164,8 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
             {QStringLiteral("band"),band->currentIndex()},{QStringLiteral("watts"),watts->value()}};
         model->invokeBackendExtension(QStringLiteral("anan"),verb,id,payload);
     };
+    QObject::connect(prepareDsp,&QPushButton::clicked,page,[=] { request(QStringLiteral("txdsp.prepare")); });
+    QObject::connect(cancelDsp,&QPushButton::clicked,page,[=] { request(QStringLiteral("txdsp.cancel")); });
     QObject::connect(apply,&QPushButton::clicked,page,[=] { request(QStringLiteral("txpower.set")); });
     QObject::connect(preview,&QPushButton::clicked,page,[=] { request(QStringLiteral("txpower.preview")); });
     QObject::connect(defaults,&QPushButton::clicked,page,[=] { fill(state->reference); state->dirty = true; output->setText(QStringLiteral("Preview not calculated")); });

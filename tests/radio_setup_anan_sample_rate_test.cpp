@@ -17,6 +17,7 @@
 #include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QThread>
+#include <QSemaphore>
 #include <cstdlib>
 #include <cmath>
 #include <iostream>
@@ -48,7 +49,23 @@ public:
         backend.m_streamApplyOverride = [](const auto&, const auto&) { return true; };
         backend.loadHardwareFilters(board);
     }
-    static void publish(AnanBackend& backend) { backend.emitPanState(); backend.emitSliceState(); }
+    static void blockPlanner(AnanBackend& backend, QSemaphore& entered, QSemaphore& release)
+    {
+        QMetaObject::invokeMethod(backend.m_dspBuildContext,[&entered,&release] { entered.release(); release.acquire(); },Qt::QueuedConnection);
+    }
+    static bool plannedChannel(AnanBackend& backend)
+    {
+        bool present = false;
+        QMetaObject::invokeMethod(backend.m_dspBuildContext,[&] { present = backend.m_plannedTransmitDsp != nullptr; },Qt::BlockingQueuedConnection);
+        return present;
+    }
+    static bool planReady(const AnanBackend& backend) { return backend.m_transmitPlanReady; }
+    static bool transportPrepared(AnanBackend& backend)
+    {
+        bool present = false;
+        QMetaObject::invokeMethod(backend.m_client,[&] { present = backend.m_client->transmitMode().has_value(); },Qt::BlockingQueuedConnection);
+        return present;
+    }    static void publish(AnanBackend& backend) { backend.emitPanState(); backend.emitSliceState(); }
     static void connected(AnanBackend& backend, bool connected) { backend.m_connected = connected; }
     static void calibrationMode(AnanBackend& backend)
     {
@@ -119,6 +136,28 @@ int main(int argc, char** argv)
         check(errors.count() == 1, "stale PA identity cannot save");
         page->findChild<QPushButton*>(QStringLiteral("ananTxPowerDefaults"))->click();
         check(limit->value() == 0 && std::abs(gain->value()-47.9) < 0.01, "Thetis defaults reset preview limits to zero");
+        auto* prepareDsp = page->findChild<QPushButton*>(QStringLiteral("ananTxDspPrepare"));
+        auto* cancelDsp = page->findChild<QPushButton*>(QStringLiteral("ananTxDspCancel"));
+        check(prepareDsp && prepareDsp->isEnabled(), "native P2 USB exposes explicit DSP preparation");
+        QSemaphore entered, release;
+        anan::AnanLinkStatsTestAccess::blockPlanner(*backend,entered,release);
+        check(entered.tryAcquire(1,5000), "existing planner accepts bounded test barrier");
+        prepareDsp->click(); app.processEvents();
+        check(cancelDsp->isEnabled(), "pending preparation remains cancellable without waiting for planner");
+        cancelDsp->click(); app.processEvents(); release.release();
+        check(!anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "cancelled queued preparation never leaves a DSP channel");
+        prepareDsp->click(); app.processEvents();
+        deadline.restart();
+        while (!anan::AnanLinkStatsTestAccess::planReady(*backend) && deadline.elapsed() < 45000) {
+            app.processEvents(); QThread::msleep(1);
+        }
+        check(anan::AnanLinkStatsTestAccess::planReady(*backend)
+              && anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "actual TX DSP is built asynchronously on existing planner");
+        check(!anan::AnanLinkStatsTestAccess::transportPrepared(*backend)
+              && !backend->capabilities().canTransmit, "DSP preparation does not install transport or enable TX");
+        backend->setSliceMode(0,QStringLiteral("LSB"));
+        check(!anan::AnanLinkStatsTestAccess::planReady(*backend)
+              && !anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "mode change retires prepared USB channel on planner");
     }
     {
         RadioModel model;

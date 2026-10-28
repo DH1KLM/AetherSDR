@@ -22,7 +22,7 @@ struct AudioCredit final {
 constexpr std::size_t kMaximumPendingAudioBytes = 8192;
 }
 
-QVariantMap AnanBackend::transmitPowerState() const
+QVariantMap AnanBackend::transmitPowerState()
 {
     const auto defaults = defaultTransmitPower(m_pendingParams.model);
     const bool available = m_connected && m_discoveryInfoReceived && defaults && !m_radioSerial.isEmpty();
@@ -38,9 +38,68 @@ QVariantMap AnanBackend::transmitPowerState() const
         {QStringLiteral("options"),parsed ? transmitPowerOptions(*parsed)
             : defaults ? transmitPowerOptions(*defaults) : QVariantMap{}},
         {QStringLiteral("reference"),defaults ? transmitPowerOptions(*defaults) : QVariantMap{}},
-        {QStringLiteral("txEnabled"),false}};
+        {QStringLiteral("txEnabled"),false}, {QStringLiteral("preparation"),transmitPreparationState()}};
 }
 
+QString AnanBackend::transmitPreparationIdentity() const
+{
+    return QStringLiteral("%1:%2:%3:%4:%5:%6").arg(m_radioSerial).arg(m_connectGeneration)
+        .arg(static_cast<int>(m_pendingParams.model)).arg(m_discoveredBoardId)
+        .arg(m_pendingParams.protocol).arg(m_mode);
+}
+
+void AnanBackend::cancelTransmitPreparation()
+{
+    if (m_transmitPlanCancelled) { m_transmitPlanCancelled->store(true); }
+    ++m_transmitPlanTicket;
+    m_transmitPlanBuilding = false;
+    m_transmitPlanReady = false;
+    m_transmitPlanIdentity.clear();
+    m_transmitPlanError.clear();
+    if (m_dspBuildContext && m_dspBuildThread && m_dspBuildThread->isRunning()) {
+        QMetaObject::invokeMethod(m_dspBuildContext,[this] { m_plannedTransmitDsp.reset(); },Qt::QueuedConnection);
+    }
+}
+
+QVariantMap AnanBackend::transmitPreparationState()
+{
+    const bool supported = m_connected && m_discoveryInfoReceived && m_pendingParams.protocol == 2
+        && p2TransmitProfile(m_discoveredBoardId,m_pendingParams.model)
+        && (m_mode == QLatin1String("USB") || m_mode == QLatin1String("LSB"));
+    if (!m_transmitPlanIdentity.isEmpty()
+        && (!supported || m_transmitPlanIdentity != transmitPreparationIdentity())) { cancelTransmitPreparation(); }
+    return {{QStringLiteral("available"),supported && !m_rateChanging && !m_receiveBuilding},
+        {QStringLiteral("building"),m_transmitPlanBuilding}, {QStringLiteral("ready"),m_transmitPlanReady},
+        {QStringLiteral("error"),m_transmitPlanError}, {QStringLiteral("mode"),m_mode}};
+}
+
+void AnanBackend::prepareTransmitDsp()
+{
+    cancelTransmitPreparation();
+    m_transmitPlanIdentity = transmitPreparationIdentity();
+    m_transmitPlanBuilding = true;
+    m_transmitPlanCancelled = std::make_shared<std::atomic<bool>>(false);
+    const auto cancelled = m_transmitPlanCancelled;
+    const quint64 ticket = m_transmitPlanTicket;
+    const auto mode = modeFromString(m_mode);
+    QMetaObject::invokeMethod(m_dspBuildContext,[this,cancelled,ticket,mode] {
+        if (cancelled->load()) { return; }
+        auto channel = std::make_unique<AnanTxDsp>();
+        std::string error;
+        const bool ok = channel->configure(mode,&error);
+        if (cancelled->load()) { return; }
+        if (ok) { m_plannedTransmitDsp = std::move(channel); }
+        QMetaObject::invokeMethod(this,[this,ticket,ok,error = QString::fromStdString(error)] {
+            if (ticket != m_transmitPlanTicket) { return; }
+            if (!m_connected || m_transmitPlanIdentity != transmitPreparationIdentity()) {
+                cancelTransmitPreparation(); return;
+            }
+            m_transmitPlanBuilding = false;
+            m_transmitPlanReady = ok;
+            m_transmitPlanError = ok ? QString() : error;
+        },Qt::QueuedConnection);
+    },Qt::QueuedConnection);
+}
 void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
     const TxCoordinator::Completion& completion)
 {

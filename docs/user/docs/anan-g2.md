@@ -104,6 +104,17 @@ drive. This is a calculation preview, not an RF power measurement.
 board and protocol. It does not enable transmission. ANAN transmit remains
 unavailable in the desktop application; this page sends no keying or transmit IQ.
 The original tropo1234 implementation is unchanged.
+In the same tab, **Prepare TX DSP** builds a USB or LSB transmit DSP channel on
+the existing planning worker, leaving the interface responsive. It requires an
+idle native Protocol 2 model; unsupported combinations stay dimmed with a reason.
+The status text reports preparation or readiness. **Discard TX DSP** cancels a
+pending request or releases a prepared channel. A running FFTW planning call may
+finish internally before its cancelled result is released.
+
+Changing the primary receive mode, disconnecting or changing the connection
+invalidates the preparation. Nothing is restored automatically on reconnect.
+Preparation is local only: the channel is not installed in the radio transport,
+and no transmit-control packets, IQ data or RF output are requested.
 ## Automatic AGC-T
 
 In the DH1KLM implementation, click **A** beside the AGC controls in the

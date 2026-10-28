@@ -412,6 +412,7 @@ AnanBackend::AnanBackend(QObject* parent)
 
 AnanBackend::~AnanBackend()
 {
+    cancelTransmitPreparation();
     m_droopCalibrator.stop(false);
     ++m_connectGeneration;   // orphan any in-flight finishDspSetup/rebuild callback
 
@@ -426,6 +427,7 @@ AnanBackend::~AnanBackend()
     if(m_client&&m_ioThread&&m_ioThread->isRunning())
         QMetaObject::invokeMethod(m_client,[]{},Qt::BlockingQueuedConnection);
     if (m_dspBuildThread) {
+        QMetaObject::invokeMethod(m_dspBuildContext,[this] { m_plannedTransmitDsp.reset(); },Qt::BlockingQueuedConnection);
         m_dspBuildThread->quit();
         m_dspBuildThread->wait();
     }
@@ -838,6 +840,7 @@ void AnanBackend::seedDroopCorrectionTables(bool useSaturnDefaults)
 
 void AnanBackend::connectRadio(const RadioConnectRequest& request)
 {
+    cancelTransmitPreparation();
     m_transmitOperation = {};
     m_transmitQueuedBytes = std::make_shared<std::atomic<std::size_t>>(0);
     clearAdditionalRx();
@@ -1009,6 +1012,7 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
         m_filterLowHz = lo;
         m_filterHighHz = hi;
     }
+    if (m_mode != mode) { cancelTransmitPreparation(); }
     m_mode = mode;
 
     m_speakerAudioEnabled = m_pendingParams.speakerAudioEnabled;
@@ -1155,6 +1159,7 @@ void AnanBackend::startP2ClientSession(quint64 generation)
 
 void AnanBackend::disconnectRadio()
 {
+    cancelTransmitPreparation();
     m_transmitOperation = {};
     m_transmitQueuedBytes = std::make_shared<std::atomic<std::size_t>>(0);
     m_receiveCalibrationRun.reset();
@@ -1312,6 +1317,7 @@ void AnanBackend::setSliceMode(int sliceId, const QString& mode)
         m_filterLowHz = lo;
         m_filterHighHz = hi;
     }
+    if (m_mode != mode) { cancelTransmitPreparation(); }
     m_mode = mode;
     if (m_ctun) { scheduleTuneApply(); }
     else if (m_receiveLayout.occupants(primaryPanIndex()) <= 1) { m_ddcCenterHz = m_sliceFreqHz; }
@@ -2403,6 +2409,22 @@ void AnanBackend::acceptCalibrationSpectrum(const std::vector<float>& bins, qint
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && (verb == QLatin1String("txdsp.prepare") || verb == QLatin1String("txdsp.cancel"))) {
+        const QVariantMap state = transmitPowerState();
+        const QVariantMap preparation = state.value(QStringLiteral("preparation")).toMap();
+        if (arg.toMap().value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))
+            || !state.value(QStringLiteral("available")).toBool()
+            || m_transmitOperation.permitsDispatch(TxCoordinator::monotonicMs())
+            || (verb == QLatin1String("txdsp.prepare") && (!preparation.value(QStringLiteral("available")).toBool()
+                || preparation.value(QStringLiteral("building")).toBool()))) {
+            emit extensionError(requestId,QStringLiteral("TX DSP preparation requires a current, idle native P2 radio in USB or LSB."));
+            return;
+        }
+        if (verb == QLatin1String("txdsp.cancel")) { cancelTransmitPreparation(); }
+        else { prepareTransmitDsp(); }
+        emit extensionResult(requestId,transmitPowerState());
+        return;
+    }
     if (ns == QLatin1String("anan") && (verb == QLatin1String("txpower.get")
         || verb == QLatin1String("txpower.set") || verb == QLatin1String("txpower.preview"))) {
         QVariantMap state = transmitPowerState();
@@ -2621,6 +2643,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                 m_filterLowHz = low;
                 m_filterHighHz = high;
             }
+            if (m_mode != mode) { cancelTransmitPreparation(); }
             m_mode = mode;
             m_sliceFreqHz = hz;
             m_tuneThrottleTimer->stop();

@@ -301,7 +301,19 @@ private:
     QVariantMap hardwareFilterStatus() const;
     void loadHardwareFilters(int boardId);
     QVariantMap microphoneState() const;
-    QVariantMap transmitPowerState() const;
+    QVariantMap transmitPowerState();
+    QVariantMap transmitPreparationState();
+    void prepareTransmitDsp();
+    void cancelTransmitPreparation();
+    QString transmitPreparationIdentity() const;
+    // The existing planner alone constructs and destroys this channel.
+    std::unique_ptr<AnanTxDsp> m_plannedTransmitDsp;
+    std::shared_ptr<std::atomic<bool>> m_transmitPlanCancelled;
+    quint64 m_transmitPlanTicket = 0;
+    QString m_transmitPlanIdentity;
+    QString m_transmitPlanError;
+    bool m_transmitPlanBuilding = false;
+    bool m_transmitPlanReady = false;
     double receiveTuningRateHz() const;
     void pushReceiveShift(double shiftHz);
     int maximumReceiveAttenuation() const;
