@@ -103,9 +103,10 @@ std::uint32_t word(const std::vector<std::uint8_t>& bytes, std::size_t offset)
     return (std::uint32_t{bytes[offset]} << 24) | (std::uint32_t{bytes[offset+1]} << 16)
         | (std::uint32_t{bytes[offset+2]} << 8) | bytes[offset+3];
 }
-void controlsAndAudio(int board)
+void controlsAndAudio(int board, bool override200D = false)
 {
-    Fixture f(board, board == 5 ? AnanModel::Anan7000 : board == 10 ? AnanModel::AnanG2 : AnanModel::Automatic);
+    Fixture f(board, override200D || board == 4 ? AnanModel::Anan200D
+        : board == 5 ? AnanModel::Anan7000 : board == 10 ? AnanModel::AnanG2 : AnanModel::Automatic,override200D);
     const auto actor = f.coordinator.registerActor({true,0});
     const auto operation = f.coordinator.acquire(actor, TxCoordinator::monotonicMs()).operation;
     f.client.setDdc0FrequencyHz(7'100'000);
@@ -127,7 +128,7 @@ void controlsAndAudio(int board)
           "Alex0 selects TX antenna, TX low-pass and PA relay");
     check((word(keyed,1428) & (1u<<27)) == 0 && (word(keyed,1428) & (1u<<18)),
           "Alex1 mirrors status but never Alex0 TR relay");
-    check(bool(word(keyed,1428) & (1u<<8)) == (board == 5 || board == 10 || board == 20),
+    check(bool(word(keyed,1428) & (1u<<8)) == (!override200D && (board == 5 || board == 10 || board == 20)),
           "MkII BPF2 grounding follows Thetis, independently of ADC count");
     f.client.setRxAntenna(3);
     f.client.setDdc0FrequencyHz(10'100'000);
@@ -136,6 +137,12 @@ void controlsAndAudio(int board)
     check(f.last(kHighPriorityPort)[4] == 3 && f.last(kHighPriorityPort)[345] == 12
           && (word(f.last(kHighPriorityPort),1432) & 0x07000000u) == (1u<<25),
           "RX controls and keepalive preserve the admitted TX envelope and antenna");
+    check(f.client.updateTransmitDrive(72,operation) && f.last(kHighPriorityPort)[345] == 72,
+          "drive update reaches keyed HP packet under original operation");
+    const std::size_t writes = f.writes.size();
+    check(!f.client.updateTransmitDrive(256,operation)
+          && !f.client.updateTransmitDrive(12,TxCoordinator::Operation{}) && f.writes.size() == writes,
+          "invalid drive or missing authority cannot write controls");
     const auto producer = f.coordinator.registerProducer(true);
     const auto context = f.coordinator.mediaContext(producer);
     std::array<std::complex<float>,1024> iq;
@@ -167,8 +174,14 @@ void faultsAndRestrictions()
           && !p2TransmitProfile(10, AnanModel::AnanG21K)
           && !p2TransmitProfile(1, AnanModel::RedPitaya),
           "unimplemented transmit profiles remain closed");
-    Fixture overrideFixture(5, AnanModel::Anan200D, true);
-    check(!overrideFixture.arm(), "cross-board receive override never grants TX support");
+    Fixture noOverride(5, AnanModel::Anan200D, false);
+    check(!noOverride.arm(), "board-5 200D requires explicit override");
+    const auto overrideProfile = p2TransmitProfile(5,AnanModel::Anan200D,true);
+    check(overrideProfile && overrideProfile->filterKind == ReceiveFilterKind::LegacyHpf
+          && !hasAlex2Filters(*overrideProfile), "200D override selects Orion rather than MkII ALEX");
+    check(!p2TransmitProfile(5,AnanModel::Anan100D,true)
+          && !p2TransmitProfile(10,AnanModel::Anan200D,true)
+          && !p2TransmitProfile(5,AnanModel::Automatic,true), "other cross-board overrides stay closed");
     Fixture f;
     check(!f.client.enableTransmit(true), "TX cannot enable before configuration");
     P2TxControl invalid;
@@ -245,6 +258,7 @@ int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
     for (int board : {1,2,3,4,5,10,20}) { controlsAndAudio(board); }
+    controlsAndAudio(5,true);
     faultsAndRestrictions();
     rekeyBetweenKeepaliveAndTimer();
     return failures == 0 ? 0 : 1;

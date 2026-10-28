@@ -528,6 +528,11 @@ int main(int argc, char** argv)
         check(previewTransmitPower(*power,0,100)->drive == 0, "zero band limit produces no drive");
         power->gainsDb[0] = 50;
         power->limitsWatts[0] = 100;
+        const auto quarter = transmitPowerForPercent(*power,0,25);
+        check(quarter && quarter->watts == 25 && quarter->drive == 36,
+              "percent maps to configured band watts before logarithmic drive");
+        check(!transmitPowerForPercent(*power,0,101) && !transmitPowerForPercent(*power,-1,25),
+              "percent and band bounds cannot wrap");
         const auto preview = previewTransmitPower(*power,0,200);
         check(preview && preview->watts == 100 && preview->drive == 72
               && std::abs(preview->audioVolume - std::sqrt(0.05)/0.8) < 1e-12,

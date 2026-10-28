@@ -33,7 +33,7 @@ struct AnanClientTestAccess {
 class AnanLinkStatsTestAccess {
 public:
     static void prepare(AnanBackend& backend, int protocol, bool redPitaya, int board = 5,
-                        AnanModel model = AnanModel::Automatic)
+                        AnanModel model = AnanModel::Automatic, bool overrideDetection = false)
     {
         backend.m_connected = true;
         backend.m_discoveryInfoReceived = true;
@@ -41,6 +41,7 @@ public:
         backend.m_pendingParams.expectedBoardId = board;
         backend.m_radioSerial = QStringLiteral("sample-rate-ui-test-%1-%2").arg(protocol).arg(redPitaya);
         backend.m_pendingParams.protocol = protocol;
+        backend.m_pendingParams.overrideDetection = overrideDetection;
         backend.m_pendingParams.redPitayaP1 = redPitaya;
         backend.m_pendingParams.model = redPitaya ? AnanModel::RedPitaya
             : board == 10 ? AnanModel::AnanG2 : AnanModel::Anan7000;
@@ -109,7 +110,7 @@ int main(int argc, char** argv)
         RadioModel model;
         auto owned = std::make_unique<anan::AnanBackend>();
         auto* backend = owned.get();
-        anan::AnanLinkStatsTestAccess::prepare(*backend,2,false,5,anan::AnanModel::Anan7000);
+        anan::AnanLinkStatsTestAccess::prepare(*backend,2,false,5,anan::AnanModel::Anan200D,true);
         model.setBackendForTest(std::move(owned),QStringLiteral("anan"));
         std::unique_ptr<QWidget> page(createAnanTransmitPowerPage(&model,nullptr));
         page->show();
@@ -131,7 +132,7 @@ int main(int argc, char** argv)
         page->findChild<QPushButton*>(QStringLiteral("ananTxPowerApply"))->click();
         app.processEvents();
         const auto saved = anan::AnanSettings::transmitPower(QStringLiteral("sample-rate-ui-test-2-0"),
-            static_cast<int>(anan::AnanModel::Anan7000),5,2);
+            static_cast<int>(anan::AnanModel::Anan200D),5,2);
         check(saved.value(QStringLiteral("limitsWatts")).toList().value(0).toDouble() == 100,
               "PA page saves exact model protocol profile");
         check(!backend->capabilities().canTransmit, "saving PA profile never enables transmit");
@@ -140,7 +141,7 @@ int main(int argc, char** argv)
             QVariantMap{{QStringLiteral("identity"),QStringLiteral("stale")},{QStringLiteral("options"),saved}});
         check(errors.count() == 1, "stale PA identity cannot save");
         page->findChild<QPushButton*>(QStringLiteral("ananTxPowerDefaults"))->click();
-        check(limit->value() == 0 && std::abs(gain->value()-47.9) < 0.01, "Thetis defaults reset preview limits to zero");
+        check(limit->value() == 0 && std::abs(gain->value()-49.5) < 0.01, "Thetis 200D defaults reset preview limits to zero");
         auto* prepareDsp = page->findChild<QPushButton*>(QStringLiteral("ananTxDspPrepare"));
         auto* cancelDsp = page->findChild<QPushButton*>(QStringLiteral("ananTxDspCancel"));
         check(prepareDsp && prepareDsp->isEnabled(), "native P2 USB exposes explicit DSP preparation");

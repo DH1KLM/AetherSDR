@@ -104,9 +104,18 @@ drive. This is a calculation preview, not an RF power measurement.
 board and protocol. It does not enable transmission. ANAN transmit remains
 unavailable in the desktop application; this page sends no keying or transmit IQ.
 The original tropo1234 implementation is unchanged.
+
+The first TX model being qualified is **ANAN-200D**. DSP preparation supports
+native Orion discovery (P2 board ID 4) and the explicit **ANAN-200D** override
+for a device reporting board ID 5. In that override, the selected 200D profile
+uses Orion/legacy ALEX control; discovery does not select MkII transmit filters.
+Other cross-board TX overrides remain unsupported. This is software qualification
+only; desktop transmission remains unavailable pending further integration
+and hardware checks. The original tropo1234 G2 implementation is unchanged.
+
 In the same tab, **Prepare TX DSP** builds a USB or LSB transmit DSP channel on
 the existing planning worker and stages it in the existing audio path. It requires an
-idle native Protocol 2 model; unsupported combinations stay dimmed with a reason.
+idle supported Protocol 2 profile; unsupported combinations stay dimmed with a reason.
 The status text reports preparation or readiness. **Discard TX DSP** cancels a
 pending request or releases a prepared channel. A running FFTW planning call may
 finish internally before its cancelled result is released.
@@ -115,6 +124,7 @@ Changing the primary receive mode, disconnecting or changing the connection
 invalidates the preparation. Nothing is restored automatically on reconnect.
 Preparation is local only: the radio transmit transport stays unconfigured,
 and no transmit-control packets, IQ data or RF output are requested.
+
 ## Automatic AGC-T
 
 In the DH1KLM implementation, click **A** beside the AGC controls in the

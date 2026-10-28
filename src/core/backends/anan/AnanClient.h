@@ -2,6 +2,7 @@
 
 #include "core/backends/anan/P1Client.h"
 #include "core/backends/anan/AnanTxDsp.h"
+#include "core/backends/anan/AnanTransmitPower.h"
 #include "core/backends/TxAudioSource.h"
 
 #include <array>
@@ -25,6 +26,8 @@ public:
     void setTransmitPlanner(QObject* planner) { m_transmitPlanner = planner; }
     bool stageTransmitDsp(std::shared_ptr<AnanTxDsp> dsp);
     void discardStagedTransmit();
+    bool setTransmitPower(const TransmitPowerProfile& profile, int band, int percent,
+                          const TxCoordinator::Operation& operation);
     [[nodiscard]] std::optional<WdspChannel::Mode> transmitMode() const
     { return m_transmitDsp ? m_transmitDsp->mode() : std::nullopt; }
     bool setTransmitKeying(bool key, const TxCoordinator::Operation& operation);

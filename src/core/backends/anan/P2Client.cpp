@@ -690,7 +690,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 // retries from an automatic/default model or unvalidated reply.
                 m_generalPacket = buildGeneral(profile.alexEnableMask, profile.disablePa);
                 m_receiveDisablePa = profile.disablePa;
-                m_transmitProfile = p2TransmitProfile(reply->boardId, m_model);
+                m_transmitProfile = p2TransmitProfile(reply->boardId, m_model, m_overrideDetection);
                 m_generalClock.start();
                 m_nextGeneralRefreshMs = kGeneralRefreshMs;
                 // Publish identity only after profile validation, so the

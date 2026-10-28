@@ -35,6 +35,23 @@ void AnanClient::discardStagedTransmit()
     clearTransmitAudio();
     m_transmitDsp.reset();
 }
+bool AnanClient::setTransmitPower(const TransmitPowerProfile& profile, int band, int percent,
+                                  const TxCoordinator::Operation& operation)
+{
+    if (!m_transmitConfigured || !m_transmitKeyed || !operation.sameAuthority(m_transmitOperation)
+        || !operation.permitsDispatch(TxCoordinator::monotonicMs())) { return false; }
+    const auto power = transmitPowerForPercent(profile,band,percent);
+    if (!power || profile.limitsWatts[band] <= 0) {
+        failTransmit(QStringLiteral("TX power profile or disabled band refused"));
+        return false;
+    }
+    if (!m_p2->updateTransmitDrive(power->drive,operation)) {
+        failTransmit(QStringLiteral("TX power update refused"));
+        return false;
+    }
+    return true;
+}
+
 void AnanClient::clearTransmitAudio()
 {
     if (m_transmitAudioTimer) { m_transmitAudioTimer->stop(); }

@@ -65,7 +65,7 @@ void AnanBackend::cancelTransmitPreparation()
 QVariantMap AnanBackend::transmitPreparationState()
 {
     const bool supported = m_connected && m_discoveryInfoReceived && m_pendingParams.protocol == 2
-        && p2TransmitProfile(m_discoveredBoardId,m_pendingParams.model)
+        && p2TransmitProfile(m_discoveredBoardId,m_pendingParams.model,m_pendingParams.overrideDetection)
         && (m_mode == QLatin1String("USB") || m_mode == QLatin1String("LSB"));
     if (!m_transmitPlanIdentity.isEmpty()
         && (!supported || m_transmitPlanIdentity != transmitPreparationIdentity())) { cancelTransmitPreparation(); }
@@ -111,7 +111,7 @@ void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
     const TxCoordinator::Completion& completion)
 {
     const bool supported = m_connected && m_pendingParams.protocol == 2
-        && p2TransmitProfile(m_discoveredBoardId, m_pendingParams.model)
+        && p2TransmitProfile(m_discoveredBoardId, m_pendingParams.model, m_pendingParams.overrideDetection)
         && (m_mode == QLatin1String("USB") || m_mode == QLatin1String("LSB"))
         && !m_rateChanging && !m_receiveBuilding;
     if (!TxCoordinator::Command{operation, key}.permitsDispatch(TxCoordinator::monotonicMs())

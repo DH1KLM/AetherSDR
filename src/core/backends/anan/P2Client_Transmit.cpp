@@ -74,6 +74,15 @@ bool P2Client::configureTransmit(const P2TxControl& control)
     return true;
 }
 
+bool P2Client::updateTransmitDrive(int drive, const TxCoordinator::Operation& operation)
+{
+    if (drive < 0 || drive > 255 || !m_transmitControl || !m_transmitGate.keyCommandAccepted()
+        || !operation.sameAuthority(m_transmitOperation)
+        || !operation.permitsDispatch(TxCoordinator::monotonicMs())) { return false; }
+    m_transmitControl->drive = drive;
+    return sendHighPriority();
+}
+
 bool P2Client::enableTransmit(bool enabled)
 {
     if (enabled && m_transmitGate.keyCommandAccepted()) { return false; }

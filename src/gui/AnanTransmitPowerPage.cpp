@@ -117,7 +117,7 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
             const bool supported = preparation.value(QStringLiteral("available")).toBool();
             prepareDsp->setEnabled(supported && !preparing);
             prepareDsp->setAccessibleDescription(supported ? QStringLiteral("Builds a DSP channel without keying or sending radio packets")
-                : QStringLiteral("Requires an idle native P2 radio in USB or LSB"));
+                : QStringLiteral("Requires an idle supported P2 radio in USB or LSB"));
             cancelDsp->setEnabled(preparing || ready);
             const QString failure = preparation.value(QStringLiteral("error")).toString();
             dspStatus->setText(preparing ? QStringLiteral("Preparing TX DSP on the planning worker. Transmission remains disabled.")

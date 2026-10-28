@@ -2423,7 +2423,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             || m_transmitOperation.permitsDispatch(TxCoordinator::monotonicMs())
             || (verb == QLatin1String("txdsp.prepare") && (!preparation.value(QStringLiteral("available")).toBool()
                 || preparation.value(QStringLiteral("building")).toBool()))) {
-            emit extensionError(requestId,QStringLiteral("TX DSP preparation requires a current, idle native P2 radio in USB or LSB."));
+            emit extensionError(requestId,QStringLiteral("TX DSP preparation requires a current, idle supported P2 radio in USB or LSB."));
             return;
         }
         if (verb == QLatin1String("txdsp.cancel")) { cancelTransmitPreparation(); }

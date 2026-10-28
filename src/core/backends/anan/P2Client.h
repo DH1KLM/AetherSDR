@@ -97,6 +97,7 @@ public:
     Q_INVOKABLE void stop();
 
     bool configureTransmit(const P2TxControl& control);
+    bool updateTransmitDrive(int drive, const TxCoordinator::Operation& operation);
     bool enableTransmit(bool enabled);
     bool setTransmitKeying(bool key, const TxCoordinator::Operation& operation);
     bool enqueueTransmitIq(std::span<const std::complex<float>> iq,

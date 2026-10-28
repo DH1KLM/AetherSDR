@@ -76,4 +76,11 @@ inline std::optional<TransmitPowerPreview> previewTransmitPower(
     const double volume = std::min(std::sqrt(std::pow(10.0,dbm * 0.1) * 0.05) / 0.8, 1.0);
     return TransmitPowerPreview{watts, volume, static_cast<int>(255 * std::min(volume * 1.02,1.0))};
 }
+
+inline std::optional<TransmitPowerPreview> transmitPowerForPercent(
+    const TransmitPowerProfile& profile, int band, int percent)
+{
+    if (band < 0 || band >= 11 || percent < 0 || percent > 100) { return {}; }
+    return previewTransmitPower(profile,band,profile.limitsWatts[band] * percent / 100.0);
+}
 } // namespace AetherSDR::anan

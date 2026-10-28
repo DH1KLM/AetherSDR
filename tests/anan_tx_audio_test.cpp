@@ -44,6 +44,7 @@ struct P2ClientTestAccess {
     }
     static void tick(P2Client& client) { client.onTransmitTick(); }
     static std::size_t queued(const P2Client& client) { return client.m_transmitStream.queuedSamples(); }
+    static int drive(const P2Client& client) { return client.m_transmitControl ? client.m_transmitControl->drive : -1; }
 };
 }
 namespace {
@@ -197,6 +198,28 @@ void stagedDoesNotKey()
     check(!f.client.transmitMode(), "discard removes staged DSP");
     check(f.controlWrites == before, "staging, refused key and discard send no radio packets");
 }
+void powerUpdates()
+{
+    Fixture f;
+    auto profile = *defaultTransmitPower(AnanModel::Anan200D);
+    profile.gainsDb[0] = 50;
+    profile.limitsWatts[0] = 100;
+    check(!f.client.setTransmitPower(profile,0,25,f.operation), "power setting never keys an idle client");
+    check(f.prepare() && f.client.setTransmitKeying(true,f.operation), "200D power fixture configured and keyed");
+    check(f.client.setTransmitPower(profile,0,25,f.operation)
+          && P2ClientTestAccess::drive(AnanClientTestAccess::p2(f.client)) == 36,
+          "25 percent of 100 W follows Thetis PA mapping rather than linear drive");
+    const auto before = f.controlWrites;
+    check(!f.client.setTransmitPower(profile,0,100,TxCoordinator::Operation{}) && f.controlWrites == before,
+          "foreign power update cannot write or stop an authorized over");
+    check(f.client.setTransmitPower(profile,0,0,f.operation)
+          && P2ClientTestAccess::drive(AnanClientTestAccess::p2(f.client)) == 0,
+          "zero percent sets exact zero drive");
+    profile.limitsWatts[0] = 0;
+    check(!f.client.setTransmitPower(profile,0,50,f.operation) && !f.keyed(),
+          "disabled band stops transmission instead of retaining old drive");
+}
+
 void refusalPaths()
 {
     Fixture f;
@@ -220,6 +243,9 @@ void refusalPaths()
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc,argv);
+    plannedRetirement();
+    stagedDoesNotKey();
+    powerUpdates();
     pcmToWire();
     refusalPaths();
     return failures == 0 ? 0 : 1;

@@ -184,7 +184,9 @@ even when Qt discards a queued delivery, while connection changes replace the
 budget ledger. Completion marks local queue consumption only, not radio idle.
 
 The transport covers native board IDs 1–5, 10 and 20. Ambiguous IDs 5 and 10
-require explicit model selection. Cross-board receive overrides, Red Pitaya,
+require explicit model selection. ANAN-200D explicitly overridden on board ID 5
+uses the Orion/legacy ALEX TX profile, matching native board ID 4. Other
+cross-board receive overrides, Red Pitaya,
 Anvelina Pro III and G2 1K have no TX admission. Receive support is unchanged.
 Both desktop ANAN variants still advertise receive-only: operator-facing TX
 preparation/admission, microphone gain, finite-stream drain, TUNE, calibrated
@@ -220,6 +222,16 @@ Shutdown stops I/O first, drains planning producers, drains their late I/O
 transfers and stops I/O again, then drains retirement before joining the planner.
 No queued transfer can outlive its retirement context. Actual prepared TX paths,
 failed preparation and replacement also use the same retirement ownership.
+
+`AnanClient::setTransmitPower` converts an operator percentage into a fraction of
+the selected band's configured watt limit, then applies the Thetis logarithmic
+PA gain mapping. It updates P2 HP drive byte 345 only inside the existing keyed
+operation. A foreign or expired operation cannot change drive; a disabled band
+or invalid profile stops the owner's transmission. P2 reuses its guarded HP
+writer, so the update retains the original dispatch lease and cannot key an
+idle transmitter. This internal path is tested with native and overridden 200D
+transport profiles; it is not yet wired to desktop transmit admission.
+The original `anan_original` backend and its dependencies remain outside this work.
 
 ## Verification
 
