@@ -3,6 +3,8 @@
 #include "models/RadioModel.h"
 #include "core/ThemeManager.h"
 #include <QApplication>
+#include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <QBoxLayout>
 #include <QAccessible>
 #include <QStyle>
@@ -31,6 +33,7 @@
 #include <vector>
 
 namespace AetherSDR {
+Q_DECLARE_LOGGING_CATEGORY(lcGui)
 namespace {
 QLabel* makeFilterLed(QWidget* parent, const QString& name)
 {
@@ -137,6 +140,8 @@ private:
 
 QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
 {
+    QElapsedTimer constructionTimer;
+    constructionTimer.start();
     auto* page = new QWidget;
     auto* outer = new QVBoxLayout(page);
     auto* tabs = new QTabWidget(page);
@@ -1849,6 +1854,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
     connect(timer, &QTimer::timeout, page, [=] { if (page->isVisible()) { request(QStringLiteral("hw.get"), {}); } });
     timer->start();
     m_ananHardwareReseed();
+    qCDebug(lcGui) << "ANAN Hardware page construction ms:" << constructionTimer.elapsed();
     return page;
 }
 } // namespace AetherSDR

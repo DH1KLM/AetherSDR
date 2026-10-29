@@ -51,10 +51,12 @@ int main(int argc, char** argv)
     for (std::size_t i = 4; i < writes.back().size(); ++i) { silent &= writes.back()[i] == 0; }
     check(silent && writes.back()[3] == 4, "silence carries the next sequence");
     check(stream.enqueue(std::span(block).first(176), context, 0), "partial frame completes");
-    check(stream.pump(20'000'000, 0, gate, writer) == AnanP2TxStream::Result::Sent,
-          "late callback sends only one packet");
+    const std::size_t beforeLate = writes.size();
+    check(stream.pump(20'000'000, 0, gate, writer) == AnanP2TxStream::Result::Silence
+          && writes.size() == beforeLate + 12,
+          "late callback services exactly the bounded due packet count, padding missing media with silence");
     check(stream.pump(20'000'000, 0, gate, writer) == AnanP2TxStream::Result::NotDue,
-          "late callback rebases rather than replaying historical deadlines");
+          "repeated callback cannot send the already serviced deadlines");
     stream.clear();
     check(stream.queuedSamples() == 0 && stream.begin(operation, context, 0, 0),
           "new over clears all sample carry");
@@ -102,10 +104,38 @@ int main(int argc, char** argv)
     }
     check(packets * kTxIqSamplesPerPacket == 192000 && stream.queuedSamples() == 0,
           "one second conserves exactly 192000 samples across ring wraps");
+    stream.transportClosed();
+    check(stream.begin(operation,replacement,0,0),"coarse timer starts a fresh sample clock");
+    std::array<std::complex<float>,960> tickSamples{};
+    std::size_t coarsePackets = 0;
+    const auto coarseWriter = [&](const TxIqPacket&) { ++coarsePackets; return true; };
+    for (int tick = 0; tick < 200; ++tick) {
+        check(stream.enqueue(tickSamples,replacement,tick*5),"five-ms producer fits without accumulating backlog");
+        check(stream.pump(qint64(tick)*5'000'000,tick*5,gate,coarseWriter) == AnanP2TxStream::Result::Sent,
+              "five-ms timer services every due P2 packet");
+        check(stream.queuedSamples() == 720,"coarse timer retains a constant partial frame instead of growing latency");
+    }
+    check(coarsePackets == 797,"five-ms timer preserves 192 ksps through the last 995-ms deadline");
+    stream.transportClosed();
     check(stream.begin(operation, replacement, 0, 0), "fresh stream before failed write");
     check(stream.pump(0, 0, gate, [](const TxIqPacket&) { return false; })
           == AnanP2TxStream::Result::WriteFailed && gate.stopPending(),
           "failed packet closes the IQ gate and requires off");
+    gate.transportClosed();
+    gate.setEnabled(true, 0, keyWriter);
+    check(gate.setKeying(true, operation, 0, keyWriter), "rekey for batch cancellation");
+    const auto batchProducer = coordinator.registerProducer(true);
+    const auto batchContext = coordinator.mediaContext(batchProducer);
+    stream.transportClosed();
+    check(stream.begin(operation, batchContext, 0, 0), "fresh batch cancellation stream");
+    check(stream.enqueue(block, batchContext, 0), "batch cancellation has media");
+    int batchWrites = 0;
+    check(stream.pump(5'000'000, 0, gate, [&](const TxIqPacket&) {
+        ++batchWrites;
+        batchProducer.invalidate();
+        return true;
+    }) == AnanP2TxStream::Result::WriteFailed && batchWrites == 1,
+          "revoked producer prevents the remaining due packets reaching transport");
     stream.transportClosed();
     gate.transportClosed();
     check(stream.pump(0, 0, gate, writer) == AnanP2TxStream::Result::Refused,

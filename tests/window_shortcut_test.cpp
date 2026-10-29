@@ -537,19 +537,19 @@ int main(int argc, char** argv)
                "refusal: no receiver or no window is not noticed");
     }
 
-    // The notice sits in a permanent label, so the status bar's other widgets
-    // stay on screen; showMessage() hides them, which the control shows.
+    // Overlay messages keep telemetry geometry stable, including long notices.
     {
         QWidget host;
         auto* layout = new QVBoxLayout(&host);
         auto* bar = new QStatusBar;
         bar->setSizeGripEnabled(false);
         auto* indicator = new QLabel(QStringLiteral("TX"));
-        bar->addWidget(indicator, 1);
+        bar->addPermanentWidget(indicator, 1);
         layout->addStretch(1);
         layout->addWidget(bar);
         host.resize(900, 120);
         focus(host);
+        const QRect indicatorGeometry = indicator->geometry();
         const int barHeight = bar->height();
         const int hostMinWidth = host.minimumSizeHint().width();
 
@@ -574,8 +574,9 @@ int main(int argc, char** argv)
         expect(host.minimumSizeHint().width() <= hostMinWidth + 16,
                "notice: the shown label does not widen the window");
         expect(notice.geometry().right() <= bar->width()
-                   && notice.geometry().left() >= indicator->geometry().right(),
-               "notice: the label sits beside the indicator, inside the bar");
+                   && notice.geometry().left() >= 0
+                   && indicator->geometry() == indicatorGeometry,
+               "notice: the label overlays the bar without moving telemetry");
         QTest::qWait(400);
         expect(!notice.isVisible() && notice.text().isEmpty()
                    && notice.accessibleName().isEmpty(),
@@ -592,15 +593,15 @@ int main(int argc, char** argv)
                "notice: a notice wider than the bar leaves the window and indicator alone");
         notice.clearNotice();
 
-        // Positive control: the same bar, with showMessage(), loses the indicator.
+        // Native messages also leave the permanent telemetry geometry intact.
         bar->showMessage(text, 150);
         QApplication::processEvents();
-        expect(!indicator->isVisible(),
-               "notice control: showMessage() hides the indicator");
+        expect(indicator->isVisible(),
+               "notice control: showMessage() preserves permanent telemetry");
         bar->clearMessage();
         QApplication::processEvents();
         expect(indicator->isVisible(), "notice control: the indicator returns");
-        bar->removeWidget(&notice);
+
     }
     return failures == 0 ? 0 : 1;
 }

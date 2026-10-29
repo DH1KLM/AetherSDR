@@ -388,7 +388,7 @@ void MainWindow::noticeRefusedShortcut(QKeyEvent* keyEvent)
         ThemeManager::instance().applyStyleSheet(
             m_shortcutNoticeLabel,
             QStringLiteral("QLabel#statusBarNoticeLabel { color: {{color.text.primary}};"
-                           " font-size: 14px; background: transparent; }"));
+                           " font-size: 14px; background: {{color.background.0}}; }"));
     }
     m_shortcutNoticeLabel->showNotice(
         tr("Keyboard shortcuts are off"),
@@ -2006,7 +2006,7 @@ void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
                 m_shortcutNoticeLabel->setContentsMargins(6, 0, 20, 0);
                 ThemeManager::instance().applyStyleSheet(m_shortcutNoticeLabel,
                     QStringLiteral("QLabel#statusBarNoticeLabel { color: {{color.text.primary}};"
-                                   " font-size: 14px; background: transparent; }"));
+                                   " font-size: 14px; background: {{color.background.0}}; }"));
             }
             m_shortcutNoticeLabel->showNotice(text, 10000);
         };

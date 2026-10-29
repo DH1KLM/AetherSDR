@@ -132,12 +132,20 @@ bool AnanClient::submitTransmitAudio(const QByteArray& pcm, int rate, TxAudioSou
         || !context.permitsDispatch(now)) { return false; }
     const std::size_t frames = static_cast<std::size_t>(pcm.size()) / 4;
     if (rate != AnanTxDsp::kInputRate || pcm.isEmpty() || pcm.size() % 4 != 0
-        || frames > kTransmitAudioCapacity - m_transmitCount
         || (source != TxAudioSource::Microphone && source != TxAudioSource::ClientLeveled
-            && source != TxAudioSource::EngineGenerated)
-        || (m_transmitSource && *m_transmitSource != source)
+            && source != TxAudioSource::EngineGenerated)) {
+        failTransmit(QStringLiteral("TX audio format refused: rate=%1 bytes=%2 source=%3")
+            .arg(rate).arg(pcm.size()).arg(static_cast<int>(source)));
+        return false;
+    }
+    if ((m_transmitSource && *m_transmitSource != source)
         || (m_transmitMediaStarted && !context.sameContext(m_transmitContext))) {
-        failTransmit(QStringLiteral("TX audio format, capacity or source refused"));
+        failTransmit(QStringLiteral("TX audio source or producer context changed during transmission"));
+        return false;
+    }
+    if (frames > kTransmitAudioCapacity - m_transmitCount) {
+        failTransmit(QStringLiteral("TX audio queue overflow: pending=%1 incoming=%2 capacity=%3")
+            .arg(m_transmitCount).arg(frames).arg(kTransmitAudioCapacity));
         return false;
     }
     if (!m_transmitMediaStarted) {

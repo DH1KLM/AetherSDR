@@ -12,11 +12,12 @@
 namespace AetherSDR::anan {
 
 // I/O-thread packetizer, with an injected monotonic clock and terminal writer.
-// A late callback sends at most one packet, never a burst of historical IQ.
+// Due packets retain the sample clock within the bounded 20 ms queue window.
 class AnanP2TxStream final {
 public:
     static constexpr qint64 kPacketNs = 1'250'000; // 240 / 192000 seconds
-    static constexpr std::size_t kCapacity = 16 * kTxIqSamplesPerPacket;
+    static constexpr int kMaximumPacketsPerTick = 16;
+    static constexpr std::size_t kCapacity = kMaximumPacketsPerTick * kTxIqSamplesPerPacket;
     enum class Result { NotDue, Sent, Silence, Refused, WriteFailed };
 
     bool begin(const TxCoordinator::Operation& operation,
@@ -69,17 +70,19 @@ public:
     Result pumpCarrier(qint64 nowNs, qint64 nowMs, AnanTxGate& gate, Generator&& generator, Writer&& writer)
     {
         if (!m_active || nowNs < m_lastNs || nowNs > std::numeric_limits<qint64>::max() - kPacketNs
-            || (nowNs >= m_nextNs && nowNs - m_nextNs >= 16 * kPacketNs)
+            || (nowNs >= m_nextNs && nowNs - m_nextNs >= kMaximumPacketsPerTick * kPacketNs)
             || !m_operation.permitsDispatch(nowMs)) { clear(); return Result::Refused; }
         m_lastNs = nowNs;
         if (nowNs < m_nextNs) { return Result::NotDue; }
-        std::array<std::complex<float>,kTxIqSamplesPerPacket> samples{};
-        for (auto& sample : samples) { sample = generator(); }
-        const auto packet = buildTxIq(samples,m_sequence++);
-        if (!packet || !gate.writeCarrier(m_operation,nowMs,[&] { return writer(*packet); })) {
-            clear(); return Result::WriteFailed;
+        for (int due = 0; due < kMaximumPacketsPerTick && nowNs >= m_nextNs; ++due) {
+            std::array<std::complex<float>,kTxIqSamplesPerPacket> samples{};
+            for (auto& sample : samples) { sample = generator(); }
+            const auto packet = buildTxIq(samples,m_sequence++);
+            if (!packet || !gate.writeCarrier(m_operation,nowMs,[&] { return writer(*packet); })) {
+                clear(); return Result::WriteFailed;
+            }
+            m_nextNs += kPacketNs;
         }
-        m_nextNs = nowNs - m_nextNs >= kPacketNs ? nowNs + kPacketNs : m_nextNs + kPacketNs;
         return Result::Sent;
     }
 
@@ -87,29 +90,33 @@ public:
     Result pump(qint64 nowNs, qint64 nowMs, AnanTxGate& gate, Writer&& writer)
     {
         if (!m_active || nowNs < m_lastNs || nowNs > std::numeric_limits<qint64>::max() - kPacketNs
-            || (nowNs >= m_nextNs && nowNs - m_nextNs >= 16 * kPacketNs)
+            || (nowNs >= m_nextNs && nowNs - m_nextNs >= kMaximumPacketsPerTick * kPacketNs)
             || !m_operation.permitsDispatch(nowMs) || !m_context.permitsDispatch(nowMs)) {
             clear();
             return Result::Refused;
         }
         m_lastNs = nowNs;
         if (nowNs < m_nextNs) { return Result::NotDue; }
-        std::array<std::complex<float>, kTxIqSamplesPerPacket> samples{};
-        const bool silence = m_count < samples.size();
-        if (!silence) {
-            for (std::complex<float>& sample : samples) {
-                sample = m_samples[m_head];
-                m_head = (m_head + 1) % kCapacity;
-                --m_count;
+        bool underflow = false;
+        for (int due = 0; due < kMaximumPacketsPerTick && nowNs >= m_nextNs; ++due) {
+            std::array<std::complex<float>, kTxIqSamplesPerPacket> samples{};
+            const bool silence = m_count < samples.size();
+            underflow = underflow || silence;
+            if (!silence) {
+                for (std::complex<float>& sample : samples) {
+                    sample = m_samples[m_head];
+                    m_head = (m_head + 1) % kCapacity;
+                    --m_count;
+                }
             }
+            const std::optional<TxIqPacket> packet = buildTxIq(samples, m_sequence++);
+            if (!packet || !gate.writeIq(m_operation, m_context, nowMs, [&] { return writer(*packet); })) {
+                clear();
+                return Result::WriteFailed;
+            }
+            m_nextNs += kPacketNs;
         }
-        const std::optional<TxIqPacket> packet = buildTxIq(samples, m_sequence++);
-        if (!packet || !gate.writeIq(m_operation, m_context, nowMs, [&] { return writer(*packet); })) {
-            clear();
-            return Result::WriteFailed;
-        }
-        m_nextNs = nowNs - m_nextNs >= kPacketNs ? nowNs + kPacketNs : m_nextNs + kPacketNs;
-        return silence ? Result::Silence : Result::Sent;
+        return underflow ? Result::Silence : Result::Sent;
     }
 
     void clear() noexcept

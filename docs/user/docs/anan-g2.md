@@ -163,6 +163,18 @@ separate.
 
 **Settings → Radio Setup → Transmit → Show TX in Waterfall** is a local, per-radio display setting, as on HL2. It allows FFT-derived waterfall rows during MOX/PTT, TUNE and CW; it does not measure PA output power or create a separate RF monitor.
 
+P2 TX keeps its 192 ksample/s packet clock when a timer callback arrives late:
+fitting packets are sent within the existing 20 ms limit. Longer stalls stop TX;
+they do not accumulate delayed RF audio. Queue overflow is logged separately from
+an audio format or source change.
+
+The **RF Power** control requests PA drive using the saved profile. It is not a
+measured watt reading; forward/reflected RF power and SWR are not yet connected
+for the extended backend.
+
+Band-view and CTUN notices overlay the right side of the footer temporarily.
+CPU, Network, TX, date and the station control keep their positions.
+
 ### Extended TX integration coverage
 
 | Control/path | Current extended ANAN implementation |

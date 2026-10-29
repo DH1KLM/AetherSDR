@@ -5,6 +5,8 @@
 
 #include "MainWindow.h"
 #include "StatusIndicator.h"
+#include "StatusBarNotice.h"
+#include "core/ThemeManager.h"
 #include "models/CwDecodeSettings.h"
 #include "PeripheralAuthStore.h"
 #include "core/backends/AutoRfGainControl.h"
@@ -108,26 +110,17 @@ namespace AetherSDR {
 
 void MainWindow::wireStatusBarMessages()
 {
-    QHBoxLayout* layout = qobject_cast<QHBoxLayout*>(m_statusBarContainer->layout());
-    const int stationIndex = layout->indexOf(m_stationNickLabel);
-    connect(statusBar(), &QStatusBar::messageChanged, this,
-            [this, layout, stationIndex](const QString& message) {
-        if (!message.isEmpty() && m_stationNickLabel->parentWidget() == m_statusBarContainer) {
-            // Only the existing Connect control is permanent while a message
-            // is shown. Making the full-width bar permanent hides Qt's text.
-            layout->removeWidget(m_stationNickLabel);
-            statusBar()->addPermanentWidget(m_stationNickLabel);
-            m_stationNickLabel->show();
-            // addPermanentWidget reformats the bar and can re-show normal
-            // children; explicitly leave Qt's temporary-message area clear.
-            m_statusBarContainer->hide();
-        } else if (message.isEmpty()
-                   && m_stationNickLabel->parentWidget() != m_statusBarContainer) {
-            statusBar()->removeWidget(m_stationNickLabel);
-            layout->insertWidget(stationIndex, m_stationNickLabel);
-            m_stationNickLabel->show();
-            m_statusBarContainer->show();
-            updateStatusBarMinimumWidth();
+    auto* notice = new StatusBarNoticeLabel(statusBar());
+    notice->setContentsMargins(6, 0, 20, 0);
+    ThemeManager::instance().applyStyleSheet(notice,
+        QStringLiteral("QLabel#statusBarNoticeLabel { color: {{color.text.primary}};"
+                       " font-size: 14px; background: {{color.background.0}}; }"));
+    connect(statusBar(), &QStatusBar::messageChanged, notice,
+            [notice](const QString& message) {
+        if (message.isEmpty()) {
+            notice->clearNotice();
+        } else {
+            notice->showNotice(message, 0);
         }
     });
     connect(&m_radioModel.transmitModel(), &TransmitModel::atuTuneFailed,

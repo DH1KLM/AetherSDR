@@ -3,6 +3,8 @@
 #include <QAccessible>
 #include <QAccessibleEvent>
 #include <QLabel>
+#include <QEvent>
+#include <QFontMetrics>
 #include <QSizePolicy>
 #include <QStatusBar>
 #include <QString>
@@ -10,10 +12,8 @@
 
 namespace AetherSDR {
 
-// A short-lived notice in a permanent status-bar label. QStatusBar::showMessage()
-// hides every non-permanent widget while its text is up, the TX indicator among
-// them; a permanent widget sits beside them. The label never sets the bar's
-// height or minimum width, and a screen reader is told the same text (#4896).
+// Notices are right-aligned overlays outside the layout, so telemetry and
+// station controls keep their geometry while a message is visible.
 class StatusBarNoticeLabel : public QLabel {
 public:
     explicit StatusBarNoticeLabel(QStatusBar* bar)
@@ -27,7 +27,7 @@ public:
         m_hideTimer.setSingleShot(true);
         QObject::connect(&m_hideTimer, &QTimer::timeout, this, [this] { clearNotice(); });
         if (bar) {
-            bar->addPermanentWidget(this);
+            bar->installEventFilter(this);
         }
         hide();
     }
@@ -36,8 +36,13 @@ public:
     {
         setText(text);
         setAccessibleName(text);
+        updateOverlayGeometry();
         show();
-        m_hideTimer.start(durationMs);
+        raise();
+        m_hideTimer.stop();
+        if (durationMs > 0) {
+            m_hideTimer.start(durationMs);
+        }
         // Polite: it never interrupts speech the operator asked for.
         if (QAccessible::isActive()) {
             QAccessibleAnnouncementEvent ev(this, text);
@@ -54,7 +59,26 @@ public:
         setAccessibleName(QString());
     }
 
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        if (watched == parentWidget() && event->type() == QEvent::Resize) {
+            updateOverlayGeometry();
+        }
+        return QLabel::eventFilter(watched, event);
+    }
+
 private:
+    void updateOverlayGeometry()
+    {
+        if (const QWidget* bar = parentWidget()) {
+            const int textWidth = fontMetrics().horizontalAdvance(text())
+                + contentsMargins().left() + contentsMargins().right();
+            const int width = qMin(bar->width(), textWidth);
+            setGeometry(bar->width() - width, 0, width, bar->height());
+        }
+    }
+
     QTimer m_hideTimer;
 };
 
