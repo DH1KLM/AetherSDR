@@ -122,7 +122,13 @@ public:
     static void publish(AnanBackend& backend) { backend.emitPanState(); backend.emitSliceState(); }
     static void connected(AnanBackend& backend, bool connected) { backend.m_connected = connected; }
     static void restoreTx(AnanBackend& backend) { backend.restoreTransmitSession(); }
+    static void meters(AnanBackend& backend) { backend.defineMeters(); }
     static void retireTx(AnanBackend& backend) { backend.cancelTransmitPreparation(); }
+    static void faultTx(AnanBackend& backend) {
+        QMetaObject::invokeMethod(backend.m_client,[client = backend.m_client] {
+            emit client->transmitFault(QStringLiteral("Injected transport interruption"));
+        },Qt::QueuedConnection);
+    }
     static void calibrationMode(AnanBackend& backend)
     {
         backend.m_mode = QStringLiteral("AM");
@@ -194,18 +200,45 @@ int main(int argc, char** argv)
         check(trace.keyOn.load() == 0 && model.transmitModel().rfPower() == 0,
               "automatic readiness never keys and starts with zero RF power");
         check(model.requestLocalShowTxInWaterfall(true) && model.transmitModel().showTxInWaterfall(), "local TX waterfall control remains available");
+        anan::AnanLinkStatsTestAccess::meters(*backend);
+        check(model.meterModel().updateValueByName(QStringLiteral("TX"),QStringLiteral("COMPPEAK"),3.0f)
+              && std::abs(model.meterModel().compPeak()-3.0f) < 0.01f,
+              "ANAN compression definition routes the shared host ClientComp reading to Phone/CW");
+        check(backend->requestTransmitControl({TransmitControlRequest::Field::ProcessorEnabled,ProcessorSetting{true,1}},TunePowerContext::Deferred)
+              == ReceiveDispatch::LocalOnly,"PROC follows the existing host voice chain rather than a radio-side command");
         check(backend->capabilities().txMonitorControl.has_value(),"shared ANAN path provides local monitor control");
         model.transmitModel().setSbMonitor(true);
         check(model.transmitModel().sbMonitor(),"MON switch is echoed by the local monitor owner");
         model.transmitModel().setSbMonitor(false);
         check(!model.transmitModel().sbMonitor(),"MON off disables local monitoring");
+        RadioSetupDialog hardwareDialog(&model);
+        hardwareDialog.show();
         model.transmitModel().setRfPower(25);
         model.transmitModel().setMox(true);
         check(await([&] { return trace.lastKey.load() == 1; }), "MOX remains the explicit TX trigger");
         check(trace.drive.load() == 11 && (trace.alex.load() & 0x07000000u) == (1u<<25), "automatic readiness captures ANT2 and the saved band power limit");
+        hardwareDialog.selectTab(QStringLiteral("ANAN Hardware"));
+        QElapsedTimer hardwarePoll; hardwarePoll.start();
+        while (hardwarePoll.elapsed() < 1300) { app.processEvents(); QThread::msleep(5); }
+        check(backend->capabilities().canTransmit && trace.lastKey.load() == 1,
+              "visible ANAN Hardware polling preserves active TX and readiness");
         check(await([&] { return !save->isEnabled(); }), "PA edits are locked while keyed");
         model.transmitModel().setMox(false);
         check(await([&] { return trace.lastKey.load() == 0 && save->isEnabled(); }), "RX allows PA edits without a manual TX-disable step");
+        hardwareDialog.hide();
+        model.transmitModel().setMox(true);
+        check(await([&] { return trace.lastKey.load() == 1; }),"fault fixture is explicitly keyed");
+        const int beforeFault = trace.keyOn.load();
+        anan::AnanLinkStatsTestAccess::faultTx(*backend);
+        check(await([&] { return trace.lastKey.load() == 0 && !model.isRadioTransmitting()
+            && backend->capabilities().canTransmit; }),
+              "transport interruption stops and restores readiness without saving PA again");
+        check(trace.keyOn.load() == beforeFault && !model.transmitModel().isTransmitting(),
+              "readiness recovery never retries a transmission or preserves old MOX intent");
+        model.transmitModel().setMox(true);
+        check(await([&] { return trace.lastKey.load() == 1; }),"a new operator MOX works after recovered readiness");
+        model.transmitModel().setMox(false);
+        check(await([&] { return trace.lastKey.load() == 0; }),"recovered MOX releases normally");
         const int beforeTune = trace.keyOn.load();
         int capabilityDrops = 0;
         const auto retuneObserver = QObject::connect(backend,&IRadioBackend::capabilitiesChanged,&app,[&] {

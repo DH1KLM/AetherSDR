@@ -339,10 +339,7 @@ AnanBackend::AnanBackend(QObject* parent)
     });
     connect(m_client, &AnanClient::connectionError, this,
             [this](const QString& reason) { emit connectionError(reason); });
-    connect(m_client,&AnanClient::transmitFault,this,[this](const QString& reason) {
-        disableTransmitSession();
-        m_txSessionError = reason;
-    });
+    connect(m_client,&AnanClient::transmitFault,this,&AnanBackend::onTransmitFault);
     connect(m_client,&AnanClient::transmitMeters,this,[this](double mic,double alc,double gain,const TxCoordinator::Context& context,const TxCoordinator::Operation& operation) {
         const qint64 now = TxCoordinator::monotonicMs();
         if (!m_connected || !context.permitsDispatch(now) || !operation.sameAuthority(m_transmitDispatchOperation)
@@ -3037,6 +3034,14 @@ void AnanBackend::defineMeters()
         tx.description = QString::fromLatin1(item.second);
         emit meterDefined(tx);
     }
+    MeterDef compression;
+    compression.index = 6;
+    compression.source = QStringLiteral("TX");
+    compression.name = QStringLiteral("COMPPEAK");
+    compression.unit = QStringLiteral("dB");
+    compression.low = 0.0; compression.high = 25.0;
+    compression.description = QStringLiteral("Local ClientComp speech compression");
+    emit meterDefined(compression);
 }
 
 IRadioBackend::LinkStats AnanBackend::linkStats() const

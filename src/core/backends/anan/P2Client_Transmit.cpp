@@ -96,11 +96,11 @@ bool P2Client::enableTransmit(bool enabled)
             [this](bool key) { return writeTransmitKey(key); })) { return false; }
     if (!enabled) { m_transmitOperation = {}; }
     if (!m_generalPacket || !m_discoveryValidated || !hasControlTransport()) { return !enabled; }
-    (*m_generalPacket)[58] = enabled ? (m_transmitControl->disablePa ? 1 : 0) : (m_receiveDisablePa ? 1 : 0);
+    (*m_generalPacket)[58] = enabled ? (m_transmitControl->disablePa ? 0 : 1) : (m_receiveDisablePa ? 0 : 1);
     if (!sendControl(*m_generalPacket, kRadioPort) || !sendMicOptions()) {
         m_transmitGate.setEnabled(false, TxCoordinator::monotonicMs(),
             [this](bool key) { return writeTransmitKey(key); });
-        (*m_generalPacket)[58] = m_receiveDisablePa ? 1 : 0;
+        (*m_generalPacket)[58] = m_receiveDisablePa ? 0 : 1;
         sendControl(*m_generalPacket, kRadioPort);
         return false;
     }

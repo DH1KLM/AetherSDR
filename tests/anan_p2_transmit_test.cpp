@@ -43,6 +43,7 @@ struct P2ClientTestAccess {
     static void keepalive(P2Client& client) { client.m_nextGeneralRefreshMs = 0; client.onKeepaliveTick(); }
     static bool keyed(const P2Client& client) { return client.m_transmitGate.keyCommandAccepted(); }
     static bool enabled(const P2Client& client) { return client.m_transmitGate.enabled(); }
+    static int paEnable(const P2Client& client) { return client.m_generalPacket ? (*client.m_generalPacket)[58] : -1; }
     static bool timerActive(const P2Client& client) { return client.m_transmitTimer && client.m_transmitTimer->isActive(); }
     static auto receive(const P2Client& client) { return client.receiveHighPriority(); }
     static std::size_t queued(const P2Client& client) { return client.m_transmitStream.queuedSamples(); }
@@ -124,7 +125,7 @@ void controlsAndAudio(int board, bool override200D = false)
     check(!f.client.setTransmitKeying(true, operation), "default gate refuses keying");
     if (!f.arm()) { check(false, "validated board configures raw-drive TX"); return; }
     check(!f.client.setTransmitKeying(true, {}), "enabled transport still refuses missing authority");
-    check(f.count(kTxIqPort) == 0 && f.last(kRadioPort)[58] == 0,
+    check(f.count(kTxIqPort) == 0 && f.last(kRadioPort)[58] == 1,
           "arming configures PA but never starts IQ or keys");
     check(f.last(kMicControlPort)[15] == 192 && f.last(kMicControlPort)[59] == 31,
           "DUC is 192 ksps with TX ADC attenuation");
@@ -154,6 +155,9 @@ void controlsAndAudio(int board, bool override200D = false)
     check(!f.client.updateTransmitDrive(256,operation)
           && !f.client.updateTransmitDrive(12,TxCoordinator::Operation{}) && f.writes.size() == writes,
           "invalid drive or missing authority cannot write controls");
+    check(f.client.updateTransmitDrive(0,operation) && f.last(kHighPriorityPort)[345] == 0
+          && f.last(kHighPriorityPort)[4] == 3 && (word(f.last(kHighPriorityPort),1432) & (1u<<27)) != 0,
+          "zero RF drive retains explicit PTT and relay selection independently of modulation power");
     const auto producer = f.coordinator.registerProducer(true);
     const auto context = f.coordinator.mediaContext(producer);
     std::array<std::complex<float>,1024> iq;
@@ -162,6 +166,10 @@ void controlsAndAudio(int board, bool override200D = false)
     P2ClientTestAccess::tick(f.client);
     check(f.count(kTxIqPort) == 1 && f.last(kTxIqPort).size() == 1444
           && P2ClientTestAccess::queued(f.client) == 784, "client sends one paced 240-sample IQ datagram");
+    P2ClientTestAccess::prepare(f.client,board,override200D || board == 4 ? AnanModel::Anan200D
+        : board == 5 ? AnanModel::Anan7000 : board == 10 ? AnanModel::AnanG2 : AnanModel::Automatic,override200D);
+    check(P2ClientTestAccess::paEnable(f.client) == 1 && f.client.transmitActive(),
+          "repeated validated discovery preserves armed PA-enable without replaying key-on");
     check(f.client.setTransmitKeying(false, operation), "explicit release unkeys");
     check(P2ClientTestAccess::queued(f.client) == 0 && !P2ClientTestAccess::timerActive(f.client),
           "unkey drops carry and stops the timer");
@@ -172,7 +180,7 @@ void controlsAndAudio(int board, bool override200D = false)
     const auto before = f.count(kTxIqPort);
     P2ClientTestAccess::tick(f.client);
     check(f.count(kTxIqPort) == before, "late timer cannot drain released audio");
-    check(f.client.enableTransmit(false) && f.last(kRadioPort)[58] == (board == 10 ? 0 : 1),
+    check(f.client.enableTransmit(false) && f.last(kRadioPort)[58] == (board == 10 ? 1 : 0),
           "disabling restores the original receive PA configuration");
     f.client.stop();
     check(!f.client.setTransmitKeying(true, operation), "closed connection cannot replay original key");

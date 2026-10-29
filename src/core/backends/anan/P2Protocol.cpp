@@ -243,8 +243,8 @@ std::array<std::uint8_t, 60> buildGeneral(int alexEnableMask, bool disablePa) no
     pkt[39] = 0x00; // BE + 3-byte -- the only format Discovery byte22==0
                      // declares (p.22, p.45). See discoveryDeclaresBigEndian3Byte().
     // Thetis CmdGeneral enables the two ALEX words in byte 59.
-    // Orion MkII RX also disables the PA in byte 58; no TX path exists here.
-    pkt[58] = disablePa ? 0x01 : 0x00;
+    // Thetis DisablePA stores the disable flag; CmdGeneral sends its inverse.
+    pkt[58] = disablePa ? 0x00 : 0x01;
     pkt[59] = static_cast<std::uint8_t>(alexEnableMask & 0x03);
     return pkt;
 }

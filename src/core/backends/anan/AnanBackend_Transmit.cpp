@@ -54,6 +54,23 @@ void AnanBackend::publishLocalTransmitState(bool keyed)
     emit transmitChanged(delta);
 }
 
+void AnanBackend::onTransmitFault(const QString& reason)
+{
+    qCWarning(lcAnanTx) << "ANAN TX stopped:" << reason;
+    disableTransmitSession();
+    m_txSessionError = reason;
+    const quint64 revision = m_txSessionRevision;
+    QMetaObject::invokeMethod(m_client,[this,client = m_client,revision] {
+        const bool stopped = client->disarmTransmit(false);
+        QMetaObject::invokeMethod(this,[this,revision,stopped] {
+            if (revision != m_txSessionRevision || !m_connected || !stopped
+                || m_txSessionEnabled || m_txSessionArming || m_transmitOperation.permitsCleanup()) { return; }
+            m_txSessionError.clear();
+            qCInfo(lcAnanTx) << "ANAN TX local stop accepted; preparing readiness only, new operator keying required";
+        },Qt::QueuedConnection);
+    },Qt::QueuedConnection);
+}
+
 void AnanBackend::refreshIdleTransmitSession()
 {
     if (!m_txSessionEnabled) { return; }
@@ -259,7 +276,8 @@ ReceiveDispatch AnanBackend::requestTransmitControl(const TransmitControlRequest
     if (request.field == Field::RfPower && m_connected) {
         setTxPower(std::get<int>(request.value)); return ReceiveDispatch::Dispatched;
     }
-    if (request.field == Field::MicGain || request.field == Field::CwSpeed
+    if (request.field == Field::ProcessorEnabled || request.field == Field::ProcessorLevel
+        || request.field == Field::MicGain || request.field == Field::CwSpeed
         || request.field == Field::CwBreakIn || request.field == Field::CwDelay
         || request.field == Field::CwSidetone || request.field == Field::CwIambic
         || request.field == Field::CwIambicMode || request.field == Field::CwSwap) { return ReceiveDispatch::LocalOnly; }

@@ -104,7 +104,11 @@ A zero limit keeps the corresponding band closed for TX.
 The **ANAN TX** log category records the selected model, board, protocol,
 frequency, antenna and raw drive for key-on, plus the local transport result.
 A successful local write does not confirm that the radio switched its relay or
-emitted RF.
+emitted RF. Protocol 2 uses the PA-enable polarity from Thetis; repeated discovery
+retains the currently armed PA configuration. A transport fault stops the current
+transmission. After a successful local stop, readiness is prepared again without
+requiring **Save PA profile**. Starting another transmission requires a new
+operator action; a failed stop keeps TX unavailable or disconnects the session.
 
 TX signal processing and readiness are managed automatically. Idle tuning within
 the same permitted band retains TX readiness and the selected TX slice. Retuning
@@ -149,11 +153,31 @@ client keys P1 or P2 TX. Receive audio is muted while keyed, with a short hold a
 its monitor level adjusts the PC playback volume. It monitors the audio entering
 TX signal processing, not received RF, PA output or a CW sidetone. MON is off by
 default. Microphone, post-ALC audio peak and ALC gain meters use the actual WDSP
-TX channel; they are not measured RF power. The same controls apply to supported
+TX channel; they are not measured RF power. **ALC Gain** reads 0 dB when the limiter
+is not reducing the signal. **PROC** uses the shared local `ClientComp` voice processor, as on HL2.
+**Compression** shows its actual gain reduction in dB; it is zero when the
+processor is off or not compressing. The meter update starts when automatic TX
+preparation completes. Neither reading measures RF output. The same controls apply to supported
 extended ANAN models and their overrides on P1 and P2. The Original G2 path is
 separate.
 
 **Settings → Radio Setup → Transmit → Show TX in Waterfall** is a local, per-radio display setting, as on HL2. It allows FFT-derived waterfall rows during MOX/PTT, TUNE and CW; it does not measure PA output power or create a separate RF monitor.
+
+### Extended TX integration coverage
+
+| Control/path | Current extended ANAN implementation |
+| --- | --- |
+| MON, microphone peak, ALC peak/gain | Local monitor and actual WDSP TXA meters |
+| PROC / Compression | Shared local ClientComp and its gain-reduction meter |
+| MIC gain before ALC | Backend MIC-slider gain mapping not implemented |
+| Adjustable TX voice filter | Fixed mode defaults; operator filter control not implemented |
+| CW pitch | Connected to the host receiver BFO; CW monitor level/pan dispatch is incomplete |
+| PC microphone selection | PCM path exists; explicit local input-selection acknowledgement is incomplete |
+| Graphic EQ | Shared host controls exist; saved-layout reapplication after delayed TX readiness is incomplete |
+| MIC / TX-filter recall | Per-radio TX-setpoint persistence is incomplete |
+| Hardware PTT observation | Not implemented; local MOX state is not hardware readback |
+| Forward/reflected RF power and SWR | Model-specific telemetry conversion is not implemented |
+| TX slice / multiple receivers | TX requires the single primary receive slice |
 
 ## Mouse-related receive diagnostics
 

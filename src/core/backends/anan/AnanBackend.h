@@ -324,6 +324,7 @@ private:
     bool rememberTransmitSession(int antenna);
     void muteReceiveForTransmit(bool muted);
     void publishLocalTransmitState(bool keyed);
+    void onTransmitFault(const QString& reason);
     std::optional<int> m_restoreTxAntenna;
     void disableTransmitSession();
     bool transmitSessionCurrent() const;

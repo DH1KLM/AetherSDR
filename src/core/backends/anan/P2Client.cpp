@@ -696,7 +696,8 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                     << "rate ksps" << (m_activeDdcs.empty() ? 0 : m_activeDdcs.front().rateKsps);
                 // Cache only the resolved session profile; never rebuild
                 // retries from an automatic/default model or unvalidated reply.
-                m_generalPacket = buildGeneral(profile.alexEnableMask, profile.disablePa);
+                m_generalPacket = buildGeneral(profile.alexEnableMask,
+                    m_transmitGate.enabled() && m_transmitControl ? m_transmitControl->disablePa : profile.disablePa);
                 m_receiveDisablePa = profile.disablePa;
                 m_transmitProfile = p2TransmitProfile(reply->boardId, m_model, m_overrideDetection);
                 m_generalClock.start();

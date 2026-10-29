@@ -1060,6 +1060,14 @@ void MainWindow::wireHostModulatedVoiceChain()
         }
     });
 
+    connect(&m_radioModel,&RadioModel::capabilitiesChanged,this,[this] {
+        if (m_radioModel.isConnected() && hostModulatesTxAudio()) {
+            m_hostVoiceChainTimer.start();
+        } else {
+            m_hostVoiceChainTimer.stop();
+        }
+    });
+
     // DSP -> meter, and DSP -> operator.
     //
     // ClientComp has no change notification — every other consumer polls it on a

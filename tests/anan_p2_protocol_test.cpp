@@ -277,7 +277,7 @@ int main()
         check(profile && !profile->saturnDroopDefaults,
               "Orion MkII cannot inherit Saturn gateware droop defaults");
         const auto general = buildGeneral(3, true);
-        check(general[37] == 8 && general[58] == 1 && general[59] == 3,
+        check(general[37] == 8 && general[58] == 0 && general[59] == 3,
               "Orion MkII requests phase words, disables PA and enables both ALEX words");
         const std::array<DdcConfig, 1> ddcs{{{192, 0}}};
         const auto rx = buildDdcSpecific(ddcs, 2, true, true, 2);
@@ -385,6 +385,8 @@ int main()
         const auto g = buildGeneral();
         check(g.size() == 60, "General packet is 60 bytes");
         check(g[4] == 0x00, "General packet command byte = 0x00");
+        check(g[58] == 1 && buildGeneral(3,true)[58] == 0,
+              "Thetis General byte 58 is PA enable, inverse of DisablePA");
         check(g[37] == 0x08, "byte37 bit3 set: phase word, matching discovery byte21==1");
         check(g[38] == 0x01, "byte38 bit0 set: hardware reset timer / watchdog ON");
         check(g[39] == 0x00,

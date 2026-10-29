@@ -54,14 +54,16 @@ bool AnanClient::armStagedTransmit(const P2TxControl& control)
     return true;
 }
 
-void AnanClient::disarmTransmit(bool discardDsp)
+bool AnanClient::disarmTransmit(bool discardDsp)
 {
     m_transmitConfigured = false;
     m_transmitKeyed = false;
     m_transmitOperation = {};
-    if (!transmitTransport([](auto* transport) { return transport->enableTransmit(false); })) { transmitTransport([](auto* transport) { transport->stop(); }); }
+    const bool stopped = transmitTransport([](auto* transport) { return transport->enableTransmit(false); });
+    if (!stopped) { transmitTransport([](auto* transport) { transport->stop(); }); }
     clearTransmitAudio();
     if (discardDsp) { m_transmitDsp.reset(); }
+    return stopped;
 }
 
 bool AnanClient::setTransmitPower(const TransmitPowerProfile& profile, int band, int percent,

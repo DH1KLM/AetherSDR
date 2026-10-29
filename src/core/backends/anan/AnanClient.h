@@ -28,7 +28,7 @@ public:
     bool stageTransmitDsp(std::shared_ptr<AnanTxDsp> dsp);
     void discardStagedTransmit();
     bool armStagedTransmit(const P2TxControl& control);
-    void disarmTransmit(bool discardDsp = true);
+    bool disarmTransmit(bool discardDsp = true);
     void setTransmitCarrier(bool enabled, bool down);
     void setTransmitMonitor(bool enabled) { m_transmitMonitor = enabled; }
     void finishTransmitAudio(const TxCoordinator::Context& context);

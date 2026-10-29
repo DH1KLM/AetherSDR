@@ -345,7 +345,7 @@ int main(int argc, char** argv)
         check(!P2ClientTestAccess::refresh(client, 499), "General refresh is not sent every HP tick");
         const auto retry = P2ClientTestAccess::refresh(client, 500);
         check(retry && (*retry)[4] == 0 && (*retry)[37] == 8 && (*retry)[38] == 1
-              && (*retry)[58] == profile.disablePa && (*retry)[59] == profile.alexEnableMask,
+              && (*retry)[58] == !profile.disablePa && (*retry)[59] == profile.alexEnableMask,
               "lost General is retried with the validated model's ALEX/PA configuration despite live IQ");
         check(!P2ClientTestAccess::refresh(client, 999), "General retry respects its own cadence");
         check(P2ClientTestAccess::refresh(client, 1000) == retry,
@@ -361,7 +361,7 @@ int main(int argc, char** argv)
         P2ClientTestAccess::prepare(client, 5, AnanModel::Anan200D, true);
         P2ClientTestAccess::feed(client, discovery(5), 1024);
         const auto retry = P2ClientTestAccess::refresh(client, 500);
-        check(retry && (*retry)[59] == 3 && (*retry)[58] == 1,
+        check(retry && (*retry)[59] == 3 && (*retry)[58] == 0,
               "Anvelina/Orion MkII mapped to ANAN-200D refreshes the captured ALEX enable 03 with PA disabled");
         client.stop();
         P2ClientTestAccess::prepare(client, 10);
