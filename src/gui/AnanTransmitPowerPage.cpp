@@ -23,7 +23,7 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
 {
     auto* page = new QWidget(parent);
     auto* layout = new QVBoxLayout(page);
-    auto* hint = new QLabel(QStringLiteral("ANAN P1/P2 TX: save a PA profile, prepare the DSP for the selected mode, select the TX antenna, then enable TX for this connection. Enabling does not key the radio. RF Power starts at 0%; use MOX/PTT, CW or TUNE to transmit. Local digital modems use DIGU/DIGL. Thetis gains are reference values, not PA measurements."),page);
+    auto* hint = new QLabel(QStringLiteral("ANAN P1/P2 TX: save a PA profile, prepare the DSP for the selected mode, select the TX antenna, then enable TX. Readiness and antenna are remembered for this radio/model/protocol and restored on reconnect. Disable ANAN TX cancels restoration. Enabling does not key the radio. RF Power starts at 0%; use MOX/PTT, CW or TUNE to transmit. Local digital modems use DIGU/DIGL. Thetis gains are reference values, not PA measurements."),page);
     hint->setWordWrap(true);
     layout->addWidget(hint);
     auto* group = new QGroupBox(QStringLiteral("Transmit power profile"),page);
@@ -148,6 +148,7 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
             enableTx->setToolTip(reason);
             disableTx->setEnabled(armed || arming);
             txAntenna->setEnabled(!armed && !arming);
+            if (armed || arming) { txAntenna->setCurrentIndex(txAntenna->findData(session.value(QStringLiteral("antenna")).toInt())); }
             table->setEnabled(!armed && !arming);
             apply->setEnabled(!armed && !arming);
             defaults->setEnabled(!armed && !arming);

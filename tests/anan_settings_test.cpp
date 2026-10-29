@@ -534,6 +534,18 @@ int main(int argc, char** argv)
                   "automatic model PA profile round-trips in its own board/protocol scope");
         }
         check(!defaultTransmitPower(AnanModel::Automatic,99), "unknown board cannot acquire PA defaults");
+        check(AnanSettings::setTransmitSessionAntenna(QStringLiteral("TX-READY"),7,5,2,2)
+              && AnanSettings::transmitSessionAntenna(QStringLiteral("TX-READY"),7,5,2) == 2,
+              "TX readiness remembers its antenna");
+        check(AnanSettings::transmitSessionAntenna(QStringLiteral("TX-OTHER"),7,5,2) == 0
+              && AnanSettings::transmitSessionAntenna(QStringLiteral("TX-READY"),7,5,1) == 0,
+              "TX readiness cannot leak between devices or protocols");
+        check(!AnanSettings::setTransmitSessionAntenna(QStringLiteral("TX-READY"),7,5,2,4)
+              && AnanSettings::transmitSessionAntenna(QStringLiteral("TX-READY"),7,5,2) == 2,
+              "invalid antenna preserves readiness");
+        check(AnanSettings::setTransmitSessionAntenna(QStringLiteral("TX-READY"),7,5,2,0)
+              && AnanSettings::transmitSessionAntenna(QStringLiteral("TX-READY"),7,5,2) == 0,
+              "explicit disable persists");
         check(previewTransmitPower(*power,0,100)->drive == 0, "zero band limit produces no drive");
         power->gainsDb[0] = 50;
         power->limitsWatts[0] = 100;

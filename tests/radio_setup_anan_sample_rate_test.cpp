@@ -121,6 +121,8 @@ public:
     }
     static void publish(AnanBackend& backend) { backend.emitPanState(); backend.emitSliceState(); }
     static void connected(AnanBackend& backend, bool connected) { backend.m_connected = connected; }
+    static void restoreTx(AnanBackend& backend) { backend.restoreTransmitSession(); }
+    static void retireTx(AnanBackend& backend) { backend.cancelTransmitPreparation(); }
     static void calibrationMode(AnanBackend& backend)
     {
         backend.m_mode = QStringLiteral("AM");
@@ -232,6 +234,8 @@ int main(int argc, char** argv)
         check(trace.keyOn.load() == 0 && model.transmitModel().rfPower() == 0,
               "enabling session starts at zero requested power and never keys");
         check(model.transmitModel().tuneAvailable(), "enabled ANAN session offers its carrier generator");
+        check(model.requestLocalShowTxInWaterfall(true) && model.transmitModel().showTxInWaterfall(),
+              "ANAN accepts Show TX in Waterfall as a local display control");
         model.transmitModel().startTune();
         check(await([&] { return trace.lastKey.load() == 1; }), "TUNE enters the guarded P2 keying path");
         model.transmitModel().stopTune();
@@ -287,6 +291,20 @@ int main(int argc, char** argv)
         check(trace.lastKey.load() == 1, "CW release cannot drop an independently held manual MOX");
         model.transmitModel().setMox(false);
         check(await([&] { return trace.lastKey.load() == 0; }), "manual CW MOX releases through the normal owner fence");
+        const int beforeRestore = trace.keyOn.load();
+        anan::AnanLinkStatsTestAccess::retireTx(*backend);
+        anan::AnanLinkStatsTestAccess::drainIo(*backend);
+        anan::AnanLinkStatsTestAccess::restoreTx(*backend);
+        check(await([&] { return backend->capabilities().canTransmit; }),
+              "remembered TX readiness prepares and arms the replacement session");
+        check(trace.keyOn.load() == beforeRestore && trace.lastKey.load() == 0
+              && model.transmitModel().rfPower() == 0,
+              "readiness restore never restores MOX or RF power");
+        disableTx->click();
+        anan::AnanLinkStatsTestAccess::drainIo(*backend);
+        anan::AnanLinkStatsTestAccess::restoreTx(*backend);
+        check(!backend->capabilities().canTransmit && !anan::AnanLinkStatsTestAccess::planReady(*backend),
+              "explicit Disable prevents readiness restore");
     }
     {
         RadioModel model;

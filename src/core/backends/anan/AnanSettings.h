@@ -28,6 +28,8 @@ public:
     static QVariantMap microphone(const QString& serial, int model, int board, int protocol);
     static QVariantMap transmitPower(const QString& serial, int model, int board, int protocol);
     static bool setTransmitPower(const QString& serial, int model, int board, int protocol, const QVariantMap& options);
+    static int transmitSessionAntenna(const QString& serial, int model, int board, int protocol);
+    static bool setTransmitSessionAntenna(const QString& serial, int model, int board, int protocol, int antenna);
     static bool setMicrophone(const QString& serial, int model, int board, int protocol, const QVariantMap& options);
     static QVariantMap receiveCalibration(const QString& serial, int model, int board, int protocol);
     static bool setReceiveCalibration(const QString& serial, int model, int board, int protocol,

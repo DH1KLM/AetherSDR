@@ -295,6 +295,12 @@ AnanBackend::AnanBackend(QObject* parent)
                                       kDdc0RatesKsps.front() * 1000.0 / 1.0e6,
                                       nearestSessionRateKsps(kDdc0RatesKsps.back()) * 1000.0 / 1.0e6);
         publishReceiveGain();
+        if (!wasRateChange) {
+            const quint64 generation = m_connectGeneration;
+            QTimer::singleShot(0,this,[this,generation] {
+                if (generation == m_connectGeneration && m_connected) { restoreTransmitSession(); }
+            });
+        }
         if (wasRateChange) {
             // Audio was muted in beginRateChange() before this session started (see
             // there). Unmute after a settle window: the rebuilt WdspChannel's
@@ -486,8 +492,8 @@ RadioCapabilities AnanBackend::capabilities() const
     // setLineoutGain() scales the samples this host feeds it.
     c.lineoutControl = RadioCapabilities::LineoutControl{};
     c.radioSetupControl = RadioSetupControl{{RadioSetupField::LineoutGain, RadioSetupField::LineoutMute}};
-    // No client owner is declared for "Show TX in Waterfall" on an ANAN.
-    c.txWaterfallClientFlag = std::nullopt;
+    // The radio has no persistent display flag; use the shared local owner.
+    c.txWaterfallClientFlag = RadioCapabilities::TxWaterfallClientFlag{true};
     // Absolute dBm requires a measured reference for the selected ADC;
     // absent calibration retains the existing relative dBFS display.
     PanAmplitudeModel amplitude;
@@ -2437,7 +2443,11 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         if (fields.value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))) {
             emit extensionError(requestId,QStringLiteral("TX session request belongs to a retired connection.")); return;
         }
-        if (verb == QLatin1String("txsession.disable")) { disableTransmitSession(); }
+        if (verb == QLatin1String("txsession.disable")) {
+            disableTransmitSession();
+            m_restoreTxAntenna.reset();
+            rememberTransmitSession(0);
+        }
         else {
             const QString refusal = transmitSessionRefusal();
             const QVariant antenna = fields.value(QStringLiteral("antenna"));
@@ -2462,7 +2472,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             emit extensionError(requestId,QStringLiteral("TX DSP preparation requires a current, idle supported P2 radio in USB or LSB."));
             return;
         }
-        if (verb == QLatin1String("txdsp.cancel")) { cancelTransmitPreparation(); }
+        if (verb == QLatin1String("txdsp.cancel")) { cancelTransmitPreparation(); rememberTransmitSession(0); }
         else { prepareTransmitDsp(); }
         emit extensionResult(requestId,transmitPowerState());
         return;

@@ -15,6 +15,7 @@
 #include <QJsonObject>
 
 #include <iterator>
+#include <cmath>
 
 namespace AetherSDR::anan {
 namespace {
@@ -447,6 +448,33 @@ bool AnanSettings::setTransmitPower(const QString& serial, int model, int board,
         || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
     doc.insert(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol), QJsonObject::fromVariantMap(options));
     return scope.setFeature(QStringLiteral("TransmitPower"),1,doc);
+}
+
+int AnanSettings::transmitSessionAntenna(const QString& serial, int model, int board, int protocol)
+{
+    if (serial.trimmed().isEmpty()) { return 0; }
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    const auto doc = RadioSettingsScope(QStringLiteral("anan"),serial)
+        .featureExact(QStringLiteral("TransmitSession"), &version, &status);
+    if (status != AppSettings::FeatureReadStatus::Present || version != 1) { return 0; }
+    const QJsonValue value = doc.value(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol));
+    if (!value.isDouble()) { return 0; }
+    const double antenna = value.toDouble();
+    return antenna >= 1 && antenna <= 3 && std::floor(antenna) == antenna ? static_cast<int>(antenna) : 0;
+}
+bool AnanSettings::setTransmitSessionAntenna(const QString& serial, int model, int board, int protocol, int antenna)
+{
+    if (serial.trimmed().isEmpty() || antenna < 0 || antenna > 3 || !receiveProfile(board)
+        || !defaultTransmitPower(static_cast<AnanModel>(model),board) || (protocol != 1 && protocol != 2)) { return false; }
+    const RadioSettingsScope scope(QStringLiteral("anan"),serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("TransmitSession"), &version, &status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
+    doc.insert(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol),antenna);
+    return scope.setFeature(QStringLiteral("TransmitSession"),1,doc);
 }
 
 QVariantMap AnanSettings::microphone(const QString& serial, int model, int board, int protocol)

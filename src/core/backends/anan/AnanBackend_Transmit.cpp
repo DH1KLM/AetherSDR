@@ -30,6 +30,30 @@ struct AudioCredit final {
 constexpr std::size_t kMaximumPendingAudioBytes = 4 * AnanTxDsp::kMaximumQueuedInputSamples;
 }
 
+bool AnanBackend::rememberTransmitSession(int antenna)
+{
+    const bool saved = AnanSettings::setTransmitSessionAntenna(m_radioSerial,
+        static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol,antenna);
+    if (!saved) { qCWarning(lcAnanP2) << "ANAN TX readiness preference could not be saved"; }
+    return saved;
+}
+
+void AnanBackend::muteReceiveForTransmit(bool muted)
+{
+    if (m_dsp) {
+        QMetaObject::invokeMethod(m_dsp,"setAudioMuted",Qt::QueuedConnection,Q_ARG(bool,muted));
+    }
+}
+
+void AnanBackend::restoreTransmitSession()
+{
+    const int antenna = AnanSettings::transmitSessionAntenna(m_radioSerial,
+        static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol);
+    if (!antenna || !transmitPreparationState().value(QStringLiteral("available")).toBool()) { return; }
+    prepareTransmitDsp();
+    m_restoreTxAntenna = antenna;
+}
+
 QVariantMap AnanBackend::transmitPowerState()
 {
     const auto defaults = defaultTransmitPower(m_pendingParams.model,m_discoveredBoardId);
@@ -131,6 +155,7 @@ void AnanBackend::disableTransmitSession()
     if (!hadSession) { return; }
     m_transmitPlanReady = false;
     QMetaObject::invokeMethod(m_client,[client = m_client] { client->disarmTransmit(); },Qt::QueuedConnection);
+    muteReceiveForTransmit(false);
     emit capabilitiesChanged();
     emitSliceState();
 }
@@ -173,6 +198,7 @@ void AnanBackend::enableTransmitSession(int antenna)
             emit transmitChanged(zero);
             m_txSessionArming = false;
             m_txSessionEnabled = true;
+            rememberTransmitSession(m_txSessionControl->antenna);
             emit capabilitiesChanged();
             emitSliceState();
         },Qt::QueuedConnection);
@@ -304,6 +330,7 @@ QString AnanBackend::transmitPreparationIdentity() const
 
 void AnanBackend::cancelTransmitPreparation()
 {
+    m_restoreTxAntenna.reset();
     disableTransmitSession();
     if (m_transmitPlanCancelled) { m_transmitPlanCancelled->store(true); }
     ++m_transmitPlanTicket;
@@ -358,6 +385,8 @@ void AnanBackend::prepareTransmitDsp()
                 m_transmitPlanReady = installed;
                 m_transmitPlanError = installed ? QString() : error.isEmpty()
                     ? QStringLiteral("TX audio path refused the prepared DSP") : error;
+                const auto antenna = std::exchange(m_restoreTxAntenna,std::nullopt);
+                if (installed && antenna) { enableTransmitSession(*antenna); }
             },Qt::QueuedConnection);
         },Qt::QueuedConnection);
     },Qt::QueuedConnection);
@@ -375,8 +404,17 @@ void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
         const auto cleanup = m_transmitDispatchOperation;
         m_transmitOperation = {};
         m_transmitDispatchOperation = {};
-        QMetaObject::invokeMethod(m_client,[client = m_client,cleanup,completion] {
+        QMetaObject::invokeMethod(m_client,[this,client = m_client,cleanup,completion] {
             client->setTransmitKeying(false,cleanup);
+            QMetaObject::invokeMethod(this,[this] {
+                QTimer::singleShot(100,this,[this] {
+                    if (m_connected && !m_rateChanging && !m_receiveBuilding && !m_receiveCalibrationRun
+                        && !m_droopCalibrator.isRunning()
+                        && !m_transmitDispatchOperation.permitsDispatch(TxCoordinator::monotonicMs())) {
+                        muteReceiveForTransmit(false);
+                    }
+                });
+            },Qt::QueuedConnection);
             completion.finish();
         },Qt::QueuedConnection);
         return;
@@ -397,6 +435,8 @@ void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
         m_transmitDispatchOperation = held.withKeyingPermit([permit] { return permit->load(); });
     }
     m_transmitOperation = operation;
+    // Mute demodulation before key-on; the independent IQ spectrum stays live.
+    muteReceiveForTransmit(true);
     const auto dispatch = m_transmitDispatchOperation;
     const quint64 revision = m_txSessionRevision;
     QMetaObject::invokeMethod(m_client,[this,operation,dispatch,completion,control,permit,revision,continuing,

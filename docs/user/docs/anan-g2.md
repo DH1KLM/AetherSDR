@@ -123,10 +123,10 @@ already receive. The original tropo1234 G2 implementation remains unchanged.
    PC microphone or local modem audio. Power is a percentage of the saved current-band limit,
    converted through the PA gain; it is requested power, not measured RF output.
 6. Use **MOX/PTT Off** to return to receive, or **Disable ANAN TX** to revoke the
-   session and release its DSP. After disabling, prepare and enable again.
+   session and release its DSP. This also clears automatic readiness restore. After disabling, prepare and enable again.
 
 The session binds the connection, primary VFO, mode, antenna and saved PA profile.
-It is never restored automatically. Frequency, mode, rate, calibration or relevant
+The enabled readiness and TX antenna are remembered per radio, model, board and protocol. After reconnect, the DSP is prepared and the session enabled again only if all current admission checks pass. Restore leaves MOX/PTT/TUNE off and RF Power at 0%. Frequency, mode, rate, calibration or relevant
 RF front-end changes revoke it. Additional receive slices/windows are refused while
 it is enabled. Change the TX antenna in Setup while disabled; slice antenna edits
 cannot silently replace the captured TX antenna. XIT is not implemented in this
@@ -151,7 +151,9 @@ DRM modem are not integrated for ANAN.
 Radio microphone/PTT qualification, forward-power/SWR telemetry and PA
 calibration remain open. Software tests do not establish actual RF power,
 signal quality or protection. The radio speaker stream is silenced while this
-client keys P1 or P2 TX.
+client keys P1 or P2 TX. Receive audio is muted while keyed, with a short hold after release; the independent spectrum stays live. This prevents hearing the receiver pick up its own transmission. The radio-side MON control is unavailable.
+
+**Settings → Radio Setup → Transmit → Show TX in Waterfall** is a local, per-radio display setting, as on HL2. It allows FFT-derived waterfall rows during TX; it does not measure PA output power or create a separate RF monitor.
 
 ## Mouse-related receive diagnostics
 

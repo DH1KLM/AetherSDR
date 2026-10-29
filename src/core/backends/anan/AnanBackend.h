@@ -318,6 +318,10 @@ private:
     QString transmitSessionIdentity() const;
     QString transmitSessionRefusal() const;
     void enableTransmitSession(int antenna);
+    void restoreTransmitSession();
+    bool rememberTransmitSession(int antenna);
+    void muteReceiveForTransmit(bool muted);
+    std::optional<int> m_restoreTxAntenna;
     void disableTransmitSession();
     bool transmitSessionCurrent() const;
     std::optional<TransmitPowerProfile> m_txSessionProfile;
