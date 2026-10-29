@@ -201,10 +201,11 @@ bool AnanBackend::createPanadapter()
 }
 bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
 {
-    if (m_txSessionEnabled || m_txSessionArming) { return false; }
+    if (m_transmitDispatchOperation.permitsDispatch(TxCoordinator::monotonicMs())) { return false; }
     if (!m_connected || !m_discoveryInfoReceived || m_rateChanging || m_receiveBuilding ||
         m_pendingBandwidthKsps != 0 || m_droopCalibrator.isRunning())
         return false;
+    disableTransmitSession();
     const auto previous = m_receiveLayout;
     const auto id = m_receiveLayout.add(hz, requested, own);
     if (!id)

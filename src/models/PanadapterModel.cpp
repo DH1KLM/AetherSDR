@@ -6,6 +6,11 @@
 #include <cmath>
 
 namespace AetherSDR {
+void PanadapterModel::setObservedZoomModes(bool band, bool segment)
+{
+    if (m_bandZoomOn != band) { m_bandZoomOn = band; emit bandZoomChanged(band); }
+    if (m_segmentZoomOn != segment) { m_segmentZoomOn = segment; emit segmentZoomChanged(segment); }
+}
 
 PanadapterModel::PanadapterModel(const QString& panId, QObject* parent)
     : QObject(parent)

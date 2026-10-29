@@ -265,6 +265,8 @@ AnanBackend::AnanBackend(QObject* parent)
         const bool wasRateChange = m_rateChanging;
         m_rateChanging = false;
         if (!wasRateChange) {
+            m_txPowerPercent = 0;
+            m_txSessionError.clear();
             m_receiveLayout.reset(receiveStreamCeiling(), m_ddcCenterHz,
                                   m_pendingParams.ddc0RateKsps, receiveSliceCeiling());
             emit connected();
@@ -342,6 +344,7 @@ AnanBackend::AnanBackend(QObject* parent)
     txWatch->setInterval(200);
     connect(txWatch,&QTimer::timeout,this,[this] {
         if (m_txSessionEnabled && !transmitSessionCurrent()) { disableTransmitSession(); }
+        restoreTransmitSession();
     });
     txWatch->start();
     // Drops reach the readout through the counters snapshot below, which
@@ -572,7 +575,6 @@ RadioCapabilities AnanBackend::capabilities() const
     c.canTransmit = transmitSessionCurrent();
     c.txPowerMaxWatts = c.canTransmit && m_txSessionProfile
         ? m_txSessionProfile->limitsWatts[m_txSessionBand] : 0.0;
-    if (c.canTransmit) { c.maxSlices = 1; c.maxPanadapters = 1; }
     c.hostModulates = true;        // client-side WDSP, like the HL2
     c.takesTxAudioOverSeam = true;
     // Drive is engine intent, not measured forward power or hardware readback.
@@ -2484,17 +2486,24 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             const QVariantMap fields = arg.toMap();
             const auto profile = parseTransmitPower(fields.value(QStringLiteral("options")).toMap());
             if (!state.value(QStringLiteral("available")).toBool() || !profile || m_rateChanging || m_receiveBuilding
-                || m_txSessionEnabled || m_txSessionArming
+                || m_txSessionArming
                 || fields.value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))
                 || m_transmitOperation.permitsDispatch(TxCoordinator::monotonicMs())) {
                 emit extensionError(requestId,QStringLiteral("Select a current, idle radio and an explicit receive profile before editing TX power."));
                 return;
             }
             if (verb == QLatin1String("txpower.set")) {
+                const QVariant antenna = fields.value(QStringLiteral("antenna"));
+                if (antenna.isValid() && (antenna.metaType().id() != QMetaType::Int || antenna.toInt() < 1 || antenna.toInt() > 3)) {
+                    emit extensionError(requestId,QStringLiteral("Select ANT1, ANT2 or ANT3.")); return;
+                }
                 if (!AnanSettings::setTransmitPower(m_radioSerial,static_cast<int>(m_pendingParams.model),
                         m_discoveredBoardId,m_pendingParams.protocol,transmitPowerOptions(*profile))) {
                     emit extensionError(requestId,QStringLiteral("TX power profile could not be saved.")); return;
                 }
+                disableTransmitSession();
+                m_txSessionError.clear();
+                if (antenna.isValid()) { rememberTransmitSession(antenna.toInt()); }
                 state = transmitPowerState();
             } else {
                 const QVariant band = fields.value(QStringLiteral("band")), watts = fields.value(QStringLiteral("watts"));
@@ -3250,6 +3259,7 @@ void AnanBackend::emitPanState()
         std::min(48'000.0, spanHz) / 1.0e6,
         nearestSessionRateKsps(kDdc0RatesKsps.back()) * 1000.0 / 1.0e6);
     emit panCenterBandwidthChanged(primaryPanId(), m_ddcCenterHz / 1.0e6, spanHz / 1.0e6);
+    emit panZoomModesChanged(primaryPanId(),m_ctun && validBandViewSnapshot(m_beforeBandView),false);
 }
 
 void AnanBackend::resetSpeakerResamplers()

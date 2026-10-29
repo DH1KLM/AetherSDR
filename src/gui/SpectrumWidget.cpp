@@ -2211,7 +2211,7 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
         " border-radius: 2px; color: #90a0b0; font-size: 11px; font-weight: bold;"
         " padding: 0; margin: 0; min-width: 0; }"
         "QPushButton:hover { background: rgba(30,50,70,200); color: #c8d8e8; }"
-        "QPushButton:checked { background: rgba(0,180,216,210); color: #000; }"
+        "QPushButton:checked { background: {{color.canon.cyan}}; color: {{color.canon.onAccent}}; }"
         "QPushButton:pressed { background: #00b4d8; color: #000; }"
         // Own token role, not {{color.text.disabled}}: this button always paints its
         // own dark backdrop regardless of theme, so disabled colours are the enabled
@@ -2252,6 +2252,8 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
 
     m_zoomSegBtn  = makeBtn("S", QStringLiteral("panZoomSegBtn"),  QStringLiteral("Zoom to segment"));
     m_zoomBandBtn = makeBtn("B", QStringLiteral("panZoomBandBtn"), QStringLiteral("Zoom to band"));
+    m_zoomBandBtn->setCheckable(true);
+    m_zoomSegBtn->setCheckable(true);
     m_zoomOutBtn  = makeBtn("\u2212", QStringLiteral("panZoomOutBtn"), QStringLiteral("Zoom out"));  // minus sign U+2212
     m_zoomInBtn   = makeBtn("+", QStringLiteral("panZoomInBtn"),   QStringLiteral("Zoom in"));
 
@@ -2273,9 +2275,11 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
 
     // SmartSDR pcap: B sends "band_zoom=1", S sends "segment_zoom=1"
     connect(m_zoomBandBtn, &QPushButton::clicked, this, [this]() {
+        m_zoomBandBtn->setChecked(!m_zoomBandBtn->isChecked());
         emit bandZoomRequested();
     });
     connect(m_zoomSegBtn, &QPushButton::clicked, this, [this]() {
+        m_zoomSegBtn->setChecked(!m_zoomSegBtn->isChecked());
         emit segmentZoomRequested();
     });
 

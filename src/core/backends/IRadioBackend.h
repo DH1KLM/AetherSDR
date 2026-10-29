@@ -1279,6 +1279,7 @@ signals:
     // Radio-wide in cause but reported PER PAN, because that is where the
     // operator sees it and because a future radio could bypass per receiver.
     void panWideChanged(const QString& panId, bool wide);
+    void panZoomModesChanged(const QString& panId, bool band, bool segment);
 
     // Panadapter display level range (universal — the Y-axis geometry that
     // pairs with center/bandwidth's X-axis). Unlike center/bandwidth, dBm is

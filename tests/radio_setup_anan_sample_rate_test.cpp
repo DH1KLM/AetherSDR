@@ -171,140 +171,55 @@ int main(int argc, char** argv)
             app.processEvents(); QThread::msleep(1);
         }
         check(table->isEnabled() && table->rowCount() == 11, "real PA page loads eleven band references");
-        auto* gain = static_cast<QDoubleSpinBox*>(table->cellWidget(0,1));
-        auto* limit = static_cast<QDoubleSpinBox*>(table->cellWidget(0,2));
-        gain->setValue(50); limit->setValue(100);
-        auto* watts = page->findChild<QDoubleSpinBox*>(QStringLiteral("ananTxPowerWatts"));
-        watts->setValue(200);
-        page->findChild<QPushButton*>(QStringLiteral("ananTxPowerPreview"))->click();
-        app.processEvents();
-        auto* result = page->findChild<QLabel*>(QStringLiteral("ananTxPowerResult"));
-        check(result->text().contains(QStringLiteral("raw drive: 72/255")), "PA preview uses unsaved gain and capped watts");
-        page->findChild<QPushButton*>(QStringLiteral("ananTxPowerApply"))->click();
-        app.processEvents();
-        const auto saved = anan::AnanSettings::transmitPower(QStringLiteral("sample-rate-ui-test-2-0"),
-            static_cast<int>(anan::AnanModel::Anan200D),5,2);
-        check(saved.value(QStringLiteral("limitsWatts")).toList().value(0).toDouble() == 100,
-              "PA page saves exact model protocol profile");
-        check(!backend->capabilities().canTransmit, "saving PA profile never enables transmit");
-        QSignalSpy errors(backend,&IRadioBackend::extensionError);
-        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("txpower.set"),123456,
-            QVariantMap{{QStringLiteral("identity"),QStringLiteral("stale")},{QStringLiteral("options"),saved}});
-        check(errors.count() == 1, "stale PA identity cannot save");
-        page->findChild<QPushButton*>(QStringLiteral("ananTxPowerDefaults"))->click();
-        check(limit->value() == 0 && std::abs(gain->value()-49.5) < 0.01, "Thetis 200D defaults reset preview limits to zero");
-        auto* prepareDsp = page->findChild<QPushButton*>(QStringLiteral("ananTxDspPrepare"));
-        auto* cancelDsp = page->findChild<QPushButton*>(QStringLiteral("ananTxDspCancel"));
-        check(prepareDsp && prepareDsp->isEnabled(), "native P2 USB exposes explicit DSP preparation");
-        QSemaphore entered, release;
-        anan::AnanLinkStatsTestAccess::blockPlanner(*backend,entered,release);
-        check(entered.tryAcquire(1,5000), "existing planner accepts bounded test barrier");
-        prepareDsp->click(); app.processEvents();
-        check(cancelDsp->isEnabled(), "pending preparation remains cancellable without waiting for planner");
-        cancelDsp->click(); app.processEvents(); release.release();
-        check(!anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "cancelled queued preparation never leaves a DSP channel");
-        prepareDsp->click(); app.processEvents();
-        deadline.restart();
-        while (!anan::AnanLinkStatsTestAccess::planReady(*backend) && deadline.elapsed() < 45000) {
-            app.processEvents(); QThread::msleep(1);
+        for (const char* removed : {"ananTxPowerBand","ananTxPowerWatts","ananTxPowerPreview","ananTxDspPrepare","ananTxDspCancel","ananTxSessionEnable","ananTxSessionDisable"}) {
+            check(!page->findChild<QWidget*>(QString::fromLatin1(removed)), "normal Setup has no preview or manual TX lifecycle controls");
         }
-        check(anan::AnanLinkStatsTestAccess::planReady(*backend)
-              && anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "actual TX DSP is built on planner and staged on the I/O thread");
-        check(!anan::AnanLinkStatsTestAccess::transportPrepared(*backend)
-              && !backend->capabilities().canTransmit, "DSP preparation does not install transport or enable TX");
         anan::AnanLinkStatsTestAccess::injectTransport(*backend,trace);
         const auto await = [&](const std::function<bool()>& predicate) {
-            QElapsedTimer limit; limit.start();
-            while (!predicate() && limit.elapsed() < 3000) { app.processEvents(); QThread::msleep(1); }
+            QElapsedTimer timer; timer.start();
+            while (!predicate() && timer.elapsed() < 5000) { app.processEvents(); QThread::msleep(5); }
             return predicate();
         };
+        auto* save = page->findChild<QPushButton*>(QStringLiteral("ananTxPowerApply"));
+        auto* antenna = page->findChild<QComboBox*>(QStringLiteral("ananTxSessionAntenna"));
         static_cast<QDoubleSpinBox*>(table->cellWidget(5,1))->setValue(50);
         static_cast<QDoubleSpinBox*>(table->cellWidget(5,2))->setValue(10);
-        page->findChild<QPushButton*>(QStringLiteral("ananTxPowerApply"))->click(); app.processEvents();
-        auto* enableTx = page->findChild<QPushButton*>(QStringLiteral("ananTxSessionEnable"));
-        auto* disableTx = page->findChild<QPushButton*>(QStringLiteral("ananTxSessionDisable"));
-        page->findChild<QComboBox*>(QStringLiteral("ananTxSessionAntenna"))->setCurrentIndex(1);
-        if (!await([&] { return enableTx->isEnabled(); })) {
-            std::cerr << page->findChild<QLabel*>(QStringLiteral("ananTxSessionStatus"))->text().toStdString() << '\n';
-            std::cerr << anan::AnanLinkStatsTestAccess::sessionDiagnostic(*backend).toStdString() << '\n';
-            check(false,"saved band limit and prepared DSP allow explicit session enable");
-        }
-        enableTx->click();
-        check(await([&] { return backend->capabilities().canTransmit; }), "real Setup enables only the acknowledged 200D session");
+        antenna->setCurrentIndex(1); save->click();
+        check(await([&] { return backend->capabilities().canTransmit; }), "saved PA profile automatically prepares and enables TX");
+        check(backend->capabilities().maxSlices > 1 && backend->capabilities().maxPanadapters > 1,
+              "automatic TX readiness does not hide receive expansion");
         check(trace.keyOn.load() == 0 && model.transmitModel().rfPower() == 0,
-              "enabling session starts at zero requested power and never keys");
-        check(model.transmitModel().tuneAvailable(), "enabled ANAN session offers its carrier generator");
-        check(model.requestLocalShowTxInWaterfall(true) && model.transmitModel().showTxInWaterfall(),
-              "ANAN accepts Show TX in Waterfall as a local display control");
+              "automatic readiness never keys and starts with zero RF power");
+        check(model.requestLocalShowTxInWaterfall(true) && model.transmitModel().showTxInWaterfall(), "local TX waterfall control remains available");
+        model.transmitModel().setRfPower(25);
+        model.transmitModel().setMox(true);
+        check(await([&] { return trace.lastKey.load() == 1; }), "MOX remains the explicit TX trigger");
+        check(trace.drive.load() == 11 && (trace.alex.load() & 0x07000000u) == (1u<<25), "automatic readiness captures ANT2 and the saved band power limit");
+        check(await([&] { return !save->isEnabled(); }), "PA edits are locked while keyed");
+        model.transmitModel().setMox(false);
+        check(await([&] { return trace.lastKey.load() == 0 && save->isEnabled(); }), "RX allows PA edits without a manual TX-disable step");
+        const int beforeTune = trace.keyOn.load();
+        backend->setSliceFrequency(0,14'180'000);
+        check(await([&] { return backend->capabilities().canTransmit; }), "receive retuning automatically refreshes TX readiness");
+        check(trace.keyOn.load() == beforeTune && model.transmitModel().rfPower() == 25, "retuning preserves operator power without automatically transmitting");
         model.transmitModel().startTune();
-        check(await([&] { return trace.lastKey.load() == 1; }), "TUNE enters the guarded P2 keying path");
+        check(await([&] { return trace.lastKey.load() == 1; }), "TUNE reaches the internal carrier path");
         model.transmitModel().stopTune();
-        check(await([&] { return trace.lastKey.load() == 0; }), "TUNE stop releases the captured carrier operation");
-        model.transmitModel().setRfPower(25);
-        model.transmitModel().setMox(true);
-        check(await([&] { return trace.lastKey.load() == 1; }), "desktop MOX reaches guarded P2 keying through RadioModel");
-        check(trace.drive.load() == 11 && trace.frequencyWord.load() == anan::phaseWord(14'175'000)
-              && (trace.alex.load() & 0x07000000u) == (1u<<25), "MOX uses captured VFO, ANT2 and band-limited logarithmic drive");
-        model.transmitModel().setRfPower(50);
-        check(await([&] { return trace.drive.load() == 16; }), "desktop RF power changes update the active 200D drive");
-        TxCoordinator foreign([](const auto&, auto) {});
-        backend->setKeying(false,foreign.cleanupFence());
-        anan::AnanLinkStatsTestAccess::drainIo(*backend);
-        check(trace.lastKey.load() == 1, "foreign cleanup cannot release this radio's active MOX");
-        model.transmitModel().setMox(false);
-        check(await([&] { return trace.lastKey.load() == 0; }), "canonical owner stop fence releases MOX");
-        const int keyedBefore = trace.keyOn.load();
-        QSemaphore ioEntered, ioRelease;
-        anan::AnanLinkStatsTestAccess::blockIo(*backend,ioEntered,ioRelease);
-        check(ioEntered.tryAcquire(1,5000), "I/O barrier captures pending key-on");
-        model.transmitModel().setMox(true);
-        disableTx->click();
-        ioRelease.release();
-        anan::AnanLinkStatsTestAccess::drainIo(*backend);
-        check(await([&] { return !backend->capabilities().canTransmit && !model.transmitModel().isMox(); })
-              && trace.keyOn.load() == keyedBefore, "disable cancels queued key-on before any RF control write");
-        model.transmitModel().setMox(true);
-        anan::AnanLinkStatsTestAccess::drainIo(*backend);
-        check(trace.keyOn.load() == keyedBefore, "disabled session cannot be revived by another MOX request");
-        backend->setSliceMode(0,QStringLiteral("LSB"));
-        check(!anan::AnanLinkStatsTestAccess::planReady(*backend)
-              && !anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "mode change retires prepared USB channel on planner");
+        check(await([&] { return trace.lastKey.load() == 0; }), "TUNE off releases its carrier");
         backend->setSliceMode(0,QStringLiteral("CWU"));
-        check(await([&] { return prepareDsp->isEnabled(); }), "CW offers its own explicit preparation");
-        prepareDsp->click();
-        check(await([&] { return anan::AnanLinkStatsTestAccess::planReady(*backend) && enableTx->isEnabled(); }),
-              "CW DSP preparation enables the saved session profile");
-        enableTx->click();
-        check(await([&] { return backend->capabilities().canTransmit; }), "CW session arms without implicit carrier");
-        model.transmitModel().setRfPower(25);
-        model.transmitModel().setCwBreakIn(true);
-        model.transmitModel().setCwDelay(20);
+        check(await([&] { return backend->capabilities().canTransmit; }), "mode change automatically prepares the matching TX DSP");
+        model.transmitModel().setCwBreakIn(true); model.transmitModel().setCwDelay(20);
         model.sendCwKey(true);
-        check(await([&] { return trace.lastKey.load() == 1; }), "CW key-down acquires break-in TX authority");
+        check(await([&] { return trace.lastKey.load() == 1; }), "CW keys after automatic preparation");
         model.sendCwKey(false);
-        check(await([&] { return trace.lastKey.load() == 0; }), "CW key-up releases RF after its shaped tail and hang");
-        model.transmitModel().setMox(true);
-        check(await([&] { return trace.lastKey.load() == 1; }), "manual MOX can hold a CW session");
-        model.sendCwKey(true);
-        model.sendCwKey(false);
-        anan::AnanLinkStatsTestAccess::drainIo(*backend);
-        check(trace.lastKey.load() == 1, "CW release cannot drop an independently held manual MOX");
-        model.transmitModel().setMox(false);
-        check(await([&] { return trace.lastKey.load() == 0; }), "manual CW MOX releases through the normal owner fence");
-        const int beforeRestore = trace.keyOn.load();
-        anan::AnanLinkStatsTestAccess::retireTx(*backend);
-        anan::AnanLinkStatsTestAccess::drainIo(*backend);
-        anan::AnanLinkStatsTestAccess::restoreTx(*backend);
-        check(await([&] { return backend->capabilities().canTransmit; }),
-              "remembered TX readiness prepares and arms the replacement session");
-        check(trace.keyOn.load() == beforeRestore && trace.lastKey.load() == 0
-              && model.transmitModel().rfPower() == 0,
-              "readiness restore never restores MOX or RF power");
-        disableTx->click();
-        anan::AnanLinkStatsTestAccess::drainIo(*backend);
-        anan::AnanLinkStatsTestAccess::restoreTx(*backend);
-        check(!backend->capabilities().canTransmit && !anan::AnanLinkStatsTestAccess::planReady(*backend),
-              "explicit Disable prevents readiness restore");
+        check(await([&] { return trace.lastKey.load() == 0; }), "CW release respects hang and tail");
+        backend->setSliceMode(0,QStringLiteral("DRM"));
+        check(!backend->capabilities().canTransmit, "unsupported TX mode remains closed");
+        backend->setSliceMode(0,QStringLiteral("USB"));
+        check(await([&] { return backend->capabilities().canTransmit; }), "return to a supported mode restores readiness without buttons");
+        check(await([&] { return save->isEnabled(); }), "idle profile can be edited");
+        static_cast<QDoubleSpinBox*>(table->cellWidget(5,2))->setValue(0); save->click();
+        check(await([&] { return !backend->capabilities().canTransmit; }), "zero band power limit still prevents TX");
     }
     {
         RadioModel model;

@@ -29,6 +29,18 @@ int main(int argc, char** argv)
 
     PanadapterModel pan(QStringLiteral("0x40000000"));
     QSignalSpy spy(&pan, &PanadapterModel::rxAntennaChanged);
+    QSignalSpy bandZoom(&pan,&PanadapterModel::bandZoomChanged);
+    QSignalSpy segmentZoom(&pan,&PanadapterModel::segmentZoomChanged);
+    pan.setObservedZoomModes(true,false);
+    EXPECT_EQ(pan.bandZoomOn(),true);
+    EXPECT_EQ(bandZoom.count(),1);
+    pan.setObservedZoomModes(true,false);
+    EXPECT_EQ(bandZoom.count(),1);
+    pan.setObservedZoomModes(false,true);
+    EXPECT_EQ(pan.bandZoomOn(),false);
+    EXPECT_EQ(pan.segmentZoomOn(),true);
+    EXPECT_EQ(bandZoom.count(),2);
+    EXPECT_EQ(segmentZoom.count(),1);
 
     // aetherd RFC 2.3: rxant/rfgain decode moved to FlexBackend; the model now
     // exposes normalized setRxAntenna/setRfGain. This test pins their change-

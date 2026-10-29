@@ -23,6 +23,9 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QScrollArea>
+#include <QFrame>
+#include <QWidget>
 #include <QStringList>
 #include <QUrl>
 #include <QUrlQuery>
@@ -38,8 +41,8 @@ SupportDialog::SupportDialog(QWidget* parent)
                        QStringLiteral("SupportDialogGeometry"), parent)
 {
     theme::setContainer(this, QStringLiteral("dialog/support"));
-    setMinimumSize(600, 520);
-    resize(680, 600);
+    setMinimumSize(760, 600);
+    resize(920, 740);
     buildUI();
     syncCheckboxes();
     refreshLog();
@@ -52,8 +55,11 @@ void SupportDialog::buildUI()
 
     // ── Diagnostic Logging group ──────────────────────────────────────────
     auto* logGroup = new QGroupBox("Diagnostic Logging");
-    auto* gridLayout = new QGridLayout(logGroup);
-    gridLayout->setSpacing(4);
+    auto* categoryHost = new QWidget(logGroup);
+    auto* gridLayout = new QGridLayout(categoryHost);
+    gridLayout->setHorizontalSpacing(18);
+    gridLayout->setVerticalSpacing(6);
+    for (int column = 0; column < 3; ++column) { gridLayout->setColumnStretch(column,1); }
 
     auto& mgr = LogManager::instance();
     const auto cats = mgr.categories();
@@ -62,9 +68,18 @@ void SupportDialog::buildUI()
 
     for (const auto& cat : cats) {
         auto* cb = new QCheckBox(cat.label);
+        cb->setObjectName(QStringLiteral("supportLogCategory_") + cat.id);
+        cb->setAccessibleName(cat.label);
+        cb->setAccessibleDescription(cat.description);
+        cb->setMinimumHeight(24);
         cb->setToolTip(cat.description);
         cb->setChecked(cat.enabled);
-        AetherSDR::ThemeManager::instance().applyStyleSheet(cb, "QCheckBox { color: {{color.text.primary}}; }");
+        ThemeManager::instance().applyStyleSheet(cb,
+            QStringLiteral("QCheckBox { color: {{color.text.primary}}; font-size: 13px; spacing: 8px; }"
+                           "QCheckBox:checked { font-weight: 600; }")
+            + ThemeManager::checkBoxIndicatorStyle()
+            + QStringLiteral("QCheckBox::indicator { width: 16px; height: 16px; border-color: {{color.canon.lineHi}}; }"
+                             "QCheckBox::indicator:checked { background: {{color.canon.cyan}}; border-color: {{color.canon.cyan}}; }"));
         gridLayout->addWidget(cb, row, col);
 
         connect(cb, &QCheckBox::toggled, this, [id = cat.id](bool on) {
@@ -78,42 +93,54 @@ void SupportDialog::buildUI()
     auto* btnRow = new QHBoxLayout;
     auto* enableAllBtn = new QPushButton("Enable All");
     auto* disableAllBtn = new QPushButton("Disable All");
-    enableAllBtn->setFixedHeight(24);
-    disableAllBtn->setFixedHeight(24);
+    enableAllBtn->setFixedHeight(28);
+    disableAllBtn->setFixedHeight(28);
     connect(enableAllBtn, &QPushButton::clicked, this, &SupportDialog::enableAll);
     connect(disableAllBtn, &QPushButton::clicked, this, &SupportDialog::disableAll);
     btnRow->addWidget(enableAllBtn);
     btnRow->addWidget(disableAllBtn);
     btnRow->addStretch();
 
-    auto* groupLayout = new QVBoxLayout;
-    groupLayout->addLayout(gridLayout);
+    auto* categories = new QScrollArea(logGroup);
+    categories->setObjectName(QStringLiteral("supportLogCategories"));
+    categories->setAccessibleName(QStringLiteral("Diagnostic logging categories"));
+    categories->setWidgetResizable(true);
+    categories->setFrameShape(QFrame::NoFrame);
+    categories->setMinimumHeight(200);
+    categories->setWidget(categoryHost);
+    auto* groupLayout = new QVBoxLayout(logGroup);
+    groupLayout->addWidget(categories,1);
     groupLayout->addLayout(btnRow);
-    logGroup->setLayout(groupLayout);
-    layout->addWidget(logGroup);
+    layout->addWidget(logGroup,2);
 
     // ── Log file info ─────────────────────────────────────────────────────
     auto* fileRow = new QHBoxLayout;
-    auto* pathLabel = new QLabel(QString("Log: <code>%1</code>").arg(
+    auto* pathLabel = new QLabel(QString("Log: %1").arg(
         LogManager::instance().logFilePath()));
-    pathLabel->setTextFormat(Qt::RichText);
-    pathLabel->setStyleSheet("color: #8898a8; font-size: 11px;");
+    pathLabel->setTextFormat(Qt::PlainText);
+    pathLabel->setAccessibleName(QStringLiteral("Log file path"));
+    pathLabel->setWordWrap(true);
+    pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    ThemeManager::instance().applyStyleSheet(pathLabel,"QLabel { color: {{color.text.primary}}; font-size: 12px; }");
     m_sizeLabel = new QLabel;
-    m_sizeLabel->setStyleSheet("color: #8898a8; font-size: 11px;");
-    fileRow->addWidget(pathLabel);
-    fileRow->addStretch();
+    m_sizeLabel->setAccessibleName(QStringLiteral("Log file size"));
+    ThemeManager::instance().applyStyleSheet(m_sizeLabel,"QLabel { color: {{color.text.secondary}}; font-size: 12px; }");
+    fileRow->addWidget(pathLabel,1);
     fileRow->addWidget(m_sizeLabel);
     layout->addLayout(fileRow);
 
     // ── Log viewer ────────────────────────────────────────────────────────
     m_logViewer = new QPlainTextEdit;
+    m_logViewer->setObjectName(QStringLiteral("supportLogViewer"));
+    m_logViewer->setAccessibleName(QStringLiteral("Application log"));
     m_logViewer->setReadOnly(true);
     m_logViewer->setMaximumBlockCount(2000);
+    m_logViewer->setMinimumHeight(120);
     AetherSDR::ThemeManager::instance().applyStyleSheet(m_logViewer, "QPlainTextEdit {"
         "  background: {{color.background.0}};"
-        "  color: {{color.text.secondary}};"
+        "  color: {{color.text.primary}};"
         "  font-family: monospace;"
-        "  font-size: 11px;"
+        "  font-size: 13px;"
         "  border: 1px solid {{color.background.1}};"
         "}");
     layout->addWidget(m_logViewer, 1);  // stretch
@@ -172,13 +199,16 @@ void SupportDialog::buildUI()
     // "File an Issue" lives on Help and "Reset Settings" on Settings;
     // point the user there rather than duplicating the buttons here.
     auto* instructions = new QLabel(
-        "<p style='color:#c8d8e8; font-size: 13px;'>"
+        "<p>"
         "To report an issue:<br>"
         "1. Enable logging for the relevant module(s) above<br>"
         "2. <b>Restart AetherSDR</b> (logging changes take effect on next launch)<br>"
         "3. Reproduce the problem<br>"
         "4. Choose <b>Help \xE2\x86\x92 File an Issue\xE2\x80\xA6</b> and drag your log file into the GitHub form</p>");
     instructions->setTextFormat(Qt::RichText);
+    instructions->setWordWrap(true);
+    ThemeManager::instance().applyStyleSheet(instructions,
+        "QLabel { color: {{color.text.primary}}; font-size: 13px; }");
     layout->addWidget(instructions);
 
     // ── Close button ──────────────────────────────────────────────────────

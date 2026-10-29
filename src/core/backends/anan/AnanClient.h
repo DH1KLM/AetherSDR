@@ -28,7 +28,7 @@ public:
     bool stageTransmitDsp(std::shared_ptr<AnanTxDsp> dsp);
     void discardStagedTransmit();
     bool armStagedTransmit(const P2TxControl& control);
-    void disarmTransmit();
+    void disarmTransmit(bool discardDsp = true);
     void setTransmitCarrier(bool enabled, bool down);
     void finishTransmitAudio(const TxCoordinator::Context& context);
     [[nodiscard]] std::size_t queuedTransmitFrames() const noexcept

@@ -4241,6 +4241,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 sw, &SpectrumWidget::setWideActive,
                 Qt::UniqueConnection);
         sw->setWideActive(pan->wideActive());
+        const auto syncZoom = [sw,pan] { sw->setZoomModeState(pan->bandZoomOn(),pan->segmentZoomOn()); };
+        connect(pan,&PanadapterModel::bandZoomChanged,sw,syncZoom);
+        connect(pan,&PanadapterModel::segmentZoomChanged,sw,syncZoom);
+        syncZoom();
         connect(pan, &PanadapterModel::wnbStateChanged,
                 sw, &SpectrumWidget::syncWnbState,
                 Qt::UniqueConnection);

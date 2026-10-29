@@ -47,9 +47,21 @@ void AnanBackend::muteReceiveForTransmit(bool muted)
 
 void AnanBackend::restoreTransmitSession()
 {
-    const int antenna = AnanSettings::transmitSessionAntenna(m_radioSerial,
+    if (!m_connected || !primaryVisible() || m_receiveLayout.slices().size() != 1 || !m_additionalRx.empty()
+        || m_txSessionEnabled || m_txSessionArming || m_transmitPlanBuilding
+        || !m_txSessionError.isEmpty() || !m_transmitPlanError.isEmpty()
+        || m_receiveCalibrationRun || m_droopCalibrator.isRunning()) { return; }
+    const auto profile = parseTransmitPower(AnanSettings::transmitPower(m_radioSerial,
+        static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol));
+    const int band = receiveAntennaBandIndex();
+    if (!profile || band < 0 || band >= 11 || profile->limitsWatts[band] <= 0) { return; }
+    const int savedAntenna = AnanSettings::transmitSessionAntenna(m_radioSerial,
         static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol);
-    if (!antenna || !transmitPreparationState().value(QStringLiteral("available")).toBool()) { return; }
+    const int antenna = savedAntenna > 0 ? savedAntenna : 1;
+    if (!transmitPreparationState().value(QStringLiteral("available")).toBool()) { return; }
+    if (m_transmitPlanReady && m_transmitPlanIdentity == transmitPreparationIdentity()) {
+        enableTransmitSession(antenna); return;
+    }
     prepareTransmitDsp();
     m_restoreTxAntenna = antenna;
 }
@@ -102,15 +114,16 @@ QString AnanBackend::transmitSessionRefusal() const
         return QStringLiteral("Use one primary receive slice and finish receive configuration or calibration first.");
     }
     const auto recipe = transmitMode(modeFromString(m_mode));
-    if (!recipe || !m_transmitPlanReady
-        || m_transmitPlanIdentity != transmitPreparationIdentity()) {
-        return QStringLiteral("Prepare the current mode's TX DSP first.");
-    }
+    if (!recipe) { return QStringLiteral("The selected mode is receive-only."); }
     const auto profile = parseTransmitPower(AnanSettings::transmitPower(m_radioSerial,
         static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol));
     const int band = receiveAntennaBandIndex();
     if (!profile || band < 0 || band >= 11 || profile->limitsWatts[band] <= 0) {
         return QStringLiteral("Save a PA profile with a positive current-band operator power limit.");
+    }
+    if (!m_transmitPlanReady || m_transmitPlanIdentity != transmitPreparationIdentity()) {
+        return m_transmitPlanError.isEmpty() ? QStringLiteral("TX signal processing is being prepared automatically.")
+            : QStringLiteral("TX signal processing failed: %1").arg(m_transmitPlanError);
     }
     const auto envelope = m_antennaBandPlan->amateurBandAt(m_sliceFreqHz / 1e6);
     const double low = (m_sliceFreqHz + std::min(-250.0,recipe->occupiedLowHz)) / 1e6;
@@ -130,10 +143,13 @@ QVariantMap AnanBackend::transmitSessionState()
     const QString refusal = transmitSessionRefusal();
     return {{QStringLiteral("enabled"),transmitSessionCurrent()}, {QStringLiteral("arming"),m_txSessionArming},
         {QStringLiteral("identity"),transmitSessionIdentity()},
+        {QStringLiteral("keyed"),m_transmitDispatchOperation.permitsDispatch(TxCoordinator::monotonicMs())},
         {QStringLiteral("available"),refusal.isEmpty() && !m_txSessionArming && !m_txSessionEnabled},
         {QStringLiteral("reason"),m_txSessionError.isEmpty() ? refusal : m_txSessionError},
         {QStringLiteral("frequencyHz"),m_sliceFreqHz}, {QStringLiteral("powerPercent"),m_txPowerPercent},
-        {QStringLiteral("antenna"),m_txSessionControl ? m_txSessionControl->antenna : 1},
+        {QStringLiteral("antenna"),m_txSessionControl ? m_txSessionControl->antenna
+            : std::max(1,AnanSettings::transmitSessionAntenna(m_radioSerial,
+                static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol))},
         {QStringLiteral("limitWatts"),m_txSessionProfile && m_txSessionBand >= 0
             ? m_txSessionProfile->limitsWatts[m_txSessionBand] : 0.0}};
 }
@@ -153,8 +169,7 @@ void AnanBackend::disableTransmitSession()
     m_transmitDispatchOperation = {};
     m_cwReleaseCompletion.finish(); m_cwReleaseCompletion = {};
     if (!hadSession) { return; }
-    m_transmitPlanReady = false;
-    QMetaObject::invokeMethod(m_client,[client = m_client] { client->disarmTransmit(); },Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_client,[client = m_client] { client->disarmTransmit(false); },Qt::QueuedConnection);
     muteReceiveForTransmit(false);
     emit capabilitiesChanged();
     emitSliceState();
@@ -181,7 +196,6 @@ void AnanBackend::enableTransmitSession(int antenna)
     const auto permit = m_txSessionPermit;
     const quint64 revision = ++m_txSessionRevision;
     m_txSessionArming = true;
-    m_txPowerPercent = 0;
     QMetaObject::invokeMethod(m_client,[this,control,permit,revision] {
         const bool ok = permit->load() && m_client->armStagedTransmit(control);
         if (!permit->load() && ok) { m_client->disarmTransmit(); }
@@ -194,7 +208,7 @@ void AnanBackend::enableTransmitSession(int antenna)
                 return;
             }
             TransmitDelta zero;
-            zero.rfPower = 0;
+            zero.rfPower = m_txPowerPercent;
             emit transmitChanged(zero);
             m_txSessionArming = false;
             m_txSessionEnabled = true;

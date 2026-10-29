@@ -228,10 +228,14 @@ static void bandViewMemoryChecks()
     AnanLinkStatsTestAccess::prepareRate(backend, 2, false, 48);
     backend.setSliceFrequency(0, 5'357'000);
     AnanLinkStatsTestAccess::flushTune(backend);
+    QSignalSpy zoomState(&backend,&IRadioBackend::panZoomModesChanged);
     backend.invokeExtension(ns, QStringLiteral("band.center"), 851, sixty);
+    check(!zoomState.isEmpty() && zoomState.last().at(1).toBool(),
+          "accepted ANAN band view publishes its active B state");
     backend.setSliceFrequency(0, 5'358'000);
     AnanLinkStatsTestAccess::flushTune(backend);
     backend.invokeExtension(ns, QStringLiteral("band.center"), 852, QVariantMap{});
+    check(!zoomState.last().at(1).toBool(), "restoring the pre-B span clears the B state");
     check(!AnanLinkStatsTestAccess::ctun(backend) && AnanLinkStatsTestAccess::displaySpan(backend) == 0
           && AnanLinkStatsTestAccess::center(backend) == 5'358'000
           && backend.currentOperatingState().rfFrequencyHz == 5'358'000,

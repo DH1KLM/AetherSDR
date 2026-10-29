@@ -491,6 +491,11 @@ public:
             m_zoomSegBtn->setAccessibleDescription(tip);
         }
     }
+    void setZoomModeState(bool band, bool segment)
+    {
+        if (m_zoomBandBtn) { m_zoomBandBtn->setChecked(band); }
+        if (m_zoomSegBtn) { m_zoomSegBtn->setChecked(segment); }
+    }
 
     // Say whether this pane's -/+ span pair is live, and why not (#5750).
     // On a radio whose span is one register for the whole board

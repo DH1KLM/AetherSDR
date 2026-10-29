@@ -1159,6 +1159,10 @@ void RadioModel::setupBackend(const QString& family)
         if (auto* pan = resolveBackendPan(panId))
             pan->setWide(wide);
     });
+    connect(m_backend.get(), &IRadioBackend::panZoomModesChanged, this,
+            [this](const QString& panId, bool band, bool segment) {
+        if (auto* pan = resolveBackendPan(panId)) { pan->setObservedZoomModes(band,segment); }
+    });
 
     // aetherd RFC 2.3 extension channel: Flex-specific pan fields ride the
     // namespaced extensionStatus channel; RadioModel routes them to the addressed

@@ -88,49 +88,36 @@ The connector settings send no MOX or transmit IQ. The first voice TX path uses
 PC microphone audio; radio microphone audio and physical radio PTT have not been
 qualified. Alex/Apollo selection is not part of this panel.
 
-## Transmit power profile preview
+## Transmit settings
 
-Open **Settings → Radio Setup → ANAN Hardware → Transmit** in the extended
+Open **Settings > Radio Setup > ANAN Hardware > Transmit** in the extended
 implementation. The table holds **PA gain (dB)** and **Power limit (W)** per band.
 **Use Thetis defaults** restores reference gains and zero power limits. These
-reference gains are not measurements of your amplifier.
+reference gains are not measurements of your amplifier. Keep a positive limit
+only on bands your hardware supports.
 
-**Preview band**, **Requested power** and **Calculate preview** calculate a
-limited target, volume scalar and raw drive using the Thetis conversion. A zero
-band limit produces zero drive. **Save PA profile** stores the table separately
-for each radio, selected model, board and protocol. Saving or calculating never
-keys the radio or enables a TX session.
+Choose **TX antenna** (**ANT1**, **ANT2** or **ANT3**) and click **Save PA profile**.
+The table and antenna are remembered per radio, model, board and protocol.
+Changes can be saved while receiving; the controls are locked while transmitting.
+A zero limit keeps the corresponding band closed for TX.
 
-### Enable a transmit session
+TX signal processing and readiness are managed automatically. There is no
+preview calculator, manual DSP preparation or extra transmit-enable button.
+The status explains when the current mode, band plan or hardware state prevents
+transmission. One primary receive slice is required. Frequency changes refresh
+readiness; mode changes prepare the matching DSP on the existing planning worker.
+Neither operation keys the radio. A fresh connection starts at **RF Power 0%**;
+retuning within the connection preserves the operator's percentage.
 
-The extended implementation supports the same validated model and explicit
-override mappings as reception. The selected effective model controls PA defaults
-and filter routing. Native P1 uses 48 kHz 16-bit IQ; P2 uses 192 kHz 24-bit IQ.
-This does not add protocol support to a model/firmware combination that cannot
-already receive. The original tropo1234 G2 implementation remains unchanged.
+Use **RF Power** and **Tune Pwr** in the TX applet. The percentage refers to the
+saved band limit and is converted through its PA gain. This is requested power,
+not measured RF output. Only **MOX**, software **PTT**, **CW** or **TUNE** starts a
+transmission. XIT is not implemented; an XIT request is reset.
 
-1. Connect using **P1** or **P2** and keep one primary receive slice (**Slice A**).
-   Select the mode and regional band plan you use.
-2. Save a PA profile with a positive current-band limit appropriate for your
-   hardware. Other bands may remain disabled. The mode's occupied bandwidth and
-   the carrier at the dial frequency must fit inside one continuous band region.
-3. Click **Prepare TX DSP**. Preparation runs on the existing planning worker.
-   **Discard TX DSP** cancels or releases preparation without keying.
-4. Choose **TX antenna** (**ANT1**, **ANT2** or **ANT3**) and click
-   **Enable ANAN TX**. This configures the session but does not key the radio.
-   **RF Power** starts at **0%**.
-5. Set **RF Power** in the TX applet, then use **MOX** or software **PTT** with
-   PC microphone or local modem audio. Power is a percentage of the saved current-band limit,
-   converted through the PA gain; it is requested power, not measured RF output.
-6. Use **MOX/PTT Off** to return to receive, or **Disable ANAN TX** to revoke the
-   session and release its DSP. This also clears automatic readiness restore. After disabling, prepare and enable again.
-
-The session binds the connection, primary VFO, mode, antenna and saved PA profile.
-The enabled readiness and TX antenna are remembered per radio, model, board and protocol. After reconnect, the DSP is prepared and the session enabled again only if all current admission checks pass. Restore leaves MOX/PTT/TUNE off and RF Power at 0%. Frequency, mode, rate, calibration or relevant
-RF front-end changes revoke it. Additional receive slices/windows are refused while
-it is enabled. Change the TX antenna in Setup while disabled; slice antenna edits
-cannot silently replace the captured TX antenna. XIT is not implemented in this
-first path; an XIT request is reset and revokes the session.
+Native P1 uses 48 kHz 16-bit IQ; P2 uses 192 kHz 24-bit IQ. TX uses the validated
+receive model or explicit board override. This adds no protocol support to a
+model/firmware combination that cannot already receive. The original tropo1234
+G2 implementation remains receive-only and unchanged.
 
 **TUNE** sends a carrier at the dial frequency using **Tune Pwr**. CWL/CWU use
 the software keyer, a 5 ms carrier envelope and the configured break-in hang time.
@@ -144,8 +131,7 @@ WSPR and AetherModem/AX.25 use the existing host-generated audio path, following
 the HL2 implementation. Source levels are preserved apart from fixed digital
 headroom and the operator's PA power setting; the ANAN modulator adds no speech
 gain or automatic level makeup to modem audio. Finite modem audio is flushed
-before its captured PTT operation is released. Select the mode before preparing
-and enabling TX: a mode change revokes the session. RADE/FreeDV, D-STAR and a
+before its captured PTT operation is released. The matching TX signal processing is prepared automatically after a mode change. RADE/FreeDV, D-STAR and a
 DRM modem are not integrated for ANAN.
 
 Radio microphone/PTT qualification, forward-power/SWR telemetry and PA
@@ -780,6 +766,8 @@ sample rate may change, so allow the DSP rebuild to finish; the spectrum
 updates when the new capture is ready. The status bar acknowledges the
 request rather than claiming that hardware has already completed it.
 
+The **B** button is highlighted while the backend reports an active band view,
+including a restored view after reconnect. A refused request does not activate it.
 Click **B** again to turn CTUN off and restore the span/sample rate used before
 the first click. The current VFO frequency stays unchanged; with CTUN off the
 normal view recentres on that received frequency. A second click also replaces

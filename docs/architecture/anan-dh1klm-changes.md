@@ -187,7 +187,7 @@ The transport covers the validated receive-model mappings, including explicit
 cross-board overrides and automatic physical-board selection. ANAN-200D overrides
 use Orion/legacy ALEX TX control. P1 carries native 48 kHz L/R/I/Q frames; P2
 carries 192 kHz IQ. The original Saturn backend remains receive-only and unchanged.
-The extended backend requires explicit per-connection session enable for voice,
+The extended backend manages internal readiness automatically for voice,
 DIGU/DIGL, AM/SAM, DSB, FM, CW and TUNE. Carrier generation retains
 the operator grant at each terminal write, with 5 ms CW edges. Finite audio gets
 a bounded DSP flush and a drain estimate based on queued PCM plus transport
@@ -196,25 +196,23 @@ PCM seam without speech gain or level makeup. RADE/FreeDV, D-STAR and DRM modem
 integration is outside this change; the Flex waveform services are not ported.
 Measured RF power, radio microphone/PTT and hardware qualification remain open.
 
-The extended Setup also provides an operator PA-profile table and a calculation
-preview, through `anan.txpower.*` extensions. One versioned `TransmitPower`
+The extended Setup provides an operator PA-profile table, through `anan.txpower.*` extensions. One versioned `TransmitPower`
 document per radio holds separate model/board/protocol entries. Requests carry
 the current connection identity; stale identities, malformed values and active
 TX operations refuse edits. No profile value grants transmit admission.
 
 The reference gains follow local Thetis `DefaultPAGainsForBands`; every band
-starts with a zero operator power limit. The preview clamps requested watts to
+starts with a zero operator power limit. The internal power conversion clamps requested watts to
 that limit and reproduces `SetPowerUsingTargetDBM`, `Audio.RadioVolume` and
 `NetworkIO.SetOutputPower`, including the 1.02 factor and integer truncation.
-A gain of 100 dB remains a gain, never a full-drive sentinel. Preview output is
-not applied to the live transmitter. Actual PA calibration, modulation scaling
+A gain of 100 dB remains a gain, never a full-drive sentinel. The standalone preview extension is diagnostic only. Actual PA calibration, modulation scaling
 (including the TX DSP's fixed headroom) and measured RF power remain unqualified.
 The UI includes only backend-neutral model/seam headers; it adds no wire path.
 `txdsp.prepare` explicitly builds an `AnanTxDsp` on the existing
 `anan-dsp-build` worker and stages it in `AnanClient` on the existing I/O thread.
 Staging has no P2 configuration or enable side effect. A separate transport-
 configured flag refuses keying even with a valid operation while only a staged
-channel exists. The desktop advertises TX only after explicit session enable.
+channel exists. The desktop advertises TX only after internal readiness checks complete.
 
 Shared handles defer the final destruction of DSP resources to the planner,
 including cancelled or dropped queued transfers. Completion carries only a
@@ -237,7 +235,7 @@ The original `anan_original` backend and its dependencies remain outside this wo
 
 ### Desktop transmit-session admission
 
-`txsession.enable` captures the connection/mode/VFO/band-plan identity, explicit
+Internal readiness captures the connection/mode/VFO/band-plan identity, explicit
 TX antenna and exact stored PA profile. Admission requires one primary slice,
 a prepared DSP for the current supported mode, a positive current-band operator
 power limit and continuous regional-plan coverage of the mode's occupied bandwidth
@@ -266,3 +264,9 @@ Validation is recorded separately in the local working state after the
 Windows application build, targeted backend/discovery/Setup tests and user
 documentation build. Hardware reception requires an operator check on the
 corresponding radio; unit tests do not claim hardware qualification.
+
+Normal Setup has no preview calculator or manual DSP/session lifecycle controls.
+The existing TX watchdog prepares supported modes and re-arms idle VFO changes
+automatically, gated by the saved positive band limit and regional plan.
+A mode-stable DSP stays staged over VFO/PA-profile changes; a mode change retires
+it on the existing planner. Setup edits require idle TX and take effect on save.

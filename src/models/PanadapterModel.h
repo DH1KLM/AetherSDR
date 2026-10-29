@@ -228,6 +228,7 @@ public:
     // zoom toggles read (#4057).
     bool bandZoomOn() const { return m_bandZoomOn; }
     bool segmentZoomOn() const { return m_segmentZoomOn; }
+    void setObservedZoomModes(bool band, bool segment);
     // Radio-owned noise floor range in dB (FlexLib Panadapter.NoiseFloorRange);
     // empty until the radio reports it.
     std::optional<double> noiseFloorRange() const { return m_noiseFloorRange; }
