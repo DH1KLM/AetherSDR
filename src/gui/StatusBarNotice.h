@@ -16,7 +16,7 @@ namespace AetherSDR {
 // station controls keep their geometry while a message is visible.
 class StatusBarNoticeLabel : public QLabel {
 public:
-    explicit StatusBarNoticeLabel(QStatusBar* bar)
+    explicit StatusBarNoticeLabel(QWidget* bar)
         : QLabel(bar)
     {
         setObjectName(QStringLiteral("statusBarNoticeLabel"));

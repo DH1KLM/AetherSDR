@@ -735,6 +735,23 @@ int main(int argc, char** argv) {
               && applied.lowPassBits == 0x10,
               "P1 applies RX 6m LNA bypass and forced 6m LPF in bank-local bits");
     }
+    {
+        std::vector<QByteArray> writes;
+        P1Client client;
+        auto settings = params(4);
+        check(P1ClientTestAccess::prepare(client, settings, writes), "P1 RF fixture prepares");
+        P1ClientTestAccess::feed(client, discovery(5));
+        int pairs = 0;
+        QObject::connect(&client, &P1Client::rfPowerSampled, [&](int forward, int reverse) {
+            check(forward == 1004 && reverse == 102, "P1 directional ADCs use status banks08 and10");
+            ++pairs;
+        });
+        auto status = iq(5);
+        status[11] = 0x08; status[14] = 3; status[15] = 0xec;
+        status[523] = 0x10; status[524] = 0; status[525] = 102;
+        P1ClientTestAccess::feed(client, status);
+        check(pairs == 1, "P1 reports a paired forward and reflected sample");
+    }
     qInstallMessageHandler(previousHandler);
     {
         // Stop emits cleared bank 11 before the P1 stream-stop command.

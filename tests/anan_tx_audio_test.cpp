@@ -115,6 +115,7 @@ struct Fixture {
             drain();
             QThread::msleep(1);
         }
+        drain();
         return keyed() && AnanClientTestAccess::pending(client) < AnanTxDsp::kInputSamples;
     }
 };
@@ -163,6 +164,9 @@ void pcmToWire()
     }
     check(nonzero && f.packets.size() == (50 * AnanTxDsp::kOutputSamples / kTxIqSamplesPerPacket),
           "real USB TXA output reaches encoded P2 IQ without sample loss");
+    check(f.packets.size() * kTxIqSamplesPerPacket
+          + P2ClientTestAccess::queued(AnanClientTestAccess::p2(f.client))
+          == 50 * AnanTxDsp::kOutputSamples, "sent packets plus partial IQ conserve every sample");
     check(f.client.submitTransmitAudio(pcm(64),24000,TxAudioSource::Microphone,f.operation,f.context),
           "partial DSP block is carried within the current over");
     check(f.client.setTransmitKeying(false,f.operation) && AnanClientTestAccess::pending(f.client) == 0,

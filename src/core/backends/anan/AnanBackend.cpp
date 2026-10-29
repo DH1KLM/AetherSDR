@@ -1,3 +1,4 @@
+#include "AnanRfPower.h"
 #include "core/backends/anan/AnanFilterOptions.h"
 #include "AnanMicOptions.h"
 #include "AnanTransmitPower.h"
@@ -271,6 +272,9 @@ AnanBackend::AnanBackend(QObject* parent)
             m_txSessionError.clear();
             m_receiveLayout.reset(receiveStreamCeiling(), m_ddcCenterHz,
                                   m_pendingParams.ddc0RateKsps, receiveSliceCeiling());
+            TransmitDelta initialDrive;
+            initialDrive.rfPower = 0;
+            emit transmitChanged(initialDrive);
             emit connected();
             setTxMonitor(false,50);
             emit capabilitiesChanged();
@@ -375,6 +379,15 @@ AnanBackend::AnanBackend(QObject* parent)
             &AnanBackend::onLinkCounters);
     // Queued onto this thread, like the snapshot above: the meter seam's
     // signals are emitted from the backend's own thread.
+    connect(m_client, &AnanClient::rfPowerSampled, this, [this](int forward, int reverse) {
+        if (!m_connected) { return; }
+        const auto reading = rfPowerReading(m_pendingParams.model, m_discoveredBoardId,
+            forward, reverse, m_sliceFreqHz);
+        if (!reading) { return; }
+        emit meterUpdate(QStringLiteral("TX:FWDPWR"), rfWattsToDbm(reading->forwardWatts));
+        emit meterUpdate(QStringLiteral("TX:REFPWR"), rfWattsToDbm(reading->reflectedWatts));
+        if (reading->swr) { emit meterUpdate(QStringLiteral("TX:SWR"), *reading->swr); }
+    });
     connect(m_client, &AnanClient::supplyRailSampled, this,
             &AnanBackend::onSupplyRailCounts);
     // Only DDC0 feeds this DSP. Like ddc0IqReady above, notification and
@@ -592,6 +605,7 @@ RadioCapabilities AnanBackend::capabilities() const
     c.canTransmit = transmitSessionCurrent();
     c.txPowerMaxWatts = c.canTransmit && m_txSessionProfile
         ? m_txSessionProfile->limitsWatts[m_txSessionBand] : 0.0;
+    c.forwardPowerRequiresSmoothing = true;
     c.hostModulates = true;        // client-side WDSP, like the HL2
     c.takesTxAudioOverSeam = true;
     // Drive is engine intent, not measured forward power or hardware readback.
@@ -620,7 +634,8 @@ RadioCapabilities AnanBackend::capabilities() const
     // client is their only memory, per radio.
     c.clientSettingsDomains = RadioCapabilities::ClientSettingsDomain::RfGain
                               | RadioCapabilities::ClientSettingsDomain::Tuning
-                              | RadioCapabilities::ClientSettingsDomain::ReceiveOutputLevel;
+                              | RadioCapabilities::ClientSettingsDomain::ReceiveOutputLevel
+                              | RadioCapabilities::ClientSettingsDomain::TxSetpoints;
     c.hostDroopCalibration = m_pendingParams.protocol == 2 && m_additionalRx.empty(); // P2 sweep rate ladder only.
     c.extensionNamespaces = {QStringLiteral("anan")};  // "droop.apply" -- see invokeExtension()
     // From this session's own Discovery reply (P2Client::discoveryInfoReceived()).
@@ -642,6 +657,22 @@ void AnanBackend::applyRestoredState(const RestoredRadioState& state)
 {
     // A missing document resets both ADCs on a same-family radio swap.
     // RadioStateMemory owns persistence; validate its opaque extension here.
+    m_txBandPower = {};
+    const auto savedPower = state.extension.value(QStringLiteral("txSetpoints")).toObject()
+        .value(QStringLiteral("ananBandPower")).toObject();
+    if (savedPower.size() <= 128) {
+        for (auto profile = savedPower.begin(); profile != savedPower.end(); ++profile) {
+            if (!profile.value().isObject() || profile.value().toObject().size() > 64) { continue; }
+            QJsonObject bands;
+            const auto values = profile.value().toObject();
+            for (auto band = values.begin(); band != values.end(); ++band) {
+                const double value = band.value().toDouble(-1);
+                if (band.key().size() <= 32 && std::isfinite(value) && value >= 0 && value <= 100
+                    && std::floor(value) == value) { bands.insert(band.key(), int(value)); }
+            }
+            if (profile.key().size() <= 64) { m_txBandPower.insert(profile.key(), bands); }
+        }
+    }
     m_bandViewMemory = state.extension.value(QStringLiteral("tuning")).toObject();
     m_bandViewMemorySupported = m_bandViewMemory.isEmpty()
         || (m_bandViewMemory.value(QStringLiteral("version")).toInt() == 1
@@ -684,6 +715,8 @@ RestoredRadioState AnanBackend::currentOperatingState() const
         {QStringLiteral("alexAttenuationDb"), m_pendingParams.alexAttenuationDb},
         {QStringLiteral("adc0AttenuationDb"), m_pendingParams.adc0AttenuationDb},
         {QStringLiteral("adc1AttenuationDb"), m_pendingParams.adc1AttenuationDb}}}};
+    state.extension.insert(QStringLiteral("txSetpoints"), QJsonObject{
+        {QStringLiteral("ananBandPower"), m_txBandPower}});
     const auto views = capturedBandViewMemory();
     if (!views.isEmpty()) { state.extension.insert(QStringLiteral("tuning"), views); }
     return state;
@@ -1315,6 +1348,7 @@ void AnanBackend::setSliceFrequency(int sliceId, double hz)
         emitSliceState();
         return;
     }
+    const QString oldTransmitBand = BandSettings::bandForFrequency(m_sliceFreqHz / 1.0e6);
     const QString targetBand = BandSettings::bandForFrequency(hz / 1.0e6);
     if (targetBand != m_currentViewBand) {
         rememberBandView();
@@ -1328,6 +1362,7 @@ void AnanBackend::setSliceFrequency(int sliceId, double hz)
         m_bandViewSpanHz = 0.0;
     }
     m_sliceFreqHz = hz;
+    if (targetBand != oldTransmitBand) { recallBandTransmitPower(); }
     refreshIdleTransmitSession();
     // Digit readout / slice model: unthrottled. Cheap (no radio round trip,
     // no pan re-layout), and it is what makes a drag gesture feel like it is
@@ -3042,6 +3077,19 @@ void AnanBackend::defineMeters()
     compression.low = 0.0; compression.high = 25.0;
     compression.description = QStringLiteral("Local ClientComp speech compression");
     emit meterDefined(compression);
+    int rfIndex = 7;
+    for (const auto* name : {"FWDPWR", "REFPWR", "SWR"}) {
+        MeterDef rf;
+        rf.index = rfIndex++;
+        rf.source = QStringLiteral("TX"); rf.name = QString::fromLatin1(name);
+        const bool swr = rf.name == QLatin1String("SWR");
+        rf.unit = swr ? QStringLiteral("SWR") : QStringLiteral("dBm");
+        rf.low = swr ? 1.0 : -100.0; rf.high = swr ? 10.0 : 60.0;
+        rf.description = swr ? QStringLiteral("SWR from model detector reference curves")
+            : QStringLiteral("RF power from model detector reference curve; not per-unit calibrated");
+        emit meterDefined(rf);
+    }
+
 }
 
 IRadioBackend::LinkStats AnanBackend::linkStats() const

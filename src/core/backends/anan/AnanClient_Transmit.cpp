@@ -172,6 +172,7 @@ bool AnanClient::submitTransmitAudio(const QByteArray& pcm, int rate, TxAudioSou
         connect(m_transmitAudioTimer, &QTimer::timeout, this, &AnanClient::pumpTransmitAudio);
     }
     if (!m_transmitAudioTimer->isActive()) { m_transmitAudioTimer->start(); }
+    pumpTransmitAudio();
     return true;
 }
 
@@ -187,50 +188,54 @@ void AnanClient::pumpTransmitAudio()
         failTransmit(QStringLiteral("TX audio provenance expired"));
         return;
     }
-    if (m_transmitFinishing && m_transmitCount < AnanTxDsp::kInputSamples
-        && (m_transmitCount > 0 || m_transmitFlushBlocks > 0)) {
-        if (m_transmitCount == 0) { --m_transmitFlushBlocks; }
-        while (m_transmitCount < AnanTxDsp::kInputSamples) {
-            m_transmitAudio[(m_transmitHead + m_transmitCount++) % kTransmitAudioCapacity] = 0;
+    for (int block = 0; block < 4; ++block) {
+        if (!m_transmitKeyed || !m_transmitDsp) { return; }
+        if (m_transmitFinishing && m_transmitCount < AnanTxDsp::kInputSamples
+            && (m_transmitCount > 0 || m_transmitFlushBlocks > 0)) {
+            if (m_transmitCount == 0) { --m_transmitFlushBlocks; }
+            while (m_transmitCount < AnanTxDsp::kInputSamples) {
+                m_transmitAudio[(m_transmitHead + m_transmitCount++) % kTransmitAudioCapacity] = 0;
+            }
         }
-    }
-    if (m_transmitCount < AnanTxDsp::kInputSamples) {
-        if (m_transmitAudioTimer) { m_transmitAudioTimer->stop(); }
-        return;
-    }
-    const std::size_t outputSamples = m_transmitDsp->outputSamples();
-    if (transmitTransport([](auto* transport) { return transport->transmitQueueFreeSamples(); }) < outputSamples) { return; }
-    std::array<float, AnanTxDsp::kInputSamples> mono{};
-    for (std::size_t i = 0; i < mono.size(); ++i) {
-        mono[i] = m_transmitAudio[(m_transmitHead + i) % kTransmitAudioCapacity];
-    }
-    std::array<std::complex<float>, AnanTxDsp::kOutputSamples> iq{};
-    const auto result = m_transmitDsp->process(mono,m_transmitContext,now,std::span(iq).first(outputSamples));
-    if (result == AnanTxDsp::Result::WouldBlock) { return; }
-    if (result != AnanTxDsp::Result::Output) {
-        failTransmit(QStringLiteral("TX audio DSP exchange refused"));
-        return;
-    }
-    if (m_transmitMeterMs < 0 || now - m_transmitMeterMs >= 50) {
-        m_transmitMeterMs = now;
-        const auto mic = m_transmitDsp->meter(WdspChannel::TransmitMeter::MicrophonePeak);
-        const auto alc = m_transmitDsp->meter(WdspChannel::TransmitMeter::AlcPeak);
-        const auto gain = m_transmitDsp->meter(WdspChannel::TransmitMeter::AlcGain);
-        if (mic && alc && gain) { emit transmitMeters(*mic,*alc,*gain,m_transmitContext,m_transmitOperation); }
-    }
-    if (m_transmitMonitor) {
-        QByteArray monitor(static_cast<qsizetype>(mono.size() * 2 * sizeof(float)),Qt::Uninitialized);
+        if (m_transmitCount < AnanTxDsp::kInputSamples) {
+            if (m_transmitAudioTimer) { m_transmitAudioTimer->stop(); }
+            return;
+        }
+        const std::size_t outputSamples = m_transmitDsp->outputSamples();
+        if (transmitTransport([](auto* transport) { return transport->transmitQueueFreeSamples(); }) < outputSamples) { return; }
+        std::array<float, AnanTxDsp::kInputSamples> mono{};
         for (std::size_t i = 0; i < mono.size(); ++i) {
-            std::memcpy(monitor.data() + 2*i*sizeof(float),&mono[i],sizeof(float));
-            std::memcpy(monitor.data() + (2*i+1)*sizeof(float),&mono[i],sizeof(float));
+            mono[i] = m_transmitAudio[(m_transmitHead + i) % kTransmitAudioCapacity];
         }
-        emit transmitMonitorAudio(monitor,m_transmitContext,m_transmitOperation);
-    }
-    m_transmitHead = (m_transmitHead + mono.size()) % kTransmitAudioCapacity;
-    m_transmitCount -= mono.size();
-    m_transmitPendingFrames.store(m_transmitCount,std::memory_order_relaxed);
-    if (!transmitTransport([&](auto* transport) { return transport->enqueueTransmitIq(std::span(iq).first(outputSamples),m_transmitOperation,m_transmitContext); }) && m_transmitKeyed) {
-        failTransmit(QStringLiteral("TX audio could not reach the IQ transport"));
+        std::array<std::complex<float>, AnanTxDsp::kOutputSamples> iq{};
+        const auto result = m_transmitDsp->process(mono,m_transmitContext,now,std::span(iq).first(outputSamples));
+        if (result == AnanTxDsp::Result::WouldBlock) { return; }
+        if (result != AnanTxDsp::Result::Output) {
+            failTransmit(QStringLiteral("TX audio DSP exchange refused"));
+            return;
+        }
+        if (m_transmitMeterMs < 0 || now - m_transmitMeterMs >= 50) {
+            m_transmitMeterMs = now;
+            const auto mic = m_transmitDsp->meter(WdspChannel::TransmitMeter::MicrophonePeak);
+            const auto alc = m_transmitDsp->meter(WdspChannel::TransmitMeter::AlcPeak);
+            const auto gain = m_transmitDsp->meter(WdspChannel::TransmitMeter::AlcGain);
+            if (mic && alc && gain) { emit transmitMeters(*mic,*alc,*gain,m_transmitContext,m_transmitOperation); }
+        }
+        if (m_transmitMonitor) {
+            QByteArray monitor(static_cast<qsizetype>(mono.size() * 2 * sizeof(float)),Qt::Uninitialized);
+            for (std::size_t i = 0; i < mono.size(); ++i) {
+                std::memcpy(monitor.data() + 2*i*sizeof(float),&mono[i],sizeof(float));
+                std::memcpy(monitor.data() + (2*i+1)*sizeof(float),&mono[i],sizeof(float));
+            }
+            emit transmitMonitorAudio(monitor,m_transmitContext,m_transmitOperation);
+        }
+        m_transmitHead = (m_transmitHead + mono.size()) % kTransmitAudioCapacity;
+        m_transmitCount -= mono.size();
+        m_transmitPendingFrames.store(m_transmitCount,std::memory_order_relaxed);
+        if (!transmitTransport([&](auto* transport) { return transport->enqueueTransmitIq(std::span(iq).first(outputSamples),m_transmitOperation,m_transmitContext); }) && m_transmitKeyed) {
+            failTransmit(QStringLiteral("TX audio could not reach the IQ transport"));
+            return;
+        }
     }
 }
 

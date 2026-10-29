@@ -382,7 +382,7 @@ void MainWindow::noticeRefusedShortcut(QKeyEvent* keyEvent)
                             << "(" + refused->currentKey.toString() + ") not run;"
                             << "Settings > Keyboard Shortcuts turns them on";
     if (!m_shortcutNoticeLabel) {
-        m_shortcutNoticeLabel = new StatusBarNoticeLabel(statusBar());
+        m_shortcutNoticeLabel = new StatusBarNoticeLabel(m_statusBarContainer);
         // The right margin clears the resize grip that overlays the bar.
         m_shortcutNoticeLabel->setContentsMargins(6, 0, 20, 0);
         ThemeManager::instance().applyStyleSheet(
@@ -2002,7 +2002,7 @@ void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
         && m_radioModel.backendDeclaresExtension(QStringLiteral("anan"))) {
         const auto notice = [this](const QString& text) {
             if (!m_shortcutNoticeLabel) {
-                m_shortcutNoticeLabel = new StatusBarNoticeLabel(statusBar());
+                m_shortcutNoticeLabel = new StatusBarNoticeLabel(m_statusBarContainer);
                 m_shortcutNoticeLabel->setContentsMargins(6, 0, 20, 0);
                 ThemeManager::instance().applyStyleSheet(m_shortcutNoticeLabel,
                     QStringLiteral("QLabel#statusBarNoticeLabel { color: {{color.text.primary}};"

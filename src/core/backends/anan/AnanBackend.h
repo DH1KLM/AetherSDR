@@ -347,6 +347,9 @@ private:
     bool m_txSessionArming = false;
     int m_txSessionBand = -1;
     int m_txPowerPercent = 0;
+    QJsonObject m_txBandPower;
+    QString txPowerProfileKey() const;
+    void recallBandTransmitPower();
     TxCoordinator::Operation m_transmitDispatchOperation;
     void prepareTransmitDsp();
     void cancelTransmitPreparation();

@@ -553,13 +553,15 @@ int main(int argc, char** argv)
         const int barHeight = bar->height();
         const int hostMinWidth = host.minimumSizeHint().width();
 
-        AetherSDR::StatusBarNoticeLabel notice(bar);
+        AetherSDR::StatusBarNoticeLabel notice(indicator);
         QApplication::processEvents();
         expect(!notice.isVisible() && indicator->isVisible(),
                "notice: the label is hidden until a notice is shown");
         expect(host.minimumSizeHint().width() <= hostMinWidth + 16,
                "notice: the hidden label does not widen the window");
 
+        notice.setContentsMargins(6, 0, 20, 0);
+        notice.setStyleSheet(QStringLiteral("font-size: 14px; background: palette(window);"));
         const QString text = QStringLiteral("Keyboard shortcuts are off");
         notice.showNotice(text, 150);
         QApplication::processEvents();
@@ -593,11 +595,16 @@ int main(int argc, char** argv)
                "notice: a notice wider than the bar leaves the window and indicator alone");
         notice.clearNotice();
 
+        const QRect beforeNative = indicator->geometry();
+        QObject::connect(bar, &QStatusBar::messageChanged, &notice, [&notice](const QString& message) {
+            if (message.isEmpty()) { notice.clearNotice(); }
+            else { notice.showNotice(message, 0); }
+        });
         // Native messages also leave the permanent telemetry geometry intact.
         bar->showMessage(text, 150);
         QApplication::processEvents();
-        expect(indicator->isVisible(),
-               "notice control: showMessage() preserves permanent telemetry");
+        expect(indicator->isVisible() && indicator->geometry() == beforeNative,
+               "notice control: native message and overlay preserve telemetry geometry");
         bar->clearMessage();
         QApplication::processEvents();
         expect(indicator->isVisible(), "notice control: the indicator returns");

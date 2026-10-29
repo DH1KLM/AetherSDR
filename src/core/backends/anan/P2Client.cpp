@@ -735,6 +735,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
         if (const auto status = parseHighPriorityStatus(bytes)) {
             noteSpeakerFifoStatus(*status);
             emit supplyRailSampled(status->supplyRailCounts);
+            emit rfPowerSampled(status->forwardPowerCounts, status->reversePowerCounts);
         }
         return;
     }

@@ -798,7 +798,8 @@ int main(int argc, char** argv)
         check(c.clientSettingsDomains
                   == (RadioCapabilities::ClientSettingsDomain::RfGain
                       | RadioCapabilities::ClientSettingsDomain::Tuning
-                      | RadioCapabilities::ClientSettingsDomain::ReceiveOutputLevel),
+                      | RadioCapabilities::ClientSettingsDomain::ReceiveOutputLevel
+                      | RadioCapabilities::ClientSettingsDomain::TxSetpoints),
               "RF gain, tuning AND radio output level restore are declared -- "
               "this radio reports none of them, so the client is its only memory");
         check(c.sampleRatesHz.size() == 6, "six DDC rates advertised");
@@ -1488,6 +1489,34 @@ int main(int argc, char** argv)
               " against the dead session's total");
     }
 
+    {
+        AnanBackend backend;
+        AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("TX-BAND-MEMORY"));
+        backend.setSliceFrequency(0, 14'200'000);
+        backend.setTxPower(23);
+        backend.setSliceFrequency(0, 7'100'000);
+        backend.setTxPower(8);
+        backend.setSliceFrequency(0, 14'220'000);
+        const auto memory = backend.currentOperatingState();
+        const auto profiles = memory.extension.value(QStringLiteral("txSetpoints")).toObject()
+            .value(QStringLiteral("ananBandPower")).toObject();
+        check(profiles.value(QStringLiteral("7:5:2")).toObject().size() == 2,
+              "band power captured through TxSetpoints under model board protocol identity");
+        QSignalSpy changed(&backend, &IRadioBackend::transmitChanged);
+        backend.setSliceFrequency(0, 7'120'000);
+        check(!changed.isEmpty() && changed.back().front().value<TransmitDelta>().rfPower == 8,
+              "returning to forty metres restores its operator drive value");
+        backend.setSliceFrequency(0, 21'100'000);
+        check(changed.back().front().value<TransmitDelta>().rfPower == 0,
+              "unconfigured band starts at zero drive");
+        AnanBackend restored;
+        restored.applyRestoredState(memory);
+        AnanLinkStatsTestAccess::antennaSession(restored, QStringLiteral("TX-BAND-MEMORY"));
+        QSignalSpy recalled(&restored, &IRadioBackend::transmitChanged);
+        restored.setSliceFrequency(0, 7'150'000);
+        check(!recalled.isEmpty() && recalled.back().front().value<TransmitDelta>().rfPower == 8,
+              "persisted per-band operator values restore without keying");
+    }
     if (g_failures == 0)
         std::fprintf(stderr, "anan_backend_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

@@ -256,6 +256,18 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
             emit ddcSequenceGap(i);
     }
     m_expectedSequence = frame->sequence + 1;
+    for (const auto& status : frame->status) {
+        if ((status[0] & 0xf8) == 0x08) {
+            m_forwardPowerCounts = (int(status[3]) << 8) | status[4];
+        } else if ((status[0] & 0xf8) == 0x10 && m_forwardPowerCounts) {
+            const qint64 now = m_clock.elapsed();
+            if (m_lastRfPowerMs < 0 || now - m_lastRfPowerMs >= 50) {
+                m_lastRfPowerMs = now;
+                emit rfPowerSampled(*m_forwardPowerCounts, (int(status[1]) << 8) | status[2]);
+            }
+            m_forwardPowerCounts.reset();
+        }
+    }
     ++m_counters.rxPackets;
     m_iq.clear();
     if (!p1::decodeIq(*frame, 0, m_iq))

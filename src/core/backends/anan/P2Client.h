@@ -233,6 +233,7 @@ signals:
     // One status packet's supply-rail reading, raw counts
     // (HighPriorityStatus::supplyRailCounts), once per packet: every 200 ms
     // while receiving. Unsmoothed; AnanBackend averages it before publishing.
+    void rfPowerSampled(int forward, int reverse);
     void supplyRailSampled(int counts);
 
 private slots:

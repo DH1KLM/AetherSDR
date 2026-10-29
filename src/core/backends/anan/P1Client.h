@@ -54,6 +54,7 @@ public:
     [[nodiscard]] std::size_t transmitQueueFreeSamples() const { return m_txIq.size() - m_txCount; }
 
 signals:
+    void rfPowerSampled(int forward, int reverse);
     void transmitFault(const QString& reason);
     void linkUp();
     void linkDown();
@@ -104,6 +105,8 @@ private:
     std::vector<std::int16_t> m_audio;
     std::vector<std::complex<float>> m_iq;
     std::optional<std::uint32_t> m_expectedSequence;
+    std::optional<int> m_forwardPowerCounts;
+    qint64 m_lastRfPowerMs = -1;
     std::uint32_t m_txSequence = 0;
     LinkCounters m_counters;
     bool m_running = false;

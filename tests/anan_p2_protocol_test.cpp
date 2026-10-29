@@ -1,3 +1,4 @@
+#include "core/backends/anan/AnanRfPower.h"
 // aetherd ANAN P2 Phase 1b -- P2Protocol unit test. Pins the openHPSDR
 // Protocol 2 wire encoding/decoding ported from the live-validated
 // anan/spike/phase1a.py spike, run against a real ANAN-G2 on the bench:
@@ -1402,6 +1403,34 @@ int main()
               "TX IQ accepts sequence zero after wrap");
     }
 
+    {
+        using namespace AetherSDR::anan;
+        const auto reading = rfPowerReading(AnanModel::Anan200D, 5, 1004, 102, 14'200'000);
+        const double forward = std::pow(1000.0 * 5 / 4095, 2) / 0.108;
+        check(reading && std::abs(reading->forwardWatts - forward) < 1e-9,
+              "200D override uses Orion detector scale on shared board5");
+        check(reading && reading->swr && std::abs(*reading->swr - 1.222222222) < 1e-6,
+              "SWR uses the corrected forward/reflected voltage ratio");
+        const auto six = rfPowerReading(AnanModel::Anan200D, 4, 1004, 102, 50'100'000);
+        check(six && reading && six->reflectedWatts < reading->reflectedWatts,
+              "six metre reflected-power bridge has its own scale");
+        check(!rfPowerReading(AnanModel::Automatic, 5, 1000, 100, 14e6),
+              "ambiguous automatic board5 cannot guess a PA calibration");
+        check(!rfPowerReading(AnanModel::Automatic, 10, 1000, 100, 14e6),
+              "automatic Saturn cannot distinguish G2 and G2 1K detector scaling");
+        check(!rfPowerReading(AnanModel::Anan200D, 4, 65535, 0, 14e6),
+              "out of range slow ADC input is rejected");
+        const auto noise = rfPowerReading(AnanModel::Anan200D, 4, 4, 2, 14e6);
+        check(noise && noise->forwardWatts == 0 && !noise->swr,
+              "no-carrier reading is zero watts without invented SWR");
+        const auto bad = rfPowerReading(AnanModel::Anan200D, 4, 1004, 2002, 14e6);
+        check(bad && bad->swr && *bad->swr >= 10, "reflected power above forward is a bad match");
+        std::array<std::uint8_t, kHighPriorityStatusBytes> packet{};
+        packet[14] = 3; packet[15] = 0xec; packet[22] = 0; packet[23] = 102;
+        const auto status = parseHighPriorityStatus(packet);
+        check(status && status->forwardPowerCounts == 1004 && status->reversePowerCounts == 102,
+              "P2 reads directional ADCs at Thetis byte offsets14 and22");
+    }
     if (g_failures == 0)
         std::fprintf(stderr, "anan_p2_protocol_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

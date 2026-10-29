@@ -417,6 +417,8 @@ inline constexpr std::size_t kHighPriorityStatusBytes = 60;
 inline constexpr double kSupplyRailVoltsPerCount = (23.0 / 1.1) * (5.0 / 4095.0);
 
 struct HighPriorityStatus {
+    std::uint16_t forwardPowerCounts = 0;
+    std::uint16_t reversePowerCounts = 0;
     std::uint32_t seq = 0;
     // Byte 30 bit 3: the radio ran out of speaker audio. LATCHED by p2app since the
     // last status packet (~200 ms) and cleared on send.

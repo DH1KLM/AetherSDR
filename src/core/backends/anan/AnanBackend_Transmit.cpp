@@ -5,6 +5,7 @@
 #include "AnanPlannedResource.h"
 #include "core/AppSettings.h"
 #include "models/BandPlanManager.h"
+#include "models/BandSettings.h"
 
 #include <QLoggingCategory>
 #include <QMetaObject>
@@ -295,9 +296,35 @@ void AnanBackend::setTxMonitor(bool on, int level)
     emit transmitChanged(delta);
 }
 
+QString AnanBackend::txPowerProfileKey() const
+{
+    return QStringLiteral("%1:%2:%3").arg(static_cast<int>(m_pendingParams.model))
+        .arg(m_discoveredBoardId).arg(m_pendingParams.protocol);
+}
+
+void AnanBackend::recallBandTransmitPower()
+{
+    const QString band = BandSettings::bandForFrequency(m_sliceFreqHz / 1.0e6);
+    const auto bands = m_txBandPower.value(txPowerProfileKey()).toObject();
+    m_txPowerPercent = bands.value(band).toInt(0);
+    TransmitDelta delta;
+    delta.rfPower = m_txPowerPercent;
+    emit transmitChanged(delta);
+}
+
 void AnanBackend::setTxPower(int percent)
 {
-    m_txPowerPercent = std::clamp(percent,0,100);
+    const int value = std::clamp(percent,0,100);
+    if (m_connected && value != m_txPowerPercent) {
+        const QString band = BandSettings::bandForFrequency(m_sliceFreqHz / 1.0e6);
+        auto bands = m_txBandPower.value(txPowerProfileKey()).toObject();
+        if (!band.isEmpty()) {
+            bands.insert(band, value);
+            m_txBandPower.insert(txPowerProfileKey(), bands);
+            emit operatingStateChanged();
+        }
+    }
+    m_txPowerPercent = value;
     TransmitDelta delta;
     delta.rfPower = m_txPowerPercent;
     emit transmitChanged(delta);

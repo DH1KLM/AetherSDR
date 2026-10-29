@@ -43,8 +43,8 @@ SupportDialog::SupportDialog(QWidget* parent)
                        QStringLiteral("SupportDialogGeometry"), parent)
 {
     theme::setContainer(this, QStringLiteral("dialog/support"));
-    setMinimumSize(760, 600);
-    resize(920, 740);
+    setMinimumSize(900, 600);
+    resize(1100, 740);
     buildUI();
     syncCheckboxes();
     refreshLog();
@@ -59,24 +59,25 @@ void SupportDialog::buildUI()
     auto* logGroup = new QGroupBox("Diagnostic Logging");
     auto* categoryHost = new QWidget(logGroup);
     auto* gridLayout = new QGridLayout(categoryHost);
-    gridLayout->setHorizontalSpacing(18);
-    gridLayout->setVerticalSpacing(6);
-    for (int column = 0; column < 3; ++column) { gridLayout->setColumnStretch(column,1); }
+    gridLayout->setHorizontalSpacing(12);
+    gridLayout->setVerticalSpacing(0);
+    for (int column = 0; column < 4; ++column) { gridLayout->setColumnStretch(column,1); }
 
     auto& mgr = LogManager::instance();
     auto cats = mgr.categories();
     std::stable_partition(cats.begin(),cats.end(),[](const LogManager::Category& category) {
         return !category.id.startsWith(QStringLiteral("aether.anan."));
     });
-    int col = 0, row = 0;
-    constexpr int COLS = 3;
+    constexpr int kColumns = 4;
+    const int rows = (cats.size() + kColumns - 1) / kColumns;
+    int categoryIndex = 0;
 
     for (const auto& cat : cats) {
         auto* cb = new QCheckBox(cat.label);
         cb->setObjectName(QStringLiteral("supportLogCategory_") + cat.id);
         cb->setAccessibleName(cat.label);
         cb->setAccessibleDescription(cat.description);
-        cb->setMinimumHeight(24);
+        cb->setMinimumHeight(20);
         cb->setToolTip(cat.description);
         cb->setChecked(cat.enabled);
         ThemeManager::instance().applyStyleSheet(cb,
@@ -85,14 +86,14 @@ void SupportDialog::buildUI()
             + ThemeManager::checkBoxIndicatorStyle()
             + QStringLiteral("QCheckBox::indicator { width: 16px; height: 16px; border-color: {{color.canon.lineHi}}; }"
                              "QCheckBox::indicator:checked { background: {{color.canon.cyan}}; border-color: {{color.canon.cyan}}; }"));
-        gridLayout->addWidget(cb, row, col);
+        gridLayout->addWidget(cb, categoryIndex % rows, categoryIndex / rows);
 
         connect(cb, &QCheckBox::toggled, this, [id = cat.id](bool on) {
             LogManager::instance().setEnabled(id, on);
         });
 
         m_checkboxes[cat.id] = cb;
-        if (++col >= COLS) { col = 0; ++row; }
+        ++categoryIndex;
     }
 
     auto* btnRow = new QHBoxLayout;
@@ -111,12 +112,12 @@ void SupportDialog::buildUI()
     categories->setAccessibleName(QStringLiteral("Diagnostic logging categories"));
     categories->setWidgetResizable(true);
     categories->setFrameShape(QFrame::NoFrame);
-    categories->setMinimumHeight(200);
+    categories->setMinimumHeight(rows * 20 + 20);
     categories->setWidget(categoryHost);
     auto* groupLayout = new QVBoxLayout(logGroup);
     groupLayout->addWidget(categories,1);
     groupLayout->addLayout(btnRow);
-    layout->addWidget(logGroup,2);
+    layout->addWidget(logGroup);
 
     // ── Log file info ─────────────────────────────────────────────────────
     auto* fileRow = new QHBoxLayout;

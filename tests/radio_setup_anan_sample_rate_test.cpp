@@ -180,6 +180,7 @@ int main(int argc, char** argv)
             app.processEvents(); QThread::msleep(1);
         }
         check(table->isEnabled() && table->rowCount() == 11, "real PA page loads eleven band references");
+        check(table->height() < 500, "PA table ends after its rows rather than filling the page");
         for (const char* removed : {"ananTxPowerBand","ananTxPowerWatts","ananTxPowerPreview","ananTxDspPrepare","ananTxDspCancel","ananTxSessionEnable","ananTxSessionDisable"}) {
             check(!page->findChild<QWidget*>(QString::fromLatin1(removed)), "normal Setup has no preview or manual TX lifecycle controls");
         }

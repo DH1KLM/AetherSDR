@@ -12,6 +12,7 @@
 #include <QObject>
 #include <QPushButton>
 #include <QTableWidget>
+#include <QSizePolicy>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
@@ -35,6 +36,8 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
     table->setHorizontalHeaderLabels({QStringLiteral("Band"),QStringLiteral("PA gain (dB)"),QStringLiteral("Power limit (W)")});
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     table->verticalHeader()->hide();
+    table->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     form->addWidget(table);
     auto* apply = new QPushButton(QStringLiteral("Save PA profile"),group);
     apply->setObjectName(QStringLiteral("ananTxPowerApply"));
@@ -56,7 +59,8 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
     controls->addRow(output);
     controls->addRow(sessionStatus);
     form->addLayout(controls);
-    layout->addWidget(group,1);
+    layout->addWidget(group,0,Qt::AlignTop);
+    layout->addStretch(1);
     group->setEnabled(false);
     group->setAccessibleDescription(QStringLiteral("Connect an ANAN and select an explicit receive profile to configure PA reference values."));
     struct State { QString identity; QString sessionIdentity; QVariantMap reference; quint64 latest = 0;
@@ -150,6 +154,8 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
                     }
                 }
             }
+            table->setFixedHeight(table->horizontalHeader()->height()
+                + table->verticalHeader()->length() + 2 * table->frameWidth());
             if (!state->dirty) { fill(data.value(QStringLiteral("options")).toMap()); }
         });
         QObject::connect(backend,&IRadioBackend::extensionError,guard,[=](quint64 reply,const QString& error) {

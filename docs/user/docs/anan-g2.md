@@ -146,8 +146,7 @@ gain or automatic level makeup to modem audio. Finite modem audio is flushed
 before its captured PTT operation is released. The matching TX signal processing is prepared automatically after a mode change. RADE/FreeDV, D-STAR and a
 DRM modem are not integrated for ANAN.
 
-Radio microphone/PTT qualification, forward-power/SWR telemetry and PA
-calibration remain open. Software tests do not establish actual RF power,
+Radio microphone/PTT qualification and PA calibration remain open. Software tests do not establish actual RF power,
 signal quality or protection. The radio speaker stream is silenced while this
 client keys P1 or P2 TX. Receive audio is muted while keyed, with a short hold after release; the independent spectrum stays live. This prevents hearing the receiver pick up its own transmission. **MON** in the **Phone & CW** panel enables a local microphone/audio monitor;
 its monitor level adjusts the PC playback volume. It monitors the audio entering
@@ -168,9 +167,20 @@ fitting packets are sent within the existing 20 ms limit. Longer stalls stop TX;
 they do not accumulate delayed RF audio. Queue overflow is logged separately from
 an audio format or source change.
 
-The **RF Power** control requests PA drive using the saved profile. It is not a
-measured watt reading; forward/reflected RF power and SWR are not yet connected
-for the extended backend.
+The **RF Power** control requests PA drive using the saved profile. It starts at
+**0%** on a fresh connection. Operator values are saved per band, radio, model
+and protocol and recalled when returning to that band; a band without a saved
+value uses 0%. Recalling a value never keys TX.
+
+Forward/reflected RF power and SWR use the radio's P1/P2 detector readings and
+Thetis model reference curves. These are estimates until the individual unit
+is calibrated; the drive slider itself is not a watt measurement. Ambiguous
+automatic board identities require an explicit model profile for conversion.
+SWR is evaluated only above 0.1 W forward power. G2 1K and HL2 detector scaling
+are not provided by this extended path. No new SWR protection is implied.
+
+The PA table uses its row height; **Use Thetis defaults**, **Save PA profile**,
+**TX antenna** and readiness appear directly below the last band.
 
 Band-view and CTUN notices overlay the right side of the footer temporarily.
 CPU, Network, TX, date and the station control keep their positions.
@@ -186,9 +196,9 @@ CPU, Network, TX, date and the station control keep their positions.
 | CW pitch | Connected to the host receiver BFO; CW monitor level/pan dispatch is incomplete |
 | PC microphone selection | PCM path exists; explicit local input-selection acknowledgement is incomplete |
 | Graphic EQ | Shared host controls exist; saved-layout reapplication after delayed TX readiness is incomplete |
-| MIC / TX-filter recall | Per-radio TX-setpoint persistence is incomplete |
+| MIC / TX-filter recall | Incomplete; RF drive now recalls separately per band/model/protocol |
 | Hardware PTT observation | Not implemented; local MOX state is not hardware readback |
-| Forward/reflected RF power and SWR | Model-specific telemetry conversion is not implemented |
+| Forward/reflected RF power and SWR | P1/P2 detector telemetry with Thetis model reference conversion; individual calibration pending |
 | TX slice / multiple receivers | TX requires the single primary receive slice |
 
 ## Mouse-related receive diagnostics

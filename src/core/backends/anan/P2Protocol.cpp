@@ -453,6 +453,8 @@ std::optional<HighPriorityStatus> parseHighPriorityStatus(
     if (data.size() != kHighPriorityStatusBytes)
         return std::nullopt;
     HighPriorityStatus s;
+    s.forwardPowerCounts = readU16be(data.data() + 14);
+    s.reversePowerCounts = readU16be(data.data() + 22);
     s.seq = readU32be(data.data());
     s.speakerUnderflow = (data[30] & 0b0000'1000) != 0;
     s.speakerFifoLevel = readU16be(data.data() + 37);

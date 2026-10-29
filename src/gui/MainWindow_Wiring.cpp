@@ -110,7 +110,7 @@ namespace AetherSDR {
 
 void MainWindow::wireStatusBarMessages()
 {
-    auto* notice = new StatusBarNoticeLabel(statusBar());
+    auto* notice = new StatusBarNoticeLabel(m_statusBarContainer);
     notice->setContentsMargins(6, 0, 20, 0);
     ThemeManager::instance().applyStyleSheet(notice,
         QStringLiteral("QLabel#statusBarNoticeLabel { color: {{color.text.primary}};"

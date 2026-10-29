@@ -7,6 +7,9 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
     // Ignore deliveries from the inactive transport. Selection is made
     // only after stopping the old session, on this object's own IO thread.
     auto wire = [this]<typename Client>(Client* client, int protocol) {
+        connect(client, &Client::rfPowerSampled, this, [this, protocol](int forward, int reverse) {
+            if (m_protocol == protocol) { emit rfPowerSampled(forward, reverse); }
+        });
         connect(client, &Client::linkUp, this, [this, protocol] {
             if (m_protocol == protocol) emit linkUp();
         });
