@@ -35,6 +35,9 @@ The Help menu starts with **AetherSDR Documentation** (this site), **Printable M
 
 A scrollable three-column grid contains one checkbox per log category. Enabled categories have a cyan-filled indicator and bold text. The grid scrolls independently, so the log and action buttons remain accessible in smaller windows. Hover a box for what it covers. Turn on the categories relevant to your problem, then reproduce it. The dialog advises restarting AetherSDR after changing categories so the new settings are in effect from startup.
 
+The ANAN categories are grouped at the end of the grid. The smaller text keeps
+more categories visible; checked boxes retain a distinct cyan indicator.
+
 **Enable All** / **Disable All** toggle every category at once. The categories, and which are on by default, are listed under [Log categories](#log-categories).
 
 For refused audio-output or **Show TX in Waterfall** edits, the Protocol / Status log names the requested setting and value, such as `Backend refused operation line output gain 30`. This records a request that was not dispatched; it does not confirm a radio state change.

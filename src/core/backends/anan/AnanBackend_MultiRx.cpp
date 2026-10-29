@@ -673,6 +673,8 @@ void AnanBackend::submitReceiveAudio(int id, const PcmFrame& frame)
             publishLegacySliceAudio(id, raw);
         }
         if (!bytes.isEmpty()) {
+            if (m_txMonitor && !m_tuneActive
+                && m_transmitDispatchOperation.permitsDispatch(TxCoordinator::monotonicMs())) { return; }
             publishLegacyAudio(bytes);
             sendSpeakerAudioToRadio(bytes);
         }

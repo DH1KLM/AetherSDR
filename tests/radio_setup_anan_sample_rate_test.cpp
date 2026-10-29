@@ -163,6 +163,9 @@ int main(int argc, char** argv)
         auto* backend = static_cast<anan::AnanBackend*>(model.backend());
         anan::AnanLinkStatsTestAccess::prepare(*backend,2,false,5,anan::AnanModel::Anan200D,true);
         anan::AnanLinkStatsTestAccess::publish(*backend);
+        check(backend->requestTxSlice(0,true) == ReceiveDispatch::Dispatched
+              && !backend->capabilities().canTransmit,
+              "selecting primary TX before preparation changes no key admission");
         std::unique_ptr<QWidget> page(createAnanTransmitPowerPage(&model,nullptr));
         page->show();
         auto* table = page->findChild<QTableWidget*>(QStringLiteral("ananTxPowerTable"));
@@ -191,6 +194,11 @@ int main(int argc, char** argv)
         check(trace.keyOn.load() == 0 && model.transmitModel().rfPower() == 0,
               "automatic readiness never keys and starts with zero RF power");
         check(model.requestLocalShowTxInWaterfall(true) && model.transmitModel().showTxInWaterfall(), "local TX waterfall control remains available");
+        check(backend->capabilities().txMonitorControl.has_value(),"shared ANAN path provides local monitor control");
+        model.transmitModel().setSbMonitor(true);
+        check(model.transmitModel().sbMonitor(),"MON switch is echoed by the local monitor owner");
+        model.transmitModel().setSbMonitor(false);
+        check(!model.transmitModel().sbMonitor(),"MON off disables local monitoring");
         model.transmitModel().setRfPower(25);
         model.transmitModel().setMox(true);
         check(await([&] { return trace.lastKey.load() == 1; }), "MOX remains the explicit TX trigger");
@@ -199,18 +207,31 @@ int main(int argc, char** argv)
         model.transmitModel().setMox(false);
         check(await([&] { return trace.lastKey.load() == 0 && save->isEnabled(); }), "RX allows PA edits without a manual TX-disable step");
         const int beforeTune = trace.keyOn.load();
+        int capabilityDrops = 0;
+        const auto retuneObserver = QObject::connect(backend,&IRadioBackend::capabilitiesChanged,&app,[&] {
+            if (!backend->capabilities().canTransmit) { ++capabilityDrops; }
+        });
         backend->setSliceFrequency(0,14'180'000);
+        check(backend->capabilities().canTransmit && model.txSlice() != nullptr,
+              "idle in-band tuning preserves admission and selected TX slice synchronously");
         check(await([&] { return backend->capabilities().canTransmit; }), "receive retuning automatically refreshes TX readiness");
+        check(capabilityDrops == 0,"in-band VFO changes do not restart host audio or blank the TX footer");
         check(trace.keyOn.load() == beforeTune && model.transmitModel().rfPower() == 25, "retuning preserves operator power without automatically transmitting");
+        QObject::disconnect(retuneObserver);
         model.transmitModel().startTune();
         check(await([&] { return trace.lastKey.load() == 1; }), "TUNE reaches the internal carrier path");
+        check(await([&] { return model.isRadioTransmitting(); }),"TUNE publishes a local TX edge for waterfall and meters");
+        check(trace.frequencyWord.load() == anan::phaseWord(14'180'000),
+              "next explicit TUNE uses the latest VFO rather than the previously armed frequency");
         model.transmitModel().stopTune();
         check(await([&] { return trace.lastKey.load() == 0; }), "TUNE off releases its carrier");
+        check(await([&] { return !model.isRadioTransmitting(); }),"TUNE release restores RX display state");
         backend->setSliceMode(0,QStringLiteral("CWU"));
         check(await([&] { return backend->capabilities().canTransmit; }), "mode change automatically prepares the matching TX DSP");
         model.transmitModel().setCwBreakIn(true); model.transmitModel().setCwDelay(20);
         model.sendCwKey(true);
         check(await([&] { return trace.lastKey.load() == 1; }), "CW keys after automatic preparation");
+        check(await([&] { return model.isRadioTransmitting(); }),"CW publishes a local TX edge for waterfall and meters");
         model.sendCwKey(false);
         check(await([&] { return trace.lastKey.load() == 0; }), "CW release respects hang and tail");
         backend->setSliceMode(0,QStringLiteral("DRM"));

@@ -30,6 +30,7 @@ public:
     bool armStagedTransmit(const P2TxControl& control);
     void disarmTransmit(bool discardDsp = true);
     void setTransmitCarrier(bool enabled, bool down);
+    void setTransmitMonitor(bool enabled) { m_transmitMonitor = enabled; }
     void finishTransmitAudio(const TxCoordinator::Context& context);
     [[nodiscard]] std::size_t queuedTransmitFrames() const noexcept
     { return m_transmitPendingFrames.load(std::memory_order_relaxed); }
@@ -56,6 +57,10 @@ public:
     Q_INVOKABLE void enqueueSpeakerAudio(const QByteArray& audio);
 signals:
     void transmitFault(const QString& reason);
+    void transmitMeters(double microphone, double alc, double gain, const TxCoordinator::Context& context,
+                        const TxCoordinator::Operation& operation);
+    void transmitMonitorAudio(const QByteArray& pcm, const TxCoordinator::Context& context,
+                              const TxCoordinator::Operation& operation);
     void linkUp();
     void linkDown();
     void connectionError(const QString& reason);
@@ -71,6 +76,8 @@ private:
         if (m_protocol == 1) { return function(m_p1); }
         return function(m_p2);
     }
+    bool m_transmitMonitor = false;
+    qint64 m_transmitMeterMs = -1;
     int m_transmitFlushBlocks = 0;
     bool m_transmitFinishing = false;
     bool m_transmitCarrier = false;

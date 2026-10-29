@@ -79,6 +79,14 @@ void sideband(WdspChannel::Mode mode, int rate = AnanTxDsp::kOutputRate)
         20 * std::log10(wanted / std::max(unwanted, 1e-20)));
     check(peak > 0.001 && peak <= 0.5, "TX IQ has signal and reserved digital headroom");
     check(wanted > 100 * unwanted, "correct HPSDR wire sideband exceeds opposite by 40 dB");
+    const auto mic = dsp.meter(WdspChannel::TransmitMeter::MicrophonePeak);
+    const auto alc = dsp.meter(WdspChannel::TransmitMeter::AlcPeak);
+    const auto gain = dsp.meter(WdspChannel::TransmitMeter::AlcGain);
+    check(mic && alc && gain && std::isfinite(*mic) && std::isfinite(*alc)
+          && std::isfinite(*gain) && *mic > -40 && *mic < -10 && *gain <= 0.01,
+          "real TXA exposes microphone, post-ALC and reduction-only gain meters");
+    check(dsp.end() && !dsp.meter(WdspChannel::TransmitMeter::MicrophonePeak),
+          "stopped TXA does not publish stale microphone levels");
     check(dsp.end() && dsp.begin(context, 0), "new over discards previous DSP history");
     audio.fill(0);
     double residue = 0;

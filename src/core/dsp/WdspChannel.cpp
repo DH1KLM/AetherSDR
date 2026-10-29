@@ -1223,6 +1223,13 @@ double WdspChannel::meter(Meter which) const noexcept
     return GetRXAMeter(m_channelId, static_cast<int>(which));
 }
 
+std::optional<double> WdspChannel::transmitMeter(TransmitMeter which) const noexcept
+{
+    if (m_config.direction != Direction::Transmit) { return std::nullopt; }
+    const double value = GetTXAMeter(m_channelId,static_cast<int>(which));
+    return std::isfinite(value) ? std::optional<double>{value} : std::nullopt;
+}
+
 std::size_t WdspChannel::outputBlockSize() const noexcept
 {
     return m_outputBlockSize;

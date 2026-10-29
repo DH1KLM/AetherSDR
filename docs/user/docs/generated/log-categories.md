@@ -54,6 +54,7 @@ These are the logging categories listed in **Help → Support & Diagnostics...**
 | ANAN RX DSP | `aether.anan.rxdsp` | Receive DSP rebuild, blanker and channel warnings |
 | ANAN Panadapter | `aether.anan.pan` | Panadapter FFT configuration (verbose Info when enabled) |
 | ANAN Droop Defaults | `aether.anan.droopdefaults` | Shipped droop-table compatibility warnings |
+| ANAN TX | `aether.anan.tx` | Extended ANAN P1/P2 TX admission and local transport results; not RF confirmation |
 | ANAN Droop Calibration | `aether.anan.droopcal` | Droop calibration refusal and aborted sweeps |
 | KiwiSDR Audio/DSP | `aether.kiwisdr.audio` | Verbose KiwiSDR receive audio: frame decode, resampler, jitter/FIFO under/overrun, mixing (high-rate; off by default) |
 | Automation Bridge | `aether.automation` | Agent-drivable test bridge (#3646): QLocalServer verbs, widget snapshots, captures (AETHER\_AUTOMATION only) |

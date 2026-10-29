@@ -30,6 +30,8 @@ public:
     bool begin(const TxCoordinator::Context& context, qint64 now);
     bool end();
     [[nodiscard]] std::optional<WdspChannel::Mode> mode() const noexcept { return m_mode; }
+    [[nodiscard]] std::optional<double> meter(WdspChannel::TransmitMeter which) const noexcept
+    { return m_active && m_channel ? m_channel->transmitMeter(which) : std::nullopt; }
     Result process(std::span<const float> mono, const TxCoordinator::Context& context,
                    qint64 now, std::span<std::complex<float>> output);
 

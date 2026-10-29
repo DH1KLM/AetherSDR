@@ -28,7 +28,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
+#include <utility>
 
 Q_LOGGING_CATEGORY(lcAnanDefaults, "aether.anan.droopdefaults", QtWarningMsg)
 
@@ -270,6 +272,7 @@ AnanBackend::AnanBackend(QObject* parent)
             m_receiveLayout.reset(receiveStreamCeiling(), m_ddcCenterHz,
                                   m_pendingParams.ddc0RateKsps, receiveSliceCeiling());
             emit connected();
+            setTxMonitor(false,50);
             emit capabilitiesChanged();
             defineMeters();
             // A new session's needle starts from its first reading, not from
@@ -339,6 +342,26 @@ AnanBackend::AnanBackend(QObject* parent)
     connect(m_client,&AnanClient::transmitFault,this,[this](const QString& reason) {
         disableTransmitSession();
         m_txSessionError = reason;
+    });
+    connect(m_client,&AnanClient::transmitMeters,this,[this](double mic,double alc,double gain,const TxCoordinator::Context& context,const TxCoordinator::Operation& operation) {
+        const qint64 now = TxCoordinator::monotonicMs();
+        if (!m_connected || !context.permitsDispatch(now) || !operation.sameAuthority(m_transmitDispatchOperation)
+            || !m_transmitDispatchOperation.permitsDispatch(now)) { return; }
+        emit meterUpdate(QStringLiteral("TX:MICPEAK"),mic);
+        emit meterUpdate(QStringLiteral("TX:ALC"),alc);
+        emit meterUpdate(QStringLiteral("TX:ALCGAIN"),gain);
+    });
+    connect(m_client,&AnanClient::transmitMonitorAudio,this,[this](QByteArray pcm,const TxCoordinator::Context& context,const TxCoordinator::Operation& operation) {
+        const qint64 now = TxCoordinator::monotonicMs();
+        if (!m_connected || !m_txMonitor || m_tuneActive || !context.permitsDispatch(now)
+            || !operation.sameAuthority(m_transmitDispatchOperation) || !m_transmitDispatchOperation.permitsDispatch(now)) { return; }
+        for (qsizetype offset = 0; offset < pcm.size(); offset += sizeof(float)) {
+            float sample;
+            std::memcpy(&sample,pcm.constData()+offset,sizeof(sample));
+            sample *= m_txMonitorLevel / 100.0f;
+            std::memcpy(pcm.data()+offset,&sample,sizeof(sample));
+        }
+        publishLegacyAudio(pcm);
     });
     auto* txWatch = new QTimer(this);
     txWatch->setInterval(200);
@@ -485,12 +508,9 @@ RadioCapabilities AnanBackend::capabilities() const
     c.hasCwTune = true;
     c.receiveOnlyModes = {QStringLiteral("SPEC"),QStringLiteral("WFM"),QStringLiteral("WBFM"),QStringLiteral("DRM")};
     c.firmwareUpdateSource = std::nullopt;  // gateware number; no published list covers it.
-    // No VOX, monitor or speech-processor setters. PROC would be the host
-    // ClientComp, but canTransmit is false below, so nothing serves it and the
-    // drop notice correctly stands.
     c.voxControl = std::nullopt;
     c.speechProcessorControl = std::nullopt;
-    c.txMonitorControl = std::nullopt;
+    c.txMonitorControl = RadioCapabilities::TxMonitorControl{};
     // The radio's speaker output: setLineoutMute() sends it silence and
     // setLineoutGain() scales the samples this host feeds it.
     c.lineoutControl = RadioCapabilities::LineoutControl{};
@@ -1261,7 +1281,8 @@ void AnanBackend::pushModeFilterShift()
 
 void AnanBackend::setSliceFrequency(int sliceId, double hz)
 {
-    if (sliceId == 0 && hz != m_sliceFreqHz) { disableTransmitSession(); }
+    if (sliceId == 0 && hz != m_sliceFreqHz
+        && (m_txSessionArming || m_transmitOperation.permitsCleanup())) { disableTransmitSession(); }
     if (m_receiveBuilding) {
         emitSliceState();
         return;
@@ -1310,6 +1331,7 @@ void AnanBackend::setSliceFrequency(int sliceId, double hz)
         m_bandViewSpanHz = 0.0;
     }
     m_sliceFreqHz = hz;
+    refreshIdleTransmitSession();
     // Digit readout / slice model: unthrottled. Cheap (no radio round trip,
     // no pan re-layout), and it is what makes a drag gesture feel like it is
     // tracking the mouse at all.
@@ -2980,8 +3002,7 @@ void AnanBackend::defineMeters()
 {
     // Index is ours to choose -- nothing on a P2 radio assigns meter ids. Same
     // name, unit and range as Hl2Backend::defineMeters()'s receive meter, the
-    // bare "SLC:LEVEL" MeterModel binds to the S-meter. Receive-only: no TX
-    // meters until this backend can transmit.
+    // bare "SLC:LEVEL" MeterModel binds to the S-meter.
     MeterDef d;
     d.index = 1;
     d.source = QStringLiteral("SLC");
@@ -3004,6 +3025,18 @@ void AnanBackend::defineMeters()
     rail.high = 16.0;
     rail.description = QStringLiteral("DC supply voltage");
     emit meterDefined(rail);
+    int txIndex = 3;
+    for (const auto& item : std::array<std::pair<const char*,const char*>,3>{{
+        {"MICPEAK","Microphone peak before TX processing"},
+        {"ALC","WDSP post-ALC audio peak"}, {"ALCGAIN","WDSP ALC gain"}}}) {
+        MeterDef tx;
+        tx.index = txIndex++;
+        tx.source = QStringLiteral("TX"); tx.name = QString::fromLatin1(item.first);
+        tx.unit = tx.index == 5 ? QStringLiteral("dB") : QStringLiteral("dBFS");
+        tx.low = tx.index == 5 ? -30.0 : -100.0; tx.high = 0.0;
+        tx.description = QString::fromLatin1(item.second);
+        emit meterDefined(tx);
+    }
 }
 
 IRadioBackend::LinkStats AnanBackend::linkStats() const
@@ -3125,7 +3158,8 @@ void AnanBackend::emitSliceState()
     d.filterLow = m_filterLowHz;
     d.filterHigh = m_filterHighHz;
     d.active = m_activeReceiveSlice == 0;
-    d.txSlice = transmitSessionCurrent();
+    d.txSlice = m_connected && m_discoveryInfoReceived
+        && p2TransmitProfile(m_discoveredBoardId,m_pendingParams.model,m_pendingParams.overrideDetection).has_value();
     d.xitOn = false; d.xitFreq = 0;
     if (d.txSlice.value() && m_txSessionControl) {
         const QString antenna = QStringLiteral("ANT%1").arg(m_txSessionControl->antenna);

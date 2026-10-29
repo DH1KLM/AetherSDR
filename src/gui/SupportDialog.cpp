@@ -10,6 +10,8 @@
 #include "models/RadioModel.h"
 #include "core/backends/flex/RadioConnection.h"
 
+#include <algorithm>
+
 #include <QCheckBox>
 #include <QCursor>
 #include <QDesktopServices>
@@ -62,7 +64,10 @@ void SupportDialog::buildUI()
     for (int column = 0; column < 3; ++column) { gridLayout->setColumnStretch(column,1); }
 
     auto& mgr = LogManager::instance();
-    const auto cats = mgr.categories();
+    auto cats = mgr.categories();
+    std::stable_partition(cats.begin(),cats.end(),[](const LogManager::Category& category) {
+        return !category.id.startsWith(QStringLiteral("aether.anan."));
+    });
     int col = 0, row = 0;
     constexpr int COLS = 3;
 
@@ -75,7 +80,7 @@ void SupportDialog::buildUI()
         cb->setToolTip(cat.description);
         cb->setChecked(cat.enabled);
         ThemeManager::instance().applyStyleSheet(cb,
-            QStringLiteral("QCheckBox { color: {{color.text.primary}}; font-size: 13px; spacing: 8px; }"
+            QStringLiteral("QCheckBox { color: {{color.text.primary}}; font-size: 12px; spacing: 8px; }"
                            "QCheckBox:checked { font-weight: 600; }")
             + ThemeManager::checkBoxIndicatorStyle()
             + QStringLiteral("QCheckBox::indicator { width: 16px; height: 16px; border-color: {{color.canon.lineHi}}; }"
@@ -140,7 +145,7 @@ void SupportDialog::buildUI()
         "  background: {{color.background.0}};"
         "  color: {{color.text.primary}};"
         "  font-family: monospace;"
-        "  font-size: 13px;"
+        "  font-size: 12px;"
         "  border: 1px solid {{color.background.1}};"
         "}");
     layout->addWidget(m_logViewer, 1);  // stretch
@@ -208,7 +213,7 @@ void SupportDialog::buildUI()
     instructions->setTextFormat(Qt::RichText);
     instructions->setWordWrap(true);
     ThemeManager::instance().applyStyleSheet(instructions,
-        "QLabel { color: {{color.text.primary}}; font-size: 13px; }");
+        "QLabel { color: {{color.text.primary}}; font-size: 12px; }");
     layout->addWidget(instructions);
 
     // ── Close button ──────────────────────────────────────────────────────

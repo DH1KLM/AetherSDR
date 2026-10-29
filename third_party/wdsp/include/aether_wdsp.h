@@ -385,6 +385,7 @@ enum AetherWdspRxMeter
     AETHER_WDSP_RXA_AGC_GAIN = 4
 };
 double GetRXAMeter(int channel, int meterType);
+double GetTXAMeter(int channel, int meterType);
 
 // ── Neural Noise Reduction (NNR, nnr.c — new in WDSP 2.10) ────────────────
 //

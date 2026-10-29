@@ -101,7 +101,15 @@ The table and antenna are remembered per radio, model, board and protocol.
 Changes can be saved while receiving; the controls are locked while transmitting.
 A zero limit keeps the corresponding band closed for TX.
 
-TX signal processing and readiness are managed automatically. There is no
+The **ANAN TX** log category records the selected model, board, protocol,
+frequency, antenna and raw drive for key-on, plus the local transport result.
+A successful local write does not confirm that the radio switched its relay or
+emitted RF.
+
+TX signal processing and readiness are managed automatically. Idle tuning within
+the same permitted band retains TX readiness and the selected TX slice. Retuning
+while keyed cancels the current transmission; changing band or mode rechecks the
+TX prerequisites. There is no
 preview calculator, manual DSP preparation or extra transmit-enable button.
 The status explains when the current mode, band plan or hardware state prevents
 transmission. One primary receive slice is required. Frequency changes refresh
@@ -137,9 +145,15 @@ DRM modem are not integrated for ANAN.
 Radio microphone/PTT qualification, forward-power/SWR telemetry and PA
 calibration remain open. Software tests do not establish actual RF power,
 signal quality or protection. The radio speaker stream is silenced while this
-client keys P1 or P2 TX. Receive audio is muted while keyed, with a short hold after release; the independent spectrum stays live. This prevents hearing the receiver pick up its own transmission. The radio-side MON control is unavailable.
+client keys P1 or P2 TX. Receive audio is muted while keyed, with a short hold after release; the independent spectrum stays live. This prevents hearing the receiver pick up its own transmission. **MON** in the **Phone & CW** panel enables a local microphone/audio monitor;
+its monitor level adjusts the PC playback volume. It monitors the audio entering
+TX signal processing, not received RF, PA output or a CW sidetone. MON is off by
+default. Microphone, post-ALC audio peak and ALC gain meters use the actual WDSP
+TX channel; they are not measured RF power. The same controls apply to supported
+extended ANAN models and their overrides on P1 and P2. The Original G2 path is
+separate.
 
-**Settings → Radio Setup → Transmit → Show TX in Waterfall** is a local, per-radio display setting, as on HL2. It allows FFT-derived waterfall rows during TX; it does not measure PA output power or create a separate RF monitor.
+**Settings → Radio Setup → Transmit → Show TX in Waterfall** is a local, per-radio display setting, as on HL2. It allows FFT-derived waterfall rows during MOX/PTT, TUNE and CW; it does not measure PA output power or create a separate RF monitor.
 
 ## Mouse-related receive diagnostics
 

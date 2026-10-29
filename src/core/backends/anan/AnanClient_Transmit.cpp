@@ -91,6 +91,7 @@ void AnanClient::clearTransmitAudio()
     m_transmitContext = {};
     m_transmitSource.reset();
     m_transmitMediaStarted = false;
+    m_transmitMeterMs = -1;
     if (m_transmitDsp && !m_transmitDsp->end()) {
         m_transmitDsp.reset();
     }
@@ -199,6 +200,21 @@ void AnanClient::pumpTransmitAudio()
     if (result != AnanTxDsp::Result::Output) {
         failTransmit(QStringLiteral("TX audio DSP exchange refused"));
         return;
+    }
+    if (m_transmitMeterMs < 0 || now - m_transmitMeterMs >= 50) {
+        m_transmitMeterMs = now;
+        const auto mic = m_transmitDsp->meter(WdspChannel::TransmitMeter::MicrophonePeak);
+        const auto alc = m_transmitDsp->meter(WdspChannel::TransmitMeter::AlcPeak);
+        const auto gain = m_transmitDsp->meter(WdspChannel::TransmitMeter::AlcGain);
+        if (mic && alc && gain) { emit transmitMeters(*mic,*alc,*gain,m_transmitContext,m_transmitOperation); }
+    }
+    if (m_transmitMonitor) {
+        QByteArray monitor(static_cast<qsizetype>(mono.size() * 2 * sizeof(float)),Qt::Uninitialized);
+        for (std::size_t i = 0; i < mono.size(); ++i) {
+            std::memcpy(monitor.data() + 2*i*sizeof(float),&mono[i],sizeof(float));
+            std::memcpy(monitor.data() + (2*i+1)*sizeof(float),&mono[i],sizeof(float));
+        }
+        emit transmitMonitorAudio(monitor,m_transmitContext,m_transmitOperation);
     }
     m_transmitHead = (m_transmitHead + mono.size()) % kTransmitAudioCapacity;
     m_transmitCount -= mono.size();

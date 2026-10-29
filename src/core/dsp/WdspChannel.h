@@ -507,6 +507,8 @@ public:
     enum class Meter { SignalPeak = 0, SignalAverage = 1,
                        AdcPeak = 2, AdcAverage = 3, AgcGain = 4 };
     [[nodiscard]] double meter(Meter which) const noexcept;
+    enum class TransmitMeter { MicrophonePeak = 0, AlcPeak = 12, AlcGain = 14 };
+    [[nodiscard]] std::optional<double> transmitMeter(TransmitMeter which) const noexcept;
 
     [[nodiscard]] const Config& config() const noexcept { return m_config; }
     [[nodiscard]] std::size_t outputBlockSize() const noexcept;

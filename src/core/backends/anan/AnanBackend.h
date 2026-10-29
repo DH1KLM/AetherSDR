@@ -124,6 +124,7 @@ public:
     ReceiveDispatch requestTxSlice(int sliceId, bool enabled, const RadioControlCompletion& completion = {},
                                   const RadioControlFence& current = {}) override;
     void setKeying(bool key, const AetherSDR::TxCoordinator::Operation& operation, const AetherSDR::TxCoordinator::Completion& completion = {}) override;
+    void setTxMonitor(bool on, int level) override;
     void submitTxAudio(const QByteArray& pcm, int sampleRateHz, TxAudioSource source,
         const TxCoordinator::Context& context) override;
     void invokeExtension(const QString& ns, const QString& verb,
@@ -319,8 +320,10 @@ private:
     QString transmitSessionRefusal() const;
     void enableTransmitSession(int antenna);
     void restoreTransmitSession();
+    void refreshIdleTransmitSession();
     bool rememberTransmitSession(int antenna);
     void muteReceiveForTransmit(bool muted);
+    void publishLocalTransmitState(bool keyed);
     std::optional<int> m_restoreTxAntenna;
     void disableTransmitSession();
     bool transmitSessionCurrent() const;
@@ -331,6 +334,9 @@ private:
     QString m_txSessionError;
     quint64 m_txSessionRevision = 0;
     bool m_txSessionEnabled = false;
+    bool m_localTransmitPublished = false;
+    bool m_txMonitor = false;
+    int m_txMonitorLevel = 50;
     bool m_tuneActive = false;
     int m_tunePowerPercent = 10;
     bool m_cwAutoKeyed = false;

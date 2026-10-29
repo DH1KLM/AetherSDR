@@ -14,7 +14,7 @@
 #include <memory>
 #include <utility>
 
-Q_DECLARE_LOGGING_CATEGORY(lcAnanP2)
+Q_LOGGING_CATEGORY(lcAnanTx, "aether.anan.tx", QtWarningMsg)
 
 namespace AetherSDR::anan {
 namespace {
@@ -34,7 +34,7 @@ bool AnanBackend::rememberTransmitSession(int antenna)
 {
     const bool saved = AnanSettings::setTransmitSessionAntenna(m_radioSerial,
         static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol,antenna);
-    if (!saved) { qCWarning(lcAnanP2) << "ANAN TX readiness preference could not be saved"; }
+    if (!saved) { qCWarning(lcAnanTx) << "ANAN TX readiness preference could not be saved"; }
     return saved;
 }
 
@@ -43,6 +43,30 @@ void AnanBackend::muteReceiveForTransmit(bool muted)
     if (m_dsp) {
         QMetaObject::invokeMethod(m_dsp,"setAudioMuted",Qt::QueuedConnection,Q_ARG(bool,muted));
     }
+}
+
+void AnanBackend::publishLocalTransmitState(bool keyed)
+{
+    if (m_localTransmitPublished == keyed) { return; }
+    m_localTransmitPublished = keyed;
+    TransmitDelta delta;
+    delta.mox = keyed;
+    emit transmitChanged(delta);
+}
+
+void AnanBackend::refreshIdleTransmitSession()
+{
+    if (!m_txSessionEnabled) { return; }
+    if (m_transmitOperation.permitsCleanup() || !m_txSessionControl || !m_txSessionProfile
+        || receiveAntennaBandIndex() != m_txSessionBand || !transmitSessionRefusal().isEmpty()) {
+        disableTransmitSession();
+        return;
+    }
+    P2TxControl control = *m_txSessionControl;
+    control.frequencyHz = m_sliceFreqHz;
+    if (!validP2TxControl(control)) { disableTransmitSession(); return; }
+    m_txSessionControl = control;
+    m_txSessionIdentity = transmitSessionIdentity();
 }
 
 void AnanBackend::restoreTransmitSession()
@@ -171,6 +195,7 @@ void AnanBackend::disableTransmitSession()
     if (!hadSession) { return; }
     QMetaObject::invokeMethod(m_client,[client = m_client] { client->disarmTransmit(false); },Qt::QueuedConnection);
     muteReceiveForTransmit(false);
+    publishLocalTransmitState(false);
     emit capabilitiesChanged();
     emitSliceState();
 }
@@ -204,7 +229,7 @@ void AnanBackend::enableTransmitSession(int antenna)
             if (!ok || m_txSessionIdentity != transmitSessionIdentity() || !m_connected) {
                 disableTransmitSession();
                 m_txSessionError = QStringLiteral("TX session could not be enabled for the current radio state.");
-                qCWarning(lcAnanP2) << m_txSessionError;
+                qCWarning(lcAnanTx) << m_txSessionError;
                 return;
             }
             TransmitDelta zero;
@@ -225,8 +250,13 @@ ReceiveDispatch AnanBackend::requestTransmitControl(const TransmitControlRequest
     Q_UNUSED(context);
     if (!request.valid()) { return ReceiveDispatch::Unsupported; }
     using Field = TransmitControlRequest::Field;
+    if (request.field == Field::MonitorEnabled || request.field == Field::MonitorLevel) {
+        const auto setting = std::get<MonitorSetting>(request.value);
+        setTxMonitor(setting.enabled,setting.level);
+        return ReceiveDispatch::Dispatched;
+    }
     if (request.field == Field::TunePower) { setTunePower(std::get<int>(request.value)); return ReceiveDispatch::Dispatched; }
-    if (request.field == Field::RfPower && transmitSessionCurrent()) {
+    if (request.field == Field::RfPower && m_connected) {
         setTxPower(std::get<int>(request.value)); return ReceiveDispatch::Dispatched;
     }
     if (request.field == Field::MicGain || request.field == Field::CwSpeed
@@ -234,6 +264,17 @@ ReceiveDispatch AnanBackend::requestTransmitControl(const TransmitControlRequest
         || request.field == Field::CwSidetone || request.field == Field::CwIambic
         || request.field == Field::CwIambicMode || request.field == Field::CwSwap) { return ReceiveDispatch::LocalOnly; }
     return ReceiveDispatch::Unsupported;
+}
+
+void AnanBackend::setTxMonitor(bool on, int level)
+{
+    m_txMonitor = on;
+    m_txMonitorLevel = std::clamp(level,0,100);
+    QMetaObject::invokeMethod(m_client,[client = m_client,on] { client->setTransmitMonitor(on); },Qt::QueuedConnection);
+    TransmitDelta delta;
+    delta.sbMonitor = on;
+    delta.monGainSb = m_txMonitorLevel;
+    emit transmitChanged(delta);
 }
 
 void AnanBackend::setTxPower(int percent)
@@ -325,8 +366,9 @@ int AnanBackend::finishTxAudio(const TxCoordinator::Context& context)
 ReceiveDispatch AnanBackend::requestTxSlice(int id, bool enabled, const RadioControlCompletion& completion,
                                            const RadioControlFence& current)
 {
-    if ((current && !current()) || id != 0 || !transmitSessionCurrent()) {
-        if (completion) { completion({RadioControlReply::Kind::Refused,-1,QStringLiteral("Only the armed primary slice can transmit")}); }
+    if ((current && !current()) || id != 0 || !m_connected || !primaryVisible()
+        || !p2TransmitProfile(m_discoveredBoardId,m_pendingParams.model,m_pendingParams.overrideDetection)) {
+        if (completion) { completion({RadioControlReply::Kind::Refused,-1,QStringLiteral("Only the supported primary slice can be selected for TX")}); }
         return ReceiveDispatch::Unsupported;
     }
     if (!enabled) { disableTransmitSession(); }
@@ -418,9 +460,20 @@ void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
         const auto cleanup = m_transmitDispatchOperation;
         m_transmitOperation = {};
         m_transmitDispatchOperation = {};
-        QMetaObject::invokeMethod(m_client,[this,client = m_client,cleanup,completion] {
-            client->setTransmitKeying(false,cleanup);
-            QMetaObject::invokeMethod(this,[this] {
+        const quint64 revision = m_txSessionRevision;
+        QMetaObject::invokeMethod(m_client,[this,client = m_client,cleanup,completion,revision] {
+            const bool ok = client->setTransmitKeying(false,cleanup);
+            QMetaObject::invokeMethod(this,[this,revision,ok] {
+                if (revision != m_txSessionRevision) { return; }
+                if (!ok) {
+                    disableTransmitSession();
+                    m_txSessionError = QStringLiteral("TX key-off was refused by the local transport.");
+                    qCWarning(lcAnanTx) << m_txSessionError;
+                    return;
+                }
+                if (!m_transmitDispatchOperation.permitsDispatch(TxCoordinator::monotonicMs())) {
+                    publishLocalTransmitState(false);
+                }
                 QTimer::singleShot(100,this,[this] {
                     if (m_connected && !m_rateChanging && !m_receiveBuilding && !m_receiveCalibrationRun
                         && !m_droopCalibrator.isRunning()
@@ -434,6 +487,7 @@ void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
         return;
     }
     if (!transmitSessionCurrent() || !m_txSessionProfile || !m_txSessionControl) {
+        qCWarning(lcAnanTx) << "ANAN TX key-on refused:" << transmitSessionRefusal();
         completion.finish();
         return;
     }
@@ -441,6 +495,9 @@ void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
     const auto power = transmitPowerForPercent(*m_txSessionProfile,m_txSessionBand,m_tuneActive ? m_tunePowerPercent : m_txPowerPercent);
     if (!power) { completion.finish(); disableTransmitSession(); return; }
     control.drive = power->drive;
+    qCInfo(lcAnanTx) << "ANAN TX key-on request" << "model" << static_cast<int>(m_pendingParams.model)
+        << "board" << m_discoveredBoardId << "protocol" << m_pendingParams.protocol
+        << "frequencyHz" << control.frequencyHz << "antenna" << control.antenna << "drive" << control.drive;
     const bool continuing = m_transmitOperation.sameOperation(operation)
         && m_transmitDispatchOperation.permitsDispatch(TxCoordinator::monotonicMs());
     const auto permit = m_txSessionPermit;
@@ -459,16 +516,18 @@ void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
         const bool ok = m_client->transmitMode() == mode
             && (continuing || m_client->armStagedTransmit(control))
             && m_client->setTransmitKeying(true,dispatch);
-        if (!ok) {
-            QMetaObject::invokeMethod(this,[this,revision,operation] {
-                if (revision == m_txSessionRevision && operation.sameOperation(m_transmitOperation)
-                    && operation.permitsDispatch(TxCoordinator::monotonicMs())) {
-                    disableTransmitSession();
-                    m_txSessionError = QStringLiteral("MOX/PTT request was refused by the TX audio or transport path.");
-                    qCWarning(lcAnanP2) << m_txSessionError;
-                }
-            },Qt::QueuedConnection);
-        }
+        qCInfo(lcAnanTx) << "ANAN TX local transport key-on accepted:" << ok;
+        QMetaObject::invokeMethod(this,[this,revision,operation,ok] {
+            if (revision != m_txSessionRevision || !operation.sameOperation(m_transmitOperation)
+                || !operation.permitsDispatch(TxCoordinator::monotonicMs())) { return; }
+            if (ok) {
+                publishLocalTransmitState(true);
+            } else {
+                disableTransmitSession();
+                m_txSessionError = QStringLiteral("MOX/PTT request was refused by the TX audio or transport path.");
+                qCWarning(lcAnanTx) << m_txSessionError;
+            }
+        },Qt::QueuedConnection);
         completion.finish();
     }, Qt::QueuedConnection);
 }

@@ -112,6 +112,7 @@ LogManager::LogManager()
         {"aether.anan.rxdsp", "ANAN RX DSP", "Receive DSP rebuild, blanker and channel warnings"},
         {"aether.anan.pan", "ANAN Panadapter", "Panadapter FFT configuration (verbose Info when enabled)"},
         {"aether.anan.droopdefaults", "ANAN Droop Defaults", "Shipped droop-table compatibility warnings"},
+        {"aether.anan.tx", "ANAN TX", "Extended ANAN P1/P2 TX admission and local transport results; not RF confirmation"},
         {"aether.anan.droopcal", "ANAN Droop Calibration", "Droop calibration refusal and aborted sweeps"},
         {"aether.kiwisdr.audio", "KiwiSDR Audio/DSP", "Verbose KiwiSDR receive audio: frame decode, resampler, jitter/FIFO under/overrun, mixing (high-rate; off by default)"},
         {"aether.automation", "Automation Bridge", "Agent-drivable test bridge (#3646): QLocalServer verbs, widget snapshots, captures (AETHER_AUTOMATION only)"},

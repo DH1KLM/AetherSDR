@@ -4,6 +4,7 @@
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QEvent>
 #include <QThread>
 
 #include <array>
@@ -120,18 +121,42 @@ struct Fixture {
 void pcmToWire()
 {
     Fixture f;
+    int monitors = 0, meters = 0, queuedMonitors = 0;
+    QObject receiver;
+    QObject::connect(&f.client,&AnanClient::transmitMonitorAudio,&receiver,
+        [&](const QByteArray& samples,const TxCoordinator::Context& context,const TxCoordinator::Operation& operation) {
+            check(samples.size() == 128 * 2 * sizeof(float) && context.sameContext(f.context)
+                  && operation.sameAuthority(f.operation),"queued MON preserves PCM and original media/operation handles");
+            ++queuedMonitors;
+        },Qt::QueuedConnection);
+    QObject::connect(&f.client,&AnanClient::transmitMonitorAudio,[&](const QByteArray& samples,const TxCoordinator::Context& context,const TxCoordinator::Operation& operation) {
+        check(operation.sameAuthority(f.operation) && samples.size() == 128 * 2 * sizeof(float) && context.sameContext(f.context),
+              "local MON contains stereo24 PCM and the captured producer fence");
+        ++monitors;
+    });
+    QObject::connect(&f.client,&AnanClient::transmitMeters,[&](double mic,double alc,double gain,const TxCoordinator::Context& context,const TxCoordinator::Operation& operation) {
+        check(operation.sameAuthority(f.operation) && std::isfinite(mic) && std::isfinite(alc) && std::isfinite(gain) && context.sameContext(f.context),
+              "TX meter delivery carries finite TXA levels and producer fence");
+        ++meters;
+    });
     const auto block = pcm(128);
     check(!f.client.submitTransmitAudio(block,24000,TxAudioSource::Microphone,f.operation,f.context),
           "unkeyed PCM is not retained as a future microphone pre-roll");
     if (!f.prepare()) { check(false, "prebuilt TX DSP installs"); return; }
     check(f.client.transmitMode() == WdspChannel::Mode::Usb && !f.keyed() && f.packets.empty(),
           "preparation reports its exact mode and never keys");
+    f.client.setTransmitMonitor(true);
     check(f.client.setTransmitKeying(true,f.operation), "voice envelope keys explicitly");
     for (std::size_t i = 0; i < 50; ++i) {
         check(f.client.submitTransmitAudio(pcm(128,i*128),24000,TxAudioSource::Microphone,f.operation,f.context),
               "stereo PCM accepts bounded microphone blocks");
         if (!f.exchange()) { check(false, "bounded nonblocking PCM-to-IQ exchange"); return; }
     }
+    QCoreApplication::sendPostedEvents(&receiver,QEvent::MetaCall);
+    check(queuedMonitors == 50,"queued MON delivery registers every complete PCM block");
+    check(monitors == 50 && meters > 0 && meters <= 10,
+          "MON streams every consumed block while TXA meters are throttled");
+    f.client.setTransmitMonitor(false);
     bool nonzero = false;
     for (const auto& packet : f.packets) {
         for (std::size_t i = 4; i < packet.size(); ++i) { nonzero |= packet[i] != 0; }
@@ -149,6 +174,7 @@ void pcmToWire()
     check(f.client.submitTransmitAudio(QByteArray(512,0),24000,TxAudioSource::Microphone,f.operation,f.context),
           "new silent over starts with a fresh media context");
     check(f.exchange(), "new silent over exchanges");
+    check(monitors == 50,"MON off suppresses subsequent audio blocks");
     bool silent = true;
     for (std::size_t p = before; p < f.packets.size(); ++p) {
         for (std::size_t i = 4; i < f.packets[p].size(); ++i) { silent &= f.packets[p][i] == 0; }
