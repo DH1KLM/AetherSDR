@@ -1,4 +1,5 @@
 #include "AnanTxDsp.h"
+#include "AnanTxMode.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,26 +10,28 @@ AnanTxDsp::~AnanTxDsp()
     end();
 }
 
-bool AnanTxDsp::configure(WdspChannel::Mode mode, std::string* error)
+bool AnanTxDsp::configure(WdspChannel::Mode mode, std::string* error, int outputRate)
 {
     end();
     m_channel.reset();
     m_mode.reset();
-    if (mode != WdspChannel::Mode::Usb && mode != WdspChannel::Mode::Lsb) {
-        if (error) { *error = "ANAN TX currently supports USB and LSB only"; }
+    const auto recipe = transmitMode(mode);
+    if (!recipe || (outputRate != 48000 && outputRate != 192000)) {
+        if (error) { *error = "Unsupported ANAN transmit mode or protocol sample rate"; }
         return false;
     }
     WdspChannel::Config config;
     config.direction = WdspChannel::Direction::Transmit;
-    config.mode = mode;
+    config.mode = recipe->modulator;
     config.inputSampleRate = kInputRate;
     // Thetis cmaster.c uses 96 kHz inside TXA; the P2 DUC consumes 192 kHz.
     config.dspSampleRate = kDspRate;
-    config.outputSampleRate = kOutputRate;
+    config.outputSampleRate = outputRate;
+    m_outputSamples = kInputSamples * outputRate / kInputRate;
     config.inputBlockSize = kInputSamples;
     config.dspBlockSize = kInputSamples * kDspRate / kInputRate;
-    config.filterLowHz = mode == WdspChannel::Mode::Usb ? 300.0 : -2700.0;
-    config.filterHighHz = mode == WdspChannel::Mode::Usb ? 2700.0 : -300.0;
+    config.filterLowHz = recipe->filterLowHz;
+    config.filterHighHz = recipe->filterHighHz;
     config.blockForOutput = false;
     m_channel = WdspChannel::create(config, error);
     if (!m_channel) { return false; }
@@ -66,7 +69,7 @@ AnanTxDsp::Result AnanTxDsp::process(std::span<const float> mono,
     std::fill(output.begin(), output.end(), std::complex<float>{});
     if (!m_active || !m_channel || !context.sameContext(m_context)
         || !context.permitsDispatch(now) || mono.size() != kInputSamples
-        || output.size() != kOutputSamples) {
+        || output.size() != m_outputSamples) {
         end();
         return Result::Refused;
     }
@@ -77,7 +80,8 @@ AnanTxDsp::Result AnanTxDsp::process(std::span<const float> mono,
         }
     }
     if (!m_channel->outputReady()) { return Result::WouldBlock; }
-    if (m_channel->processIq(mono, m_zeroQ, m_i, m_q) != WdspChannel::ProcessResult::Ok) {
+    if (m_channel->processIq(mono, m_zeroQ, std::span(m_i).first(m_outputSamples),
+                             std::span(m_q).first(m_outputSamples)) != WdspChannel::ProcessResult::Ok) {
         end();
         return Result::Fault;
     }
@@ -85,14 +89,14 @@ AnanTxDsp::Result AnanTxDsp::process(std::span<const float> mono,
         end();
         return Result::Refused;
     }
-    for (std::size_t i = 0; i < kOutputSamples; ++i) {
+    for (std::size_t i = 0; i < m_outputSamples; ++i) {
         if (!std::isfinite(m_i[i]) || !std::isfinite(m_q[i])
             || std::hypot(m_i[i], m_q[i]) > 1.0f) {
             end();
             return Result::Fault;
         }
     }
-    for (std::size_t i = 0; i < kOutputSamples; ++i) {
+    for (std::size_t i = 0; i < m_outputSamples; ++i) {
         // TXA already has HPSDR wire handedness. Reserve 6 dB of digital headroom.
         output[i] = {0.5f * m_i[i], 0.5f * m_q[i]};
     }

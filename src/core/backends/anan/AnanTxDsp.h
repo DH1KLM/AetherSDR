@@ -21,10 +21,12 @@ public:
     static constexpr int kOutputRate = 192000;
     static constexpr std::size_t kInputSamples = 128;
     static constexpr std::size_t kOutputSamples = 1024;
+    static constexpr std::size_t kMaximumQueuedInputSamples = 2 * kInputRate;
     enum class Result { Output, WouldBlock, Refused, Fault };
 
     ~AnanTxDsp();
-    bool configure(WdspChannel::Mode mode, std::string* error = nullptr);
+    bool configure(WdspChannel::Mode mode, std::string* error = nullptr, int outputRate = kOutputRate);
+    [[nodiscard]] std::size_t outputSamples() const noexcept { return m_outputSamples; }
     bool begin(const TxCoordinator::Context& context, qint64 now);
     bool end();
     [[nodiscard]] std::optional<WdspChannel::Mode> mode() const noexcept { return m_mode; }
@@ -36,6 +38,7 @@ private:
     TxCoordinator::Context m_context;
     bool m_active = false;
     std::optional<WdspChannel::Mode> m_mode;
+    std::size_t m_outputSamples = kOutputSamples;
     std::array<float, kInputSamples> m_zeroQ{};
     std::array<float, kOutputSamples> m_i{};
     std::array<float, kOutputSamples> m_q{};

@@ -497,7 +497,7 @@ void AnanBackend::publishAdditionalRx(int id)
 }
 ReceiveDispatch AnanBackend::requestSliceControl(int id, const SliceControlRequest& request)
 {
-    if (m_connected && id == 0 && m_pendingParams.model == AnanModel::Anan200D && request.valid()
+    if (m_connected && id == 0 && request.valid()
         && (request.field == SliceControlRequest::Field::Xit || request.field == SliceControlRequest::Field::TxAntenna)) {
         if (request.field == SliceControlRequest::Field::Xit) { disableTransmitSession(); }
         emitSliceState();

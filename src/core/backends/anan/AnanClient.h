@@ -6,6 +6,7 @@
 #include "core/backends/TxAudioSource.h"
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <optional>
 
@@ -28,6 +29,10 @@ public:
     void discardStagedTransmit();
     bool armStagedTransmit(const P2TxControl& control);
     void disarmTransmit();
+    void setTransmitCarrier(bool enabled, bool down);
+    void finishTransmitAudio(const TxCoordinator::Context& context);
+    [[nodiscard]] std::size_t queuedTransmitFrames() const noexcept
+    { return m_transmitPendingFrames.load(std::memory_order_relaxed); }
     bool setTransmitPower(const TransmitPowerProfile& profile, int band, int percent,
                           const TxCoordinator::Operation& operation);
     [[nodiscard]] std::optional<WdspChannel::Mode> transmitMode() const
@@ -61,7 +66,16 @@ signals:
     void discoveryInfoReceived(quint8 boardId, quint8 firmwareVer, quint8 reportedReceivers);
     void supplyRailSampled(int counts);
 private:
-    static constexpr std::size_t kTransmitAudioCapacity = 2048;
+    template<class Function> decltype(auto) transmitTransport(Function&& function)
+    {
+        if (m_protocol == 1) { return function(m_p1); }
+        return function(m_p2);
+    }
+    int m_transmitFlushBlocks = 0;
+    bool m_transmitFinishing = false;
+    bool m_transmitCarrier = false;
+    static constexpr std::size_t kTransmitAudioCapacity = AnanTxDsp::kMaximumQueuedInputSamples;
+    std::atomic<std::size_t> m_transmitPendingFrames{0};
     std::shared_ptr<AnanTxDsp> m_transmitDsp;
     QObject* m_transmitPlanner = nullptr;
     bool m_transmitConfigured = false;

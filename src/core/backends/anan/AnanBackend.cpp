@@ -470,10 +470,11 @@ RadioCapabilities AnanBackend::capabilities() const
         PanDisplayField::SpectrumPoints}, {PanGeometryComponent::Center, PanGeometryComponent::Bandwidth}};
     c.panLifecycleControl = PanLifecycleControl{PanLifecycleControl::Creation::Native,
         {PanLifecycleAction::Create, PanLifecycleAction::Remove}};
-    // No setTune() implementation, so no tune generator to select a mode on.
+    // A single shaped carrier is generated on the owning transport thread.
     c.twoToneGenerator = std::nullopt;
-    c.tuneCarrierControl = TuneCarrierControl{TuneCarrierControl::Modes::None};
-    c.hasCwTune = false;
+    c.tuneCarrierControl = TuneCarrierControl{transmitSessionCurrent() ? TuneCarrierControl::Modes::All : TuneCarrierControl::Modes::None};
+    c.hasCwTune = true;
+    c.receiveOnlyModes = {QStringLiteral("SPEC"),QStringLiteral("WFM"),QStringLiteral("WBFM"),QStringLiteral("DRM")};
     c.firmwareUpdateSource = std::nullopt;  // gateware number; no published list covers it.
     // No VOX, monitor or speech-processor setters. PROC would be the host
     // ClientComp, but canTransmit is false below, so nothing serves it and the
@@ -570,7 +571,7 @@ RadioCapabilities AnanBackend::capabilities() const
     c.takesTxAudioOverSeam = true;
     // Drive is engine intent, not measured forward power or hardware readback.
     c.transmitDriveControl = RadioCapabilities::TransmitDriveControl{
-        SliceFrequencyControl::Authority::Engine, /*tunePowerAppliesLive=*/false};
+        SliceFrequencyControl::Authority::Engine, /*tunePowerAppliesLive=*/true};
     c.hasRadioPttReadback = false; // no qualified physical PTT readback
     c.radioPttObservation = std::nullopt;
     c.hasTuner = false;            // G2 has no internal ATU (Apache Labs spec)
@@ -3106,7 +3107,7 @@ void AnanBackend::emitSliceState()
     d.filterHigh = m_filterHighHz;
     d.active = m_activeReceiveSlice == 0;
     d.txSlice = transmitSessionCurrent();
-    if (m_pendingParams.model == AnanModel::Anan200D) { d.xitOn = false; d.xitFreq = 0; }
+    d.xitOn = false; d.xitFreq = 0;
     if (d.txSlice.value() && m_txSessionControl) {
         const QString antenna = QStringLiteral("ANT%1").arg(m_txSessionControl->antenna);
         d.txAntennaList = QStringList{antenna};

@@ -133,6 +133,7 @@ bool P2Client::setTransmitKeying(bool key, const TxCoordinator::Operation& opera
 
 void P2Client::clearTransmitAudio()
 {
+    m_carrierEnabled = false; m_carrier = {};
     if (m_transmitTimer) { m_transmitTimer->stop(); }
     m_transmitStream.clear();
     m_transmitStreamStarted = false;
@@ -149,7 +150,7 @@ bool P2Client::enqueueTransmitIq(std::span<const std::complex<float>> iq,
     const TxCoordinator::Operation& operation, const TxCoordinator::Context& context)
 {
     const qint64 now = TxCoordinator::monotonicMs();
-    if (!m_running || !m_linkUp || !m_transmitGate.keyCommandAccepted()
+    if (!m_running || !m_linkUp || m_carrierEnabled || !m_transmitGate.keyCommandAccepted()
         || !operation.sameAuthority(m_transmitOperation) || !operation.permitsDispatch(now)) {
         return false;
     }
@@ -180,6 +181,19 @@ void P2Client::ensureTransmitTimer()
     if (!m_transmitTimer->isActive()) { m_transmitTimer->start(); }
 }
 
+void P2Client::setCarrier(bool enabled, bool down)
+{
+    if (!transmitActive()) { return; }
+    if (enabled && !m_carrierEnabled) {
+        m_carrier = {};
+        m_transmitClock.start();
+        m_transmitStreamStarted = m_transmitStream.beginCarrier(m_transmitOperation,0,TxCoordinator::monotonicMs());
+    }
+    m_carrierEnabled = enabled;
+    m_carrier.key(down);
+    ensureTransmitTimer();
+}
+
 void P2Client::onTransmitTick()
 {
     if (!m_running || (!m_transmitGate.keyCommandAccepted() && !m_transmitGate.stopPending())) {
@@ -194,8 +208,11 @@ void P2Client::onTransmitTick()
         return;
     }
     if (!m_transmitStreamStarted) { return; }
-    const auto result = m_transmitStream.pump(transmitElapsedNs(), now,
-        m_transmitGate, [this](const TxIqPacket& packet) { return sendControl(packet, kTxIqPort); });
+    const auto writer = [this](const TxIqPacket& packet) { return sendControl(packet,kTxIqPort); };
+    const auto result = m_carrierEnabled
+        ? m_transmitStream.pumpCarrier(transmitElapsedNs(),now,m_transmitGate,
+            [this] { return m_carrier.sample(192000); },writer)
+        : m_transmitStream.pump(transmitElapsedNs(),now,m_transmitGate,writer);
     if (result == AnanP2TxStream::Result::Refused || result == AnanP2TxStream::Result::WriteFailed) {
         abortTransmit(QStringLiteral("TX IQ transport stopped"));
     }

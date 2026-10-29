@@ -437,7 +437,7 @@ QVariantMap AnanSettings::transmitPower(const QString& serial, int model, int bo
 bool AnanSettings::setTransmitPower(const QString& serial, int model, int board, int protocol, const QVariantMap& options)
 {
     if (serial.trimmed().isEmpty() || !parseTransmitPower(options)
-        || !defaultTransmitPower(static_cast<AnanModel>(model)) || !receiveProfile(board)
+          || !defaultTransmitPower(static_cast<AnanModel>(model),board) || !receiveProfile(board)
         || (protocol != 1 && protocol != 2)) { return false; }
     const RadioSettingsScope scope(QStringLiteral("anan"),serial);
     int version = 0;

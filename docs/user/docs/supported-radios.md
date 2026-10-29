@@ -31,7 +31,7 @@ The rest of this documentation describes FlexRadio operation unless a page says 
 |--------|--------|-------------|------|
 | Hermes-Lite 2 | **Experimental** | LAN discovery, or Connect by IP | [Hermes-Lite 2](./hermes-lite-2.md) |
 | Networked Icom (IC-705, IC-7300MK2, IC-9700 …) | **Early**; the **IC-7300MK2 is supported** | Connect by IP | [Networked Icom](./networked-icom.md) |
-| ANAN-G2 | **Experimental, receive-only** | LAN discovery, or Connect by IP | [ANAN-G2](./anan-g2.md) |
+| ANAN / OpenHPSDR | **Experimental; extended P1/P2 TX requires hardware qualification** | LAN discovery, or Connect by IP | [ANAN / OpenHPSDR](./anan-g2.md) |
 | RTL-SDR USB dongles | **Experimental, receive-only** | USB discovery (builds with the RTL-SDR backend) | [RTL-SDR](./rtl-sdr.md) |
 | KiwiSDR and Web-888 | Public receivers used as receive-only antennas for a slice | Radio Setup → Antennas | [KiwiSDR and Web-888](./kiwisdr-and-web-888.md) |
 | Demo | Built-in simulator, cannot transmit | The Connect to Radio list | [Demo Mode](./demo-mode.md) |
@@ -56,7 +56,7 @@ This table lists only what has been confirmed for each family. A **?** means not
 
 | | FlexRadio | Hermes-Lite 2 | Networked Icom | ANAN-G2 | RTL-SDR | Demo |
 |---|---|---|---|---|---|---|
-| **Transmit** | Yes | Yes (SSB voice, CW, data) | Yes on recognized models; none on an unrecognized model | No | No | No |
+| **Transmit** | Yes | Yes (SSB voice, CW, data) | Yes on recognized models; none on an unrecognized model | Extended implementation: opt-in voice, CW, TUNE, data; hardware qualification pending. Original G2: no | No | No |
 | **Receivers / slices** | As reported by the radio | Up to 4 (A–D) | Per model | 1 | 1 | 1 |
 | **Panadapters** | As reported by the radio | One per receiver | 1 | 1 | 1 | ? |
 | **DAX virtual audio and IQ** | Yes | No | No | No | No | No |

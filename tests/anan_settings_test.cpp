@@ -524,7 +524,16 @@ int main(int argc, char** argv)
 
     {
         auto power = defaultTransmitPower(AnanModel::Anan7000);
-        check(power.has_value() && !defaultTransmitPower(AnanModel::Automatic), "PA reference requires explicit supported model");
+        check(power.has_value() && !defaultTransmitPower(AnanModel::Automatic), "PA reference requires a resolved model or physical board");
+        for (const int board : {1,2,3,4,5,10,20}) {
+            const auto detected = defaultTransmitPower(AnanModel::Automatic,board);
+            check(detected.has_value(), "validated automatic board has PA reference values");
+            const auto automatic = transmitPowerOptions(*detected);
+            check(AnanSettings::setTransmitPower(QStringLiteral("PA-AUTO"),static_cast<int>(AnanModel::Automatic),board,1,automatic)
+                  && AnanSettings::transmitPower(QStringLiteral("PA-AUTO"),static_cast<int>(AnanModel::Automatic),board,1) == automatic,
+                  "automatic model PA profile round-trips in its own board/protocol scope");
+        }
+        check(!defaultTransmitPower(AnanModel::Automatic,99), "unknown board cannot acquire PA defaults");
         check(previewTransmitPower(*power,0,100)->drive == 0, "zero band limit produces no drive");
         power->gainsDb[0] = 50;
         power->limitsWatts[0] = 100;

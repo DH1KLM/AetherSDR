@@ -57,6 +57,32 @@ public:
         return true;
     }
 
+    bool beginCarrier(const TxCoordinator::Operation& operation, qint64 nowNs, qint64 nowMs)
+    {
+        clear();
+        if (nowNs < 0 || !operation.permitsDispatch(nowMs)) { return false; }
+        m_operation = operation; m_nextNs = nowNs; m_lastNs = nowNs; m_active = true;
+        return true;
+    }
+
+    template<class Generator, class Writer>
+    Result pumpCarrier(qint64 nowNs, qint64 nowMs, AnanTxGate& gate, Generator&& generator, Writer&& writer)
+    {
+        if (!m_active || nowNs < m_lastNs || nowNs > std::numeric_limits<qint64>::max() - kPacketNs
+            || (nowNs >= m_nextNs && nowNs - m_nextNs >= 16 * kPacketNs)
+            || !m_operation.permitsDispatch(nowMs)) { clear(); return Result::Refused; }
+        m_lastNs = nowNs;
+        if (nowNs < m_nextNs) { return Result::NotDue; }
+        std::array<std::complex<float>,kTxIqSamplesPerPacket> samples{};
+        for (auto& sample : samples) { sample = generator(); }
+        const auto packet = buildTxIq(samples,m_sequence++);
+        if (!packet || !gate.writeCarrier(m_operation,nowMs,[&] { return writer(*packet); })) {
+            clear(); return Result::WriteFailed;
+        }
+        m_nextNs = nowNs - m_nextNs >= kPacketNs ? nowNs + kPacketNs : m_nextNs + kPacketNs;
+        return Result::Sent;
+    }
+
     template<class Writer>
     Result pump(qint64 nowNs, qint64 nowMs, AnanTxGate& gate, Writer&& writer)
     {

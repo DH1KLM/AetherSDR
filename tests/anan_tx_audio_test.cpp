@@ -233,11 +233,77 @@ void refusalPaths()
     check(!f.client.submitTransmitAudio(block,24000,TxAudioSource::ClientLeveled,f.operation,f.context)
           && !f.keyed(), "source change cannot relabel pending PCM");
     check(f.prepare() && f.client.setTransmitKeying(true,f.operation), "overflow fixture keys");
-    check(!f.client.submitTransmitAudio(pcm(2049),24000,TxAudioSource::Microphone,f.operation,f.context)
+    check(!f.client.submitTransmitAudio(pcm(AnanTxDsp::kMaximumQueuedInputSamples+1),24000,TxAudioSource::Microphone,f.operation,f.context)
           && !f.keyed(), "PCM overflow stops instead of accumulating latency");
     AnanClientTestAccess::protocol(f.client,1);
     check(!f.client.setTransmitKeying(true,f.operation), "P1 never routes into the P2 transmitter");
     check(f.packets.empty(), "refused voice sources emitted no IQ packets");
+}
+void finiteModemAudio()
+{
+    Fixture f;
+    check(f.prepare(WdspChannel::Mode::Digu) && f.client.setTransmitKeying(true,f.operation),
+          "local modem prepares and keys through the same explicit session");
+    constexpr std::size_t frames = 3457;
+    check(f.client.submitTransmitAudio(pcm(frames),24000,TxAudioSource::Microphone,f.operation,f.context),
+          "a finite generated-audio block fits the bounded queue");
+    f.client.finishTransmitAudio(f.context);
+    const std::size_t expected = ((frames + 127) / 128 + 8) * AnanTxDsp::kOutputSamples / kTxIqSamplesPerPacket;
+    QElapsedTimer timer; timer.start();
+    while (timer.elapsed() < 2000 && f.packets.size() < expected && f.keyed()) {
+        AnanClientTestAccess::pump(f.client);
+        f.drain();
+        QThread::msleep(1);
+    }
+    check(f.keyed() && f.packets.size() == expected && f.client.queuedTransmitFrames() == 0,
+          "finite modem audio pads its short final block and drains exactly eight DSP flush blocks");
+    const auto count = f.packets.size();
+    check(!f.client.submitTransmitAudio(pcm(128),24000,TxAudioSource::Microphone,f.operation,f.context),
+          "a finishing over rejects audio behind its end barrier");
+    f.producer.invalidate();
+    AnanClientTestAccess::pump(f.client);
+    check(!f.keyed() && f.packets.size() == count, "producer revocation discards the remaining modem tail");
+}
+double modemPeak(TxAudioSource source, double scale)
+{
+    Fixture f;
+    check(f.prepare(WdspChannel::Mode::Digu) && f.client.setTransmitKeying(true,f.operation),
+          "digital level fixture prepares and keys");
+    for (int block = 0; block < 70; ++block) {
+        QByteArray audio = pcm(128,block * 128);
+        for (qsizetype i = 0; i < audio.size(); i += 2) {
+            qint16 value = 0;
+            std::memcpy(&value,audio.constData()+i,2);
+            value = static_cast<qint16>(value * scale);
+            std::memcpy(audio.data()+i,&value,2);
+        }
+        check(f.client.submitTransmitAudio(audio,24000,source,f.operation,f.context),
+              "digital PCM retains its source and level");
+        check(f.exchange(), "digital PCM is exchanged without accumulating latency");
+    }
+    double peak = 0;
+    for (std::size_t n = f.packets.size()/2; n < f.packets.size(); ++n) {
+        const auto& packet = f.packets[n];
+        for (std::size_t offset = 4; offset + 5 < packet.size(); offset += 6) {
+            const auto component = [&](std::size_t at) {
+                std::int32_t value = (std::int32_t(packet[at])<<16) | (std::int32_t(packet[at+1])<<8) | packet[at+2];
+                if (value & 0x800000) { value -= 0x1000000; }
+                return value / 8388608.0;
+            };
+            peak = std::max(peak,std::hypot(component(offset),component(offset+3)));
+        }
+    }
+    return peak;
+}
+void modemLevels()
+{
+    const double external = modemPeak(TxAudioSource::ClientLeveled,1);
+    const double quieter = modemPeak(TxAudioSource::ClientLeveled,0.5);
+    const double generated = modemPeak(TxAudioSource::EngineGenerated,1);
+    check(external > 0.001 && quieter / external > 0.49 && quieter / external < 0.51,
+          "external TCI level reduction survives TXA without speech gain makeup");
+    check(std::abs(generated / external - 1) < 0.01,
+          "WSPR generated audio preserves the same fixed headroom without source-dependent gain");
 }
 }
 int main(int argc, char** argv)
@@ -248,5 +314,7 @@ int main(int argc, char** argv)
     powerUpdates();
     pcmToWire();
     refusalPaths();
+    finiteModemAudio();
+    modemLevels();
     return failures == 0 ? 0 : 1;
 }

@@ -2,14 +2,16 @@
 
 #include "core/backends/anan/P1Protocol.h"
 #include "core/backends/anan/P2Client.h"
+#include "AnanCarrier.h"
+#include "AnanTxGate.h"
+#include "AnanP1TxControl.h"
 
 #include <QElapsedTimer>
 #include <functional>
 
 namespace AetherSDR::anan {
 
-// P1 RX transport on the existing ANAN IO thread. P2 and HL2 keep
-// their own wire clients; this class exposes no transmit operation.
+// P1 transport on the existing ANAN IO thread, including guarded native TX.
 class P1Client : public QObject {
     Q_OBJECT
 public:
@@ -41,8 +43,18 @@ public:
     bool setDdcRateLive(int ddc, int rateKsps);
     void enqueueSpeakerAudio(const QByteArray& audio);
     [[nodiscard]] bool isRunning() const noexcept { return m_running; }
+    bool configureTransmit(const P2TxControl& control);
+    bool enableTransmit(bool enabled);
+    bool setTransmitKeying(bool key, const TxCoordinator::Operation& operation);
+    bool updateTransmitDrive(int drive, const TxCoordinator::Operation& operation);
+    bool enqueueTransmitIq(std::span<const std::complex<float>> iq,
+        const TxCoordinator::Operation& operation, const TxCoordinator::Context& context);
+    void setCarrier(bool enabled, bool down);
+    [[nodiscard]] bool transmitActive() const { return m_transmitGate.keyCommandAccepted(); }
+    [[nodiscard]] std::size_t transmitQueueFreeSamples() const { return m_txIq.size() - m_txCount; }
 
 signals:
+    void transmitFault(const QString& reason);
     void linkUp();
     void linkDown();
     void connectionError(const QString& reason);
@@ -53,6 +65,16 @@ signals:
     void discoveryInfoReceived(quint8 boardId, quint8 firmwareVer, quint8 reportedReceivers);
 
 private:
+    bool writeTransmitKey(bool keyed);
+    void clearTransmitAudio();
+    std::optional<P2TxControl> m_txControl;
+    AnanTxGate m_transmitGate;
+    TxCoordinator::Operation m_txOperation;
+    TxCoordinator::Context m_txContext;
+    std::array<std::complex<float>,2048> m_txIq{};
+    std::size_t m_txHead = 0, m_txCount = 0;
+    bool m_carrierEnabled = false;
+    AnanCarrier m_carrier;
     bool m_micAvailable = false;
     ReceiveFilterPlan m_receiveFilterPlan;
     friend struct P1ClientTestAccess;

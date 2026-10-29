@@ -231,9 +231,11 @@ int main(int argc, char** argv)
         check(await([&] { return backend->capabilities().canTransmit; }), "real Setup enables only the acknowledged 200D session");
         check(trace.keyOn.load() == 0 && model.transmitModel().rfPower() == 0,
               "enabling session starts at zero requested power and never keys");
-        check(!model.transmitModel().tuneAvailable(), "unimplemented TUNE remains unavailable in all ANAN modes");
+        check(model.transmitModel().tuneAvailable(), "enabled ANAN session offers its carrier generator");
         model.transmitModel().startTune();
-        check(!model.transmitModel().isTuning() && trace.keyOn.load() == 0, "TUNE cannot take an unimplemented path");
+        check(await([&] { return trace.lastKey.load() == 1; }), "TUNE enters the guarded P2 keying path");
+        model.transmitModel().stopTune();
+        check(await([&] { return trace.lastKey.load() == 0; }), "TUNE stop releases the captured carrier operation");
         model.transmitModel().setRfPower(25);
         model.transmitModel().setMox(true);
         check(await([&] { return trace.lastKey.load() == 1; }), "desktop MOX reaches guarded P2 keying through RadioModel");
@@ -263,6 +265,28 @@ int main(int argc, char** argv)
         backend->setSliceMode(0,QStringLiteral("LSB"));
         check(!anan::AnanLinkStatsTestAccess::planReady(*backend)
               && !anan::AnanLinkStatsTestAccess::plannedChannel(*backend), "mode change retires prepared USB channel on planner");
+        backend->setSliceMode(0,QStringLiteral("CWU"));
+        check(await([&] { return prepareDsp->isEnabled(); }), "CW offers its own explicit preparation");
+        prepareDsp->click();
+        check(await([&] { return anan::AnanLinkStatsTestAccess::planReady(*backend) && enableTx->isEnabled(); }),
+              "CW DSP preparation enables the saved session profile");
+        enableTx->click();
+        check(await([&] { return backend->capabilities().canTransmit; }), "CW session arms without implicit carrier");
+        model.transmitModel().setRfPower(25);
+        model.transmitModel().setCwBreakIn(true);
+        model.transmitModel().setCwDelay(20);
+        model.sendCwKey(true);
+        check(await([&] { return trace.lastKey.load() == 1; }), "CW key-down acquires break-in TX authority");
+        model.sendCwKey(false);
+        check(await([&] { return trace.lastKey.load() == 0; }), "CW key-up releases RF after its shaped tail and hang");
+        model.transmitModel().setMox(true);
+        check(await([&] { return trace.lastKey.load() == 1; }), "manual MOX can hold a CW session");
+        model.sendCwKey(true);
+        model.sendCwKey(false);
+        anan::AnanLinkStatsTestAccess::drainIo(*backend);
+        check(trace.lastKey.load() == 1, "CW release cannot drop an independently held manual MOX");
+        model.transmitModel().setMox(false);
+        check(await([&] { return trace.lastKey.load() == 0; }), "manual CW MOX releases through the normal owner fence");
     }
     {
         RadioModel model;

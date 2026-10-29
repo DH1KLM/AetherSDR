@@ -156,6 +156,10 @@ bool P1Client::send(std::span<const std::uint8_t> bytes)
 
 void P1Client::stop()
 {
+    if (m_running && m_txControl) { enableTransmit(false); }
+    clearTransmitAudio();
+    m_transmitGate.transportClosed();
+    m_txControl.reset();
     m_drainTimer->stop(); m_timeoutTimer->stop(); m_countersTimer->stop();
     if (m_running && m_validated) {
         if (m_config.rxOcMask != 0 || m_config.userDigitalOutputs != 0) {
@@ -327,7 +331,32 @@ void P1Client::drainAt(qint64 now)
     m_frameCredit = std::min(4.0 * p1::kSpeakerFrames,
         m_frameCredit + (now - m_lastClockNs) * (48000.0 / 1e9));
     m_lastClockNs = now;
+    const qint64 intentNow = TxCoordinator::monotonicMs();
+    if (!m_transmitGate.poll(intentNow,[this](bool key) { return writeTransmitKey(key); })) {
+        fail(QStringLiteral("P1 transmit stop failed")); return;
+    }
     while (m_frameCredit >= p1::kSpeakerFrames) {
+        if (m_transmitGate.keyCommandAccepted()) {
+            std::array<std::complex<float>,p1::kSpeakerFrames> iq{};
+            const bool media = !m_carrierEnabled && m_txCount >= iq.size();
+            for (auto& sample : iq) {
+                if (m_carrierEnabled) { sample = m_carrier.sample(48000); }
+                else if (media) { sample = m_txIq[m_txHead]; m_txHead = (m_txHead + 1) % m_txIq.size(); --m_txCount; }
+            }
+            const auto first = nextAddress();
+            const auto second = nextAddress();
+            const auto packet = buildP1Transmit(m_config,*m_txControl,true,m_txSequence++,first,second,iq);
+            const auto writer = [&] { return packet && send(*packet); };
+            const bool accepted = media ? m_transmitGate.writeIq(m_txOperation,m_txContext,intentNow,writer)
+                : m_transmitGate.writeCarrier(m_txOperation,intentNow,writer);
+            if (!accepted) {
+                enableTransmit(false);
+                emit transmitFault(QStringLiteral("P1 TX packet or media authority refused"));
+                return;
+            }
+            m_frameCredit -= p1::kSpeakerFrames;
+            continue;
+        }
         // DSP audio arrives in blocks, independently of EP2's clock.
         // Prime two blocks, then consume only complete packets; padding each
         // short tail would insert periodic gaps between otherwise continuous audio.
@@ -346,6 +375,82 @@ void P1Client::drainAt(qint64 now)
         m_audio.erase(m_audio.begin(), m_audio.begin() + count);
         m_frameCredit -= p1::kSpeakerFrames;
     }
+}
+
+void P1Client::clearTransmitAudio()
+{
+    m_txHead = 0; m_txCount = 0; m_txContext = {};
+    m_carrierEnabled = false; m_carrier = {};
+}
+
+bool P1Client::configureTransmit(const P2TxControl& control)
+{
+    if (!m_running || !m_validated || !m_linkUp || m_transmitGate.enabled()
+        || !validP2TxControl(control)) { return false; }
+    m_txControl = control;
+    const auto packet = buildP1Transmit(m_config,control,false,m_txSequence++,2,0x12);
+    return packet && send(*packet);
+}
+
+bool P1Client::writeTransmitKey(bool key)
+{
+    if (!m_running || !m_validated || !m_txControl) { return false; }
+    const auto packet = buildP1Transmit(m_config,*m_txControl,key,m_txSequence++,0,0x12);
+    return packet && send(*packet);
+}
+
+bool P1Client::enableTransmit(bool enabled)
+{
+    if (enabled && (!m_txControl || !m_running || !m_validated || !m_linkUp)) { return false; }
+    if (!enabled) { clearTransmitAudio(); }
+    const bool ok = m_transmitGate.setEnabled(enabled,TxCoordinator::monotonicMs(),
+        [this](bool key) { return writeTransmitKey(key); });
+    if (!enabled) { m_txOperation = {}; }
+    return ok;
+}
+
+bool P1Client::setTransmitKeying(bool key, const TxCoordinator::Operation& operation)
+{
+    if (!m_txControl || !m_running || !m_validated || !m_linkUp
+        || (!key && !operation.sameAuthority(m_txOperation))) { return false; }
+    if (!key || !m_transmitGate.keyCommandAccepted()) { clearTransmitAudio(); }
+    const bool ok = m_transmitGate.setKeying(key,operation,TxCoordinator::monotonicMs(),
+        [this](bool value) { return writeTransmitKey(value); });
+    if (ok) {
+        m_txOperation = key ? operation : TxCoordinator::Operation{};
+        if (key) { m_audio.clear(); m_audioPrimed = false; }
+    }
+    return ok;
+}
+
+bool P1Client::updateTransmitDrive(int drive, const TxCoordinator::Operation& operation)
+{
+    if (!m_txControl || drive < 0 || drive > 255 || !operation.sameAuthority(m_txOperation)) { return false; }
+    m_txControl->drive = drive;
+    return m_transmitGate.writeCarrier(operation,TxCoordinator::monotonicMs(),[this] { return writeTransmitKey(true); });
+}
+
+bool P1Client::enqueueTransmitIq(std::span<const std::complex<float>> iq,
+    const TxCoordinator::Operation& operation, const TxCoordinator::Context& context)
+{
+    const qint64 now = TxCoordinator::monotonicMs();
+    if (!transmitActive() || m_carrierEnabled || !operation.sameAuthority(m_txOperation)
+        || !operation.permitsDispatch(now) || !context.permitsDispatch(now)
+        || iq.size() > transmitQueueFreeSamples()) { return false; }
+    if (m_txCount && !m_txContext.sameContext(context)) { return false; }
+    for (const auto sample : iq) {
+        if (!std::isfinite(sample.real()) || !std::isfinite(sample.imag()) || std::abs(sample) > 1) { return false; }
+    }
+    m_txContext = context;
+    for (const auto sample : iq) { m_txIq[(m_txHead + m_txCount++) % m_txIq.size()] = sample; }
+    return true;
+}
+
+void P1Client::setCarrier(bool enabled, bool down)
+{
+    if (!transmitActive()) { return; }
+    if (enabled && !m_carrierEnabled) { m_txCount = 0; m_txHead = 0; m_carrier = {}; }
+    m_carrierEnabled = enabled; m_carrier.key(down);
 }
 
 void P1Client::setDdc0FrequencyHz(double hz)

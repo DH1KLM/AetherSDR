@@ -113,6 +113,12 @@ public:
     void setPanPixelWidth(const QString& panId, int pixels) override;
     void setCwPitch(int hz) override;
     void setTxPower(int percent) override;
+    void setTune(bool on, int percent, const TxCoordinator::Operation& operation,
+                 const TxCoordinator::Completion& completion = {}) override;
+    void setTunePower(int percent) override;
+    void setCwKeying(bool down, bool breakIn, int delayMs, const TxCoordinator::Operation& operation,
+                    const TxCoordinator::Completion& completion = {}) override;
+    int finishTxAudio(const TxCoordinator::Context& context) override;
     ReceiveDispatch requestTransmitControl(const TransmitControlRequest& request,
                                           TunePowerContext context) override;
     ReceiveDispatch requestTxSlice(int sliceId, bool enabled, const RadioControlCompletion& completion = {},
@@ -321,6 +327,12 @@ private:
     QString m_txSessionError;
     quint64 m_txSessionRevision = 0;
     bool m_txSessionEnabled = false;
+    bool m_tuneActive = false;
+    int m_tunePowerPercent = 10;
+    bool m_cwAutoKeyed = false;
+    QTimer* m_cwHangTimer = nullptr;
+    TxCoordinator::Operation m_cwReleaseOperation;
+    TxCoordinator::Completion m_cwReleaseCompletion;
     bool m_txSessionArming = false;
     int m_txSessionBand = -1;
     int m_txPowerPercent = 0;

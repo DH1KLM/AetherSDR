@@ -179,19 +179,19 @@ void controlsAndAudio(int board, bool override200D = false)
 }
 void faultsAndRestrictions()
 {
-    check(!p2TransmitProfile(5, AnanModel::Automatic) && !p2TransmitProfile(10, AnanModel::Automatic),
-          "ambiguous board families require an explicit transmit model");
-    check(!p2TransmitProfile(5, AnanModel::AnvelinaPro3)
-          && !p2TransmitProfile(10, AnanModel::AnanG21K)
-          && !p2TransmitProfile(1, AnanModel::RedPitaya),
-          "unimplemented transmit profiles remain closed");
+    check(p2TransmitProfile(5, AnanModel::Automatic).has_value() && p2TransmitProfile(10, AnanModel::Automatic).has_value(),
+          "automatic profiles retain their validated physical TX routing");
+    for (const auto& model : kAnanModels) {
+        if (model.nativeBoardId < 1 || model.model == AnanModel::HermesLite2) { continue; }
+        check(p2TransmitProfile(model.nativeBoardId,model.model).has_value(),"every supported native model has a TX profile");
+    }
     Fixture noOverride(5, AnanModel::Anan200D, false);
     check(!noOverride.arm(), "board-5 200D requires explicit override");
     const auto overrideProfile = p2TransmitProfile(5,AnanModel::Anan200D,true);
     check(overrideProfile && overrideProfile->filterKind == ReceiveFilterKind::LegacyHpf
           && !hasAlex2Filters(*overrideProfile), "200D override selects Orion rather than MkII ALEX");
-    check(!p2TransmitProfile(5,AnanModel::Anan100D,true)
-          && !p2TransmitProfile(10,AnanModel::Anan200D,true)
+    check(p2TransmitProfile(5,AnanModel::Anan100D,true).has_value()
+          && p2TransmitProfile(10,AnanModel::Anan200D,true).has_value()
           && !p2TransmitProfile(5,AnanModel::Automatic,true), "other cross-board overrides stay closed");
     Fixture f;
     check(!f.client.enableTransmit(true), "TX cannot enable before configuration");
@@ -264,6 +264,28 @@ void rekeyBetweenKeepaliveAndTimer()
     check(expected && f.last(kTxIqPort) == std::vector<std::uint8_t>(expected->begin(), expected->end()),
           "rekey emits only the new over without an old IQ prefix");
 }
+void gatedCarrier()
+{
+    Fixture f;
+    const auto actor = f.coordinator.registerActor({true,0});
+    const auto root = f.coordinator.acquire(actor,TxCoordinator::monotonicMs()).operation;
+    bool held = true;
+    const auto operation = root.withKeyingPermit([&held] { return held; });
+    check(f.arm() && f.client.setTransmitKeying(true,operation), "carrier fixture keys with operator authority");
+    f.client.setCarrier(true,true);
+    P2ClientTestAccess::tick(f.client);
+    check(f.count(kTxIqPort) == 1 && P2ClientTestAccess::queued(f.client) == 0,
+          "TUNE/CW carrier emits a paced packet without a microphone producer");
+    const auto first = f.last(kTxIqPort);
+    check(std::any_of(first.begin()+4,first.end(),[](auto byte) { return byte != 0; }),
+          "carrier rise has nonzero IQ");
+    P2ClientTestAccess::tick(f.client);
+    check(f.count(kTxIqPort) == 1, "early carrier timer cannot send a duplicate packet");
+    held = false;
+    P2ClientTestAccess::tick(f.client);
+    check(!f.client.transmitActive() && f.count(kTxIqPort) == 1,
+          "release of carrier intent stops before another IQ write");
+}
 }
 int main(int argc, char** argv)
 {
@@ -285,5 +307,6 @@ int main(int argc, char** argv)
     controlsAndAudio(5,true);
     faultsAndRestrictions();
     rekeyBetweenKeepaliveAndTimer();
+    gatedCarrier();
     return failures == 0 ? 0 : 1;
 }

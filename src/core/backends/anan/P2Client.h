@@ -1,4 +1,5 @@
 #pragma once
+#include "AnanCarrier.h"
 #include <QVariantMap>
 
 #include "core/backends/anan/P2Protocol.h"
@@ -103,6 +104,7 @@ public:
     bool enqueueTransmitIq(std::span<const std::complex<float>> iq,
         const TxCoordinator::Operation& operation, const TxCoordinator::Context& context);
     [[nodiscard]] bool transmitActive() const { return m_transmitGate.keyCommandAccepted(); }
+    void setCarrier(bool enabled, bool down);
     [[nodiscard]] std::size_t transmitQueueFreeSamples() const
     { return AnanP2TxStream::kCapacity - m_transmitStream.queuedSamples(); }
 
@@ -249,6 +251,8 @@ private:
     QTimer* m_transmitTimer = nullptr;
     QElapsedTimer m_transmitClock;
     bool m_transmitStreamStarted = false;
+    bool m_carrierEnabled = false;
+    AnanCarrier m_carrier;
     bool m_receiveDisablePa = true;
     std::uint32_t m_highPrioritySequence = 0;
     std::function<qint64(std::span<const std::uint8_t>, quint16)> m_controlSendOverride;

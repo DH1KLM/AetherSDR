@@ -1,18 +1,18 @@
 ---
 title: "ANAN / OpenHPSDR"
 slug: "/anan-g2"
-description: "Experimental OpenHPSDR P1/P2 reception and opt-in ANAN-200D P2 USB/LSB transmit."
-status: "Experimental; ANAN-200D P2 voice TX"
+description: "Experimental OpenHPSDR P1/P2 reception and opt-in voice, CW, TUNE and local-modem transmission."
+status: "Experimental; P1/P2 transmit requires hardware qualification"
 applies_to: ["ANAN-G2/G2 1K", "ANAN-7000DLE/8000DLE", "ANAN-10/100", "ANAN-10E/100B", "ANAN-100D", "ANAN-200D", "ANAN-G2E", "Anvelina Pro 3", "Red Pitaya"]
 ---
 
 :::info[Status]
 
-**Status:** Experimental; ANAN-200D P2 voice TX · **Applies to:** ANAN-G2/G2 1K, ANAN-7000DLE/8000DLE, ANAN-10/100, ANAN-10E/100B, ANAN-100D, ANAN-200D, ANAN-G2E, Anvelina Pro 3, Red Pitaya
+**Status:** Experimental; P1/P2 transmit requires hardware qualification · **Applies to:** ANAN-G2/G2 1K, ANAN-7000DLE/8000DLE, ANAN-10/100, ANAN-10E/100B, ANAN-100D, ANAN-200D, ANAN-G2E, Anvelina Pro 3, Red Pitaya
 
 :::
 
-AetherSDR provides experimental OpenHPSDR reception with multiple software slices and independent receive windows. ANAN-G2 remains receive-only. The extended backend also offers opt-in ANAN-200D P2 USB/LSB transmission, described below; RF hardware qualification is still pending. FlexRadio remains the supported target (see [Supported Radios](./supported-radios.md)). An **EXPERIMENTAL** badge shows while a G2 is connected.
+AetherSDR provides experimental OpenHPSDR reception with multiple software slices and independent receive windows. The extended backend offers opt-in P1/P2 transmission for its supported model/protocol combinations, described below; RF hardware qualification is still pending. The original tropo1234 G2 implementation remains receive-only. FlexRadio remains the supported target (see [Supported Radios](./supported-radios.md)). An **EXPERIMENTAL** badge shows while a G2 is connected.
 
 The **ANAN-7000DLE** has an experimental Orion MkII receive profile. It uses
 physical DDC2, two ADCs, and Thetis-compatible ADC0 BPF1 and antenna-chain
@@ -101,25 +101,26 @@ band limit produces zero drive. **Save PA profile** stores the table separately
 for each radio, selected model, board and protocol. Saving or calculating never
 keys the radio or enables a TX session.
 
-### Enable an ANAN-200D voice TX session
+### Enable a transmit session
 
-The first model is **ANAN-200D**, with native P2 Orion discovery (board ID 4), or
-an explicit **ANAN-200D** override for a device reporting board ID 5. The override
-uses Orion/legacy ALEX transmit control. Other cross-board TX overrides and the
-original tropo1234 G2 implementation remain outside this feature.
+The extended implementation supports the same validated model and explicit
+override mappings as reception. The selected effective model controls PA defaults
+and filter routing. Native P1 uses 48 kHz 16-bit IQ; P2 uses 192 kHz 24-bit IQ.
+This does not add protocol support to a model/firmware combination that cannot
+already receive. The original tropo1234 G2 implementation remains unchanged.
 
-1. Connect using **P2** and keep one primary receive slice (**Slice A**) in
-   **USB** or **LSB**. Select the regional band plan you use.
-2. Save a PA profile with a limit above **0 W** and at most **100 W** for the
-   current band. Other bands may remain disabled. The fixed TX passband is
-   **300–2700 Hz** and must fit inside a continuous region of the selected plan.
+1. Connect using **P1** or **P2** and keep one primary receive slice (**Slice A**).
+   Select the mode and regional band plan you use.
+2. Save a PA profile with a positive current-band limit appropriate for your
+   hardware. Other bands may remain disabled. The mode's occupied bandwidth and
+   the carrier at the dial frequency must fit inside one continuous band region.
 3. Click **Prepare TX DSP**. Preparation runs on the existing planning worker.
    **Discard TX DSP** cancels or releases preparation without keying.
 4. Choose **TX antenna** (**ANT1**, **ANT2** or **ANT3**) and click
    **Enable ANAN TX**. This configures the session but does not key the radio.
    **RF Power** starts at **0%**.
 5. Set **RF Power** in the TX applet, then use **MOX** or software **PTT** with
-   PC microphone audio. Power is a percentage of the saved current-band limit,
+   PC microphone or local modem audio. Power is a percentage of the saved current-band limit,
    converted through the PA gain; it is requested power, not measured RF output.
 6. Use **MOX/PTT Off** to return to receive, or **Disable ANAN TX** to revoke the
    session and release its DSP. After disabling, prepare and enable again.
@@ -131,11 +132,26 @@ it is enabled. Change the TX antenna in Setup while disabled; slice antenna edit
 cannot silently replace the captured TX antenna. XIT is not implemented in this
 first path; an XIT request is reset and revokes the session.
 
-**TUNE** stays dimmed. CW, other TX modes, P1 TX, finite/generated-audio drain and
-radio microphone/PTT qualification remain open. Forward-power/SWR telemetry and
-PA calibration are not qualified; the software tests do not establish actual RF
-power, signal quality or protection. The radio speaker stream is silenced while
-this client keys P2 TX.
+**TUNE** sends a carrier at the dial frequency using **Tune Pwr**. CWL/CWU use
+the software keyer, a 5 ms carrier envelope and the configured break-in hang time.
+USB/LSB use a 300–3000 Hz passband; DIGU/DIGL use 150–3000 Hz, following HL2.
+AM/SAM and DSB use ±3000 Hz;
+SAM transmits AM. FM uses 5 kHz deviation with an 8 kHz occupied-band guard on
+each side. DRM, Spectrum and broadcast-wide FM remain receive-only.
+
+DIGU/DIGL use the existing TCI audio path for external programs such as WSJT-X.
+WSPR and AetherModem/AX.25 use the existing host-generated audio path, following
+the HL2 implementation. Source levels are preserved apart from fixed digital
+headroom and the operator's PA power setting; the ANAN modulator adds no speech
+gain or automatic level makeup to modem audio. Finite modem audio is flushed
+before its captured PTT operation is released. Select the mode before preparing
+and enabling TX: a mode change revokes the session. RADE/FreeDV, D-STAR and a
+DRM modem are not integrated for ANAN.
+
+Radio microphone/PTT qualification, forward-power/SWR telemetry and PA
+calibration remain open. Software tests do not establish actual RF power,
+signal quality or protection. The radio speaker stream is silenced while this
+client keys P1 or P2 TX.
 
 ## Mouse-related receive diagnostics
 
@@ -338,8 +354,8 @@ ANAN-200D LPF/PA board. The selected model determines the complete effective
 hardware profile: ADC/DDC layout, filters, antenna control, speaker-channel
 mapping and supported board-dependent telemetry/defaults. This is a full
 model override, not a separate filter-board selector. A wrong selection can
-therefore select incorrect filters or ADC/DDC routing. Transmit remains
-unavailable.
+therefore select incorrect filters or ADC/DDC routing. An extended TX session
+uses the same effective model and still requires explicit preparation and enable.
 
 The switch has three states: **ON** forces the selected explicit model;
 **OFF** restores normal model/board compatibility checks; **use saved

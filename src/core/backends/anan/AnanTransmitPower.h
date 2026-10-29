@@ -17,8 +17,20 @@ struct TransmitPowerProfile {
     std::array<double,11> gainsDb{};
     std::array<double,11> limitsWatts{};
 };
-inline std::optional<TransmitPowerProfile> defaultTransmitPower(AnanModel model)
+inline std::optional<TransmitPowerProfile> defaultTransmitPower(AnanModel model, int board = -1)
 {
+    if (model == AnanModel::Automatic) {
+        switch (board) {
+        case 1: model = AnanModel::Hermes; break;
+        case 2: model = AnanModel::Anan10E; break;
+        case 3: model = AnanModel::Anan100D; break;
+        case 4: model = AnanModel::Anan200D; break;
+        case 5: model = AnanModel::Anan7000; break;
+        case 10: model = AnanModel::AnanG2; break;
+        case 20: model = AnanModel::AnanG2E; break;
+        default: return {};
+        }
+    }
     TransmitPowerProfile profile;
     // Thetis clsHardwareSpecific.DefaultPAGainsForBands; no measured claim.
     switch (model) {

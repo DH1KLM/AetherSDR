@@ -49,6 +49,11 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
         m_transmitOperation = {};
         emit transmitFault(reason);
     });
+    connect(m_p1, &P1Client::transmitFault, this, [this](const QString& reason) {
+        if (m_protocol != 1) { return; }
+        clearTransmitAudio(); m_transmitKeyed = false; m_transmitOperation = {};
+        emit transmitFault(reason);
+    });
 }
 
 bool AnanClient::start(const Params& params, int timeoutMs)

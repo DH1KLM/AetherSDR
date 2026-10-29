@@ -179,20 +179,22 @@ is not automatic during receive-only startup.
 
 `AnanBackend` carries the canonical keying command and processed-audio seam to
 that adapter on the existing I/O thread. It verifies protocol, model and prepared
-mode, and limits queued PCM to 8192 bytes. Shared RAII credits return that budget
+mode, and limits queued PCM to two seconds at 24 kHz per queue. Shared RAII credits return that budget
 even when Qt discards a queued delivery, while connection changes replace the
 budget ledger. Completion marks local queue consumption only, not radio idle.
 
-The transport covers native board IDs 1–5, 10 and 20. Ambiguous IDs 5 and 10
-require explicit model selection. ANAN-200D explicitly overridden on board ID 5
-uses the Orion/legacy ALEX TX profile, matching native board ID 4. Other
-cross-board receive overrides, Red Pitaya,
-Anvelina Pro III and G2 1K have no TX admission. Receive support is unchanged.
-The original Saturn backend remains receive-only and unchanged. The extended
-backend admits ANAN-200D P2 USB/LSB only after explicit per-connection session
-enable. Native board ID 4 and the explicit board-5 200D override use legacy ALEX.
-Other models remain unadmitted. TUNE, microphone gain, finite-stream drain,
-calibrated RF power, P1 TX and hardware qualification remain open.
+The transport covers the validated receive-model mappings, including explicit
+cross-board overrides and automatic physical-board selection. ANAN-200D overrides
+use Orion/legacy ALEX TX control. P1 carries native 48 kHz L/R/I/Q frames; P2
+carries 192 kHz IQ. The original Saturn backend remains receive-only and unchanged.
+The extended backend requires explicit per-connection session enable for voice,
+DIGU/DIGL, AM/SAM, DSB, FM, CW and TUNE. Carrier generation retains
+the operator grant at each terminal write, with 5 ms CW edges. Finite audio gets
+a bounded DSP flush and a drain estimate based on queued PCM plus transport
+margin. Digital modes follow HL2: TCI audio, WSPR and AetherModem reuse the host
+PCM seam without speech gain or level makeup. RADE/FreeDV, D-STAR and DRM modem
+integration is outside this change; the Flex waveform services are not ported.
+Measured RF power, radio microphone/PTT and hardware qualification remain open.
 
 The extended Setup also provides an operator PA-profile table and a calculation
 preview, through `anan.txpower.*` extensions. One versioned `TransmitPower`
@@ -212,7 +214,7 @@ The UI includes only backend-neutral model/seam headers; it adds no wire path.
 `anan-dsp-build` worker and stages it in `AnanClient` on the existing I/O thread.
 Staging has no P2 configuration or enable side effect. A separate transport-
 configured flag refuses keying even with a valid operation while only a staged
-channel exists. The desktop still advertises receive-only.
+channel exists. The desktop advertises TX only after explicit session enable.
 
 Shared handles defer the final destruction of DSP resources to the planner,
 including cancelled or dropped queued transfers. Completion carries only a
@@ -225,7 +227,7 @@ failed preparation and replacement also use the same retirement ownership.
 
 `AnanClient::setTransmitPower` converts an operator percentage into a fraction of
 the selected band's configured watt limit, then applies the Thetis logarithmic
-PA gain mapping. It updates P2 HP drive byte 345 only inside the existing keyed
+PA gain mapping. It updates P2 HP drive byte 345 or P1 bank 0x12 only inside the existing keyed
 operation. A foreign or expired operation cannot change drive; a disabled band
 or invalid profile stops the owner's transmission. P2 reuses its guarded HP
 writer, so the update retains the original dispatch lease and cannot key an
@@ -233,15 +235,16 @@ idle transmitter. This internal path is tested with native and overridden 200D
 transport profiles; it is wired to the explicitly enabled desktop voice session.
 The original `anan_original` backend and its dependencies remain outside this work.
 
-### Desktop voice-session admission
+### Desktop transmit-session admission
 
 `txsession.enable` captures the connection/mode/VFO/band-plan identity, explicit
 TX antenna and exact stored PA profile. Admission requires one primary slice,
-a prepared USB/LSB DSP, a nonzero current-band limit up to 100 W and continuous regional-plan
-coverage of the fixed TX filter. The I/O acknowledgment enables `canTransmit`;
+a prepared DSP for the current supported mode, a positive current-band operator
+power limit and continuous regional-plan coverage of the mode's occupied bandwidth
+and carrier. The I/O acknowledgment enables `canTransmit`;
 configuration itself never keys. Session permission is atomic and nonpersistent,
-and RF power intent is reset to zero. An absent TuneCarrierControl keeps existing
-backend behavior; ANAN explicitly declares no carrier modes until TUNE exists.
+and RF power intent is reset to zero. TuneCarrierControl offers its carrier only
+while that session is current.
 
 MOX/PTT still travels through RadioModel and TxCoordinator. The I/O adapter
 checks the original queued grant before using its restricted held-keying fence.
@@ -250,7 +253,7 @@ without accepting a foreign coordinator or an old generation. Capability
 withdrawal cancels active model intent. Disable invalidates queued audio/key-on
 before queuing transport off; it does not claim radio-idle evidence. Frequency,
 mode, configuration changes and link loss withdraw the session. Pending and new
-radio-speaker samples are zeroed while the P2 gate is keyed.
+radio-speaker samples are zeroed while the P1 or P2 gate is keyed.
 
 P1 and P2 request SO_RCVBUF 0xFA000 after bind and log the actual OS readback.
 The shared helper is checked on a local ephemeral UDP socket without sending

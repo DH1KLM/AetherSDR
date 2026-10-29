@@ -1,5 +1,6 @@
 #include "core/backends/anan/AnanClient.h"
 #include "core/backends/anan/AnanFilterOptions.h"
+#include "core/backends/anan/AnanP1TxControl.h"
 
 #include <QStringList>
 #include <QLoggingCategory>
@@ -539,6 +540,58 @@ void adc1RoutingAndFilters() {
     }
 }
 }
+void nativeTransmit()
+{
+    using AetherSDR::TxCoordinator;
+    for (const auto board : {std::pair{1,1}, {2,2}, {4,3}, {5,4}, {10,5}, {20,20}}) {
+        std::vector<QByteArray> packets;
+        P1Client client;
+        check(P1ClientTestAccess::prepare(client, params(board.second), packets), "P1 TX fixture prepares");
+        P1ClientTestAccess::feed(client, discovery(board.first));
+        P1ClientTestAccess::feed(client, iq(P1ClientTestAccess::config(client).receivers));
+        P2TxControl control;
+        control.frequencyHz = 7'100'000; control.drive = 17;
+        control.antenna = 2; control.disablePa = false;
+        check(client.configureTransmit(control) && client.enableTransmit(true), "P1 board arms without keying");
+        check(!client.transmitActive() && (static_cast<unsigned char>(packets.back()[11]) & 1) == 0,
+              "P1 session enable leaves MOX clear");
+        TxCoordinator coordinator([](const auto&, auto) {});
+        const auto actor = coordinator.registerActor({true,0});
+        const auto operation = coordinator.acquire(actor, TxCoordinator::monotonicMs()).operation;
+        const auto producer = coordinator.registerProducer(true);
+        const auto context = coordinator.mediaContext(producer);
+        check(client.setTransmitKeying(true, operation), "explicit live intent keys P1");
+        const QByteArray keyed = packets.back();
+        check((static_cast<unsigned char>(keyed[11]) & 1) != 0 && keyed[524] == 17,
+              "P1 MOX and drive occupy their native control banks");
+        std::array<std::complex<float>,126> samples;
+        samples.fill({0.25f,-0.25f});
+        check(client.enqueueTransmitIq(samples, operation, context), "P1 accepts live IQ");
+        P1ClientTestAccess::drain(client, 10'000'000);
+        bool found = false;
+        for (const auto& packet : packets) {
+            if (packet.size() == 1032 && static_cast<unsigned char>(packet[20]) == 0x20
+                && packet[21] == 0 && static_cast<unsigned char>(packet[22]) == 0xe0 && packet[23] == 0) { found = true; }
+        }
+        check(found, "P1 native signed big-endian I/Q reaches EP2 L,R,I,Q slots");
+        client.setCarrier(true,true);
+        check(!client.enqueueTransmitIq(samples, operation, context), "carrier cannot mix stale microphone IQ");
+        check(client.setTransmitKeying(false, operation) && !client.transmitActive(), "P1 operator release clears keying");
+        check((static_cast<unsigned char>(packets.back()[11]) & 1) == 0, "P1 off restores receive controls");
+        producer.invalidate();
+        check(!client.enqueueTransmitIq(samples, operation, context), "released producer cannot append P1 IQ");
+        check(client.setTransmitKeying(true, operation), "P1 next key can start after successful off");
+        P1ClientTestAccess::refuseWrites(client);
+        check(!client.updateTransmitDrive(20, operation) && !client.transmitActive(), "P1 write failure closes TX gate");
+        P1ClientTestAccess::acceptWrites(client, packets);
+        client.stop();
+    }
+    p1::ReceiveConfig receive;
+    P2TxControl control; control.frequencyHz = 7'100'000;
+    std::array<std::complex<float>,1> invalid{{{std::numeric_limits<float>::quiet_NaN(),0}}};
+    check(!buildP1Transmit(receive,control,true,0,0,0x12,invalid), "P1 rejects nonfinite IQ before encoding");
+    check(buildP1Transmit(receive,control,false,0,0,0x12,invalid).has_value(), "P1 off ignores discarded media");
+}
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     QLoggingCategory::setFilterRules(QStringLiteral("aether.*.debug=false"));
@@ -707,5 +760,6 @@ int main(int argc, char** argv) {
           && sessionLog.filter(QStringLiteral("RX IQ started")).size() > 0
           && sessionLog.filter(QStringLiteral("connection failed")).size() > 0,
           "P1 application logs distinguish validated discovery, first IQ and failures");
+    nativeTransmit();
     std::cout << "ANAN P1 transport checks passed\n";
 }

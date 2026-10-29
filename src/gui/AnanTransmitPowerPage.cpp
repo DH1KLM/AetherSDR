@@ -23,7 +23,7 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
 {
     auto* page = new QWidget(parent);
     auto* layout = new QVBoxLayout(page);
-    auto* hint = new QLabel(QStringLiteral("Experimental ANAN-200D P2 voice TX: save a PA profile, prepare the USB/LSB DSP, select the TX antenna, then enable TX for this connection. Enabling does not key the radio. RF Power starts at 0%; use MOX/PTT to transmit. TUNE is unavailable. Thetis gains are reference values, not PA measurements."),page);
+    auto* hint = new QLabel(QStringLiteral("ANAN P1/P2 TX: save a PA profile, prepare the DSP for the selected mode, select the TX antenna, then enable TX for this connection. Enabling does not key the radio. RF Power starts at 0%; use MOX/PTT, CW or TUNE to transmit. Local digital modems use DIGU/DIGL. Thetis gains are reference values, not PA measurements."),page);
     hint->setWordWrap(true);
     layout->addWidget(hint);
     auto* group = new QGroupBox(QStringLiteral("Transmit power profile"),page);
@@ -153,14 +153,14 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
             defaults->setEnabled(!armed && !arming);
             preview->setEnabled(!armed && !arming);
             sessionStatus->setText(arming ? QStringLiteral("Enabling TX session; radio is not keyed.")
-                : armed ? QStringLiteral("TX enabled: Slice A, %1 MHz, ANT%2, band limit %3 W. MOX/PTT controls transmission; TUNE is unavailable.")
+                : armed ? QStringLiteral("TX enabled: Slice A, %1 MHz, ANT%2, band limit %3 W. MOX/PTT, CW and TUNE control transmission.")
                     .arg(session.value(QStringLiteral("frequencyHz")).toDouble()/1e6,0,'f',6)
                     .arg(session.value(QStringLiteral("antenna")).toInt())
                     .arg(session.value(QStringLiteral("limitWatts")).toDouble())
                 : QStringLiteral("TX disabled. %1").arg(reason));
             prepareDsp->setEnabled(supported && !preparing && !armed && !arming);
             prepareDsp->setAccessibleDescription(supported ? QStringLiteral("Builds a DSP channel without keying or sending radio packets")
-                : QStringLiteral("Requires an idle supported P2 radio in USB or LSB"));
+                : QStringLiteral("Requires an idle supported P1/P2 radio and a supported transmit mode"));
             cancelDsp->setEnabled((preparing || ready) && !armed && !arming);
             const QString failure = preparation.value(QStringLiteral("error")).toString();
             dspStatus->setText(preparing ? QStringLiteral("Preparing TX DSP on the planning worker. Transmission remains disabled.")

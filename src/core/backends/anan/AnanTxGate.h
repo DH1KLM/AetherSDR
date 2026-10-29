@@ -87,6 +87,17 @@ public:
         return true;
     }
 
+    // Operator-owned carrier/control writes have no external PCM producer.
+    template<class Writer>
+    bool writeCarrier(const TxCoordinator::Operation& operation, qint64 now, Writer&& writer)
+    {
+        if (!m_enabled || !m_keyed || m_stopPending || !operation.sameAuthority(m_operation)) { return false; }
+        const auto dispatch = m_operation.beginDispatch(now);
+        if (!dispatch) { return false; }
+        if (!writer()) { m_keyed = false; m_stopPending = true; return false; }
+        return true;
+    }
+
     // Only after transport teardown: this retires local command state and
     // deliberately leaves the next session disabled. It does not acknowledge RF idle.
     void transportClosed() noexcept

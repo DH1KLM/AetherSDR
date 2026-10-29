@@ -24,17 +24,7 @@ struct P2TxControl {
 inline std::optional<ReceiveProfile> p2TransmitProfile(int board, AnanModel model,
                                                      bool overrideDetection = false) noexcept
 {
-    // An explicitly selected 200D uses Thetis Orion/legacy ALEX, including
-    // the operator's board-5 override. Discovery alone never selects this path.
-    if (overrideDetection && model == AnanModel::Anan200D && board == 5) {
-        return receiveProfile(4);
-    }
-    if (!modelMatchesBoard(model, board) || model == AnanModel::RedPitaya
-        || model == AnanModel::AnvelinaPro3 || model == AnanModel::AnanG21K
-        || (model == AnanModel::Automatic && (board == 5 || board == 10))) {
-        return std::nullopt;
-    }
-    return receiveProfile(board);
+    return receiveProfile(board,model,overrideDetection);
 }
 
 inline bool validP2TxControl(const P2TxControl& control) noexcept
