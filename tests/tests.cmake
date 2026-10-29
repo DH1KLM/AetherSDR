@@ -2430,6 +2430,31 @@ add_test(NAME reset_settings_prompts_test COMMAND reset_settings_prompts_test)
 set_tests_properties(reset_settings_prompts_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
 
+# The shortcut editor as a CanonWindow dialog: its scope, and questions that
+# change nothing unless their accepting button is clicked.
+add_executable(shortcut_dialog_test
+    tests/shortcut_dialog_test.cpp
+    src/gui/ShortcutDialog.cpp
+    src/gui/KeyboardMapWidget.cpp
+    src/gui/CanonMessageBox.cpp
+    src/gui/CanonWindow.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/ModemChrome.cpp
+    src/core/ShortcutManager.cpp
+    src/core/ThemeManager.cpp
+    src/core/ThemeSeedGenerated.cpp
+    $<TARGET_OBJECTS:aether_test_settings>
+    $<TARGET_OBJECTS:aether_test_log_manager>
+    $<TARGET_OBJECTS:aether_test_async_log_writer>
+    ${THEME_TEST_RESOURCES}
+)
+target_include_directories(shortcut_dialog_test PRIVATE src)
+target_link_libraries(shortcut_dialog_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+set_target_properties(shortcut_dialog_test PROPERTIES AUTOMOC ON)
+add_test(NAME shortcut_dialog_test COMMAND shortcut_dialog_test)
+set_tests_properties(shortcut_dialog_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # CanonApplet, CanonPan and CanonCanvas (RFC #6226): the canon ground with
 # square corners inside the main window; the close button only requests.
 add_executable(canon_surface_test
@@ -10026,6 +10051,7 @@ set(AETHER_SETTINGS_CONSUMERS
     canon_window_test
     callsign_lookup_dialog_test
     canon_message_box_test
+    shortcut_dialog_test
     reset_settings_prompts_test
     canon_surface_test
     kpa500_applet_test
