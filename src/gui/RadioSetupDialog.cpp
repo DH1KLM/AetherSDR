@@ -1,3 +1,4 @@
+#include "AnanControllersPage.h"
 #include "core/DroopCalibration.h"
 // The ANAN connection defaults' ONE ANAN dependency. Tagged ui-support precisely so
 // a setup page may include it; the family's protocol header is vendor(anan) and
@@ -8178,6 +8179,8 @@ QWidget* RadioSetupDialog::buildSerialTab()
     auto* vbox = new QVBoxLayout(page);
     vbox->setSpacing(8);
     vbox->setContentsMargins(8, 8, 8, 8);
+
+    vbox->addWidget(createAnanControllersPage(m_model, page));
 
     auto& settings = AppSettings::instance();
 

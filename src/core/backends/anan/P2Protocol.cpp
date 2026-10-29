@@ -453,6 +453,7 @@ std::optional<HighPriorityStatus> parseHighPriorityStatus(
     if (data.size() != kHighPriorityStatusBytes)
         return std::nullopt;
     HighPriorityStatus s;
+    s.paCurrentCounts = readU16be(data.data() + 55);
     s.forwardPowerCounts = readU16be(data.data() + 14);
     s.reversePowerCounts = readU16be(data.data() + 22);
     s.seq = readU32be(data.data());

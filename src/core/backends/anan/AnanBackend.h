@@ -1,4 +1,5 @@
 #pragma once
+#include "AnanVitals.h"
 
 #include "core/Resampler.h"
 #include "core/backends/IRadioBackend.h"
@@ -446,6 +447,13 @@ private:
     // of every count since the last publication, once a second. A plain mean
     // and not the S-meter's attack/decay: the readout wants the rail's level,
     // and one packet alone wanders by about +/-11 counts (+/-0.3 V) on the bench.
+    VitalConfig m_vitalConfig;
+    qint64 m_currentWindowMs = -1;
+    qint64 m_currentCountsSum = 0;
+    int m_currentSamples = 0;
+    bool vitalsEnabled() const;
+    void onPaCurrentCounts(int counts);
+    void onPaCurrentCountsAt(int counts, qint64 nowMs);
     void onSupplyRailCounts(int counts);
     // The clocked half of the above, publication included, so the window and
     // the meter it feeds are testable against an injected time.

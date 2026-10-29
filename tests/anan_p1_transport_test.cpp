@@ -741,7 +741,9 @@ int main(int argc, char** argv) {
         auto settings = params(4);
         check(P1ClientTestAccess::prepare(client, settings, writes), "P1 RF fixture prepares");
         P1ClientTestAccess::feed(client, discovery(5));
-        int pairs = 0;
+        int pairs = 0, voltage = -1, current = -1;
+        QObject::connect(&client, &P1Client::supplyRailSampled, [&](int counts) { voltage = counts; });
+        QObject::connect(&client, &P1Client::paCurrentSampled, [&](int counts) { current = counts; });
         QObject::connect(&client, &P1Client::rfPowerSampled, [&](int forward, int reverse) {
             check(forward == 1004 && reverse == 102, "P1 directional ADCs use status banks08 and10");
             ++pairs;
@@ -749,8 +751,12 @@ int main(int argc, char** argv) {
         auto status = iq(5);
         status[11] = 0x08; status[14] = 3; status[15] = 0xec;
         status[523] = 0x10; status[524] = 0; status[525] = 102;
+        status[526] = 2; status[527] = 27;
         P1ClientTestAccess::feed(client, status);
         check(pairs == 1, "P1 reports a paired forward and reflected sample");
+        auto amps = iq(5, 1); amps[11] = 0x18; amps[12] = 2; amps[13] = 153;
+        P1ClientTestAccess::feed(client, amps);
+        check(voltage == 539 && current == 665, "P1 separates AIN3 rail and AIN4 current status banks");
     }
     qInstallMessageHandler(previousHandler);
     {

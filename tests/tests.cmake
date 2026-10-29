@@ -3958,6 +3958,7 @@ add_executable(flex_control_visibility_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -3988,6 +3989,7 @@ add_executable(radio_setup_no_transient_window_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -4030,6 +4032,7 @@ add_executable(radio_setup_region_field_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -4060,6 +4063,7 @@ add_executable(radio_setup_operations_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/TxBandDialog.cpp
@@ -4097,6 +4101,7 @@ add_executable(radio_setup_label_theme_token_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -4127,6 +4132,7 @@ add_executable(radio_setup_window_size_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -4157,6 +4163,7 @@ add_executable(radio_setup_pair_grid_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -4193,6 +4200,7 @@ add_executable(radio_setup_max_power_field_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -4226,6 +4234,7 @@ add_executable(radio_setup_tx_timing_fields_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -4260,6 +4269,7 @@ add_executable(radio_setup_recording_mode_dim_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -4295,6 +4305,7 @@ add_executable(radio_setup_headphone_output_gate_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -4326,6 +4337,7 @@ add_executable(radio_setup_anan_sample_rate_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -4365,6 +4377,7 @@ add_executable(radio_nickname_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -4436,6 +4449,7 @@ add_executable(radio_setup_show_tx_waterfall_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
@@ -5943,6 +5957,7 @@ add_executable(peripheral_auth_dialog_test
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/CanonWindow.cpp
@@ -10875,3 +10890,8 @@ if(HAVE_PIPEWIRE)
     target_link_libraries(pipewire_rx_bridge_test PRIVATE aethercore Qt6::Core)
     add_test(NAME pipewire_rx_bridge_test COMMAND pipewire_rx_bridge_test)
 endif()
+
+add_executable(front_panel_protocol_test tests/front_panel_protocol_test.cpp)
+target_include_directories(front_panel_protocol_test PRIVATE src)
+target_link_libraries(front_panel_protocol_test PRIVATE Qt6::Core)
+add_test(NAME front_panel_protocol_test COMMAND front_panel_protocol_test)

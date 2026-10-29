@@ -1270,6 +1270,7 @@ set(MODEL_SOURCES
     src/models/AprsDigipeaterModel.cpp
     src/models/Nr2SettingsModel.cpp
     src/models/Rn2SettingsModel.cpp
+    src/models/FrontPanelModel.cpp
     src/models/RadioModel.cpp
     src/models/RadioModel_Setup.cpp
     src/models/RadioModel_Utilities.cpp
@@ -1388,6 +1389,7 @@ set(GUI_SOURCES
     src/gui/CanonPrompt.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/RadioSetupDialog_Saturn.cpp
+    src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/RtlReceiverSettingsWidget.cpp

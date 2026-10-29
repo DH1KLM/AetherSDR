@@ -159,6 +159,13 @@ struct AnanClientTestAccess {
 // window, against an injected clock rather than a status packet every 200 ms.
 class AnanSupplyRailTestAccess {
 public:
+    static void currentFixture(AnanBackend& backend) {
+        backend.m_connected = true; backend.m_discoveryInfoReceived = true;
+        backend.m_discoveredBoardId = 5; backend.m_pendingParams.model = AnanModel::Anan7000;
+        backend.m_vitalConfig = defaultVitals(AnanModel::Anan7000);
+    }
+    static void currentAt(AnanBackend& backend, int counts, qint64 ms) { backend.onPaCurrentCountsAt(counts, ms); }
+
     static void defineMeters(AnanBackend& backend) { backend.defineMeters(); }
     static void countsAt(AnanBackend& backend, int counts, qint64 nowMs)
     {
@@ -1346,9 +1353,7 @@ int main(int argc, char** argv)
               " claim the status bar withdraws its readout on");
         check(!caps.hasPaTemperatureTelemetry,
               "and no temperature is claimed as received");
-        check(caps.hasSupplyVoltageTelemetry,
-              "the supply rail is claimed, which is what keeps the status bar's"
-              " volts row up while the temperature row is withdrawn");
+        check(!caps.hasSupplyVoltageTelemetry, "unidentified automatic model does not guess voltage/current sensor hardware");
         check(!caps.hasPaCurrentTelemetry,
               "no PA drain current is claimed");
     }
@@ -1516,6 +1521,27 @@ int main(int argc, char** argv)
         restored.setSliceFrequency(0, 7'150'000);
         check(!recalled.isEmpty() && recalled.back().front().value<TransmitDelta>().rfPower == 8,
               "persisted per-band operator values restore without keying");
+    }
+    {
+        AnanBackend backend;
+        AnanSupplyRailTestAccess::currentFixture(backend);
+        const auto caps = backend.capabilities();
+        check(caps.hasSupplyVoltageTelemetry && caps.hasPaCurrentTelemetry && caps.paTelemetryAudit
+              && caps.paTelemetryAudit->currentSampling == RadioCapabilities::PaTelemetryAudit::CurrentSampling::ReceiveAndTransmit,
+              "7000 model advertises voltage and live RX/TX current sampling");
+        int readings = 0; double amps = -1;
+        QObject::connect(&backend, &IRadioBackend::meterUpdate, [&](const QString& name, double value) {
+            if (name == QLatin1String("RAD:PACURRENT")) { ++readings; amps = value; }
+        });
+        AnanSupplyRailTestAccess::currentAt(backend, 1000, 0);
+        AnanSupplyRailTestAccess::currentAt(backend, 1100, 250);
+        check(readings == 0, "current averaging waits for its sampling window");
+        AnanSupplyRailTestAccess::currentAt(backend, 1000, 499);
+        AnanSupplyRailTestAccess::currentAt(backend, 1100, 500);
+        check(readings == 1 && std::abs(amps - *paCurrentAmps(1050, defaultVitals(AnanModel::Anan7000))) < 1e-9,
+              "current meter publishes the 500ms mean using the selected model sensor scale");
+        AnanSupplyRailTestAccess::currentAt(backend, 4096, 1100);
+        check(readings == 1, "invalid current ADC data cannot fabricate a meter update");
     }
     if (g_failures == 0)
         std::fprintf(stderr, "anan_backend_test: all checks passed\n");

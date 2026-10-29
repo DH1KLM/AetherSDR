@@ -5110,8 +5110,11 @@ void MainWindow::updatePaTempLabel()
         // (TransmitModel.cpp), m_transmitting only by client setMox(), so keying
         // an Icom at the radio sets only m_mox. Same predicate as the other
         // keyed-state checks: isTransmitting() || isTuning() || isMox().
+        const auto audit = m_radioModel.backendCapabilities().paTelemetryAudit;
+        const bool receiveCurrent = audit && audit->currentSampling
+            == RadioCapabilities::PaTelemetryAudit::CurrentSampling::ReceiveAndTransmit;
         const bool liveTxCurrent =
-            (m_radioModel.transmitModel().isTransmitting()
+            (receiveCurrent || m_radioModel.transmitModel().isTransmitting()
              || m_radioModel.transmitModel().isTuning()
              || m_radioModel.transmitModel().isMox())
             && meters.hasPaCurrent();

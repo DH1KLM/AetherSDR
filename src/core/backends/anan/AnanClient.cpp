@@ -7,6 +7,12 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
     // Ignore deliveries from the inactive transport. Selection is made
     // only after stopping the old session, on this object's own IO thread.
     auto wire = [this]<typename Client>(Client* client, int protocol) {
+        connect(client, &Client::paCurrentSampled, this, [this, protocol](int counts) {
+            if (m_protocol == protocol) { emit paCurrentSampled(counts); }
+        });
+        connect(client, &Client::supplyRailSampled, this, [this, protocol](int counts) {
+            if (m_protocol == protocol) { emit supplyRailSampled(counts); }
+        });
         connect(client, &Client::rfPowerSampled, this, [this, protocol](int forward, int reverse) {
             if (m_protocol == protocol) { emit rfPowerSampled(forward, reverse); }
         });
@@ -43,9 +49,6 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
             });
     };
     wire(m_p1, 1); wire(m_p2, 2);
-    connect(m_p2, &P2Client::supplyRailSampled, this, [this](int counts) {
-        if (m_protocol == 2) emit supplyRailSampled(counts);
-    });
     connect(m_p2, &P2Client::transmitFault, this, [this](const QString& reason) {
         clearTransmitAudio();
         m_transmitKeyed = false;

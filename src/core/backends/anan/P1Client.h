@@ -54,6 +54,8 @@ public:
     [[nodiscard]] std::size_t transmitQueueFreeSamples() const { return m_txIq.size() - m_txCount; }
 
 signals:
+    void supplyRailSampled(int counts);
+    void paCurrentSampled(int counts);
     void rfPowerSampled(int forward, int reverse);
     void transmitFault(const QString& reason);
     void linkUp();
@@ -107,6 +109,8 @@ private:
     std::optional<std::uint32_t> m_expectedSequence;
     std::optional<int> m_forwardPowerCounts;
     qint64 m_lastRfPowerMs = -1;
+    qint64 m_lastVoltageMs = -1;
+    qint64 m_lastCurrentMs = -1;
     std::uint32_t m_txSequence = 0;
     LinkCounters m_counters;
     bool m_running = false;

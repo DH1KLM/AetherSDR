@@ -67,6 +67,7 @@
 #include <QElapsedTimer>
 
 namespace AetherSDR {
+class FrontPanelModel;
 class TxController;
 class IAutoRfGainControl;
 
@@ -120,6 +121,7 @@ public:
     explicit RadioModel(QObject* parent = nullptr);
     AprsDigipeaterModel* aprsDigipeater();
     ~RadioModel() override;
+    FrontPanelModel& frontPanel();
 
     // Access the underlying connection and panadapter stream
     RadioConnection*  connection()  { return m_connection; }
@@ -1775,6 +1777,7 @@ private:
     // setupBackend(); compared against the picked radio's RadioInfo::family to
     // decide whether a connect needs a different backend.
     QString m_family;
+    std::unique_ptr<FrontPanelModel> m_frontPanel;
     std::unique_ptr<IRadioBackend> m_backend;
     std::unique_ptr<AprsDigipeaterModel> m_aprsDigipeater;
     // Health that survives disconnection, so it lives here rather than in the

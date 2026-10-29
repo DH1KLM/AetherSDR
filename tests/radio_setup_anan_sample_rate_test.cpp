@@ -1,3 +1,5 @@
+#include "gui/AnanControllersPage.h"
+#include "models/FrontPanelModel.h"
 #include "TestSettingsProfile.h"
 #include "core/backends/anan/AnanBackend.h"
 #include "core/backends/anan/AnanSettings.h"
@@ -11,6 +13,8 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QCheckBox>
+#include <QGroupBox>
+#include <QEvent>
 #include <QRadioButton>
 #include <QDoubleSpinBox>
 #include <QPushButton>
@@ -27,6 +31,21 @@
 #include <atomic>
 #include <functional>
 
+namespace AetherSDR {
+class FrontPanelTestAccess {
+public:
+    static void prepare(FrontPanelModel& panel, const QString& action) {
+        panel.m_retry.stop();
+        QObject::disconnect(&panel.m_model, &RadioModel::capabilitiesChanged, &panel, nullptr);
+        QCoreApplication::removePostedEvents(&panel, QEvent::MetaCall);
+        panel.m_identified = true;
+        panel.m_bindings.insert(QStringLiteral("p44"), QJsonObject{
+            {QStringLiteral("action"), action}, {QStringLiteral("target"), 0}});
+    }
+    static void feed(FrontPanelModel& panel, const QByteArray& bytes) { panel.consume(bytes); }
+    static void close(FrontPanelModel& panel) { panel.closeTransport(); }
+};
+}
 using namespace AetherSDR;
 namespace AetherSDR::anan {
 struct TxSessionTrace {
@@ -272,6 +291,51 @@ int main(int argc, char** argv)
         check(!backend->capabilities().canTransmit, "unsupported TX mode remains closed");
         backend->setSliceMode(0,QStringLiteral("USB"));
         check(await([&] { return backend->capabilities().canTransmit; }), "return to a supported mode restores readiness without buttons");
+        {
+            std::unique_ptr<QWidget> controllers(createAnanControllersPage(&model, nullptr));
+            controllers->show(); app.processEvents();
+            auto* nativeGroup = controllers->findChild<QGroupBox*>(QStringLiteral("ananFrontPanelGroup"));
+            auto* types = controllers->findChild<QComboBox*>(QStringLiteral("ananFrontPanelType"));
+            auto* diy = controllers->findChild<QCheckBox*>(QStringLiteral("ananDiyVitalSensors"));
+            auto* applySensors = controllers->findChild<QPushButton*>(QStringLiteral("ananVitalSensorsApply"));
+            check(nativeGroup && nativeGroup->isVisible() && types && types->count() == 2,
+                  "ANAN controller setup offers USB Andromeda and TCP G2-V2");
+            check(diy && applySensors && !backend->capabilities().hasPaCurrentTelemetry,
+                  "200D override has no native 7000 current sensor claim");
+            if (diy && applySensors) {
+                diy->setChecked(true); applySensors->click();
+                check(await([&] { return backend->capabilities().hasPaCurrentTelemetry; }),
+                      "explicit DIY enable activates voltage/current capability without keying");
+                diy->setChecked(false); applySensors->click();
+                check(await([&] { return !backend->capabilities().hasPaCurrentTelemetry; }),
+                      "DIY disable withdraws unsupported current display");
+            }
+        }
+        app.processEvents();
+        {
+            auto& panel = model.frontPanel();
+            FrontPanelTestAccess::prepare(panel, QStringLiteral("mox"));
+            const int beforePanel = trace.keyOn.load();
+            FrontPanelTestAccess::feed(panel, "ZZTX1;ZZZS;ZZZE000;");
+            check(trace.keyOn.load() == beforePanel, "queries and malformed panel frames cannot key TX");
+            panel.setLearning(true);
+            FrontPanelTestAccess::feed(panel, "ZZZP441;");
+            check(trace.keyOn.load() == beforePanel, "panel learn mode suppresses TX input");
+            panel.setLearning(false);
+            FrontPanelTestAccess::feed(panel, "ZZZP441;");
+            check(await([&] { return trace.lastKey.load() == 1; }), "fresh physical panel MOX uses the producer admission gate");
+            FrontPanelTestAccess::feed(panel, "ZZZP440;ZZZP441;");
+            check(await([&] { return trace.lastKey.load() == 0; }), "panel MOX toggle releases its own captured request");
+            FrontPanelTestAccess::feed(panel, "ZZZP440;");
+            FrontPanelTestAccess::prepare(panel, QStringLiteral("pttHold"));
+            FrontPanelTestAccess::feed(panel, "ZZZP441;");
+            check(await([&] { return trace.lastKey.load() == 1; }), "panel held PTT is admitted explicitly");
+            FrontPanelTestAccess::close(panel);
+            check(await([&] { return trace.lastKey.load() == 0; }), "panel disconnect cancels its held PTT");
+            const int stoppedPanel = trace.keyOn.load();
+            FrontPanelTestAccess::feed(panel, "ZZZP441;"); app.processEvents();
+            check(trace.keyOn.load() == stoppedPanel, "an unidentified disconnected panel cannot replay an old key");
+        }
         check(await([&] { return save->isEnabled(); }), "idle profile can be edited");
         static_cast<QDoubleSpinBox*>(table->cellWidget(5,2))->setValue(0); save->click();
         check(await([&] { return !backend->capabilities().canTransmit; }), "zero band power limit still prevents TX");

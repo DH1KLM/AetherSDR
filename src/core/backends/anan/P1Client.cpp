@@ -257,6 +257,16 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
     }
     m_expectedSequence = frame->sequence + 1;
     for (const auto& status : frame->status) {
+        const qint64 elapsed = m_clock.elapsed();
+        if ((status[0] & 0xf8) == 0x10 && (m_lastVoltageMs < 0 || elapsed - m_lastVoltageMs >= 50)) {
+            m_lastVoltageMs = elapsed;
+            emit supplyRailSampled((int(status[3]) << 8) | status[4]);
+        }
+        if ((status[0] & 0xf8) == 0x18 && (m_lastCurrentMs < 0 || elapsed - m_lastCurrentMs >= 50)) {
+            m_lastCurrentMs = elapsed;
+            emit paCurrentSampled((int(status[1]) << 8) | status[2]);
+        }
+
         if ((status[0] & 0xf8) == 0x08) {
             m_forwardPowerCounts = (int(status[3]) << 8) | status[4];
         } else if ((status[0] & 0xf8) == 0x10 && m_forwardPowerCounts) {

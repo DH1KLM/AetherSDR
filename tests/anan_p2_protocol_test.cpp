@@ -1427,8 +1427,9 @@ int main()
         check(bad && bad->swr && *bad->swr >= 10, "reflected power above forward is a bad match");
         std::array<std::uint8_t, kHighPriorityStatusBytes> packet{};
         packet[14] = 3; packet[15] = 0xec; packet[22] = 0; packet[23] = 102;
+        packet[55] = 2; packet[56] = 153;
         const auto status = parseHighPriorityStatus(packet);
-        check(status && status->forwardPowerCounts == 1004 && status->reversePowerCounts == 102,
+        check(status && status->forwardPowerCounts == 1004 && status->reversePowerCounts == 102 && status->paCurrentCounts == 665,
               "P2 reads directional ADCs at Thetis byte offsets14 and22");
     }
     if (g_failures == 0)

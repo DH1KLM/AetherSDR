@@ -69,6 +69,7 @@ signals:
     void ddcSequenceGap(int ddcIndex);
     void linkCountersUpdated(const P2Client::LinkCounters& counters);
     void discoveryInfoReceived(quint8 boardId, quint8 firmwareVer, quint8 reportedReceivers);
+    void paCurrentSampled(int counts);
     void rfPowerSampled(int forward, int reverse);
     void supplyRailSampled(int counts);
 private:

@@ -379,6 +379,7 @@ AnanBackend::AnanBackend(QObject* parent)
             &AnanBackend::onLinkCounters);
     // Queued onto this thread, like the snapshot above: the meter seam's
     // signals are emitted from the backend's own thread.
+    connect(m_client, &AnanClient::paCurrentSampled, this, &AnanBackend::onPaCurrentCounts);
     connect(m_client, &AnanClient::rfPowerSampled, this, [this](int forward, int reverse) {
         if (!m_connected) { return; }
         const auto reading = rfPowerReading(m_pendingParams.model, m_discoveredBoardId,
@@ -566,8 +567,8 @@ RadioCapabilities AnanBackend::capabilities() const
     // the input is not the one the spec calls "supply voltage".
     // Do not generalize the measured 5 V slow-ADC scaling to
     // Hermes/Angelia's 3.3 V hardware before its telemetry is qualified.
-    c.hasSupplyVoltageTelemetry = m_pendingParams.protocol == 2
-        && (!m_discoveryInfoReceived || effectiveBoardId() == 5 || effectiveBoardId() == 10);
+    c.hasSupplyVoltageTelemetry = vitalsEnabled();
+    c.hasPaCurrentTelemetry = vitalsEnabled();
     //
     // There is NO PA temperature in this protocol. The radio's whole analog
     // payload is six fields and none of them is a temperature, so the readout
@@ -575,7 +576,9 @@ RadioCapabilities AnanBackend::capabilities() const
     // hasPaTemperatureTelemetry stays false on its own (nothing is received);
     // this says the stronger thing -- that nothing CAN be.
     c.paTelemetryAudit = RadioCapabilities::PaTelemetryAudit{
-        /*temperatureAbsent=*/true};
+        /*temperatureAbsent=*/true, vitalsEnabled()
+            ? RadioCapabilities::PaTelemetryAudit::CurrentSampling::ReceiveAndTransmit
+            : RadioCapabilities::PaTelemetryAudit::CurrentSampling::TransmitOnly};
     c.canCreateSlices = m_connected;
     c.maxSlices = receiveSliceCeiling();
     c.maxPanadapters = receiveStreamCeiling();
@@ -2241,6 +2244,9 @@ void AnanBackend::publishReceiveAntennas()
 
 void AnanBackend::loadHardwareFilters(int boardId)
 {
+    m_vitalConfig = parseVitals(AnanSettings::vitalTelemetry(m_radioSerial,
+        static_cast<int>(m_pendingParams.model), boardId, m_pendingParams.protocol), m_pendingParams.model, boardId)
+        .value_or(defaultVitals(m_pendingParams.model, boardId));
     m_pendingParams.mic = {};
     const auto* micModel = ananModelInfo(m_pendingParams.model);
     const int micBoard = m_pendingParams.model == AnanModel::Automatic ? boardId : (micModel ? micModel->nativeBoardId : -1);
@@ -2531,6 +2537,28 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         if (verb == QLatin1String("txdsp.cancel")) { cancelTransmitPreparation(); rememberTransmitSession(0); }
         else { prepareTransmitDsp(); }
         emit extensionResult(requestId,transmitPowerState());
+        return;
+    }
+    if (ns == QLatin1String("anan") && (verb == QLatin1String("vitals.get") || verb == QLatin1String("vitals.set"))) {
+        if (!m_connected || !m_discoveryInfoReceived) { emit extensionError(requestId, QStringLiteral("Connect an ANAN first.")); return; }
+        const QString identity = QStringLiteral("%1:%2:%3:%4").arg(m_radioSerial)
+            .arg(static_cast<int>(m_pendingParams.model)).arg(m_discoveredBoardId).arg(m_pendingParams.protocol);
+        if (verb == QLatin1String("vitals.set")) {
+            const auto fields = arg.toMap();
+            const auto config = parseVitals(fields.value(QStringLiteral("options")).toMap(), m_pendingParams.model, m_discoveredBoardId);
+            if (!config || fields.value(QStringLiteral("identity")).toString() != identity
+                || !AnanSettings::setVitalTelemetry(m_radioSerial, static_cast<int>(m_pendingParams.model),
+                    m_discoveredBoardId, m_pendingParams.protocol, vitalOptions(*config))) {
+                emit extensionError(requestId, QStringLiteral("Current-sensor settings are invalid, stale or could not be saved.")); return;
+            }
+            m_vitalConfig = *config;
+            resetSupplyRailWindow();
+            defineMeters();
+            emit capabilitiesChanged();
+        }
+        emit extensionResult(requestId, QVariantMap{{QStringLiteral("identity"), identity},
+            {QStringLiteral("native"), hasNativeVitals(m_pendingParams.model, m_discoveredBoardId)},
+            {QStringLiteral("enabled"), vitalsEnabled()}, {QStringLiteral("options"), vitalOptions(m_vitalConfig)}});
         return;
     }
     if (ns == QLatin1String("anan") && (verb == QLatin1String("txpower.get")
@@ -3077,6 +3105,13 @@ void AnanBackend::defineMeters()
     compression.low = 0.0; compression.high = 25.0;
     compression.description = QStringLiteral("Local ClientComp speech compression");
     emit meterDefined(compression);
+    if (vitalsEnabled()) {
+        MeterDef current;
+        current.index = 10; current.source = QStringLiteral("RAD"); current.name = QStringLiteral("PACURRENT");
+        current.unit = QStringLiteral("Amps"); current.low = 0; current.high = 60;
+        current.description = QStringLiteral("PA current from AIN4 with configured sensor offset and sensitivity");
+        emit meterDefined(current);
+    }
     int rfIndex = 7;
     for (const auto* name : {"FWDPWR", "REFPWR", "SWR"}) {
         MeterDef rf;
@@ -3157,6 +3192,29 @@ int AnanBackend::effectiveBoardId() const
         ? model->nativeBoardId : m_discoveredBoardId;
 }
 
+void AnanBackend::onPaCurrentCounts(int counts)
+{
+    if (!m_supplyRailClock.isValid()) { m_supplyRailClock.start(); }
+    onPaCurrentCountsAt(counts, m_supplyRailClock.elapsed());
+}
+void AnanBackend::onPaCurrentCountsAt(int counts, qint64 now)
+{
+    if (!m_connected || !vitalsEnabled() || !paCurrentAmps(counts, m_vitalConfig)) { return; }
+    if (m_currentWindowMs < 0) { m_currentWindowMs = now; }
+    m_currentCountsSum += counts; ++m_currentSamples;
+    if (now - m_currentWindowMs < 500) { return; }
+    const double average = double(m_currentCountsSum) / m_currentSamples;
+    m_currentCountsSum = 0; m_currentSamples = 0; m_currentWindowMs = now;
+    if (const auto amps = paCurrentAmps(average, m_vitalConfig)) {
+        emit meterUpdate(QStringLiteral("RAD:PACURRENT"), *amps);
+    }
+}
+
+bool AnanBackend::vitalsEnabled() const
+{
+    return hasNativeVitals(m_pendingParams.model, m_discoveredBoardId) || m_vitalConfig.diy;
+}
+
 void AnanBackend::onSupplyRailCounts(int counts)
 {
     if (!m_supplyRailClock.isValid())
@@ -3167,7 +3225,7 @@ void AnanBackend::onSupplyRailCounts(int counts)
 void AnanBackend::onSupplyRailCountsAt(int counts, qint64 nowMs)
 {
     // Publish only for the hardware families with the qualified scale.
-    if (m_discoveryInfoReceived && effectiveBoardId() != 5 && effectiveBoardId() != 10) {
+    if (m_discoveryInfoReceived && !vitalsEnabled()) {
         return;
     }
     // A 12-bit ADC reads 0..4095. Anything else means the field is not this
@@ -3188,11 +3246,12 @@ void AnanBackend::onSupplyRailCountsAt(int counts, qint64 nowMs)
     m_supplyRailCountSum = 0;
     m_supplyRailSamples = 0;
     m_supplyRailWindowStartMs = nowMs;
-    emit meterUpdate(QStringLiteral("RAD:+13.8A"), meanCounts * kSupplyRailVoltsPerCount);
+    emit meterUpdate(QStringLiteral("RAD:+13.8A"), meanCounts * m_vitalConfig.referenceVolts / 4095.0 * m_vitalConfig.voltageDivider);
 }
 
 void AnanBackend::resetSupplyRailWindow()
 {
+    m_currentWindowMs = -1; m_currentCountsSum = 0; m_currentSamples = 0;
     m_supplyRailWindowStartMs = -1;
     m_supplyRailCountSum = 0;
     m_supplyRailSamples = 0;

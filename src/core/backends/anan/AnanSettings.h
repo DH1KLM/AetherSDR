@@ -106,6 +106,9 @@ public:
     // Restore global connection defaults; exact-radio hardware choices remain.
     static void reset();
 
+    static QVariantMap vitalTelemetry(const QString& serial, int model, int board, int protocol);
+    static bool setVitalTelemetry(const QString& serial, int model, int board, int protocol, const QVariantMap& values);
+
 private:
     static QJsonObject readObj();
     static void writeObj(const QJsonObject& obj);

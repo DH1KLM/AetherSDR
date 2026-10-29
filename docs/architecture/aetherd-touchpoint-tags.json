@@ -1367,6 +1367,12 @@
   "split": "Core (universal): the capability question itself \u2014 tunable band set, transverter presence, extended-DSP availability \u2014 which belongs in core/backends/RadioCapabilities.h as backend-declared fields (RadioCapabilities has no band field today; adding one is the convergence step). Flex extension: the FlexLib platform taxonomy (Microburst/DeepEddy/BigBend/DragonFire) and the model-string table that derives it, which belong behind FlexBackend.",
   "confidence": "high"
  },
+ "models/FrontPanelModel.h": {
+  "tag": "ui-support",
+  "note": "Host controller settings and state for USB Andromeda and TCP G2-V2. GUI consumes model configuration, learned control IDs and status; panel wire parsing stays in the engine, and radio/TX actions use RadioModel and TxCoordinator.",
+  "split": "",
+  "confidence": "high"
+ },
  "models/Nr2SettingsModel.h": {
   "tag": "universal",
   "note": "Process-wide owner of client-side NR2 configuration as one versioned object (Principle V), so every editing surface shares state. Engine DSP configuration; radio-agnostic.",

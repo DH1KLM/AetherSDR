@@ -1,3 +1,4 @@
+#include "AnanVitals.h"
 #include "core/backends/anan/AnanSettings.h"
 #include "AnanMicOptions.h"
 #include "AnanTransmitPower.h"
@@ -38,6 +39,29 @@ constexpr const char* kFieldBypassAdc1Filters = "bypassAdc1Filters";
 constexpr const char* kFieldSpeakerAmpMuted   = "speakerAmpMuted";
 
 }  // namespace
+
+QVariantMap AnanSettings::vitalTelemetry(const QString& serial, int model, int board, int protocol)
+{
+    if (serial.isEmpty()) { return {}; }
+    int version = 0;
+    const auto doc = RadioSettingsScope(QStringLiteral("anan"), serial).featureExact(QStringLiteral("VitalTelemetry"), &version);
+    if (version > 1) { return {}; }
+    return doc.value(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol)).toObject().toVariantMap();
+}
+bool AnanSettings::setVitalTelemetry(const QString& serial, int model, int board, int protocol, const QVariantMap& values)
+{
+    const auto parsed = parseVitals(values, static_cast<AnanModel>(model), board);
+    if (serial.isEmpty() || !parsed || !ananModelInfo(static_cast<AnanModel>(model))
+        || !receiveProfile(board) || (protocol != 1 && protocol != 2)) { return false; }
+    const RadioSettingsScope scope(QStringLiteral("anan"), serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("VitalTelemetry"), &version, &status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
+    doc.insert(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol), QJsonObject::fromVariantMap(vitalOptions(*parsed)));
+    return scope.setFeature(QStringLiteral("VitalTelemetry"), 1, doc);
+}
 
 QJsonObject AnanSettings::readObj()
 {

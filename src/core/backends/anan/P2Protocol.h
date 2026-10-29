@@ -417,6 +417,7 @@ inline constexpr std::size_t kHighPriorityStatusBytes = 60;
 inline constexpr double kSupplyRailVoltsPerCount = (23.0 / 1.1) * (5.0 / 4095.0);
 
 struct HighPriorityStatus {
+    std::uint16_t paCurrentCounts = 0;
     std::uint16_t forwardPowerCounts = 0;
     std::uint16_t reversePowerCounts = 0;
     std::uint32_t seq = 0;

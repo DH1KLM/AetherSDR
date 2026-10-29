@@ -784,8 +784,10 @@ struct RadioCapabilities {
     // frozen boolean count and shrink-only (#5262 M2); per-feature records are
     // the sanctioned shape for a new capability.
     struct PaTelemetryAudit {
+        enum class CurrentSampling { TransmitOnly, ReceiveAndTransmit };
         // The protocol defines no PA temperature field anywhere in its payload.
         bool temperatureAbsent = false;
+        CurrentSampling currentSampling = CurrentSampling::TransmitOnly;
     };
     std::optional<PaTelemetryAudit> paTelemetryAudit;
 

@@ -1,0 +1,44 @@
+#include "core/FrontPanelProtocol.h"
+#include "core/backends/anan/AnanVitals.h"
+#include <QCoreApplication>
+#include <cstdio>
+#include <cmath>
+#include <limits>
+int main(int argc, char** argv)
+{
+    QCoreApplication app(argc, argv);
+    int failures = 0;
+    const auto check = [&](bool value, const char* message) { if (!value) { ++failures; std::fprintf(stderr, "FAIL: %s\n", message); } };
+    using namespace AetherSDR::frontpanel;
+    const auto up = parse(QStringLiteral("ZZZU012"));
+    const auto down = parse(QStringLiteral("ZZZD012"));
+    check(up && down && up->value == 12 && down->value == -12, "VFO signed step count");
+    const auto e = parse(QStringLiteral("ZZZE513"));
+    check(e && e->kind == Kind::Encoder && e->number == 1 && e->value == -3, "encoder51 is reverse encoder1");
+    const auto e20 = parse(QStringLiteral("ZZZE709"));
+    check(e20 && e20->number == 20 && e20->value == -9, "last reverse encoder");
+    for (int state = 0; state <= 2; ++state) {
+        const auto button = parse(QStringLiteral("ZZZP21%1").arg(state));
+        check(button && button->number == 21 && button->value == state, "release press long-press kept distinct");
+    }
+    const auto identity = parse(QStringLiteral("ZZZS501123"));
+    check(identity && identity->number == 5 && identity->value == 1123, "G2-V2 product hardware firmware identity");
+    const auto registration = parse(QStringLiteral("ZZGA") + kG2V2Id);
+    check(registration && registration->kind == Kind::Register, "G2-V2 directed CAT registration");
+    for (const auto& bad : {"ZZZE000", "ZZZE501", "ZZZE711", "ZZZP001", "ZZZP213", "ZZZU-1", "ZZZU9999", "ZZZS;", "ZZTX1", "ZZGAunknown"}) {
+        check(!parse(QString::fromLatin1(bad)), "malformed or non-panel frame refused");
+    }
+    using namespace AetherSDR::anan;
+    check(hasNativeVitals(AnanModel::Anan7000, 5) && !hasNativeVitals(AnanModel::Anan200D, 5), "logical override owns sensor qualification");
+    check(!hasNativeVitals(AnanModel::RedPitaya, 5) && !hasNativeVitals(AnanModel::Automatic, 5),
+          "DIY and ambiguous board5 profiles require explicit sensor qualification");
+    check(defaultVitals(AnanModel::Automatic, 10).sensitivityMvPerAmp == 66.23,
+          "automatic Saturn uses its documented current sensor scale");
+    const auto calibration = defaultVitals(AnanModel::Anan7000);
+    const auto amps = paCurrentAmps(1000, calibration);
+    check(amps && std::abs(*amps - ((1000 * 5000.0 / 4095 - 340) / 88)) < 1e-9, "7000 current matches Thetis sensor transfer");
+    check(paCurrentAmps(0, calibration) == 0.0 && !paCurrentAmps(4096, calibration), "sensor clamps negative zero and refuses out of range ADC");
+    auto invalid = vitalOptions(calibration); invalid.insert(QStringLiteral("sensitivityMvPerAmp"), 0.0);
+    check(!parseVitals(invalid, AnanModel::Anan7000), "zero current sensitivity refused");
+    return failures ? 1 : 0;
+}

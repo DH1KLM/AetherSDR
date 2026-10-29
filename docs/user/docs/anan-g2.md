@@ -201,6 +201,62 @@ CPU, Network, TX, date and the station control keep their positions.
 | Forward/reflected RF power and SWR | P1/P2 detector telemetry with Thetis model reference conversion; individual calibration pending |
 | TX slice / multiple receivers | TX requires the single primary receive slice |
 
+## Andromeda and G2-V2 front panels
+
+**Settings → Radio Setup → Serial & Controllers → ANAN front panel** is available
+for the extended ANAN backend. The Original G2 path is separate.
+
+- **Andromeda — USB / COM:** select the panel's **COM port**, tick **Enable front
+  panel**, then click **Apply panel changes**. The connection uses 9600 baud,
+  8 data bits, no parity, one stop bit and no flow control. Status shows the
+  panel's reported hardware and firmware version.
+- **G2-V2 — TCP CAT:** set **Listen address**, **TCP port** and **Panel IP**.
+  Configure the panel to connect to this PC's address and port. The default
+  listener is `127.0.0.1:31001`; a panel on another computer/radio needs a LAN
+  listen address and its expected peer IP. The panel registers its G2-V2 client
+  ID and reports its product version before controls are accepted.
+
+Panel settings bind to the selected radio when applied. Applying them to another
+radio releases the previous controller connection. A connection or registration
+alone never keys TX. On a panel disconnect its held TX inputs are cancelled;
+reconnecting does not restore the previous MOX or TUNE request.
+
+Choose an encoder, short/long button press or LED under **Control**, choose its
+**Action** and **Receiver**, click **Assign control**, then **Apply panel changes**.
+**Learn controls (suppress actions)** shows the received control and selects it
+for editing without operating the radio. The main VFO knob tunes the active,
+unlocked receiver using its tuning step. Encoders can control AF gain, AGC-T,
+RF gain/attenuation, filter edges, RF power, CW speed and MON level. Buttons can
+control mute, lock, receiver selection, mode, AGC, NB, MON and explicit
+MOX/PTT/TUNE. Receiver B requires an existing second slice. LEDs follow model
+state. MOX/PTT/TUNE use the same admission checks as the onscreen controls and
+release only the panel's own TX request.
+
+This is not a full copy of Thetis's screen softkey menus. Unsupported RIT/XIT
+panel dispatch and radio-side NR/ANF assignments are dimmed with an explanation;
+the local noise-reduction controls remain available in Aether's receive UI.
+Physical USB and G2-V2 panel qualification is pending.
+
+## Voltage and current in the footer
+
+The extended backend reads AIN3 supply voltage and AIN4 current under P1 and P2.
+The footer shows voltage and current for ANAN-7000DLE/8000DLE, G2/G2 1K, G2E,
+and Anvelina Pro 3 profiles. Red Pitaya and other DIY profiles use the explicit
+DIY enable. An ambiguous automatic Orion MkII identity needs an explicit model
+profile or DIY sensor configuration. An older model override does not inherit
+these sensors merely because it uses an Orion MkII board. Temperature is not
+reported by these inputs. Current is averaged over about 500 ms and voltage over
+about one second; a missing measurement is not replaced by a fabricated value.
+
+**Settings → Radio Setup → Serial & Controllers → ANAN voltage / current sensors**
+contains **Enable voltage / current sensors for DIY hardware** and the sensor
+conversion fields. Set **Zero-current offset**, **Sensitivity**, **ADC reference**
+and **Voltage divider** to match the installed circuit, then click **Apply sensor
+settings**. The divider is the multiplier `(R1 + R2) / R2`. Defaults follow Thetis:
+5 V slow ADC reference and `23 / 1.1` voltage divider; current defaults depend on
+the selected model. These settings are saved per radio/model/board/protocol.
+They configure display conversion, not a protection interlock or RF calibration.
+
 ## Mouse-related receive diagnostics
 
 The extended ANAN receiver waits for each WDSP output exchange, following

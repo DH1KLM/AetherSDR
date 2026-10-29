@@ -1,3 +1,4 @@
+#include "FrontPanelModel.h"
 #include "RadioModel.h"
 #include "core/backends/TuneOutputPolicy.h"
 #include <QScopedValueRollback>
@@ -2091,6 +2092,9 @@ RadioModel::RadioModel(QObject* parent)
     , m_txCoordinator([this](const TxCoordinator::Operation& operation,
                             TxCoordinator::StopReason reason) { stopTxOperation(operation, reason); })
 {
+    connect(this, &RadioModel::capabilitiesChanged, this, [this](bool, const RadioCapabilities&) {
+        if (!m_frontPanel && backendDeclaresExtension(QStringLiteral("anan"))) { frontPanel().refresh(); }
+    }, Qt::QueuedConnection);
     m_desktopTxActor = m_txCoordinator.registerActor({true, 0});
     // FlexLib APD.cs matches against the transmit slice, else the active one.
     m_transmitModel.setApdTxSliceResolver([this]() -> std::optional<TransmitModel::ApdTxSlice> {
@@ -2788,6 +2792,7 @@ RadioModel::~RadioModel()
     blockSignals(true);
     m_transmitModel.blockSignals(true);
     m_cwxModel.blockSignals(true);
+    m_frontPanel.reset();
     m_independentTxGrants.reset(); // stop while every model member is still alive
     if (m_backend) {
         if (activeTxActivities() & static_cast<unsigned>(TxActivity::Tune)) {
