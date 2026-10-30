@@ -11,6 +11,9 @@
 
 **The software compiles without errors on Windows.**
 
+![AetherSDR Screenshot](docs/assets/screenshot-anan-3d.jpg)
+
+
 
 **A cross-platform, open-source client for FlexRadio Systems transceivers**
 
@@ -26,7 +29,6 @@ AetherSDR brings full FlexRadio operation to Linux, macOS, and Windows — each 
 
 > **Native builds for Linux, macOS, and Windows** — Linux AppImage (x86-64 + aarch64), macOS DMG (Apple Silicon + Intel), Windows installer and portable ZIP. Every platform is built, tested in CI, and released together.
 
-![AetherSDR Screenshot](docs/assets/screenshot-3dstackedtrace.JPG)
 
 <p><i>Native. Open. Yours.</i></p>
 
