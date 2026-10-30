@@ -3,6 +3,18 @@
 #include <optional>
 
 namespace AetherSDR::frontpanel {
+inline QString serialPortName(const QString& value)
+{
+    const QString name = value.trimmed();
+#ifdef Q_OS_WIN
+    bool valid = false;
+    const int number = name.toInt(&valid);
+    if (valid && number > 0 && QString::number(number) == name) {
+        return QStringLiteral("COM%1").arg(number);
+    }
+#endif
+    return name;
+}
 inline const QString kG2V2Id = QStringLiteral("9f2b6c5a-4d7e-4c3b-9a21-3f8d0e6b12c4");
 enum class Kind { Vfo, Encoder, Button, Identity, Register, Unregister };
 struct Event { Kind kind; int number = 0; int value = 0; };

@@ -300,6 +300,39 @@ int main(int argc, char** argv)
             auto* applySensors = controllers->findChild<QPushButton*>(QStringLiteral("ananVitalSensorsApply"));
             check(nativeGroup && nativeGroup->isVisible() && types && types->count() == 2,
                   "ANAN controller setup offers USB Andromeda and TCP G2-V2");
+            auto* serial = controllers->findChild<QComboBox*>(QStringLiteral("ananPanelSerialPort"));
+            auto* firmware = controllers->findChild<QLabel*>(QStringLiteral("ananPanelFirmware"));
+            auto* standard = controllers->findChild<QPushButton*>(QStringLiteral("ananStandardMapping"));
+            const QJsonObject standardBindings = FrontPanelModel::standardAndromedaBindings();
+            const auto mappedAction = [&](const QString& key) {
+                return standardBindings.value(key).toObject().value(QStringLiteral("action")).toString();
+            };
+            check(standard && mappedAction(QStringLiteral("p44")) == QStringLiteral("lock")
+                  && mappedAction(QStringLiteral("p47")) == QStringLiteral("mox")
+                  && mappedAction(QStringLiteral("p48")) == QStringLiteral("tune")
+                  && mappedAction(QStringLiteral("e12")) == QStringLiteral("drive"),
+                  "standard Andromeda lock MOX TUNE and drive match Thetis physical numbering");
+            check(mappedAction(QStringLiteral("p21")).startsWith(QLatin1String("unavailable:"))
+                  && mappedAction(QStringLiteral("p49")).startsWith(QLatin1String("unavailable:"))
+                  && mappedAction(QStringLiteral("h47")) == QStringLiteral("none"),
+                  "unsupported Thetis functions stay explicit and long press never duplicates default MOX");
+            const int keysBeforePreset = trace.keyOn.load();
+            const QVariantMap savedPanel = model.frontPanel().state();
+            if (standard) { standard->click(); }
+            check(trace.keyOn.load() == keysBeforePreset
+                  && model.frontPanel().state().value(QStringLiteral("bindings")) == savedPanel.value(QStringLiteral("bindings")),
+                  "loading standard mapping stages only and never keys or persists");
+            check(serial && !serial->isEditable() && serial->findData(QStringLiteral("__custom__")) >= 0,
+                  "panel uses shared described-port selector with explicit custom path");
+            auto& panel = model.frontPanel();
+            FrontPanelTestAccess::feed(panel, "ZZZS101023;");
+            check(panel.state().value(QStringLiteral("hardwareVersion")).toInt() == 1
+                  && panel.state().value(QStringLiteral("firmwareVersion")).toInt() == 23
+                  && firmware && firmware->text() == QStringLiteral("h/w=1  s/w=23"),
+                  "Andromeda identity exposes actual hardware and firmware in setup");
+            FrontPanelTestAccess::close(panel);
+            check(firmware && firmware->text() == QStringLiteral("Not identified"),
+                  "disconnected panel does not display stale firmware");
             check(diy && applySensors && !backend->capabilities().hasPaCurrentTelemetry,
                   "200D override has no native 7000 current sensor claim");
             if (diy && applySensors) {

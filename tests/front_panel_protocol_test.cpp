@@ -10,6 +10,11 @@ int main(int argc, char** argv)
     int failures = 0;
     const auto check = [&](bool value, const char* message) { if (!value) { ++failures; std::fprintf(stderr, "FAIL: %s\n", message); } };
     using namespace AetherSDR::frontpanel;
+#ifdef Q_OS_WIN
+    check(serialPortName(QStringLiteral(" 3 ")) == QStringLiteral("COM3"), "legacy numeric Windows port resolves to COM3");
+#endif
+    check(serialPortName(QStringLiteral(" COM3 ")) == QStringLiteral("COM3"), "named port remains stable");
+    check(serialPortName(QStringLiteral("/dev/ttyACM0")) == QStringLiteral("/dev/ttyACM0"), "Unix serial path is preserved");
     const auto up = parse(QStringLiteral("ZZZU012"));
     const auto down = parse(QStringLiteral("ZZZD012"));
     check(up && down && up->value == 12 && down->value == -12, "VFO signed step count");

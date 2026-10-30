@@ -22,18 +22,46 @@ QJsonObject defaults()
     const auto put = [&](const QString& key, const QString& action, int target = 0) {
         bindings.insert(key, QJsonObject{{QStringLiteral("action"), action}, {QStringLiteral("target"), target}});
     };
+    for (int n = 1; n <= 20; ++n) {
+        put(QStringLiteral("e%1").arg(n), QStringLiteral("none"));
+        put(QStringLiteral("l%1").arg(n), QStringLiteral("none"));
+    }
+    for (int n = 1; n <= 99; ++n) {
+        put(QStringLiteral("p%1").arg(n), QStringLiteral("none"));
+        put(QStringLiteral("h%1").arg(n), QStringLiteral("none"));
+    }
     put(QStringLiteral("e1"), QStringLiteral("afGain"), 1); put(QStringLiteral("e2"), QStringLiteral("agcT"), 1);
     put(QStringLiteral("e3"), QStringLiteral("afGain"), 2); put(QStringLiteral("e4"), QStringLiteral("agcT"), 2);
     put(QStringLiteral("e5"), QStringLiteral("filterHigh")); put(QStringLiteral("e6"), QStringLiteral("filterLow"));
     put(QStringLiteral("e9"), QStringLiteral("rit")); put(QStringLiteral("e10"), QStringLiteral("xit"));
     put(QStringLiteral("e12"), QStringLiteral("drive"));
+    put(QStringLiteral("e7"), QStringLiteral("unavailable:Diversity gain"));
+    put(QStringLiteral("e8"), QStringLiteral("unavailable:Diversity phase"));
+    put(QStringLiteral("e11"), QStringLiteral("unavailable:Multifunction encoder"));
     put(QStringLiteral("p1"), QStringLiteral("mute"), 1); put(QStringLiteral("p3"), QStringLiteral("mute"), 2);
     put(QStringLiteral("p9"), QStringLiteral("clearOffsets"));
     put(QStringLiteral("p31"), QStringLiteral("modeUp")); put(QStringLiteral("p34"), QStringLiteral("modeDown"));
     put(QStringLiteral("p43"), QStringLiteral("receiver"));
+    put(QStringLiteral("p44"), QStringLiteral("lock"));
+    put(QStringLiteral("p47"), QStringLiteral("mox"));
+    put(QStringLiteral("p48"), QStringLiteral("tune"));
+    const QMap<int, QString> unsupportedButtons{{5, "Filter reset"}, {7, "Diversity"}, {11, "Multifunction selection"},
+        {29, "Band shift"}, {30, "Band up"}, {32, "Filter up"}, {33, "Band down"}, {35, "Filter down"},
+        {36, "VFO A to B"}, {37, "VFO B to A"}, {38, "Split"}, {42, "RIT/XIT selection"},
+        {45, "CTUN"}, {46, "Start/stop radio"}, {49, "PureSignal"}, {50, "PureSignal two-tone"}};
+    for (auto it = unsupportedButtons.cbegin(); it != unsupportedButtons.cend(); ++it) {
+        put(QStringLiteral("p%1").arg(it.key()), QStringLiteral("unavailable:") + it.value());
+    }
+    for (int n = 21; n <= 28; ++n) {
+        put(QStringLiteral("p%1").arg(n), QStringLiteral("unavailable:Softkey %1").arg(n - 20));
+    }
     put(QStringLiteral("l1"), QStringLiteral("mox")); put(QStringLiteral("l3"), QStringLiteral("tune"));
     put(QStringLiteral("l8"), QStringLiteral("rit")); put(QStringLiteral("l9"), QStringLiteral("xit"));
     put(QStringLiteral("l10"), QStringLiteral("receiver")); put(QStringLiteral("l11"), QStringLiteral("lock"));
+    const QMap<int, QString> unsupportedIndicators{{2, "ATU ready"}, {4, "PureSignal"}, {5, "Diversity"}, {6, "Band shift"}, {7, "CTUN"}};
+    for (auto it = unsupportedIndicators.cbegin(); it != unsupportedIndicators.cend(); ++it) {
+        put(QStringLiteral("l%1").arg(it.key()), QStringLiteral("unavailable:") + it.value());
+    }
     return {{QStringLiteral("enabled"), false}, {QStringLiteral("panel"), QStringLiteral("andromeda")},
         {QStringLiteral("serialPort"), QString()}, {QStringLiteral("listenAddress"), QStringLiteral("127.0.0.1")},
         {QStringLiteral("tcpPort"), 31001}, {QStringLiteral("peerAddress"), QString()},
@@ -47,17 +75,36 @@ QString bindingKind(QChar prefix)
 }
 QStringList FrontPanelModel::actions(const QString& kind)
 {
-    if (kind == QLatin1String("encoder")) { return {QStringLiteral("none"), QStringLiteral("vfo"), QStringLiteral("afGain"),
-        QStringLiteral("agcT"), QStringLiteral("rfGain"), QStringLiteral("filterLow"), QStringLiteral("filterHigh"),
-        QStringLiteral("drive"), QStringLiteral("rit"), QStringLiteral("xit"), QStringLiteral("cwSpeed"), QStringLiteral("monitorLevel")}; }
-    if (kind == QLatin1String("indicator")) { return {QStringLiteral("none"), QStringLiteral("mox"), QStringLiteral("tune"),
-        QStringLiteral("mute"), QStringLiteral("lock"), QStringLiteral("rit"), QStringLiteral("xit"),
-        QStringLiteral("receiver"), QStringLiteral("nb"), QStringLiteral("nr"), QStringLiteral("anf"), QStringLiteral("monitor")}; }
-    return {QStringLiteral("none"), QStringLiteral("mox"), QStringLiteral("pttHold"), QStringLiteral("tune"),
-        QStringLiteral("mute"), QStringLiteral("lock"), QStringLiteral("rit"), QStringLiteral("xit"),
-        QStringLiteral("clearOffsets"), QStringLiteral("receiver"), QStringLiteral("nb"), QStringLiteral("nr"),
-        QStringLiteral("anf"), QStringLiteral("agc"), QStringLiteral("modeUp"), QStringLiteral("modeDown"), QStringLiteral("monitor")};
+    QStringList result;
+    if (kind == QLatin1String("encoder")) {
+        result = {QStringLiteral("none"), QStringLiteral("vfo"), QStringLiteral("afGain"), QStringLiteral("agcT"),
+            QStringLiteral("rfGain"), QStringLiteral("filterLow"), QStringLiteral("filterHigh"), QStringLiteral("drive"),
+            QStringLiteral("rit"), QStringLiteral("xit"), QStringLiteral("cwSpeed"), QStringLiteral("monitorLevel")};
+    } else if (kind == QLatin1String("indicator")) {
+        result = {QStringLiteral("none"), QStringLiteral("mox"), QStringLiteral("tune"), QStringLiteral("mute"),
+            QStringLiteral("lock"), QStringLiteral("rit"), QStringLiteral("xit"), QStringLiteral("receiver"),
+            QStringLiteral("nb"), QStringLiteral("nr"), QStringLiteral("anf"), QStringLiteral("monitor")};
+    } else {
+        result = {QStringLiteral("none"), QStringLiteral("mox"), QStringLiteral("pttHold"), QStringLiteral("tune"),
+            QStringLiteral("mute"), QStringLiteral("lock"), QStringLiteral("rit"), QStringLiteral("xit"),
+            QStringLiteral("clearOffsets"), QStringLiteral("receiver"), QStringLiteral("nb"), QStringLiteral("nr"),
+            QStringLiteral("anf"), QStringLiteral("agc"), QStringLiteral("modeUp"), QStringLiteral("modeDown"), QStringLiteral("monitor")};
+    }
+    const QJsonObject bindings = standardAndromedaBindings();
+    for (auto it = bindings.begin(); it != bindings.end(); ++it) {
+        const QString action = it.value().toObject().value(QStringLiteral("action")).toString();
+        if (bindingKind(it.key().front()) == kind && action.startsWith(QLatin1String("unavailable:")) && !result.contains(action)) {
+            result.append(action);
+        }
+    }
+    return result;
 }
+QJsonObject FrontPanelModel::standardAndromedaBindings()
+{
+    static const QJsonObject bindings = defaults().value(QStringLiteral("bindings")).toObject();
+    return bindings;
+}
+
 FrontPanelModel::FrontPanelModel(RadioModel& model)
     : QObject(&model), m_model(model), m_producer(model.registerTxProducer(this, true)), m_config(defaults())
 {
@@ -111,6 +158,8 @@ QVariantMap FrontPanelModel::state() const
     QVariantMap result = m_config.toVariantMap();
     result.insert(QStringLiteral("supported"), m_model.backendDeclaresExtension(QStringLiteral("anan")));
     result.insert(QStringLiteral("identified"), m_identified);
+    result.insert(QStringLiteral("hardwareVersion"), m_hardwareVersion);
+    result.insert(QStringLiteral("firmwareVersion"), m_firmwareVersion);
     result.insert(QStringLiteral("status"), m_status);
     result.insert(QStringLiteral("lastInput"), m_lastInput);
     result.insert(QStringLiteral("lastControl"), m_lastControl);
@@ -128,7 +177,8 @@ bool FrontPanelModel::applyConfiguration(const QVariantMap& values, bool persist
         m_status = QStringLiteral("Connect the selected ANAN before enabling its panel"); emit stateChanged(); return false;
     }
     const int port = next.value(QStringLiteral("tcpPort")).toInt();
-    const QString serial = next.value(QStringLiteral("serialPort")).toString();
+    const QString serial = frontpanel::serialPortName(next.value(QStringLiteral("serialPort")).toString());
+    next.insert(QStringLiteral("serialPort"), serial);
     const QHostAddress bind(next.value(QStringLiteral("listenAddress")).toString());
     const QString peerText = next.value(QStringLiteral("peerAddress")).toString();
     const QHostAddress peer(peerText);
@@ -184,11 +234,13 @@ void FrontPanelModel::closeTransport()
     m_model.abortTxProducerInputs(m_producer, TransmitModel::PttSource::Footswitch);
     m_producer.discardInputs(); m_mox = {}; m_tune = {}; m_heldPtt.clear(); m_pressed.clear();
     m_identified = m_registered = false; m_buffer.clear(); m_leds.clear(); m_lastControl.clear();
+    m_hardwareVersion = m_firmwareVersion = -1;
 #ifdef HAVE_SERIALPORT
     if (m_serial.isOpen()) { m_serial.close(); }
 #endif
     if (m_peer) { auto* peer = m_peer.data(); m_peer = nullptr; peer->disconnect(this); peer->abort(); peer->deleteLater(); }
     m_server.close();
+    emit stateChanged();
 }
 void FrontPanelModel::refresh()
 {
@@ -214,7 +266,10 @@ void FrontPanelModel::refresh()
         return;
     }
 #ifdef HAVE_SERIALPORT
-    if (m_serial.isOpen()) { return; }
+    if (m_serial.isOpen()) {
+        if (!m_identified) { send("ZZZS;"); }
+        return;
+    }
     m_serial.setPortName(m_config.value(QStringLiteral("serialPort")).toString());
     m_serial.setBaudRate(9600); m_serial.setDataBits(QSerialPort::Data8);
     m_serial.setParity(QSerialPort::NoParity); m_serial.setStopBits(QSerialPort::OneStop); m_serial.setFlowControl(QSerialPort::NoFlowControl);
@@ -267,6 +322,8 @@ void FrontPanelModel::consume(const QByteArray& bytes)
         if (event->kind == Kind::Identity) {
             const bool tcp = m_config.value(QStringLiteral("panel")).toString() == QLatin1String("g2v2");
             m_identified = tcp ? m_registered && event->number == 5 : event->number == 1;
+            m_hardwareVersion = m_identified ? event->value / 1000 : -1;
+            m_firmwareVersion = m_identified ? event->value % 1000 : -1;
             m_status = m_identified ? QStringLiteral("Panel identified: hardware %1, firmware %2")
                 .arg(event->value / 1000).arg(event->value % 1000) : QStringLiteral("Panel identity does not match selected type");
             m_leds.clear(); updateIndicators(); emit stateChanged(); continue;
@@ -288,6 +345,9 @@ void FrontPanelModel::consume(const QByteArray& bytes)
 void FrontPanelModel::turn(const QString& action, int steps, SliceModel* slice)
 {
     if (steps == 0) { return; }
+    if (action.startsWith(QLatin1String("unavailable:"))) {
+        m_status = action.mid(12) + QStringLiteral(" is not integrated for this panel"); emit stateChanged(); return;
+    }
     if (action == QLatin1String("rit") || action == QLatin1String("xit")) {
         m_status = QStringLiteral("RIT/XIT panel dispatch is unavailable for extended ANAN"); emit stateChanged(); return;
     }
@@ -322,6 +382,9 @@ void FrontPanelModel::press(const QString& action, int number, int state, SliceM
     }
     if (state == 1 && m_pressed.contains(number)) { return; }
     if (state == 1) { m_pressed.insert(number); }
+    if (action.startsWith(QLatin1String("unavailable:"))) {
+        m_status = action.mid(12) + QStringLiteral(" is not integrated for this panel"); emit stateChanged(); return;
+    }
     if (action == QLatin1String("rit") || action == QLatin1String("xit") || action == QLatin1String("clearOffsets")) {
         m_status = QStringLiteral("RIT/XIT panel dispatch is unavailable for extended ANAN"); emit stateChanged(); return;
     }

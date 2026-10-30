@@ -208,8 +208,14 @@ for the extended ANAN backend. The Original G2 path is separate.
 
 - **Andromeda — USB / COM:** select the panel's **COM port**, tick **Enable front
   panel**, then click **Apply panel changes**. The connection uses 9600 baud,
-  8 data bits, no parity, one stop bit and no flow control. Status shows the
-  panel's reported hardware and firmware version.
+  8 data bits, no parity, one stop bit and no flow control. Port entries show
+  both the port name and device description, for example `COM3 — Arduino Nano
+  Every`. **Refresh** rescans ports without changing the selected port.
+  Use **Custom...** and **Path** for an unlisted port. Close any other program
+  using that port before applying. **Firmware** shows the panel's reported
+  `h/w` and `s/w` versions; **Not identified** means no valid identity has been
+  received. The identity query repeats every three seconds while the serial
+  port is open and the panel is starting.
 - **G2-V2 — TCP CAT:** set **Listen address**, **TCP port** and **Panel IP**.
   Configure the panel to connect to this PC's address and port. The default
   listener is `127.0.0.1:31001`; a panel on another computer/radio needs a LAN
@@ -220,6 +226,32 @@ Panel settings bind to the selected radio when applied. Applying them to another
 radio releases the previous controller connection. A connection or registration
 alone never keys TX. On a panel disconnect its held TX inputs are cancelled;
 reconnecting does not restore the previous MOX or TUNE request.
+
+**Load standard Andromeda mapping** stages the classic USB panel's Thetis
+factory numbering. Click **Apply panel changes** to save it. Existing custom
+assignments are retained until you explicitly load and apply this preset.
+Loading or applying a mapping does not transmit; the assigned physical MOX
+or TUNE button must be pressed.
+
+| Controls | Standard function |
+| --- | --- |
+| Encoders 1 / 2 | Receiver A AF / AGC-T |
+| Encoders 3 / 4 | Receiver B AF / AGC-T, when receiver B exists |
+| Encoders 5 / 6 | Selected receiver filter high / low cut |
+| Encoder 12 | RF power |
+| Buttons 1 / 3 | Receiver A / B mute |
+| Buttons 31 / 34 | Next / previous mode |
+| Button 43 | Select receiver A / B, when receiver B exists |
+| Button 44 | VFO lock |
+| Buttons 47 / 48 | MOX / TUNE through the normal TX gate |
+| LEDs 1 / 3 / 10 / 11 | TX / TUNE / receiver selection / VFO lock |
+
+The remaining Thetis factory functions are labelled **Unavailable** where
+their panel integration is absent: softkey menus, multifunction selection,
+diversity, band/filter stepping, filter reset, VFO copy/split, RIT/XIT, CTUN,
+radio start/stop, ATU and PureSignal. They do not invoke substitute actions.
+Unassigned controls and long presses do nothing. This preset is for the USB
+Andromeda layout; it does not replace the G2-V2 panel's custom assignments.
 
 Choose an encoder, short/long button press or LED under **Control**, choose its
 **Action** and **Receiver**, click **Assign control**, then **Apply panel changes**.

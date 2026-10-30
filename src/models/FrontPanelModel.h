@@ -27,6 +27,7 @@ public:
     void refresh();
     void setLearning(bool on);
     static QStringList actions(const QString& kind);
+    static QJsonObject standardAndromedaBindings();
 signals:
     void stateChanged();
 private:
@@ -52,6 +53,8 @@ private:
     bool m_registered = false;
     bool m_learning = false;
     bool m_opening = false;
+    int m_hardwareVersion = -1;
+    int m_firmwareVersion = -1;
     QString m_status;
     QString m_lastInput;
     QString m_lastControl;

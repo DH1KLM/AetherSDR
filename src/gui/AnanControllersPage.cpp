@@ -1,5 +1,6 @@
 #include "AnanControllersPage.h"
 #include "GuardedSlider.h"
+#include "SerialPortCombo.h"
 #include "models/RadioModel.h"
 #include "models/FrontPanelModel.h"
 #include <QCheckBox>
@@ -7,6 +8,7 @@
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
@@ -29,6 +31,9 @@ namespace AetherSDR {
 namespace {
 QString actionLabel(const QString& id)
 {
+    if (id.startsWith(QLatin1String("unavailable:"))) {
+        return QStringLiteral("Unavailable — %1").arg(id.mid(12));
+    }
     static const QMap<QString, QString> labels{{"none", "No action"}, {"vfo", "Tune VFO"}, {"afGain", "AF gain"},
         {"agcT", "AGC-T"}, {"rfGain", "RF gain / attenuation"}, {"filterLow", "Filter low cut"}, {"filterHigh", "Filter high cut"},
         {"drive", "RF power"}, {"rit", "RIT"}, {"xit", "XIT"}, {"cwSpeed", "CW speed"}, {"monitorLevel", "Monitor level"},
@@ -58,11 +63,33 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
     kind->addItem(QStringLiteral("G2-V2 — TCP CAT"), QStringLiteral("g2v2"));
     kind->setCurrentIndex(kind->findData(initial.value(QStringLiteral("panel"))));
     auto* serial = new GuardedComboBox;
-    serial->setEditable(true); serial->setAccessibleName(QStringLiteral("Andromeda COM port"));
+    serial->setObjectName(QStringLiteral("ananPanelSerialPort"));
+    serial->setMinimumWidth(200);
+    serial->setAccessibleName(QStringLiteral("Andromeda COM port"));
+    auto* customSerial = new QLineEdit;
+    customSerial->setAccessibleName(QStringLiteral("Custom Andromeda serial port"));
+    customSerial->setPlaceholderText(QStringLiteral("COM3 or /dev/ttyACM0"));
+    auto* customSerialLabel = new QLabel(QStringLiteral("Path:"));
+    auto* refreshSerial = new QPushButton(QStringLiteral("Refresh"));
+    refreshSerial->setAccessibleName(QStringLiteral("Refresh Andromeda COM ports"));
+    auto* serialRow = new QHBoxLayout;
+    serialRow->setProperty("rsPacked", true);
+    serialRow->addWidget(serial); serialRow->addWidget(refreshSerial);
+    const auto serialVisibility = [=] {
+        const bool custom = SerialPortCombo::isCustom(serial);
+        customSerialLabel->setVisible(custom); customSerial->setVisible(custom);
+    };
 #ifdef HAVE_SERIALPORT
-    for (const auto& port : QSerialPortInfo::availablePorts()) { serial->addItem(port.portName()); }
+    SerialPortCombo::populate(serial, customSerial, initial.value(QStringLiteral("serialPort")).toString(), QSerialPortInfo::availablePorts());
+    QObject::connect(refreshSerial, &QPushButton::clicked, page, [=] {
+        SerialPortCombo::refresh(serial, customSerial, [] { return QSerialPortInfo::availablePorts(); });
+        serialVisibility();
+    });
+#else
+    serial->addItem(QStringLiteral("Custom..."), QStringLiteral("__custom__"));
+    customSerial->setText(initial.value(QStringLiteral("serialPort")).toString());
 #endif
-    serial->setCurrentText(initial.value(QStringLiteral("serialPort")).toString());
+    QObject::connect(serial, &QComboBox::currentIndexChanged, page, [serialVisibility](int) { serialVisibility(); });
     auto* listen = new QLineEdit(initial.value(QStringLiteral("listenAddress")).toString());
     listen->setAccessibleName(QStringLiteral("G2-V2 listen address"));
     auto* port = new QSpinBox; port->setRange(1, 65535); port->setValue(initial.value(QStringLiteral("tcpPort")).toInt());
@@ -73,8 +100,14 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
     auto* connectionHint = new QLabel(QStringLiteral("Andromeda: 9600 baud, 8N1, no handshake. G2-V2 connects to this PC's CAT listener; configure the PC address and port on the panel. A LAN listener accepts only the configured peer IP."));
     connectionHint->setWordWrap(true);
     auto* status = new QLabel; status->setAccessibleName(QStringLiteral("Front panel connection status")); status->setWordWrap(true);
+    auto* firmware = new QLabel;
+    firmware->setObjectName(QStringLiteral("ananPanelFirmware"));
+    firmware->setAccessibleName(QStringLiteral("Front panel firmware version"));
     form->addRow(enabled); form->addRow(QStringLiteral("Panel:"), kind);
-    form->addRow(QStringLiteral("COM port:"), serial); form->addRow(QStringLiteral("Listen address:"), listen);
+    form->addRow(QStringLiteral("COM port:"), serialRow);
+    form->addRow(customSerialLabel, customSerial); serialVisibility();
+    form->addRow(QStringLiteral("Firmware:"), firmware);
+    form->addRow(QStringLiteral("Listen address:"), listen);
     form->addRow(QStringLiteral("TCP port:"), port); form->addRow(QStringLiteral("Panel IP:"), peer); form->addRow(connectionHint);
     auto* control = new GuardedComboBox; control->setAccessibleName(QStringLiteral("Panel control to assign"));
     for (int n = 1; n <= 20; ++n) { control->addItem(QStringLiteral("Encoder %1").arg(n), QStringLiteral("e%1").arg(n)); }
@@ -90,8 +123,12 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
     auto* last = new QLabel; last->setAccessibleName(QStringLiteral("Last front panel input"));
     auto* map = new QPushButton(QStringLiteral("Assign control"));
     auto* apply = new QPushButton(QStringLiteral("Apply panel changes"));
+    auto* standard = new QPushButton(QStringLiteral("Load standard Andromeda mapping"));
+    standard->setObjectName(QStringLiteral("ananStandardMapping"));
+    standard->setAccessibleName(standard->text());
     form->addRow(QStringLiteral("Control:"), control); form->addRow(QStringLiteral("Action:"), action);
     form->addRow(QStringLiteral("Receiver:"), target); form->addRow(learn); form->addRow(last); form->addRow(map, apply); form->addRow(status);
+    form->addRow(standard);
     const auto bindings = std::make_shared<QJsonObject>(QJsonObject::fromVariantMap(initial.value(QStringLiteral("bindings")).toMap()));
     const auto selectControl = [=] {
         const QString key = control->currentData().toString();
@@ -103,11 +140,12 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
             action->addItem(actionLabel(id), id);
             const bool dspUnavailable = (id == QLatin1String("nr") || id == QLatin1String("anf")) && !model->backendCapabilities().hasRadioSideDsp;
             const bool offsetUnavailable = id == QLatin1String("rit") || id == QLatin1String("xit") || id == QLatin1String("clearOffsets");
-            if (dspUnavailable || offsetUnavailable) {
+            const bool mappingUnavailable = id.startsWith(QLatin1String("unavailable:"));
+            if (dspUnavailable || offsetUnavailable || mappingUnavailable) {
                 if (auto* items = qobject_cast<QStandardItemModel*>(action->model())) {
                     auto* item = items->item(action->count() - 1);
                     item->setEnabled(false);
-                    item->setToolTip(offsetUnavailable ? QStringLiteral("RIT/XIT panel dispatch is not integrated for extended ANAN")
+                    item->setToolTip(mappingUnavailable ? QStringLiteral("This Thetis standard function has no Aether panel integration") : offsetUnavailable ? QStringLiteral("RIT/XIT panel dispatch is not integrated for extended ANAN")
                         : QStringLiteral("Radio-side DSP unavailable; host NR/ANF mapping is not integrated for this panel"));
                     item->setAccessibleDescription(item->toolTip());
                 }
@@ -117,6 +155,11 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
         target->setCurrentIndex(saved.value(QStringLiteral("target")).toInt());
     };
     QObject::connect(control, &QComboBox::currentIndexChanged, page, [selectControl](int) { selectControl(); });
+    QObject::connect(standard, &QPushButton::clicked, page, [=] {
+        *bindings = FrontPanelModel::standardAndromedaBindings();
+        selectControl();
+        status->setText(QStringLiteral("Standard mapping staged, including MOX on button 47 and TUNE on 48. Click Apply panel changes to save."));
+    });
     QObject::connect(map, &QPushButton::clicked, page, [=] {
         bindings->insert(control->currentData().toString(), QJsonObject{{QStringLiteral("action"), action->currentData().toString()},
             {QStringLiteral("target"), target->currentIndex()}});
@@ -126,13 +169,18 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
     QObject::connect(page, &QObject::destroyed, &panel, [&panel] { panel.setLearning(false); });
     QObject::connect(apply, &QPushButton::clicked, page, [=, &panel] {
         panel.configure({{QStringLiteral("enabled"), enabled->isChecked()}, {QStringLiteral("panel"), kind->currentData()},
-            {QStringLiteral("serialPort"), serial->currentText()}, {QStringLiteral("listenAddress"), listen->text()},
+            {QStringLiteral("serialPort"), SerialPortCombo::isCustom(serial) ? customSerial->text().trimmed() : serial->currentData().toString()}, {QStringLiteral("listenAddress"), listen->text()},
             {QStringLiteral("tcpPort"), port->value()}, {QStringLiteral("peerAddress"), peer->text()},
             {QStringLiteral("bindings"), bindings->toVariantMap()}});
     });
     const auto transportControls = [=] {
         const bool tcp = kind->currentData().toString() == QLatin1String("g2v2");
+        standard->setEnabled(!tcp);
+        standard->setAccessibleDescription(tcp ? QStringLiteral("This preset is for the USB Andromeda panel") : QStringLiteral("Stage Thetis standard controls; Apply saves the mapping including MOX and TUNE"));
         serial->setEnabled(!tcp); listen->setEnabled(tcp); port->setEnabled(tcp); peer->setEnabled(tcp);
+        customSerial->setEnabled(!tcp); refreshSerial->setEnabled(!tcp);
+        customSerial->setAccessibleDescription(tcp ? QStringLiteral("G2-V2 uses the TCP listener") : QStringLiteral("Custom USB serial port path"));
+        refreshSerial->setAccessibleDescription(tcp ? QStringLiteral("G2-V2 uses the TCP listener") : QStringLiteral("Rescan available USB serial ports"));
         serial->setAccessibleDescription(tcp ? QStringLiteral("G2-V2 uses the TCP listener") : QStringLiteral("USB serial port, fixed 9600/8N1"));
         for (QWidget* widget : {static_cast<QWidget*>(listen), static_cast<QWidget*>(port), static_cast<QWidget*>(peer)}) {
             widget->setAccessibleDescription(tcp ? QStringLiteral("G2-V2 TCP CAT connection") : QStringLiteral("Andromeda uses USB serial"));
@@ -144,6 +192,9 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
         const bool supported = state.value(QStringLiteral("supported")).toBool();
         group->setVisible(supported);
         status->setText(state.value(QStringLiteral("status")).toString());
+        firmware->setText(state.value(QStringLiteral("identified")).toBool()
+            ? QStringLiteral("h/w=%1  s/w=%2").arg(state.value(QStringLiteral("hardwareVersion")).toInt()).arg(state.value(QStringLiteral("firmwareVersion")).toInt())
+            : QStringLiteral("Not identified"));
         const QString input = state.value(QStringLiteral("lastInput")).toString();
         last->setText(input);
         if (learn->isChecked() && !input.isEmpty()) {
