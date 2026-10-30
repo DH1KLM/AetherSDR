@@ -37,7 +37,9 @@ inline std::optional<VitalConfig> parseVitals(const QVariantMap& values, AnanMod
     config.diy = values.value(QStringLiteral("diy")).toBool();
     const auto number = [&](const char* key, double& result) {
         const QVariant value = values.value(QLatin1String(key));
-        if (value.metaType().id() != QMetaType::Double && value.metaType().id() != QMetaType::Int) { return false; }
+        const int type = value.metaType().id();
+        if (type != QMetaType::Double && type != QMetaType::Int && type != QMetaType::UInt
+            && type != QMetaType::LongLong && type != QMetaType::ULongLong) { return false; }
         result = value.toDouble(); return std::isfinite(result);
     };
     if (!number("offsetMv", config.offsetMv) || !number("sensitivityMvPerAmp", config.sensitivityMvPerAmp)

@@ -1,6 +1,8 @@
 #include "core/FrontPanelProtocol.h"
 #include "core/backends/anan/AnanVitals.h"
 #include <QCoreApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <cstdio>
 #include <cmath>
 #include <limits>
@@ -26,11 +28,14 @@ int main(int argc, char** argv)
         const auto button = parse(QStringLiteral("ZZZP21%1").arg(state));
         check(button && button->number == 21 && button->value == state, "release press long-press kept distinct");
     }
-    const auto identity = parse(QStringLiteral("ZZZS501123"));
+    const auto identity = parse(QStringLiteral("ZZZS0501123"));
     check(identity && identity->number == 5 && identity->value == 1123, "G2-V2 product hardware firmware identity");
     const auto registration = parse(QStringLiteral("ZZGA") + kG2V2Id);
     check(registration && registration->kind == Kind::Register, "G2-V2 directed CAT registration");
-    for (const auto& bad : {"ZZZE000", "ZZZE501", "ZZZE711", "ZZZP001", "ZZZP213", "ZZZU-1", "ZZZU9999", "ZZZS;", "ZZTX1", "ZZGAunknown"}) {
+    const auto andromeda = parse(QStringLiteral("ZZZS0101006"));
+    check(andromeda && andromeda->number == 1 && andromeda->value == 1006,
+          "physical COM3 Andromeda identity uses two product digits, two hardware digits, three firmware digits");
+    for (const auto& bad : {"ZZZE000", "ZZZE501", "ZZZE711", "ZZZP001", "ZZZP213", "ZZZU-1", "ZZZU9999", "ZZZS;", "ZZZS101006", "ZZTX1", "ZZGAunknown"}) {
         check(!parse(QString::fromLatin1(bad)), "malformed or non-panel frame refused");
     }
     using namespace AetherSDR::anan;
@@ -45,5 +50,17 @@ int main(int argc, char** argv)
     check(paCurrentAmps(0, calibration) == 0.0 && !paCurrentAmps(4096, calibration), "sensor clamps negative zero and refuses out of range ADC");
     auto invalid = vitalOptions(calibration); invalid.insert(QStringLiteral("sensitivityMvPerAmp"), 0.0);
     check(!parseVitals(invalid, AnanModel::Anan7000), "zero current sensitivity refused");
+    auto diy = defaultVitals(AnanModel::Anan200D);
+    diy.diy = true;
+    const auto stored = QJsonDocument::fromJson(QJsonDocument(QJsonObject::fromVariantMap(vitalOptions(diy))).toJson())
+        .object().toVariantMap();
+    const auto restored = parseVitals(stored, AnanModel::Anan200D);
+    check(restored && restored->diy && restored->offsetMv == diy.offsetMv
+          && restored->referenceVolts == diy.referenceVolts && restored->sensitivityMvPerAmp == diy.sensitivityMvPerAmp,
+          "DIY flag and integral calibration values survive the settings JSON round trip");
+    for (const QVariant& bad : {QVariant(true), QVariant(QStringLiteral("5"))}) {
+        auto malformed = stored; malformed.insert(QStringLiteral("referenceVolts"), bad);
+        check(!parseVitals(malformed, AnanModel::Anan200D), "boolean and string sensor scales remain rejected");
+    }
     return failures ? 1 : 0;
 }

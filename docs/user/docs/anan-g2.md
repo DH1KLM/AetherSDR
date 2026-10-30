@@ -208,13 +208,15 @@ for the extended ANAN backend. The Original G2 path is separate.
 
 - **Andromeda — USB / COM:** select the panel's **COM port**, tick **Enable front
   panel**, then click **Apply panel changes**. The connection uses 9600 baud,
-  8 data bits, no parity, one stop bit and no flow control. Port entries show
+  8 data bits, no parity, one stop bit and no flow control, with DTR and RTS
+  asserted as in Thetis. Port entries show
   both the port name and device description, for example `COM3 — Arduino Nano
   Every`. **Refresh** rescans ports without changing the selected port.
   Use **Custom...** and **Path** for an unlisted port. Close any other program
   using that port before applying. **Firmware** shows the panel's reported
   `h/w` and `s/w` versions; **Not identified** means no valid identity has been
-  received. The identity query repeats every three seconds while the serial
+  received. The identity is a seven-digit product/hardware/firmware report.
+  The identity query repeats every three seconds while the serial
   port is open and the panel is starting.
 - **G2-V2 — TCP CAT:** set **Listen address**, **TCP port** and **Panel IP**.
   Configure the panel to connect to this PC's address and port. The default

@@ -275,9 +275,17 @@ void FrontPanelModel::refresh()
     m_serial.setParity(QSerialPort::NoParity); m_serial.setStopBits(QSerialPort::OneStop); m_serial.setFlowControl(QSerialPort::NoFlowControl);
     m_opening = true;
     const bool opened = m_serial.open(QIODevice::ReadWrite);
-    m_opening = false;
-    if (opened) { m_serial.clear(); m_serial.write("ZZZS;"); m_status = QStringLiteral("Serial panel open; identifying"); }
+    if (opened) {
+        if (m_serial.setDataTerminalReady(true) && m_serial.setRequestToSend(true)) {
+            m_serial.clear(); m_serial.write("ZZZS;");
+            m_status = QStringLiteral("Serial panel open; identifying");
+        } else {
+            m_status = QStringLiteral("Could not assert panel DTR/RTS: %1").arg(m_serial.errorString());
+            closeTransport();
+        }
+    }
     else { m_status = m_serial.errorString(); }
+    m_opening = false;
 #else
     m_status = QStringLiteral("This build has no Qt SerialPort support");
 #endif

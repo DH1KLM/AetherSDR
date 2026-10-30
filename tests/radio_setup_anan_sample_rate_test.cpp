@@ -325,10 +325,10 @@ int main(int argc, char** argv)
             check(serial && !serial->isEditable() && serial->findData(QStringLiteral("__custom__")) >= 0,
                   "panel uses shared described-port selector with explicit custom path");
             auto& panel = model.frontPanel();
-            FrontPanelTestAccess::feed(panel, "ZZZS101023;");
+            FrontPanelTestAccess::feed(panel, "ZZZS0101006;");
             check(panel.state().value(QStringLiteral("hardwareVersion")).toInt() == 1
-                  && panel.state().value(QStringLiteral("firmwareVersion")).toInt() == 23
-                  && firmware && firmware->text() == QStringLiteral("h/w=1  s/w=23"),
+                  && panel.state().value(QStringLiteral("firmwareVersion")).toInt() == 6
+                  && firmware && firmware->text() == QStringLiteral("h/w=1  s/w=6"),
                   "Andromeda identity exposes actual hardware and firmware in setup");
             FrontPanelTestAccess::close(panel);
             check(firmware && firmware->text() == QStringLiteral("Not identified"),

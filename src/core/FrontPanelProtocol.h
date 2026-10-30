@@ -33,7 +33,7 @@ inline std::optional<Event> parse(const QString& command)
     if ((name == QLatin1String("ZZZU") || name == QLatin1String("ZZZD")) && arg.size() <= 3 && value <= 999) {
         return Event{Kind::Vfo, 0, name == QLatin1String("ZZZU") ? value : -value};
     }
-    if (name == QLatin1String("ZZZS") && arg.size() == 6) { return Event{Kind::Identity, value / 100000, value % 100000}; }
+    if (name == QLatin1String("ZZZS") && arg.size() == 7) { return Event{Kind::Identity, value / 100000, value % 100000}; }
     if (name == QLatin1String("ZZZE") && arg.size() == 3) {
         const int encoder = value / 10, steps = value % 10;
         if (encoder >= 1 && encoder <= 20) { return Event{Kind::Encoder, encoder, steps}; }
