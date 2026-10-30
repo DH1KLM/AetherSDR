@@ -6,9 +6,12 @@
 #include "core/FrontPanelProtocol.h"
 #include "core/RadioSettingsScope.h"
 #include "core/AppSettings.h"
+#include "core/backends/IRadioBackend.h"
+#include <QList>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QVariantMap>
+#include <QTimer>
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -16,6 +19,24 @@
 namespace AetherSDR {
 namespace {
 QPointer<FrontPanelModel> activePanel;
+QStringList menuActions(int menu)
+{
+    static const QList<QStringList> pages{
+        {"menuNext", "nr", "unavailable:ANAN noise blanker", "unavailable:Spectral noise blanker", "unavailable:ANAN automatic notch", "agc", "attenuationStep", "antennaStep"},
+        {"menuNext", "unavailable:Diversity", "unavailable:Diversity setup", "gainMenu", "filterMenu", "mute", "antennaStep", "none"},
+        {"menuNext", "bandMenu", "modeMenu", "bandstackMenu", "swapVfo", "stepMenu", "bandstack", "none"},
+        {"menuNext", "txSettings", "unavailable:PureSignal setup", "unavailable:PureSignal", "mox", "tune", "unavailable:PureSignal two-tone", "unavailable:ANAN ATU"},
+        {"menuNext", "unavailable:RX meter mode", "unavailable:TX meter mode", "unavailable:Thetis display mode cycle", "centerDisplay", "displayMenu", "zoomIn", "none"},
+        {"menuNext", "recordAudio", "playAudio", "none", "audioSettings", "unavailable:VAC1", "unavailable:VAC2", "none"},
+        {"menuNext", "unavailable:Duplex", "monitor", "receiverToggle", "unavailable:Sub receiver", "equalizer", "setup", "menuTest"},
+        {"menuFirst", "quickSave", "quickRestore", "filterUp", "filterDown", "bandUp", "bandDown", "none"}
+    };
+    return pages.at(std::clamp(menu, 0, 7));
+}
+QString menuTitle(int menu)
+{
+    return QStringList{"Quick", "RX", "VFO", "TX", "Display", "Audio", "Setup", "Test"}.at(std::clamp(menu, 0, 7));
+}
 QJsonObject defaults()
 {
     QJsonObject bindings;
@@ -37,7 +58,7 @@ QJsonObject defaults()
     put(QStringLiteral("e12"), QStringLiteral("drive"));
     put(QStringLiteral("e7"), QStringLiteral("unavailable:Diversity gain"));
     put(QStringLiteral("e8"), QStringLiteral("unavailable:Diversity phase"));
-    put(QStringLiteral("e11"), QStringLiteral("unavailable:Multifunction encoder"));
+    put(QStringLiteral("e11"), QStringLiteral("multifunction"));
     put(QStringLiteral("p1"), QStringLiteral("mute"), 1); put(QStringLiteral("p3"), QStringLiteral("mute"), 2);
     put(QStringLiteral("p9"), QStringLiteral("clearOffsets"));
     put(QStringLiteral("p31"), QStringLiteral("modeUp")); put(QStringLiteral("p34"), QStringLiteral("modeDown"));
@@ -53,8 +74,16 @@ QJsonObject defaults()
         put(QStringLiteral("p%1").arg(it.key()), QStringLiteral("unavailable:") + it.value());
     }
     for (int n = 21; n <= 28; ++n) {
-        put(QStringLiteral("p%1").arg(n), QStringLiteral("unavailable:Softkey %1").arg(n - 20));
+        put(QStringLiteral("p%1").arg(n), QStringLiteral("softkey%1").arg(n - 20));
     }
+    const QMap<int, QString> connectedButtons{{5, "filterReset"}, {11, "multifunctionMenu"}, {29, "shift"},
+        {30, "bandUp"}, {32, "filterUp"}, {33, "bandDown"}, {35, "filterDown"},
+        {36, "copyAtoB"}, {37, "copyBtoA"}, {45, "ctun"}};
+    for (auto it = connectedButtons.cbegin(); it != connectedButtons.cend(); ++it) {
+        put(QStringLiteral("p%1").arg(it.key()), it.value());
+    }
+    put(QStringLiteral("h31"), QStringLiteral("modeMenu")); put(QStringLiteral("h34"), QStringLiteral("modeMenu"));
+    put(QStringLiteral("h32"), QStringLiteral("filterMenu")); put(QStringLiteral("h35"), QStringLiteral("filterMenu"));
     put(QStringLiteral("l1"), QStringLiteral("mox")); put(QStringLiteral("l3"), QStringLiteral("tune"));
     put(QStringLiteral("l8"), QStringLiteral("rit")); put(QStringLiteral("l9"), QStringLiteral("xit"));
     put(QStringLiteral("l10"), QStringLiteral("receiver")); put(QStringLiteral("l11"), QStringLiteral("lock"));
@@ -62,6 +91,7 @@ QJsonObject defaults()
     for (auto it = unsupportedIndicators.cbegin(); it != unsupportedIndicators.cend(); ++it) {
         put(QStringLiteral("l%1").arg(it.key()), QStringLiteral("unavailable:") + it.value());
     }
+    put(QStringLiteral("l6"), QStringLiteral("shift")); put(QStringLiteral("l7"), QStringLiteral("ctun"));
     return {{QStringLiteral("enabled"), false}, {QStringLiteral("panel"), QStringLiteral("andromeda")},
         {QStringLiteral("serialPort"), QString()}, {QStringLiteral("listenAddress"), QStringLiteral("127.0.0.1")},
         {QStringLiteral("tcpPort"), 31001}, {QStringLiteral("peerAddress"), QString()},
@@ -90,6 +120,15 @@ QStringList FrontPanelModel::actions(const QString& kind)
             QStringLiteral("clearOffsets"), QStringLiteral("receiver"), QStringLiteral("nb"), QStringLiteral("nr"),
             QStringLiteral("anf"), QStringLiteral("agc"), QStringLiteral("modeUp"), QStringLiteral("modeDown"), QStringLiteral("monitor")};
     }
+    if (kind == QLatin1String("encoder")) { result.append({"multifunction", "audioPan", "micGain", "compression", "cwPitch", "displayPan", "displayZoom", "tuneStep", "masterGain"}); }
+    else if (kind == QLatin1String("indicator")) { result.append({QStringLiteral("shift"), QStringLiteral("ctun")}); }
+    else {
+        result.append({"filterReset", "multifunctionMenu", "shift", "bandUp", "bandDown", "filterUp", "filterDown",
+            "copyAtoB", "copyBtoA", "swapVfo", "ctun", "modeMenu", "filterMenu", "bandMenu", "stepMenu",
+            "gainMenu", "setup", "txSettings", "displayMenu", "audioSettings", "equalizer", "centerDisplay",
+            "zoomIn", "zoomOut", "recordAudio", "playAudio", "receiverMenu", "receiverToggle", "bandstack", "bandstackMenu", "quickSave", "quickRestore", "attenuationStep", "antennaStep"});
+        for (int n = 1; n <= 8; ++n) { result.append(QStringLiteral("softkey%1").arg(n)); }
+    }
     const QJsonObject bindings = standardAndromedaBindings();
     for (auto it = bindings.begin(); it != bindings.end(); ++it) {
         const QString action = it.value().toObject().value(QStringLiteral("action")).toString();
@@ -103,6 +142,36 @@ QJsonObject FrontPanelModel::standardAndromedaBindings()
 {
     static const QJsonObject bindings = defaults().value(QStringLiteral("bindings")).toObject();
     return bindings;
+}
+void FrontPanelModel::setMultifunctionAction(const QString& action)
+{
+    if (action == QLatin1String("multifunction") || action == QLatin1String("rit") || action == QLatin1String("xit")
+        || action.startsWith(QLatin1String("unavailable:")) || !actions(QStringLiteral("encoder")).contains(action)) { return; }
+    m_multifunction = action;
+    emit stateChanged();
+}
+void FrontPanelModel::requestCtun(bool toggle)
+{
+    QPointer<IRadioBackend> backend = m_model.backend();
+    if (!backend || !m_identified || !m_model.isConnected()) { return; }
+    static quint64 next = 0x465043000000ULL;
+    const quint64 request = ++next, epoch = m_transportEpoch;
+    auto* guard = new QTimer(this); guard->setSingleShot(true);
+    connect(guard, &QTimer::timeout, guard, &QObject::deleteLater); guard->start(2000);
+    connect(backend, &IRadioBackend::extensionResult, guard, [this, guard, backend, request, epoch, toggle](quint64 id, const QVariant& value) {
+        if (id != request || !guard->isActive()) { return; }
+        guard->stop();
+        guard->deleteLater();
+        if (!backend || backend != m_model.backend() || epoch != m_transportEpoch || !m_identified || !m_model.isConnected()) { return; }
+        const QVariantMap state = value.toMap();
+        m_ctun = state.value(QStringLiteral("ctun")).toBool();
+        if (toggle && state.value(QStringLiteral("ctunAvailable")).toBool()) {
+            m_model.invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("ctun.set"), ++next, !m_ctun);
+            requestCtun(false);
+        }
+        updateIndicators(); emit stateChanged();
+    });
+    m_model.invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("hw.get"), request);
 }
 
 FrontPanelModel::FrontPanelModel(RadioModel& model)
@@ -160,6 +229,12 @@ QVariantMap FrontPanelModel::state() const
     result.insert(QStringLiteral("identified"), m_identified);
     result.insert(QStringLiteral("hardwareVersion"), m_hardwareVersion);
     result.insert(QStringLiteral("firmwareVersion"), m_firmwareVersion);
+    result.insert(QStringLiteral("menu"), menuTitle(m_menu));
+    result.insert(QStringLiteral("softkeys"), menuActions(m_menu));
+    result.insert(QStringLiteral("multifunction"), m_multifunction);
+    result.insert(QStringLiteral("selectingMultifunction"), m_selectingMultifunction);
+    result.insert(QStringLiteral("shift"), m_shift);
+    result.insert(QStringLiteral("ctun"), m_ctun);
     result.insert(QStringLiteral("status"), m_status);
     result.insert(QStringLiteral("lastInput"), m_lastInput);
     result.insert(QStringLiteral("lastControl"), m_lastControl);
@@ -182,7 +257,23 @@ bool FrontPanelModel::applyConfiguration(const QVariantMap& values, bool persist
     const QHostAddress bind(next.value(QStringLiteral("listenAddress")).toString());
     const QString peerText = next.value(QStringLiteral("peerAddress")).toString();
     const QHostAddress peer(peerText);
-    const auto bindings = next.value(QStringLiteral("bindings")).toObject();
+    auto bindings = next.value(QStringLiteral("bindings")).toObject();
+    const QMap<QString, QString> completed{{"Filter reset", "filterReset"}, {"Multifunction selection", "multifunctionMenu"},
+        {"Multifunction encoder", "multifunction"}, {"Band shift", "shift"}, {"Band up", "bandUp"}, {"Band down", "bandDown"},
+        {"Filter up", "filterUp"}, {"Filter down", "filterDown"}, {"VFO A to B", "copyAtoB"}, {"VFO B to A", "copyBtoA"}, {"CTUN", "ctun"}};
+    for (auto it = bindings.begin(); it != bindings.end(); ++it) {
+        QJsonObject entry = it.value().toObject();
+        const QString old = entry.value(QStringLiteral("action")).toString();
+        QString replacement;
+        if (old.startsWith(QLatin1String("unavailable:"))) {
+            replacement = completed.value(old.mid(12));
+            if (old.startsWith(QLatin1String("unavailable:Softkey "))) {
+                replacement = QStringLiteral("softkey") + old.mid(20);
+            }
+        }
+        if (!replacement.isEmpty()) { entry.insert(QStringLiteral("action"), replacement); it.value() = entry; }
+    }
+    next.insert(QStringLiteral("bindings"), bindings);
     const QStringList fields{QStringLiteral("enabled"), QStringLiteral("panel"), QStringLiteral("serialPort"),
         QStringLiteral("listenAddress"), QStringLiteral("tcpPort"), QStringLiteral("peerAddress"), QStringLiteral("radioId"), QStringLiteral("bindings")};
     for (const QString& key : next.keys()) { if (!fields.contains(key)) { next.remove(key); } }
@@ -230,6 +321,9 @@ void FrontPanelModel::setLearning(bool on)
 }
 void FrontPanelModel::closeTransport()
 {
+    ++m_transportEpoch;
+    m_ctun = m_shift = m_selectingMultifunction = false; m_menu = 0;
+    m_quickMemory.clear();
     if (activePanel == this) { activePanel = nullptr; }
     m_model.abortTxProducerInputs(m_producer, TransmitModel::PttSource::Footswitch);
     m_producer.discardInputs(); m_mox = {}; m_tune = {}; m_heldPtt.clear(); m_pressed.clear();
@@ -268,6 +362,7 @@ void FrontPanelModel::refresh()
 #ifdef HAVE_SERIALPORT
     if (m_serial.isOpen()) {
         if (!m_identified) { send("ZZZS;"); }
+        else { requestCtun(false); }
         return;
     }
     m_serial.setPortName(m_config.value(QStringLiteral("serialPort")).toString());
@@ -353,6 +448,14 @@ void FrontPanelModel::consume(const QByteArray& bytes)
 void FrontPanelModel::turn(const QString& action, int steps, SliceModel* slice)
 {
     if (steps == 0) { return; }
+    if (action == QLatin1String("multifunction")) {
+        if (m_selectingMultifunction) {
+            const QStringList choices{"afGain", "agcT", "rfGain", "filterLow", "filterHigh", "drive", "cwSpeed", "monitorLevel", "vfo", "audioPan", "micGain", "compression", "cwPitch", "displayPan", "displayZoom", "tuneStep", "masterGain"};
+            const int index = std::max(0, int(choices.indexOf(m_multifunction)));
+            setMultifunctionAction(choices.at((index + steps % choices.size() + choices.size()) % choices.size()));
+        } else { turn(m_multifunction, steps, slice); }
+        return;
+    }
     if (action.startsWith(QLatin1String("unavailable:"))) {
         m_status = action.mid(12) + QStringLiteral(" is not integrated for this panel"); emit stateChanged(); return;
     }
@@ -360,10 +463,17 @@ void FrontPanelModel::turn(const QString& action, int steps, SliceModel* slice)
         m_status = QStringLiteral("RIT/XIT panel dispatch is unavailable for extended ANAN"); emit stateChanged(); return;
     }
     auto& tx = m_model.transmitModel();
+    if (action == QLatin1String("micGain")) { tx.setMicLevel(std::clamp(tx.micLevel() + steps, 0, 100)); return; }
+    if (action == QLatin1String("compression")) { tx.setSpeechProcessorLevel(std::clamp(tx.speechProcessorLevel() + steps, 0, tx.speechProcessorLevelMaximum())); return; }
+    if (action == QLatin1String("cwPitch")) { tx.setCwPitch(std::clamp(tx.cwPitch() + steps * 10, 100, 2000)); return; }
+    if (action == QLatin1String("displayPan") || action == QLatin1String("displayZoom") || action == QLatin1String("tuneStep") || action == QLatin1String("masterGain")) {
+        emit desktopActionRequested(action, slice ? slice->sliceId() : 0, steps); return;
+    }
     if (action == QLatin1String("drive")) { tx.setRfPower(std::clamp(tx.rfPower() + steps, 0, 100)); return; }
     if (action == QLatin1String("cwSpeed")) { tx.setCwSpeed(std::clamp(tx.cwSpeed() + steps, 5, 100)); return; }
     if (action == QLatin1String("monitorLevel")) { tx.setMonGainSb(std::clamp(tx.monGainSb() + steps, 0, 100)); return; }
     if (!slice) { return; }
+    if (action == QLatin1String("audioPan")) { slice->setAudioPan(std::clamp(slice->audioPan() + steps, 0, 100)); return; }
     if (action == QLatin1String("vfo") && !slice->isLocked()) { m_model.tuneSliceForCat(slice, slice->frequency() + steps * slice->stepHz() / 1e6); }
     else if (action == QLatin1String("afGain")) { slice->setAudioGain(std::clamp(slice->audioGain() + steps, 0.0f, 100.0f)); }
     else if (action == QLatin1String("agcT")) { slice->setAgcTKnobLevel(std::clamp(slice->agcTKnobLevel() + steps, slice->agcTKnobMinimum(), slice->agcTKnobMaximum())); }
@@ -390,6 +500,33 @@ void FrontPanelModel::press(const QString& action, int number, int state, SliceM
     }
     if (state == 1 && m_pressed.contains(number)) { return; }
     if (state == 1) { m_pressed.insert(number); }
+    if (m_shift && state == 1 && number >= 30 && number <= 41) {
+        const QStringList bands{"160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "GEN"};
+        emit desktopActionRequested(QStringLiteral("band:") + bands.at(number - 30), slice ? slice->sliceId() : 0, 1);
+        return;
+    }
+    if (action.startsWith(QLatin1String("softkey"))) {
+        bool valid = false; const int key = action.mid(7).toInt(&valid);
+        if (valid && key >= 1 && key <= 8) {
+            m_pressed.remove(number);
+            press(menuActions(m_menu).at(key - 1), number, state, slice);
+        }
+        return;
+    }
+    if (action == QLatin1String("menuNext") || action == QLatin1String("menuFirst") || action == QLatin1String("menuTest")) {
+        m_menu = action == QLatin1String("menuFirst") ? 0 : action == QLatin1String("menuTest") ? 7 : (m_menu + 1) % 7;
+        emit stateChanged(); return;
+    }
+    if (action == QLatin1String("shift")) { m_shift = !m_shift; emit stateChanged(); return; }
+    if (action == QLatin1String("multifunctionMenu")) { m_selectingMultifunction = !m_selectingMultifunction; emit stateChanged(); return; }
+    if (action == QLatin1String("ctun")) { requestCtun(true); return; }
+    const QStringList desktopActions{"filterReset", "multifunctionMenu", "bandUp", "bandDown", "filterUp", "filterDown",
+        "modeMenu", "filterMenu", "bandMenu", "stepMenu", "gainMenu", "setup", "txSettings", "displayMenu",
+        "audioSettings", "equalizer", "centerDisplay", "zoomIn", "zoomOut", "recordAudio", "playAudio", "receiverMenu", "receiverToggle",
+        "bandstack", "bandstackMenu", "nr", "anf"};
+    if (desktopActions.contains(action)) {
+        emit desktopActionRequested(action, slice ? slice->sliceId() : 0, 1); return;
+    }
     if (action.startsWith(QLatin1String("unavailable:"))) {
         m_status = action.mid(12) + QStringLiteral(" is not integrated for this panel"); emit stateChanged(); return;
     }
@@ -411,6 +548,35 @@ void FrontPanelModel::press(const QString& action, int number, int state, SliceM
     }
     if (action == QLatin1String("monitor")) { m_model.transmitModel().setSbMonitor(!m_model.transmitModel().sbMonitor()); return; }
     if (!slice) { return; }
+    if (action == QLatin1String("quickSave")) {
+        m_quickMemory = {{"frequency", slice->frequency()}, {"mode", slice->mode()},
+            {"low", slice->filterLow()}, {"high", slice->filterHigh()}};
+        m_status = QStringLiteral("Panel quick memory saved for this session"); emit stateChanged(); return;
+    }
+    if (action == QLatin1String("quickRestore")) {
+        if (!m_quickMemory.isEmpty() && !slice->isLocked()) {
+            slice->setMode(m_quickMemory.value(QStringLiteral("mode")).toString());
+            m_model.tuneSliceForCat(slice, m_quickMemory.value(QStringLiteral("frequency")).toDouble());
+            slice->setFilterWidth(m_quickMemory.value(QStringLiteral("low")).toInt(), m_quickMemory.value(QStringLiteral("high")).toInt());
+        }
+        return;
+    }
+    if (action == QLatin1String("attenuationStep")) { turn(QStringLiteral("rfGain"), -10, slice); return; }
+    if (action == QLatin1String("antennaStep")) {
+        const QStringList antennas = slice->rxAntennaList();
+        if (!antennas.isEmpty()) { slice->setRxAntenna(antennas.at((antennas.indexOf(slice->rxAntenna()) + 1) % antennas.size())); }
+        return;
+    }
+    if (action == QLatin1String("copyAtoB") || action == QLatin1String("copyBtoA") || action == QLatin1String("swapVfo")) {
+        SliceModel* a = m_model.slice(0); SliceModel* b = m_model.slice(1);
+        if (!a || !b || a->isLocked() || b->isLocked()) {
+            m_status = QStringLiteral("VFO copy/swap requires two unlocked receivers"); emit stateChanged(); return;
+        }
+        const double first = a->frequency(), second = b->frequency();
+        if (action != QLatin1String("copyAtoB")) { m_model.tuneSliceForCat(a, second); }
+        if (action != QLatin1String("copyBtoA")) { m_model.tuneSliceForCat(b, first); }
+        return;
+    }
     if (action == QLatin1String("mute")) { slice->setAudioMute(!slice->audioMute()); }
     else if (action == QLatin1String("lock")) { slice->setLocked(!slice->isLocked()); }
     else if (action == QLatin1String("rit")) { slice->setRit(!slice->ritOn(), slice->ritFreq()); }
@@ -449,7 +615,9 @@ void FrontPanelModel::updateIndicators()
             else if (action == QLatin1String("nb")) { on = slice->nbOn(); }
             else if (action == QLatin1String("nr")) { on = slice->nrOn(); }
             else if (action == QLatin1String("anf")) { on = slice->anfOn(); }
+            else if (action == QLatin1String("ctun")) { on = m_ctun; }
         }
+        if (action == QLatin1String("shift")) { on = m_shift; }
         if (!m_leds.contains(number) || m_leds[number] != on) {
             send(QStringLiteral("ZZZI%1%2;").arg(number, 2, 10, QLatin1Char('0')).arg(on ? 1 : 0).toLatin1());
             m_leds.insert(number, on);

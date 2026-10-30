@@ -39,7 +39,23 @@ QString actionLabel(const QString& id)
         {"drive", "RF power"}, {"rit", "RIT"}, {"xit", "XIT"}, {"cwSpeed", "CW speed"}, {"monitorLevel", "Monitor level"},
         {"mox", "MOX toggle"}, {"pttHold", "PTT while held"}, {"tune", "TUNE toggle"}, {"mute", "Mute"}, {"lock", "VFO lock"},
         {"clearOffsets", "Clear RIT / XIT"}, {"receiver", "Select A / B"}, {"nb", "Noise blanker"}, {"nr", "Noise reduction"},
-        {"anf", "Auto notch"}, {"agc", "Cycle AGC mode"}, {"modeUp", "Next mode"}, {"modeDown", "Previous mode"}, {"monitor", "MON"}};
+        {"anf", "Auto notch"}, {"agc", "Cycle AGC mode"}, {"modeUp", "Next mode"}, {"modeDown", "Previous mode"}, {"monitor", "MON"},
+        {"filterReset", "Reset filter shift"}, {"filterUp", "Next filter preset"}, {"filterDown", "Previous filter preset"},
+        {"bandUp", "Next band"}, {"bandDown", "Previous band"}, {"shift", "Band shift"}, {"ctun", "CTUN"},
+        {"copyAtoB", "Copy VFO A to B"}, {"copyBtoA", "Copy VFO B to A"}, {"swapVfo", "Swap VFO A / B"},
+        {"multifunction", "Multifunction encoder"}, {"multifunctionMenu", "Select / confirm multifunction"},
+        {"modeMenu", "Mode selection"}, {"filterMenu", "Filter selection"}, {"bandMenu", "Band selection"}, {"stepMenu", "Tuning step"},
+        {"gainMenu", "RX controls"}, {"setup", "Radio Setup"}, {"txSettings", "Transmit settings"},
+        {"displayMenu", "Display settings"}, {"audioSettings", "Audio settings"}, {"equalizer", "Equalizer"},
+        {"centerDisplay", "Center display"}, {"zoomIn", "Zoom in"}, {"zoomOut", "Zoom out"},
+        {"recordAudio", "Record RX audio"}, {"playAudio", "Play RX recording locally"}, {"receiverMenu", "Receiver selection"}, {"receiverToggle", "Receiver B on/off"},
+        {"bandstack", "Next bandstack bookmark"}, {"bandstackMenu", "Bandstack panel"},
+        {"quickSave", "Save panel quick memory"}, {"quickRestore", "Recall panel quick memory"},
+        {"audioPan", "RX stereo balance"}, {"micGain", "Microphone gain"}, {"compression", "Compressor level"},
+        {"cwPitch", "CW pitch"}, {"displayPan", "Pan display"}, {"displayZoom", "Display zoom"},
+        {"tuneStep", "Tuning step"}, {"masterGain", "Master RX volume"},
+        {"attenuationStep", "Step attenuation"}, {"antennaStep", "Next RX antenna"}};
+    if (id.startsWith(QLatin1String("softkey"))) { return QStringLiteral("Menu softkey %1").arg(id.mid(7)); }
     return labels.value(id, id);
 }
 }
@@ -121,6 +137,8 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
     target->addItems({QStringLiteral("Active receiver"), QStringLiteral("Receiver A"), QStringLiteral("Receiver B")});
     auto* learn = new QCheckBox(QStringLiteral("Learn controls (suppress actions)")); learn->setAccessibleName(learn->text());
     auto* last = new QLabel; last->setAccessibleName(QStringLiteral("Last front panel input"));
+    auto* menuState = new QLabel; menuState->setWordWrap(true);
+    menuState->setAccessibleName(QStringLiteral("Andromeda menu and multifunction selection"));
     auto* map = new QPushButton(QStringLiteral("Assign control"));
     auto* apply = new QPushButton(QStringLiteral("Apply panel changes"));
     auto* standard = new QPushButton(QStringLiteral("Load standard Andromeda mapping"));
@@ -129,6 +147,7 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
     form->addRow(QStringLiteral("Control:"), control); form->addRow(QStringLiteral("Action:"), action);
     form->addRow(QStringLiteral("Receiver:"), target); form->addRow(learn); form->addRow(last); form->addRow(map, apply); form->addRow(status);
     form->addRow(standard);
+    form->addRow(menuState);
     const auto bindings = std::make_shared<QJsonObject>(QJsonObject::fromVariantMap(initial.value(QStringLiteral("bindings")).toMap()));
     const auto selectControl = [=] {
         const QString key = control->currentData().toString();
@@ -138,7 +157,7 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
         const QSignalBlocker blocker(action); action->clear();
         for (const auto& id : FrontPanelModel::actions(category)) {
             action->addItem(actionLabel(id), id);
-            const bool dspUnavailable = (id == QLatin1String("nr") || id == QLatin1String("anf")) && !model->backendCapabilities().hasRadioSideDsp;
+            const bool dspUnavailable = (id == QLatin1String("anf") || id == QLatin1String("nb")) && !model->backendCapabilities().hasRadioSideDsp;
             const bool offsetUnavailable = id == QLatin1String("rit") || id == QLatin1String("xit") || id == QLatin1String("clearOffsets");
             const bool mappingUnavailable = id.startsWith(QLatin1String("unavailable:"));
             if (dspUnavailable || offsetUnavailable || mappingUnavailable) {
@@ -189,6 +208,14 @@ QWidget* createAnanControllersPage(RadioModel* model, QWidget* parent)
     QObject::connect(kind, &QComboBox::currentIndexChanged, page, [transportControls](int) { transportControls(); });
     const auto updateStatus = [=, &panel] {
         const auto state = panel.state();
+        QStringList keys;
+        const QStringList actions = state.value(QStringLiteral("softkeys")).toStringList();
+        for (int i = 0; i < actions.size(); ++i) { keys.append(QStringLiteral("%1: %2").arg(i + 21).arg(actionLabel(actions.at(i)))); }
+        menuState->setText(QStringLiteral("%1 menu — %2\nMulti: %3 (%4); Shift: %5")
+            .arg(state.value(QStringLiteral("menu")).toString(), keys.join(QStringLiteral(" · ")),
+                actionLabel(state.value(QStringLiteral("multifunction")).toString()),
+                state.value(QStringLiteral("selectingMultifunction")).toBool() ? QStringLiteral("selecting; press 11 to confirm") : QStringLiteral("press 11 to select"),
+                state.value(QStringLiteral("shift")).toBool() ? QStringLiteral("ON") : QStringLiteral("OFF")));
         const bool supported = state.value(QStringLiteral("supported")).toBool();
         group->setVisible(supported);
         status->setText(state.value(QStringLiteral("status")).toString());

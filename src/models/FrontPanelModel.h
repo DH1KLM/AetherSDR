@@ -28,8 +28,10 @@ public:
     void setLearning(bool on);
     static QStringList actions(const QString& kind);
     static QJsonObject standardAndromedaBindings();
+    void setMultifunctionAction(const QString& action);
 signals:
     void stateChanged();
+    void desktopActionRequested(const QString& action, int sliceId, int steps);
 private:
     friend class FrontPanelTestAccess;
     bool applyConfiguration(const QVariantMap& values, bool persist);
@@ -37,6 +39,7 @@ private:
     void consume(const QByteArray& bytes);
     void send(const QByteArray& bytes);
     void updateIndicators();
+    void requestCtun(bool toggle);
     void turn(const QString& action, int steps, SliceModel* slice);
     void press(const QString& action, int number, int state, SliceModel* slice);
     SliceModel* target(int selector) const;
@@ -55,6 +58,13 @@ private:
     bool m_opening = false;
     int m_hardwareVersion = -1;
     int m_firmwareVersion = -1;
+    bool m_ctun = false;
+    bool m_shift = false;
+    bool m_selectingMultifunction = false;
+    int m_menu = 0;
+    quint64 m_transportEpoch = 0;
+    QString m_multifunction = QStringLiteral("afGain");
+    QVariantMap m_quickMemory;
     QString m_status;
     QString m_lastInput;
     QString m_lastControl;

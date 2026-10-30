@@ -35,6 +35,17 @@
 #include "FirmwareInstallDialog.h"
 #include "Ctr2AudioSpectrumFeeder.h"
 #include "models/Ctr2ProxyModel.h"
+#include "models/FrontPanelModel.h"
+#include "models/PanadapterModel.h"
+#include "core/AudioEngine.h"
+#include "models/BandPlanManager.h"
+#include "ModeFilterPresets.h"
+#include "BandStackPanel.h"
+#include <QMenu>
+#include <QAction>
+#include <QPointer>
+#include <QCursor>
+#include <QStatusBar>
 
 #include <QHostAddress>
 
@@ -48,6 +59,7 @@
 #include <algorithm>
 #include <cmath>
 #include <tuple>
+#include <functional>
 
 namespace AetherSDR {
 
@@ -2724,6 +2736,132 @@ void MainWindow::showCtr2Window()
 
 void MainWindow::wireExternalControllers()
 {
+    FrontPanelModel& frontPanel = m_radioModel.frontPanel();
+    connect(&frontPanel, &FrontPanelModel::desktopActionRequested, this,
+        [this](const QString& action, int sliceId, int steps) {
+        SliceModel* slice = m_radioModel.slice(sliceId);
+        if (!slice || !m_radioModel.isConnected() || !m_radioModel.backendDeclaresExtension(QStringLiteral("anan"))) { return; }
+        if (activeSlice() != slice) { setActiveSlice(sliceId); }
+        RxApplet* rx = m_appletPanel->rxApplet();
+        const auto fire = [this](const QString& id) {
+            const auto* command = m_shortcutManager.action(id);
+            if (command && !command->keysTx && command->handler) { command->handler(); return true; }
+            return false;
+        };
+        const auto popup = [this, slice](const QStringList& labels, const std::function<void(int)>& select) {
+            auto* menu = new QMenu(this); menu->setAttribute(Qt::WA_DeleteOnClose);
+            const QPointer<SliceModel> captured(slice);
+            for (int i = 0; i < labels.size(); ++i) {
+                QAction* entry = menu->addAction(labels.at(i));
+                connect(entry, &QAction::triggered, this, [this, captured, select, i] {
+                    if (captured && activeSlice() == captured && m_radioModel.isConnected()) { select(i); }
+                });
+            }
+            menu->popup(QCursor::pos());
+        };
+        if (action == QLatin1String("filterUp") || action == QLatin1String("filterDown")) {
+            if (rx && rx->isAttachedToSlice(slice)) { rx->stepFilterWidth(action == QLatin1String("filterUp") ? steps : -steps); }
+        } else if (action == QLatin1String("filterMenu")) {
+            if (rx && rx->isAttachedToSlice(slice)) { rx->showFilterPresetMenu(); }
+        } else if (action == QLatin1String("filterReset")) {
+            const int width = ModeFilters::widthForEdges(slice->mode(), slice->filterLow(), slice->filterHigh());
+            const auto edges = ModeFilters::edgesForWidth(slice->mode(), width, {slice->diguOffset(), slice->diglOffset(), slice->rttyShift()});
+            slice->setFilterWidth(edges.lo, edges.hi);
+        } else if (action == QLatin1String("modeMenu")) {
+            const QStringList modes = slice->modeList();
+            const QPointer<SliceModel> selected(slice);
+            popup(modes, [selected, modes](int i) { if (selected) { selected->setMode(modes.at(i)); } });
+        } else if (action == QLatin1String("tuneStep")) {
+            if (rx && rx->isAttachedToSlice(slice)) {
+                for (int i = 0; i < std::min(9, std::abs(steps)); ++i) {
+                    if (steps > 0) { rx->cycleStepUp(); } else { rx->cycleStepDown(); }
+                }
+            }
+        } else if (action == QLatin1String("masterGain") && m_audio) {
+            QMetaObject::invokeMethod(m_audio, [audio = m_audio, steps] { audio->setRxVolume(std::clamp(audio->rxVolume() + steps * 0.01f, 0.0f, 1.0f)); });
+        } else if (action == QLatin1String("displayPan")) {
+            const PanadapterModel* pan = m_radioModel.panadapter(slice->panId());
+            if (pan) { m_radioModel.requestPanCenter(slice->panId(), pan->centerMhz() + steps * slice->stepHz() / 1e6); }
+        } else if (action == QLatin1String("displayZoom")) {
+            fire(steps > 0 ? QStringLiteral("pan_zoom_in") : QStringLiteral("pan_zoom_out"));
+        } else if (action == QLatin1String("stepMenu")) {
+            const QVector<int> sizes = slice->stepList();
+            QStringList labels;
+            for (int size : sizes) { labels.append(QStringLiteral("%1 Hz").arg(size)); }
+            popup(labels, [this, sliceId, sizes](int i) { m_radioModel.applyClientOwnedSliceStep(sliceId, sizes.at(i)); });
+        } else if (action.startsWith(QLatin1String("band:"))) {
+            if (!fire(QStringLiteral("band_") + action.mid(5))) {
+                statusBar()->showMessage(QStringLiteral("No Aether band preset for %1").arg(action.mid(5)), 4000);
+            }
+        } else if (action == QLatin1String("bandUp") || action == QLatin1String("bandDown") || action == QLatin1String("bandMenu")) {
+            if (!m_bandPlanMgr) { return; }
+            QVector<BandPlanManager::Region> regions;
+            const auto caps = m_radioModel.backendCapabilities();
+            for (const auto& band : m_bandPlanMgr->amateurBandEnvelopes()) {
+                const double centerHz = (band.lowMhz + band.highMhz) * 500000;
+                if ((caps.tuningMinHz <= 0 || centerHz >= caps.tuningMinHz)
+                    && (caps.tuningMaxHz <= 0 || centerHz <= caps.tuningMaxHz)) { regions.append(band); }
+            }
+            if (regions.isEmpty()) { return; }
+            QStringList labels;
+            for (const auto& region : regions) { labels.append(QStringLiteral("%1–%2 MHz").arg(region.lowMhz).arg(region.highMhz)); }
+            const QPointer<SliceModel> selected(slice);
+            const auto choose = [this, selected, regions](int i) {
+                if (!selected) { return; }
+                const auto& band = regions.at(i);
+                selectBand(selected->panId(), QStringLiteral("%1 MHz").arg(band.lowMhz), (band.lowMhz + band.highMhz) / 2, QString());
+            };
+            if (action == QLatin1String("bandMenu")) { popup(labels, choose); }
+            else {
+                const double frequency = slice->frequency();
+                int index = 0; double nearest = 1e9;
+                for (int i = 0; i < regions.size(); ++i) {
+                    const double distance = std::abs(frequency - (regions[i].lowMhz + regions[i].highMhz) / 2);
+                    if (distance < nearest) { nearest = distance; index = i; }
+                }
+                const int direction = action == QLatin1String("bandUp") ? 1 : -1;
+                choose((index + direction + regions.size()) % regions.size());
+            }
+        } else if (action == QLatin1String("nr")) { fire(QStringLiteral("nr2_toggle")); }
+        else if (action == QLatin1String("zoomIn")) { fire(QStringLiteral("pan_zoom_in")); }
+        else if (action == QLatin1String("zoomOut")) { fire(QStringLiteral("pan_zoom_out")); }
+        else if (action == QLatin1String("centerDisplay")) { m_radioModel.requestPanCenter(slice->panId(), slice->frequency()); }
+        else if (action == QLatin1String("setup")) { openRadioSetupPage(); }
+        else if (action == QLatin1String("txSettings")) { openRadioSetupPage(QStringLiteral("Transmit")); }
+        else if (action == QLatin1String("audioSettings")) { openRadioSetupPage(QStringLiteral("Audio")); }
+        else if (action == QLatin1String("displayMenu")) { openRadioSetupPage(QStringLiteral("Appearance & Behavior")); }
+        else if (action == QLatin1String("gainMenu")) { m_appletPanel->setAppletVisible(QStringLiteral("RX"), true); }
+        else if (action == QLatin1String("equalizer")) { m_appletPanel->setAppletVisible(QStringLiteral("CEQ-RX"), true); m_appletPanel->setAppletVisible(QStringLiteral("CEQ-TX"), true); }
+        else if (action == QLatin1String("bandstack") || action == QLatin1String("bandstackMenu")) {
+            setBandStackPanelVisible(true);
+            if (action == QLatin1String("bandstack") && m_panStack && m_panStack->bandStackPanel()) {
+                m_panStack->bandStackPanel()->recallNextBookmark(slice->frequency());
+            }
+        } else if (action == QLatin1String("receiverToggle")) {
+            if (m_radioModel.isRadioTransmitting()) { return; }
+            if (m_radioModel.slice(1)) { m_radioModel.removeSlice(1); }
+            else { m_radioModel.addSliceOnPan(slice->panId()); }
+        }
+        else if (action == QLatin1String("recordAudio") && m_qsoRecorder) {
+            if (m_qsoRecorder->isRecording()) { m_qsoRecorder->stopRecording(); } else { m_qsoRecorder->startRecording(); }
+        } else if (action == QLatin1String("playAudio") && m_qsoRecorder) {
+            if (m_qsoRecorder->isPlaying()) { m_qsoRecorder->stopPlayback(); } else { m_qsoRecorder->startPlayback(); }
+        } else if (action == QLatin1String("receiverMenu")) {
+            QStringList labels; const auto slices = m_radioModel.slices();
+            for (SliceModel* receiver : slices) { labels.append(QStringLiteral("Receiver %1").arg(receiver->sliceId() + 1)); }
+            popup(labels, [this, slices](int i) { if (m_radioModel.slices().contains(slices.at(i))) { setActiveSlice(slices.at(i)->sliceId()); } });
+        } else { statusBar()->showMessage(QStringLiteral("Panel: %1 is not available for this receiver").arg(action), 4000); }
+    });
+    connect(&frontPanel, &FrontPanelModel::stateChanged, this, [this, &frontPanel] {
+        if (!frontPanel.state().value(QStringLiteral("identified")).toBool()) { return; }
+        const auto state = frontPanel.state();
+        const QString text = QStringLiteral("Andromeda %1: %2 | Multi: %3 %4 | Shift %5").arg(state.value(QStringLiteral("menu")).toString(),
+            state.value(QStringLiteral("softkeys")).toStringList().join(QStringLiteral(" / ")), state.value(QStringLiteral("multifunction")).toString(),
+            state.value(QStringLiteral("selectingMultifunction")).toBool() ? QStringLiteral("[select]") : QString(),
+            state.value(QStringLiteral("shift")).toBool() ? QStringLiteral("ON") : QStringLiteral("OFF"));
+        const QString previous = property("andromedaMenuNotice").toString();
+        if (text != previous) { setProperty("andromedaMenuNotice", text); statusBar()->showMessage(text, 10000); }
+    });
     setupCtr2Proxy();
 
     // ── External controllers run on a dedicated worker thread (#502) ────

@@ -240,20 +240,76 @@ or TUNE button must be pressed.
 | Encoders 1 / 2 | Receiver A AF / AGC-T |
 | Encoders 3 / 4 | Receiver B AF / AGC-T, when receiver B exists |
 | Encoders 5 / 6 | Selected receiver filter high / low cut |
+| Encoder 11 / its button 11 | Multifunction control; press, turn to select, press to confirm |
 | Encoder 12 | RF power |
 | Buttons 1 / 3 | Receiver A / B mute |
+| Button 5 | Reset filter shift, preserving width with mode-correct edges |
+| Buttons 21–28 | Eight menu-dependent softkeys |
+| Button 29 | Shift: buttons 30–41 select 160/80/60/40/30/20/17/15/12/10/6m/GEN |
+| Buttons 30 / 33 | Next / previous band in the active regional plan and receiver range |
 | Buttons 31 / 34 | Next / previous mode |
+| Buttons 32 / 35 | Next / previous saved RX filter preset |
+| Buttons 36 / 37 | Copy VFO A to B / B to A; requires two unlocked receivers |
 | Button 43 | Select receiver A / B, when receiver B exists |
 | Button 44 | VFO lock |
+| Button 45 | CTUN through the existing ANAN hardware operation |
 | Buttons 47 / 48 | MOX / TUNE through the normal TX gate |
+| Long press 31 / 34; 32 / 35 | Open mode selection; filter preset selection |
+| LEDs 6 / 7 | Shift / confirmed CTUN state |
 | LEDs 1 / 3 / 10 / 11 | TX / TUNE / receiver selection / VFO lock |
 
-The remaining Thetis factory functions are labelled **Unavailable** where
-their panel integration is absent: softkey menus, multifunction selection,
-diversity, band/filter stepping, filter reset, VFO copy/split, RIT/XIT, CTUN,
-radio start/stop, ATU and PureSignal. They do not invoke substitute actions.
-Unassigned controls and long presses do nothing. This preset is for the USB
-Andromeda layout; it does not replace the G2-V2 panel's custom assignments.
+Button 21 moves through Quick, RX, VFO, TX, Display, Audio and Setup pages.
+Setup softkey 28 enters Test; its first softkey returns to Quick. The current
+page, softkey assignments, Shift state and multifunction selection appear in
+the settings page and as a footer notice when changed. Menu MOX/TUNE retain
+the panel's normal TX producer and admission gates. Long presses on other
+controls remain unassigned.
+
+The multifunction choices are AF, AGC-T, attenuation, filter edges, RF power,
+CW speed/pitch, MON level, VFO, stereo balance, microphone level, compressor
+level, display pan/zoom, tuning step and master RX volume. They use the existing
+Aether controls and act on the receiver assigned to encoder 11. Selecting a
+function does not change its value until selection is confirmed.
+
+| Menu | Available Aether operations |
+| --- | --- |
+| Quick | Host NR2, AGC, attenuation and RX antenna stepping |
+| RX | RX controls, filter selection, mute, RX antenna |
+| VFO | Band/mode/step menus, bandstack panel and bookmark cycling, A/B frequency swap |
+| TX | Transmit settings, MOX, TUNE |
+| Display | Center display, display settings, zoom in |
+| Audio | RX recording, local replay of the last recording, audio settings |
+| Setup | MON, Receiver B on/off, client RX/TX equalizer applets, Radio Setup |
+| Test | Session quick-memory save/restore, filter and band stepping |
+
+NR uses Aether's existing host NR2 control. Band stepping retains the mode;
+the target is the midpoint of the regional band's envelope. Direct Shift
+band keys use Aether's existing band presets; GEN has no corresponding preset
+and reports this. Receiver B creation/removal is refused during TX. VFO
+copy/swap copies frequencies; Split does not follow automatically. Quick memory
+retains frequency, mode and filter edges only until disconnect. Recording replay
+is local listening and never TX playback.
+
+The following Thetis functions have no equivalent operation in the extended
+ANAN path and remain unavailable:
+
+| Missing operation | Limitation |
+| --- | --- |
+| RIT/XIT adjustment, selection and clearing | Backend offset controls are absent |
+| Split / independent TX receiver | TX currently uses the primary receiver |
+| Diversity gain, phase and enable | No ANAN diversity DSP/control path |
+| PureSignal, its setup and two-tone test | No ANAN predistortion path |
+| ATU enable / ready LED | No integrated ANAN ATU control |
+| NB / SNB / ANF | No corresponding extended ANAN processing/control path |
+| Duplex and Thetis Sub RX | No matching ANAN operating controls |
+| Radio Start/Stop from the panel | Panel transport is bound to the connected radio session |
+| VAC1 / VAC2 | No Thetis-style VAC instances |
+| VOX gain / hold from the multifunction table | No corresponding extended ANAN control operation |
+| Thetis RX/TX meter-mode and display-mode cycling | No equivalent discrete Aether mode lists |
+
+Existing saved placeholders for newly supported actions are upgraded by their
+action name; custom assignments are preserved. This preset is for the USB
+Andromeda layout and does not replace G2-V2 custom assignments.
 
 Choose an encoder, short/long button press or LED under **Control**, choose its
 **Action** and **Receiver**, click **Assign control**, then **Apply panel changes**.
@@ -261,15 +317,14 @@ Choose an encoder, short/long button press or LED under **Control**, choose its
 for editing without operating the radio. The main VFO knob tunes the active,
 unlocked receiver using its tuning step. Encoders can control AF gain, AGC-T,
 RF gain/attenuation, filter edges, RF power, CW speed and MON level. Buttons can
-control mute, lock, receiver selection, mode, AGC, NB, MON and explicit
+control mute, lock, receiver selection, mode, AGC, MON and explicit
 MOX/PTT/TUNE. Receiver B requires an existing second slice. LEDs follow model
 state. MOX/PTT/TUNE use the same admission checks as the onscreen controls and
 release only the panel's own TX request.
 
-This is not a full copy of Thetis's screen softkey menus. Unsupported RIT/XIT
-panel dispatch and radio-side NR/ANF assignments are dimmed with an explanation;
-the local noise-reduction controls remain available in Aether's receive UI.
-Physical USB and G2-V2 panel qualification is pending.
+Thetis-specific unsupported assignments are dimmed with an explanation. The
+panel's real USB identity response has been verified; the expanded physical
+button/encoder mapping and G2-V2 operation still require hardware qualification.
 
 ## Voltage and current in the footer
 

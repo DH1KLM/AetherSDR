@@ -1,4 +1,6 @@
 #include "RxApplet.h"
+#include <QCursor>
+#include <QPointer>
 #include "AudioButtonIcon.h"
 #include <QScopeGuard>
 #include "AntennaChoiceGate.h"
@@ -3210,6 +3212,20 @@ void RxApplet::applyFilterPreset(int widthHz)
     }
 }
 
+void RxApplet::showFilterPresetMenu()
+{
+    if (!m_slice) { return; }
+    auto* menu = new QMenu(this);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    const QPointer<SliceModel> selected(m_slice);
+    for (int width : effectiveFilterWidths()) {
+        QAction* action = menu->addAction(QStringLiteral("%1 Hz").arg(width));
+        connect(action, &QAction::triggered, this, [this, selected, width] {
+            if (selected && m_slice == selected) { applyFilterPreset(width); }
+        });
+    }
+    menu->popup(QCursor::pos());
+}
 void RxApplet::stepFilterWidth(int steps)
 {
     // ONE list, searched, clamped and applied — see FilterStepMath.h for why

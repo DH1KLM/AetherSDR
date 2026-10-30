@@ -8,9 +8,21 @@
 #include <QScrollArea>
 #include <QMenu>
 #include <QMap>
+#include <cmath>
 #include "core/ThemeManager.h"
 
 namespace AetherSDR {
+void BandStackPanel::recallNextBookmark(double frequencyMhz)
+{
+    if (m_bookmarks.isEmpty()) { return; }
+    int current = -1;
+    double nearest = 1e9;
+    for (int i = 0; i < m_bookmarks.size(); ++i) {
+        const double distance = std::abs(m_bookmarks.at(i).entry.frequencyMhz - frequencyMhz);
+        if (distance < nearest) { nearest = distance; current = i; }
+    }
+    emit recallRequested(m_bookmarks.at((current + 1) % m_bookmarks.size()).entry);
+}
 
 static const char* kMenuStyle =
     "QMenu { background: #1a2a3a; color: #c8d8e8; border: 1px solid #304050; }"

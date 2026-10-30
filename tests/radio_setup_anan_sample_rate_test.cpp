@@ -312,10 +312,10 @@ int main(int argc, char** argv)
                   && mappedAction(QStringLiteral("p48")) == QStringLiteral("tune")
                   && mappedAction(QStringLiteral("e12")) == QStringLiteral("drive"),
                   "standard Andromeda lock MOX TUNE and drive match Thetis physical numbering");
-            check(mappedAction(QStringLiteral("p21")).startsWith(QLatin1String("unavailable:"))
+            check(mappedAction(QStringLiteral("p21")) == QStringLiteral("softkey1")
                   && mappedAction(QStringLiteral("p49")).startsWith(QLatin1String("unavailable:"))
                   && mappedAction(QStringLiteral("h47")) == QStringLiteral("none"),
-                  "unsupported Thetis functions stay explicit and long press never duplicates default MOX");
+                  "menu softkeys are bound while unsupported PureSignal and long MOX remain distinct");
             const int keysBeforePreset = trace.keyOn.load();
             const QVariantMap savedPanel = model.frontPanel().state();
             if (standard) { standard->click(); }
@@ -325,6 +325,15 @@ int main(int argc, char** argv)
             check(serial && !serial->isEditable() && serial->findData(QStringLiteral("__custom__")) >= 0,
                   "panel uses shared described-port selector with explicit custom path");
             auto& panel = model.frontPanel();
+            QVariantMap legacy = panel.state();
+            legacy.insert(QStringLiteral("enabled"), false);
+            QJsonObject oldBindings = standardBindings;
+            oldBindings.insert(QStringLiteral("p30"), QJsonObject{{"action", "unavailable:Band up"}, {"target", 0}});
+            legacy.insert(QStringLiteral("bindings"), oldBindings.toVariantMap());
+            check(panel.configure(legacy)
+                  && QJsonObject::fromVariantMap(panel.state().value(QStringLiteral("bindings")).toMap())
+                      .value(QStringLiteral("p30")).toObject().value(QStringLiteral("action")).toString() == QStringLiteral("bandUp"),
+                  "completed placeholder migrates without losing the remaining saved panel configuration");
             FrontPanelTestAccess::feed(panel, "ZZZS0101006;");
             check(panel.state().value(QStringLiteral("hardwareVersion")).toInt() == 1
                   && panel.state().value(QStringLiteral("firmwareVersion")).toInt() == 6
@@ -360,6 +369,33 @@ int main(int argc, char** argv)
             FrontPanelTestAccess::feed(panel, "ZZZP440;ZZZP441;");
             check(await([&] { return trace.lastKey.load() == 0; }), "panel MOX toggle releases its own captured request");
             FrontPanelTestAccess::feed(panel, "ZZZP440;");
+            QSignalSpy desktop(&panel, &FrontPanelModel::desktopActionRequested);
+            FrontPanelTestAccess::feed(panel, "ZZZP301;ZZZP300;ZZZP321;ZZZP320;");
+            check(desktop.count() == 2 && desktop.at(0).at(0).toString() == QStringLiteral("bandUp")
+                  && desktop.at(1).at(0).toString() == QStringLiteral("filterUp"),
+                  "physical band and filter buttons reach the desktop operating paths");
+            FrontPanelTestAccess::feed(panel, "ZZZP291;ZZZP290;ZZZP301;ZZZP300;");
+            check(panel.state().value(QStringLiteral("shift")).toBool()
+                  && desktop.last().at(0).toString() == QStringLiteral("band:160m"),
+                  "Thetis shifted band grid starts at physical button30, 160m");
+            FrontPanelTestAccess::feed(panel, "ZZZP291;ZZZP290;ZZZP111;ZZZP110;ZZZE111;");
+            check(panel.state().value(QStringLiteral("selectingMultifunction")).toBool()
+                  && panel.state().value(QStringLiteral("multifunction")).toString() == QStringLiteral("agcT"),
+                  "multifunction press and rotation select a supported control without applying it");
+            FrontPanelTestAccess::feed(panel, "ZZZP111;ZZZP110;");
+            check(!panel.state().value(QStringLiteral("selectingMultifunction")).toBool(), "second multifunction press confirms selection");
+            FrontPanelTestAccess::feed(panel, "ZZZP211;ZZZP210;ZZZP211;ZZZP210;ZZZP211;ZZZP210;");
+            check(panel.state().value(QStringLiteral("menu")).toString() == QStringLiteral("TX"), "softkey21 reaches the Thetis TX page");
+            FrontPanelTestAccess::feed(panel, "ZZZP251;ZZZP250;");
+            check(await([&] { return trace.lastKey.load() == 1; }), "TX menu MOX uses the same admitted producer path");
+            FrontPanelTestAccess::feed(panel, "ZZZP251;ZZZP250;");
+            check(await([&] { return trace.lastKey.load() == 0; }), "TX menu MOX releases its captured request");
+            FrontPanelTestAccess::feed(panel, "ZZZP451;ZZZP450;");
+            check(await([&] { return panel.state().value(QStringLiteral("ctun")).toBool(); }),
+                  "CTUN button uses the existing backend operation and reflects its confirmed state");
+            FrontPanelTestAccess::feed(panel, "ZZZP451;ZZZP450;");
+            check(await([&] { return !panel.state().value(QStringLiteral("ctun")).toBool(); }), "second CTUN press restores normal tuning");
+            check(await([&] { return backend->capabilities().canTransmit; }), "CTUN changes do not strand idle TX readiness");
             FrontPanelTestAccess::prepare(panel, QStringLiteral("pttHold"));
             FrontPanelTestAccess::feed(panel, "ZZZP441;");
             check(await([&] { return trace.lastKey.load() == 1; }), "panel held PTT is admitted explicitly");

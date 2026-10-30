@@ -38,6 +38,7 @@ public:
     void setGrouped(bool grouped);
     void setAutoExpiryMinutes(int minutes);
     void setAutoSaveDwellSeconds(int seconds);
+    void recallNextBookmark(double frequencyMhz);
 
 signals:
     void addRequested();

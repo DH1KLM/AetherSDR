@@ -93,6 +93,7 @@ public:
     // through applyFilterPreset so all modes (LSB/CWL/DIGL/RTTY/AM/CW/USB) get
     // mode-correct edge geometry.
     void stepFilterWidth(int steps);
+    void showFilterPresetMenu();
 
     // Connect to transmit model for QSK (break_in) indicator.
     void setTransmitModel(class TransmitModel* txModel);
