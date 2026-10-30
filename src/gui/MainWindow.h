@@ -183,6 +183,7 @@ struct NetEntry;
 struct MemoryEntry;
 class PropDashboardDialog;
 class UpdateChecker;
+class UpdateController;
 class UpdatesWindow;
 class TxBandDialog;
 class BandscopeDialog;
@@ -454,6 +455,8 @@ private:
     void showUpdatesWindow(bool checkNow);  // MainWindow_Menus.cpp
     void setAutomaticUpdateCheck(bool on);  // MainWindow_Menus.cpp
     void restoreKnownUpdate();         // MainWindow_Menus.cpp
+    void restartToUpdate();            // MainWindow_Menus.cpp
+    void reportLastUpdate();           // MainWindow_Menus.cpp
     void minimizeActiveApplicationWindow();
     void toggleActiveApplicationWindowFullScreen();
     void applyDarkTheme();
@@ -1498,11 +1501,6 @@ private:
     void togglePanZoomModeForPan(const QString& panId, bool segmentZoom);
     void setPanZoomMode(bool segmentZoom, bool enable);
     void zoomActivePanadapter(double factor);
-    // Touch events are handled on every build, independently of USB HID controllers.
-    QTimer*           m_touchHoldTimer{nullptr};
-    QPoint            m_touchHoldGlobalPos;
-    QPointer<QWidget> m_touchHoldWidget;
-    bool             m_touchHoldSwallowRelease{false};
 #ifdef HAVE_HIDAPI
     HidEncoderManager*   m_hidEncoder{nullptr};
     static QString hidEncoderDefaultAction(int encoderIndex);
@@ -1574,6 +1572,17 @@ private:
     QMetaObject::Connection m_tmate2RitConn;
     QMetaObject::Connection m_tmate2XitConn;
 #endif
+
+    // Touch tap-and-hold -> synthesized right-click / context menu. On a
+    // touchscreen Qt synthesizes a LEFT click from a tap; a press held in place
+    // long enough is turned into a right-click here, so press-and-hold acts like
+    // the right mouse button (context menus) with no physical mouse. Driven from
+    // the qApp eventFilter watching Qt's synthesized mouse events. Kept outside
+    // HAVE_HIDAPI: a touchscreen gesture, not a USB encoder one (#6782).
+    QTimer*           m_touchHoldTimer{nullptr};
+    QPoint            m_touchHoldGlobalPos;
+    QPointer<QWidget> m_touchHoldWidget;
+    bool              m_touchHoldSwallowRelease{false};  // a fired hold owns the click
 
     // The amplifier's forward power and SWR reach the S-Meter, the cross-needle
     // and the TMate2 from TWO sources — the radio-relayed AMP meters and the
@@ -2198,6 +2207,12 @@ private:
     QString m_panadapterConnectionAnimationLabel;
     ShortcutManager m_shortcutManager;
     UpdateChecker* m_updateChecker{nullptr};
+    // Install update in place (RFC #5304): outlives the Updates window, so
+    // a staged release installs on quit (closeEvent).
+    UpdateController* m_updateController{nullptr};
+    // applyUiScale() starts a new instance before quitting: the swap would
+    // find the install in use, so a staged update waits for the next quit.
+    bool m_relaunchingApp{false};
     QPointer<UpdatesWindow> m_updatesWindow;
     QAction* m_autoUpdateAction{nullptr};
 

@@ -1173,6 +1173,7 @@ set(CORE_SOURCES
     src/core/UpdateReleaseNotes.cpp
     src/core/UpdateStager.cpp
     src/core/UpdateInstaller.cpp
+    src/core/UpdateController.cpp
     src/core/NetworkDiagnostics.cpp
     src/core/WindowsFirewall.cpp
     src/core/OleCompoundFile.cpp
@@ -1587,6 +1588,7 @@ set(GUI_SOURCES
     src/gui/RadioTabBar.cpp
     src/gui/WindowCaptionButtons.cpp
     src/gui/SupportDialog.cpp
+    src/gui/ResetSettingsPrompts.cpp
     src/gui/SliceTroubleshootingDialog.cpp
     src/gui/RadioHealthDialog.cpp
     src/gui/KeyboardMapWidget.cpp
