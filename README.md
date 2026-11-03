@@ -1,5 +1,20 @@
 # AetherSDR
 
+**This version, which covers all ANAN-SDR models, features enhanced model detection (supporting both protocol 1 and 2) and a "Receive profile and Board override" option for manually integrating DIY-SDRs via "Connection by IP."**
+**Furthermore, the transmit (TX) function is now enabled and operational (though its performance remains to be seen). Other improvements include CTUN, ASIO support, SWR/PWR integration, a functional ANDROMEDA control panel, and more.**
+**Additional work is still required, including hardware testing across the various models. The current implementation has been verified through software testing and practical trials using an "Anvelina Pro III" (an Orion MKII clone)** 
+**equipped with an ANAN-200D PA/LPF assembly (utilizing the DIY option).**
+
+**Please note that any testing you perform with this version is done at your own risk.**
+
+**https://github.com/DH1KLM/AetherSDR/tree/anan-tx-implementation**
+
+**The software compiles without errors on Windows.**
+
+![AetherSDR Screenshot](docs/assets/screenshot-anan-3d.jpg)
+
+
+
 **A cross-platform, open-source client for FlexRadio Systems transceivers**
 
 [![CI](https://github.com/aethersdr/AetherSDR/actions/workflows/ci.yml/badge.svg)](https://github.com/aethersdr/AetherSDR/actions/workflows/ci.yml)
@@ -14,7 +29,6 @@ AetherSDR brings full FlexRadio operation to Linux, macOS, and Windows — each 
 
 > **Native builds for Linux, macOS, and Windows** — Linux AppImage (x86-64 + aarch64), macOS DMG (Apple Silicon + Intel), Windows installer and portable ZIP. Every platform is built, tested in CI, and released together.
 
-![AetherSDR Screenshot](docs/assets/screenshot-3dstackedtrace.JPG)
 
 <p><i>Native. Open. Yours.</i></p>
 
