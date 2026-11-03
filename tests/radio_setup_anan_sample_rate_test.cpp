@@ -18,6 +18,8 @@
 #include <QEvent>
 #include <QRadioButton>
 #include <QDoubleSpinBox>
+#include <QDir>
+#include <QPixmap>
 #include <QPushButton>
 #include <QElapsedTimer>
 #include <QSignalSpy>
@@ -119,6 +121,7 @@ public:
         return present;
     }
     static bool planReady(const AnanBackend& backend) { return backend.m_transmitPlanReady; }
+    static bool receiveBusy(const AnanBackend& backend) { return backend.m_receiveBuilding; }
     static void forgetViewBand(AnanBackend& backend) { backend.m_currentViewBand.clear(); }
     static double center(const AnanBackend& backend) { return backend.m_ddcCenterHz; }
     static bool ctun(const AnanBackend& backend) { return backend.m_ctun; }
@@ -195,6 +198,69 @@ int main(int argc, char** argv)
     TestSettingsProfile profile(QStringLiteral("anan-rate-ui"));
     QApplication app(argc, argv);
     AppSettings::instance().load();
+    for (const auto [protocol,board,modelId,red,first,second,adcs] : {
+        std::tuple{1,5,anan::AnanModel::RedPitaya,true,0,2,2},
+        std::tuple{1,4,anan::AnanModel::Anan200D,false,0,2,2},
+        std::tuple{1,1,anan::AnanModel::Hermes,false,0,1,1},
+        std::tuple{2,3,anan::AnanModel::Anan100D,false,2,3,2},
+        std::tuple{2,4,anan::AnanModel::Anan200D,false,2,3,2},
+        std::tuple{2,5,anan::AnanModel::AnvelinaPro3,false,2,3,2},
+        std::tuple{1,3,anan::AnanModel::Anan100D,false,0,2,2},
+        std::tuple{1,5,anan::AnanModel::Anan7000,false,0,2,2},
+        std::tuple{1,5,anan::AnanModel::Anan8000,false,0,2,2},
+        std::tuple{1,5,anan::AnanModel::AnvelinaPro3,false,0,2,2},
+        std::tuple{2,5,anan::AnanModel::Anan7000,false,2,3,2},
+        std::tuple{2,5,anan::AnanModel::Anan8000,false,2,3,2},
+        std::tuple{2,1,anan::AnanModel::Hermes,false,0,1,1},
+        std::tuple{1,1,anan::AnanModel::Anan10,false,0,1,1},
+        std::tuple{2,1,anan::AnanModel::Anan10,false,0,1,1},
+        std::tuple{1,2,anan::AnanModel::Anan10E,false,0,1,1},
+        std::tuple{2,2,anan::AnanModel::Anan10E,false,0,1,1},
+        std::tuple{1,1,anan::AnanModel::Anan100,false,0,1,1},
+        std::tuple{2,1,anan::AnanModel::Anan100,false,0,1,1},
+        std::tuple{1,2,anan::AnanModel::Anan100B,false,0,1,1},
+        std::tuple{2,2,anan::AnanModel::Anan100B,false,0,1,1},
+        std::tuple{2,10,anan::AnanModel::AnanG2,false,0,1,2},
+        std::tuple{2,10,anan::AnanModel::AnanG21K,false,0,1,2},
+        std::tuple{2,20,anan::AnanModel::AnanG2E,false,0,1,1},
+        std::tuple{2,5,anan::AnanModel::RedPitaya,false,2,3,2}}) {
+        RadioModel receiverModel;
+        auto owned = std::make_unique<anan::AnanBackend>();
+        auto* backend = owned.get();
+        anan::AnanLinkStatsTestAccess::prepare(*backend,protocol,red,board,modelId);
+        receiverModel.setBackendForTest(std::move(owned),QStringLiteral("anan"));
+        check(backend->createPanadapter(),"ADC diagram fixture creates a second independent capture");
+        QElapsedTimer pending; pending.start();
+        while (anan::AnanLinkStatsTestAccess::receiveBusy(*backend) && pending.elapsed() < 5000) { app.processEvents(); QThread::msleep(5); }
+        check(!anan::AnanLinkStatsTestAccess::receiveBusy(*backend),"ADC diagram captures are ready");
+        QSignalSpy replies(backend,&IRadioBackend::extensionResult);
+        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("adc.get"),93001,{});
+        const auto snapshot = replies.last().at(1).toMap();
+        const auto mapping = snapshot.value(QStringLiteral("ddcMap")).toList();
+        check(mapping[0].toInt() == first && mapping[1].toInt() == second,
+            "model/protocol RX1 and RX2 positions match Thetis or the retained G2 bench route");
+        std::unique_ptr<QWidget> diagram(createAnanAdcPage(&receiverModel,nullptr));
+        diagram->resize(1000,500); diagram->show();
+        auto* rx1 = diagram->findChild<QLabel*>(QStringLiteral("ananDdc%1Receivers").arg(first));
+        auto* rx2 = diagram->findChild<QLabel*>(QStringLiteral("ananDdc%1Receivers").arg(second));
+        pending.restart();
+        while ((!rx1->text().contains(QStringLiteral("RX1")) || !rx2->text().contains(QStringLiteral("RX2"))) && pending.elapsed() < 2500) { app.processEvents(); QThread::msleep(5); }
+        check(rx1->text().contains(QStringLiteral("RX1 (Slice A)")) && rx2->text().contains(QStringLiteral("RX2 (Slice B)")),
+            "graphical RX cards sit below their actual physical DDC columns");
+        auto* adc0 = diagram->findChild<QRadioButton*>(QStringLiteral("ananDdc%1Adc0").arg(second));
+        adc0->click();
+        check(rx2->text().contains(QStringLiteral("ADC0")),"physical DDC radio button updates the correct RX card");
+        diagram->findChild<QPushButton*>(QStringLiteral("ananAdcReset"))->click();
+        check(rx1->text().contains(QStringLiteral("ADC0")) && rx2->text().contains(adcs == 2 ? QStringLiteral("ADC1") : QStringLiteral("ADC0")),
+            "Thetis reset restores model-specific RX1/RX2 ADC defaults");
+        const QString shots = qEnvironmentVariable("AETHER_ADC_SCREENSHOT_DIR");
+        if (!shots.isEmpty() && ((red && protocol == 1) || (modelId == anan::AnanModel::AnvelinaPro3 && protocol == 2))) {
+            check(QDir().mkpath(shots),"ADC screenshot directory exists");
+            app.processEvents();
+            check(diagram->grab().save(QDir(shots).filePath(red ? QStringLiteral("red-pitaya-p1.png") : QStringLiteral("anvelina-p2.png"))),
+                "save actual ADC widget for visual review");
+        }
+    }
     {
         anan::TxSessionTrace trace;
         RadioModel model;

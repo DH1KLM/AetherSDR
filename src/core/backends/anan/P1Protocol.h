@@ -12,6 +12,11 @@
 // Wire facts and source revisions: docs/architecture/anan-p1-codec.md.
 // No MOX, transmit frequency, transmit IQ, drive or CW encoder is exposed.
 namespace AetherSDR::anan::p1 {
+// Thetis GetDDC: two-ADC P1 radios use DDC0 for RX1 and DDC2 for RX2.
+[[nodiscard]] constexpr int receiveDdcForStream(int stream, int numAdcs) noexcept
+{
+    return numAdcs > 1 && stream == 1 ? 2 : numAdcs > 1 && stream == 2 ? 1 : stream;
+}
 
 inline constexpr std::size_t kPacketBytes = 1032;
 inline constexpr int kSpeakerFrames = 126;

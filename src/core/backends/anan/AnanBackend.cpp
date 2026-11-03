@@ -1,4 +1,5 @@
 #include "AnanRfPower.h"
+#include "P1Protocol.h"
 #include "core/backends/anan/AnanFilterOptions.h"
 #include "AnanMicOptions.h"
 #include "AnanTransmitPower.h"
@@ -2300,7 +2301,12 @@ void AnanBackend::loadHardwareFilters(int boardId)
     }
     const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
     if (!profile) { return; }
-    m_receiveAdcs.fill(std::clamp(m_pendingParams.ddc0AdcIndex,0,profile->numAdcs-1));
+    for (int stream = 0; stream < 7; ++stream) {
+        const int physical = m_pendingParams.protocol == 1 ? p1::receiveDdcForStream(stream,profile->numAdcs) : profile->firstDdcIndex+stream;
+        m_receiveAdcs[stream] = profile->numAdcs > 1 && (m_pendingParams.protocol == 1
+            ? physical == 1 || physical == 2 : physical == 1 || physical == 3) ? 1 : 0;
+    }
+    m_receiveAdcs[0] = std::clamp(m_pendingParams.ddc0AdcIndex,0,profile->numAdcs-1);
     const auto assignments = AnanSettings::adcAssignments(m_radioSerial,static_cast<int>(m_pendingParams.model),boardId,m_pendingParams.protocol);
     if (assignments.size() == 7) {
         bool valid = true;
@@ -3043,19 +3049,30 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         QVariantList assignments;
         for (int adc : m_receiveAdcs) { assignments.append(adc); }
         QVariantList defaults;
+        QVariantList ddcMap;
         const int first = m_pendingParams.protocol == 1 ? 0 : profile->firstDdcIndex;
         for (int ddc = 0; ddc < 7; ++ddc) {
-            const int physical = first + ddc;
+            const int physical = m_pendingParams.protocol == 1 ? p1::receiveDdcForStream(ddc,profile->numAdcs) : first+ddc;
+            ddcMap.append(physical);
             defaults.append(profile->numAdcs > 1 && (m_pendingParams.protocol == 1
                 ? physical == 1 || physical == 2 : physical == 1 || physical == 3) ? 1 : 0);
         }
         QVariantList windows;
         for (const auto& [id,slice] : m_receiveLayout.slices()) {
-            windows.append(QVariantMap{{QStringLiteral("slice"),id},{QStringLiteral("ddc"),slice.stream}});
+            const auto input = activeReceiveAntenna(id);
+            windows.append(QVariantMap{{QStringLiteral("slice"),id},{QStringLiteral("ddc"),slice.stream},
+                {QStringLiteral("physicalDdc"),ddcMap[slice.stream]},
+                {QStringLiteral("rx"),slice.labelIndex+1},{QStringLiteral("letter"),QString(QChar('A'+slice.labelIndex))},
+                {QStringLiteral("adc"),m_receiveAdcs[slice.stream]},
+                {QStringLiteral("input"),QString::fromLatin1(input.current.data(),int(input.current.size()))},
+                {QStringLiteral("frequencyHz"),slice.frequencyHz}});
         }
+        const auto* descriptor = ananModelInfo(m_pendingParams.model);
         emit extensionResult(requestId,QVariantMap{{QStringLiteral("identity"),identity},
             {QStringLiteral("assignments"),assignments},{QStringLiteral("numAdcs"),profile->numAdcs},
             {QStringLiteral("defaults"),defaults},
+            {QStringLiteral("ddcMap"),ddcMap},
+            {QStringLiteral("model"),descriptor ? QString::fromLatin1(descriptor->name.data(),int(descriptor->name.size())) : QStringLiteral("OpenHPSDR")},
             {QStringLiteral("streams"),receiveStreamCeiling()},{QStringLiteral("protocol"),m_pendingParams.protocol},
             {QStringLiteral("firstDdc"),m_pendingParams.protocol == 1 ? 0 : profile->firstDdcIndex},
             {QStringLiteral("windows"),windows},

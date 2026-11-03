@@ -1,11 +1,13 @@
 #include "AnanTransmitPowerPage.h"
 #include "models/RadioModel.h"
 #include "core/backends/IRadioBackend.h"
+#include "core/ThemeManager.h"
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QRadioButton>
 #include <QSignalBlocker>
@@ -30,12 +32,16 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
     auto* layout = new QVBoxLayout(page);
     auto* hint = new QLabel(QStringLiteral("Assign each hardware DDC to its ADC input. Changes apply during reception without reconnecting. Slices sharing a DDC share its input. Routing changes are unavailable during TX or calibration."),page);
     hint->setWordWrap(true); layout->addWidget(hint);
-    auto* columns = new QHBoxLayout;
+    auto* heading = new QLabel(QStringLiteral("Connect a radio to display its RX / DDC / ADC routing."),page);
+    heading->setObjectName(QStringLiteral("ananAdcModelStatus"));
+    heading->setWordWrap(true); layout->addWidget(heading);
+    auto* columns = new QGridLayout;
     layout->addLayout(columns);
-    struct State { QString identity; QVariantList assignments; QVariantList defaults; int first = 0; bool filling = false; bool pending = false; quint64 latest = 0; };
+    struct State { QString identity; QVariantList assignments; QVariantList defaults; QVariantList ddcMap; bool filling = false; bool pending = false; quint64 latest = 0; };
     const auto state = std::make_shared<State>();
     QList<QGroupBox*> groups;
     QList<QRadioButton*> buttons;
+    QList<QLabel*> cards;
     for (int ddc = 0; ddc < 7; ++ddc) {
         auto* group = new QGroupBox(QStringLiteral("DDC%1").arg(ddc),page);
         auto* rows = new QVBoxLayout(group);
@@ -45,11 +51,27 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
             radio->setAccessibleName(QStringLiteral("DDC%1 input ADC%2").arg(ddc).arg(adc));
             rows->addWidget(radio); buttons.append(radio);
         }
-        columns->addWidget(group); groups.append(group);
+        columns->addWidget(group,0,ddc); groups.append(group);
+        columns->setColumnStretch(ddc,1);
+        auto* arrow = new QLabel(QStringLiteral("↓"),page);
+        arrow->setAlignment(Qt::AlignCenter);
+        arrow->setAccessibleName(QStringLiteral("DDC%1 receiver connections").arg(ddc));
+        columns->addWidget(arrow,1,ddc);
+        auto* card = new QLabel(QStringLiteral("Not in use"),page);
+        card->setObjectName(QStringLiteral("ananDdc%1Receivers").arg(ddc));
+        card->setAlignment(Qt::AlignCenter); card->setWordWrap(true); card->setMinimumHeight(112);
+        card->setTextFormat(Qt::RichText);
+        card->setAccessibleName(QStringLiteral("DDC%1 receiver routing").arg(ddc));
+        card->setAccessibleDescription(QStringLiteral("No active RX slice uses this DDC."));
+        ThemeManager::instance().applyStyleSheet(card,QStringLiteral(
+            "QLabel { background: {{color.background.1}}; color: {{color.text.primary}}; border: 1px solid {{color.border.accent}}; border-radius: 4px; padding: 6px; }"
+            "QLabel:disabled { background: {{color.background.0}}; color: {{color.text.secondary}}; border: 1px dashed {{color.border.subtle}}; }"));
+        card->setEnabled(false); cards.append(card); columns->addWidget(card,2,ddc);
         group->setEnabled(false);
         group->setAccessibleDescription(QStringLiteral("Connect a supported ANAN to assign its DDC inputs."));
     }
     auto* reset = new QPushButton(QStringLiteral("Reset to default"),page);
+    reset->setObjectName(QStringLiteral("ananAdcReset"));
     reset->setAccessibleName(QStringLiteral("Reset DDC ADC assignments"));
     layout->addWidget(reset,0,Qt::AlignLeft);
     auto* status = new QLabel(page); status->setWordWrap(true); layout->addWidget(status); layout->addStretch();
@@ -74,12 +96,15 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
             const auto assignments = data.value(QStringLiteral("assignments")).toList();
             if (assignments.size() != 7) { return; }
             state->identity = data.value(QStringLiteral("identity")).toString(); state->assignments = assignments;
-            state->first = data.value(QStringLiteral("firstDdc")).toInt();
+            state->ddcMap = data.value(QStringLiteral("ddcMap")).toList();
+            if (state->ddcMap.size() != 7) { return; }
             state->defaults = data.value(QStringLiteral("defaults")).toList();
+            heading->setText(QStringLiteral("%1 • Protocol %2 • RX → physical DDC → ADC input")
+                .arg(data.value(QStringLiteral("model")).toString()).arg(data.value(QStringLiteral("protocol")).toInt()));
             const bool busy = data.value(QStringLiteral("busy")).toBool();
             state->filling = true;
             for (int ddc = 0; ddc < 7; ++ddc) {
-                const int logical = ddc - state->first;
+                const int logical = state->ddcMap.indexOf(ddc);
                 const bool supported = logical >= 0 && logical < data.value(QStringLiteral("streams")).toInt();
                 groups[ddc]->setEnabled(supported && !busy);
                 groups[ddc]->setAccessibleDescription(!supported ? QStringLiteral("This session does not provide this DDC.")
@@ -95,11 +120,28 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
             state->filling = false; reset->setEnabled(!busy);
             reset->setAccessibleDescription(busy ? QStringLiteral("Finish TX or receive configuration before resetting ADC routing.") : QStringLiteral("Restore Thetis model and protocol ADC assignments."));
             QStringList routes;
+            QList<QStringList> receiverCards(7);
             for (const QVariant& window : data.value(QStringLiteral("windows")).toList()) {
-                const auto route = window.toMap(); const int ddc = route.value(QStringLiteral("ddc")).toInt();
-                routes.append(QStringLiteral("Slice %1: DDC%2 / ADC%3").arg(QChar('A'+route.value(QStringLiteral("slice")).toInt())).arg(ddc+state->first).arg(assignments[ddc].toInt()));
+                const auto route = window.toMap();
+                const int physical = route.value(QStringLiteral("physicalDdc")).toInt();
+                if (physical < 0 || physical >= 7) { continue; }
+                const QString text = QStringLiteral("RX%1 (Slice %2)\nDDC%3 → ADC%4\nInput: %5\n%6 MHz")
+                    .arg(route.value(QStringLiteral("rx")).toInt()).arg(route.value(QStringLiteral("letter")).toString())
+                    .arg(physical).arg(route.value(QStringLiteral("adc")).toInt())
+                    .arg(route.value(QStringLiteral("input")).toString())
+                    .arg(route.value(QStringLiteral("frequencyHz")).toDouble()/1e6,0,'f',6);
+                routes.append(text);
+                receiverCards[physical].append(text.toHtmlEscaped().replace(QLatin1Char('\n'),QStringLiteral("<br>")));
             }
-            status->setText(QStringLiteral("P%1 • %2").arg(data.value(QStringLiteral("protocol")).toInt()).arg(routes.join(QStringLiteral("; "))));
+            for (int physical = 0; physical < 7; ++physical) {
+                const bool active = !receiverCards[physical].isEmpty();
+                cards[physical]->setEnabled(active);
+                cards[physical]->setText(active ? receiverCards[physical].join(QStringLiteral("<br><br>")) : QStringLiteral("Not in use"));
+                cards[physical]->setAccessibleDescription(active ? cards[physical]->text()
+                    : QStringLiteral("No active RX slice uses this DDC. Reserved and unsupported DDCs are not enabled."));
+            }
+            status->setText(QStringLiteral("%1 active RX slice(s). Shared DDCs share their ADC input. Grey cards have no active RX; diversity and PureSignal routing are not enabled.")
+                .arg(routes.size()));
         });
         model->invokeBackendExtension(QStringLiteral("anan"),write ? QStringLiteral("adc.set") : QStringLiteral("adc.get"),id,
             write ? QVariantMap{{QStringLiteral("identity"),state->identity},{QStringLiteral("assignments"),state->assignments}} : QVariantMap{});
@@ -107,7 +149,7 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
     for (int index = 0; index < buttons.size(); ++index) {
         QObject::connect(buttons[index],&QRadioButton::clicked,page,[=] {
             if (state->filling || state->assignments.size() != 7 || state->pending) { return; }
-            const int logical = index/2-state->first;
+            const int logical = state->ddcMap.indexOf(index/2);
             if (logical < 0 || logical >= 7) { return; }
             state->assignments[logical] = index%2; request(true);
         });
@@ -122,6 +164,8 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
     QObject::connect(model,&RadioModel::connectionStateChanged,page,[=] {
         state->identity.clear(); state->assignments.clear(); reset->setEnabled(false);
         for (QGroupBox* group : groups) { group->setEnabled(false); }
+        heading->setText(QStringLiteral("Connect a radio to display its RX / DDC / ADC routing."));
+        for (QLabel* card : cards) { card->setEnabled(false); card->setText(QStringLiteral("Not in use")); }
     });
     return page;
 }

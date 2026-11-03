@@ -77,7 +77,8 @@ p1::Packet iq(int receivers, std::uint32_t seq = 0) {
         for (int r = 0; r < 504 / (6 * receivers + 2); ++r) {
             const int offset = base + 8 + r * (6 * receivers + 2);
             bytes[offset] = 0x40; // RX1 slot zero is positive.
-            if (receivers > 1) bytes[offset + 6] = 0x80; // Other slots must not feed RX1.
+            if (receivers > 1) { bytes[offset + 6] = receivers == 5 ? 0x20 : 0x80; }
+            if (receivers == 5) { bytes[offset + 12] = 0x80; }
         }
     }
     return bytes;
@@ -137,16 +138,17 @@ void profilesAndWire() {
         check(client.setReceiveStreams(streams, centers),
               "P1 independent receive slots fit the fixed frame geometry");
         const auto multi = P1ClientTestAccess::config(client);
-        check(multi.frequencyHz == 14'175'000 && multi.receiveFrequencies[1] == 7'100'000,
-              "P1 transport preserves distinct per-slot frequencies");
+        const int rx2Ddc = c.adcs > 1 ? 2 : 1;
+        check(multi.frequencyHz == 14'175'000 && multi.receiveFrequencies[rx2Ddc] == 7'100'000,
+              "Thetis P1 RX2 tuning uses DDC2 on dual-ADC boards and DDC1 on single-ADC boards");
         if (multi.numAdcs > 1) {
             streams[1].adcIndex = 1;
             check(client.setReceiveStreams(streams,centers),"P1 ADC routing changes without restarting its fixed geometry");
             check(P1ClientTestAccess::config(client).receiveAdcs[0] == 0
-                && P1ClientTestAccess::config(client).receiveAdcs[1] == 1,"P1 retains independent ADC0 and ADC1 routes");
+                && P1ClientTestAccess::config(client).receiveAdcs[rx2Ddc] == 1,"P1 routes the selected RX2 ADC to its physical DDC2");
             streams[1].adcIndex = 2;
             check(!client.setReceiveStreams(streams,centers)
-                && P1ClientTestAccess::config(client).receiveAdcs[1] == 1,"invalid P1 ADC leaves the live route unchanged");
+                && P1ClientTestAccess::config(client).receiveAdcs[rx2Ddc] == 1,"invalid P1 ADC leaves the live route unchanged");
             streams[1].adcIndex = 0;
         }
         auto invalid = centers;

@@ -90,18 +90,33 @@ qualified. Alex/Apollo selection is not part of this panel.
 
 ## ADC assignments
 
-Open **Settings > Radio Setup > ANAN Hardware > ADC**. The columns show physical
-**DDC0** through **DDC6**, with **ADC0** / **ADC1** radio buttons like Thetis.
-Unavailable DDCs and ADC inputs are dimmed. P2 models that reserve DDC0/1 start
-normal reception at DDC2. The status lists each slice's DDC and ADC; slices sharing
-a DDC share its input.
+Open **Settings > Radio Setup > ANAN Hardware > ADC**. The heading identifies
+the model and active protocol. Physical **DDC0** through **DDC6** columns have
+**ADC0** / **ADC1** selectors, with receiver cards underneath like Thetis. Each
+card shows the RX number, slice letter, physical DDC, selected ADC, input and
+frequency. Grey cards marked **Not in use** have no active slice.
 
-Select an input to apply and save it immediately during reception, without
+The first two independent receive captures use these model-specific routes.
+Thetis' normal layout applies except for the retained, hardware-tested G2 route:
+
+| Model / protocol | RX1 capture | RX2 capture |
+| --- | --- | --- |
+| Two-ADC P1 models, including Red Pitaya and ANAN-100D/200D/7000/8000 | DDC0 | DDC2 |
+| Single-ADC P1 models | DDC0 | DDC1 |
+| ANAN-100D/200D/7000/8000 and Anvelina under P2 | DDC2 | DDC3 |
+| Extended ANAN-G2/G2-1K P2 implementation (retained bench route) | DDC0 | DDC1 |
+| Single-ADC P2 models | DDC0 | DDC1 |
+
+Several slices can share one capture; their cards then appear together beneath
+that DDC and share its ADC input. The diagram reports the actual live layout.
+Diversity and PureSignal routes are not activated by this page.
+
+Select an ADC to apply and save it immediately during reception without
 reconnecting or rebuilding the DSP. Assignments are stored per radio, model,
 board and protocol. TX, calibration and receive reconfiguration lock routing.
-**Reset to default** restores Thetis' model- and protocol-specific ADC assignments. Existing installations retain their
-previous common ADC selection until assignments are changed.
-
+**Reset to default** restores Thetis' model- and protocol-specific ADC choices.
+New profiles use those choices; an existing first-receiver ADC preference and
+explicit saved receiver ADC assignments are retained.
 
 ## Multiple receive views
 

@@ -290,7 +290,7 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
     emit ddc0IqReady(m_iq);
     for (int i = 1; i < m_config.receivers; ++i) {
         m_iq.clear();
-        if (p1::decodeIq(*frame, i, m_iq))
+        if (p1::decodeIq(*frame, p1::receiveDdcForStream(i,m_config.numAdcs), m_iq))
             emit ddcIqReady(i, m_iq);
     }
 }
@@ -585,11 +585,13 @@ bool P1Client::setReceiveStreams(const std::vector<DdcConfig>& streams,
     m_config.independentFrequencies = true;
     m_config.independentAdcs = true;
     m_config.receiveAdcs.fill(m_config.adcIndex);
-    for (std::size_t i = 0; i < streams.size(); ++i) { m_config.receiveAdcs[i] = streams[i].adcIndex; }
+    for (std::size_t i = 0; i < streams.size(); ++i) {
+        m_config.receiveAdcs[p1::receiveDdcForStream(int(i),m_config.numAdcs)] = streams[i].adcIndex;
+    }
     m_config.frequencyHz = std::uint32_t(centers[0] + 0.5);
     m_config.receiveFrequencies.fill(m_config.frequencyHz);
     for (std::size_t i = 0; i < centers.size(); ++i)
-        m_config.receiveFrequencies[i] = std::uint32_t(centers[i] + 0.5);
+        m_config.receiveFrequencies[p1::receiveDdcForStream(int(i),m_config.numAdcs)] = std::uint32_t(centers[i] + 0.5);
     updateFilters();
     return true;
 }
