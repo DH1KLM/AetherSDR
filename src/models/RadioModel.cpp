@@ -1140,6 +1140,7 @@ void RadioModel::setupBackend(const QString& family)
             m_backendWfLastRowNs.remove(idx);
         }
         m_panadapters.remove(modelPanId);
+        m_panBandTransitions.forget(modelPanId);
         if (m_panStream) {
             m_panStream->unregisterPanStream(pan->panStreamId());
             m_panStream->unregisterWfStream(pan->wfStreamId());
@@ -1369,6 +1370,8 @@ void RadioModel::setupBackend(const QString& family)
     });
     connect(m_backend.get(), &IRadioBackend::profileChanged, this,
             [this](const ProfileDelta& delta) { applyProfileChanges(delta); });
+    connect(m_backend.get(), &IRadioBackend::ntpSourceChanged, this,
+            [this](const NtpSourceDelta& delta) { applyNtpSourceChanges(delta); });
 
     // The PanadapterStream connects below exist only on Flex and Sim; a backend
     // carrying its own IQ has no m_panStream. Each is guarded individually, not by an
@@ -1793,10 +1796,7 @@ void RadioModel::teardownBackend()
     const auto retireDax = qScopeGuard([this] { resetTransmitDaxSessionState(); });
     discardTuneInhibit();
     resetTuneOutputControl();
-    if (!m_licenseFeatures.isEmpty()) {
-        m_licenseFeatures.clear();
-        emit licenseFeaturesChanged();
-    }
+    clearLicenseState();
     m_transmitModel.invalidateControlIntents();
     for (SliceModel* source : m_slices) { source->invalidateControlIntents(); }
     resetTxOperations();
@@ -2201,6 +2201,7 @@ RadioModel::RadioModel(QObject* parent)
     qRegisterMetaType<MeterDef>();
     qRegisterMetaType<RadioDelta>();
     qRegisterMetaType<GpsDelta>();
+    qRegisterMetaType<NtpSourceDelta>();
     qRegisterMetaType<MemoryDelta>();
 
     // Watch both sides of the TX filter so a cut that silences the transmit
@@ -2287,6 +2288,14 @@ RadioModel::RadioModel(QObject* parent)
         digitalVoiceDir + QStringLiteral("/dstar-traffic.json"));
     connect(&m_flexWaveformModel, &FlexWaveformModel::genericStatusReceived,
             &m_dstarModel, &DStarModel::handleWaveformStatus);
+    connect(this, &RadioModel::capabilitiesChanged,
+            this, &RadioModel::autoClearWaveformEnvironmentStaging);
+    connect(this, &RadioModel::capabilitiesChanged, this, &RadioModel::syncNtpSources);
+    connect(&m_flexWaveformModel, &FlexWaveformModel::environmentChanged,
+            this, &RadioModel::waveformContainersChanged);
+    connect(&m_flexWaveformModel, &FlexWaveformModel::waveformsChanged, this, [this] {
+        emit waveformContainersChanged({});
+    });
     connect(&m_dstarModel, &DStarModel::configurationChanged,
             this, &RadioModel::scheduleDStarRuntimeConfiguration);
     // A `transmit dax` release that landed while the carrier was up is
@@ -3920,6 +3929,17 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         handRestoredStateToBackend();
         m_backend->connectRadio(req);
     }
+}
+
+bool RadioModel::prepareFlexBackendForWan()
+{
+    cancelRadioWake();
+    if (m_family != QLatin1String("flex") || !m_backend) {
+        qCInfo(lcProtocol) << "RadioModel: switching backend family" << m_family
+                           << "-> flex for SmartLink";
+        rebuildBackendForFamily(QStringLiteral("flex"));
+    }
+    return m_panStream != nullptr;
 }
 
 void RadioModel::connectViaWan(WanConnection* wan, const QString& publicIp, quint16 udpPort)
@@ -5950,6 +5970,14 @@ bool RadioModel::removePanadapter(const QString& panId, PanCloseIntent intent)
         || !control->supports(PanLifecycleAction::Remove)
         || !original->ownedByClient(clientHandle())
         || (intent == PanCloseIntent::Ordinary && m_panadapters.size() <= 1)) { return false; }
+    // Before the fence below snapshots the pan's revision: a listener may
+    // still write to this pan (the adaptive-throttle restore does, so the
+    // radio doesn't keep the cap for the next pan it opens in this slot).
+    {
+        const QPointer<RadioModel> guard(this);
+        emit panAboutToRemove(panId);
+        if (!guard || !original || !controlSessionCurrent(session)) { return false; }
+    }
     const QString waterfallId = original->waterfallId();
     const quint64 revision = original->controlRevision();
     const quint64 retired = m_displayRetirements.value(panId);
@@ -6526,6 +6554,14 @@ bool RadioModel::dispatchPanCenterBandwidth(const QString& panId,
     const QPointer<PanadapterModel> pan(panadapter(panId));
     if (!pan || (!hasCenter && !hasBandwidth)) { return false; }
     if (hasCenter) {
+        // Bound optimistic geometry to the declared range. Confirmed backends
+        // retain their own request validation and report the accepted geometry.
+        if (const auto range = backendCapabilities().receivePanCenterControl;
+            !confirmsReceiveControls() && range
+            && range->authority != SliceFrequencyControl::Authority::Unknown
+            && range->maximumHz >= range->minimumHz) {
+            centerMhz = std::clamp(centerMhz, range->minimumHz / 1.0e6, range->maximumHz / 1.0e6);
+        }
         centerMhz = std::max(centerMhz, (hasBandwidth ? bandwidthMhz : pan->bandwidthMhz()) / 2.0);
     }
     PanGeometryRequest geometry;
@@ -6558,10 +6594,23 @@ bool RadioModel::dispatchPanBand(const QString& panId, const QString& bandKey)
     const RadioControlSession session = controlSession();
     emit panBandAboutToDispatch(panId);
     if (!alive) { return false; }
+    // In flight until the reply, which follows the new band's own pan and
+    // waterfall status. Any reply settles it, Cancelled included (a newer
+    // band request retires this one's fence): the status arrived either way.
+    const quint64 transition = m_panBandTransitions.begin(panId);
+    const RadioControlCompletion settled = [alive, panId, transition](const RadioControlReply&) {
+        if (alive && alive->m_panBandTransitions.settle(panId, transition)) {
+            emit alive->panBandSettled(panId);
+        }
+    };
     const ReceiveDispatch result = controlSessionCurrent(session)
-        ? requestPanDisplay(original, {PanDisplayField::Band, bandKey}) : ReceiveDispatch::Unsupported;
+        ? requestPanDisplay(original, {PanDisplayField::Band, bandKey}, settled)
+        : ReceiveDispatch::Unsupported;
     if (!alive) { return false; }
     if (result == ReceiveDispatch::Unsupported) {
+        if (m_panBandTransitions.settle(panId, transition)) {
+            emit panBandSettled(panId);
+        }
         emit panBandDispatchFailed(panId);
         return false;
     }
@@ -7025,10 +7074,7 @@ void RadioModel::onConnected()
     // would otherwise be staged below and "reclaimed" by the real status
     // replay — with the fixture set staying poisoned for the session.
     clearAutomationSliceFixtures();
-    if (!m_licenseFeatures.isEmpty()) {
-        m_licenseFeatures.clear();
-        emit licenseFeaturesChanged();
-    }
+    clearLicenseState();
     stageSessionModelsForReconnect();
     // The selected discovery serial names the non-Flex session that actually
     // reached Connected. Keep it separate from m_lastInfo: a same-family radio
@@ -7146,6 +7192,7 @@ void RadioModel::stageSessionModelsForReconnect()
         }
     }
     m_panadapters.clear();
+    m_panBandTransitions.clear();
 
     m_ownedSliceIds.clear();
     if (!m_rawSliceModeLists.isEmpty()) {
@@ -7233,6 +7280,7 @@ void RadioModel::dropAllSessionModelsForFamilySwitch()
     }
     const QMap<QString, PanadapterModel*> livePans = m_panadapters;
     m_panadapters.clear();
+    m_panBandTransitions.clear();
     for (auto it = livePans.cbegin(); it != livePans.cend(); ++it) {
         if (!it.value()) continue;
         emit panadapterRemoved(it.key());
@@ -8495,10 +8543,7 @@ void RadioModel::onDisconnected()
     m_tnfModel.clear();
     m_flexWaveformModel.clear();
     m_dvkModel.reset();
-    if (!m_licenseFeatures.isEmpty()) {
-        m_licenseFeatures.clear();
-        emit licenseFeaturesChanged();
-    }
+    clearLicenseState();
     m_memorySlotRetirements.clear();
     if (!m_memories.isEmpty()) {
         m_memories.clear();
@@ -9013,6 +9058,9 @@ void RadioModel::sendAdaptiveCapToPan(const QString& panId, int fpsCap)
 {
     if (panId.isEmpty() || fpsCap <= 0) return;
     if (profileLoadRadioStateWritesHeld()) return;
+    // The radio would save the cap as the new band's rates. MainWindow caps
+    // the pan once the band change settles (#6791).
+    if (m_panBandTransitions.inFlight(panId)) return;
     auto* pan = m_panadapters.value(panId, nullptr);
     if (!pan) return;
     // A backend that shapes its own display rate has no Flex command sink, so the
@@ -9729,6 +9777,13 @@ void RadioModel::handleMessageReceived(const ParsedMessage& msg, quint64 gpsSess
     }
     if (body.startsWith("profile cw ")) {
         handleProfileStatusRaw("cw", body.mid(11));  // skip "profile cw "
+        return;
+    }
+
+    // Objects the Flex backend reads from the raw line itself (ntp_sources),
+    // from this session only.
+    if (m_flexBackend && gpsSessionGeneration == m_gpsSessionGeneration
+        && m_flexBackend->decodeRawStatus(body)) {
         return;
     }
 
@@ -11544,26 +11599,18 @@ void RadioModel::onStatusReceived(const QString& object,
             m_licenseMaxVersion = kvs["highest_major_version"];
         }
         // Base subscription is always "SmartSDR" — upgraded by subscription messages
-        if (m_licenseSubscription.isEmpty()) {
-            m_licenseSubscription = "SmartSDR";
+        if (m_licenseSubscription.name.isEmpty()) {
+            m_licenseSubscription.name = QStringLiteral("SmartSDR");
         }
         emit infoChanged();
         return;
     }
     if (object == "license subscription") {
         // Per FlexLib: name=smartsdr+ or name=smartsdr+_early_access
-        // with expiration=<ISO-8601 date>
-        QString name = kvs.value("name").toLower();
-        QString expStr = kvs.value("expiration");
-        QDate expDate = QDate::fromString(expStr.left(10), Qt::ISODate);
-        bool active = expDate.isValid() && expDate >= QDate::currentDate();
-        if (name == "smartsdr+_early_access" && active) {
-            m_licenseSubscription = "SmartSDR+ Early Access";
-            m_licenseExpirationDate = expDate.toString("MM/dd/yyyy");
-        } else if (name == "smartsdr+" && active) {
-            m_licenseSubscription = "SmartSDR+";
-            m_licenseExpirationDate = expDate.toString("MM/dd/yyyy");
-        }
+        // with expiration=<ISO-8601 date>. A lapsed one is kept for display
+        // only; feature gates read the `license feature` records.
+        m_licenseSubscription = mergeLicenseSubscription(
+            m_licenseSubscription, kvs.value("name"), kvs.value("expiration"));
         emit infoChanged();
         return;
     }
@@ -11726,6 +11773,7 @@ void RadioModel::onStatusReceived(const QString& object,
                 m_panTransmitInhibitReasons.remove(panId);
                 m_panTransmitInhibitedTxSlices.remove(panId);
                 auto* pan = m_panadapters.take(panId);
+                m_panBandTransitions.forget(panId);
                 if (!pan) {
                     pan = m_stalePanadapters.take(panId);
                 }
@@ -12153,11 +12201,9 @@ void RadioModel::onStatusReceived(const QString& object,
             int idx = sm.captured(1).toInt();
             if (kvs.isEmpty() && object.contains("removed")) {
                 m_spotModel.removeSpot(idx);
-            } else if (kvs.isEmpty() && object.contains("triggered")) {
-                // Parse pan= from the object string if present
-                static const QRegularExpression panRe2(R"(pan=(0x[0-9A-Fa-f]+))");
-                const auto pm = panRe2.match(object);
-                emit m_spotModel.spotTriggered(idx, pm.hasMatch() ? pm.captured(1) : QString());
+            } else if (object.contains("triggered")) {
+                // CommandParser separates pan= from the event's object text.
+                emit m_spotModel.spotTriggered(idx, kvs.value("pan"));
             } else {
                 m_spotModel.applySpotStatus(idx, kvs);
             }
@@ -12345,6 +12391,10 @@ void RadioModel::onStatusReceived(const QString& object,
         m_flexWaveformModel.handleGenericStatus(kvs);
         return;
     }
+    if (object == QLatin1String("waveform restarted")) {
+        m_flexWaveformModel.handleRestarted(kvs);
+        return;
+    }
 
     // WAN, etc. — informational, ignore for now.
 }
@@ -12374,6 +12424,28 @@ LicenseFeatureState RadioModel::licenseFeature(const QString& name) const
 bool RadioModel::licenseFeatureSeen(const QString& name) const
 {
     return licenseFeature(name).seen;
+}
+
+bool RadioModel::cwAutotuneLicensed() const
+{
+    const LicenseFeatureState feature = licenseFeature(QStringLiteral("auto_tune"));
+    return smartSdrPlusFeatureUsable(
+        feature.seen, feature.enabled,
+        m_licenseSubscription.isActive(QDateTime::currentDateTime()));
+}
+
+void RadioModel::clearLicenseState()
+{
+    const bool held = !m_licenseFeatures.isEmpty()
+        || !m_licenseSubscription.name.isEmpty()
+        || !m_licenseRadioId.isEmpty() || !m_licenseMaxVersion.isEmpty();
+    m_licenseFeatures.clear();
+    m_licenseSubscription = {};
+    m_licenseRadioId.clear();
+    m_licenseMaxVersion.clear();
+    if (held) {
+        emit licenseFeaturesChanged();
+    }
 }
 
 bool RadioModel::licenseFeatureEnabled(const QString& name) const

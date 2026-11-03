@@ -1103,7 +1103,7 @@ ADC1 changes. Both protocols keep each ADC register within 0–31 dB.
 - **Panadapter** computed by WDSP's display analyzer: a ≥16384-point windowed FFT at one point per screen pixel. **FFT AVG** and **Wt Avg** drive it, and noise-floor auto-adjust works.
 - **S-meter.**
 - **NB** cycles Off → **NB** → **NB2** → Off: WDSP's two impulse blankers, run on this computer before the demodulator. **NB** silences each impulse; **NB2** reconstructs the blanked window from the samples either side, and shows an **NB2** fill selector (**Zero**, **Sample hold**, **Mean hold**, **Hold sample** or **Interpolate**) while it runs. Neither is offered in FM.
-- **AGC-T** sets the AGC's maximum gain from −20 to 120 dB, 1.4 dB per slider step, starting at 71 (79.4 dB). With AGC off it sets the fixed gain instead, starting at 29 (20.6 dB). AGC-T and the AGC-off level are not remembered across launches; each launch starts at 71 and 29.
+- **AGC-T** sets the AGC's maximum gain from −20 to 120 dB, 1.4 dB per slider step. Tooltips show the gain in dB. RX1's AGC mode, AGC-T and AGC-off level are remembered per radio across launches. A radio without saved values starts at medium, AGC-T 71 (79.4 dB) and AGC-off 29 (20.6 dB). Additional receivers and automatic AGC-T activation remain session-local.
 - **RF Gain** from −31 to 0 dB drives the G2's ADC step attenuator, and is restored per radio.
 - **AF gain, mute and balance** apply. With **Send receive audio to the radio** on, the receiver's mute and volume apply to both the computer and the radio's speaker, and the title-bar speaker button mutes the radio's speaker too.
 - Manual **Black Level** and waterfall **NB Blank**. See [Panadapter Controls](./panadapter-controls.md).
@@ -1180,7 +1180,7 @@ To measure your own radio instead, open **Settings → Radio Setup... → Droop 
 
 ### What is remembered
 
-The G2 stores none of its settings, so AetherSDR keeps these per radio: frequency and mode (14.175 MHz USB on a first connect), tuning step, **RF Gain**, the radio's own output level (what the volume slider sets with PC Audio off) and the panadapter dBm range. The span always starts at the connect form's **Sample rate:**. AGC settings start from their defaults.
+The G2 stores none of its settings, so AetherSDR keeps these per radio: frequency and mode (14.175 MHz USB on a first connect), tuning step, **RF Gain**, RX1 AGC settings, the radio's own output level (what the volume slider sets with PC Audio off) and the panadapter dBm range. The span starts at the connect form's **Sample rate:** unless a saved band view is restored.
 
 For all supported ANAN profiles, **FFT FPS**, **FFT AVG**, **Wt Avg** and waterfall **Rate** are saved separately for each radio and panadapter. Reconnecting or restarting AetherSDR restores these choices and applies them to the receive display processing. Averaging **0** and **Wt Avg** off are remembered too. Temporary adaptive frame-rate limits do not replace your saved **FFT FPS** choice.
 

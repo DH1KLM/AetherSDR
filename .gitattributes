@@ -8,3 +8,5 @@ third_party/wdsp/** linguist-vendored whitespace=-trailing-space,-space-before-t
 
 #DH1KLM: Signed manifests and hashed update payloads must retain their exact committed bytes.
 tests/fixtures/update/** -text
+# PDFs are binary even when their streams are uncompressed text.
+*.pdf binary

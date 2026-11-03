@@ -10,6 +10,7 @@
 #include "PttHoldKeyStep.h"
 #include "ShortcutRefusalNotice.h"
 #include "StatusBarNotice.h"
+#include "TwoToneTuneGate.h"
 #include "core/IambicKeyer.h"
 
 #include <QApplication>
@@ -1422,6 +1423,13 @@ void MainWindow::registerShortcutActions()
                     m_radioModel.transmitModel().setTuneMode(QStringLiteral("single_tone"));
                 }
             } else {
+                // Refuse before any keying call: a radio with no two-tone
+                // generator would key a single carrier.
+                if (!twoToneTuneMayStart(m_radioModel, [this](const QString& why) {
+                        statusBar()->showMessage(why, 6000);
+                    })) {
+                    return;
+                }
                 (void)input.start(true);
             }
         });
