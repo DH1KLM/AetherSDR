@@ -139,6 +139,16 @@ void profilesAndWire() {
         const auto multi = P1ClientTestAccess::config(client);
         check(multi.frequencyHz == 14'175'000 && multi.receiveFrequencies[1] == 7'100'000,
               "P1 transport preserves distinct per-slot frequencies");
+        if (multi.numAdcs > 1) {
+            streams[1].adcIndex = 1;
+            check(client.setReceiveStreams(streams,centers),"P1 ADC routing changes without restarting its fixed geometry");
+            check(P1ClientTestAccess::config(client).receiveAdcs[0] == 0
+                && P1ClientTestAccess::config(client).receiveAdcs[1] == 1,"P1 retains independent ADC0 and ADC1 routes");
+            streams[1].adcIndex = 2;
+            check(!client.setReceiveStreams(streams,centers)
+                && P1ClientTestAccess::config(client).receiveAdcs[1] == 1,"invalid P1 ADC leaves the live route unchanged");
+            streams[1].adcIndex = 0;
+        }
         auto invalid = centers;
         invalid[1] = std::numeric_limits<double>::quiet_NaN();
         check(!client.setReceiveStreams(streams, invalid) &&

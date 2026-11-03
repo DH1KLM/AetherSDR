@@ -88,6 +88,20 @@ The connector settings send no MOX or transmit IQ. The first voice TX path uses
 PC microphone audio; radio microphone audio and physical radio PTT have not been
 qualified. Alex/Apollo selection is not part of this panel.
 
+## ADC assignments
+
+Open **Settings > Radio Setup > ANAN Hardware > ADC**. The columns show physical
+**DDC0** through **DDC6**, with **ADC0** / **ADC1** radio buttons like Thetis.
+Unavailable DDCs and ADC inputs are dimmed. P2 models that reserve DDC0/1 start
+normal reception at DDC2. The status lists each slice's DDC and ADC; slices sharing
+a DDC share its input.
+
+Select an input to apply and save it immediately during reception, without
+reconnecting or rebuilding the DSP. Assignments are stored per radio, model,
+board and protocol. TX, calibration and receive reconfiguration lock routing.
+**Reset to default** restores Thetis' model- and protocol-specific ADC assignments. Existing installations retain their
+previous common ADC selection until assignments are changed.
+
 ## Transmit settings
 
 Open **Settings > Radio Setup > ANAN Hardware > Transmit** in the extended
@@ -98,7 +112,7 @@ only on bands your hardware supports.
 
 Choose **TX antenna** (**ANT1**, **ANT2** or **ANT3**) and click **Save PA profile**.
 The table and antenna are remembered per radio, model, board and protocol.
-Changes can be saved while receiving; the controls are locked while transmitting.
+While transmitting, the active band's **PA gain (dB)** remains editable: arrow/wheel changes apply and save immediately; typed values apply with Enter or on leaving the field. Other bands, power limits and antenna changes require reception and **Save PA profile**. Finish unsaved profile edits before transmitting.
 A zero limit keeps the corresponding band closed for TX.
 
 The **ANAN TX** log category records the selected model, board, protocol,
@@ -116,7 +130,7 @@ while keyed cancels the current transmission; changing band or mode rechecks the
 TX prerequisites. There is no
 preview calculator, manual DSP preparation or extra transmit-enable button.
 The status explains when the current mode, band plan or hardware state prevents
-transmission. One primary receive slice is required. Frequency changes refresh
+transmission. Keep **Slice A** open as the TX source; additional RX slices do not prevent TX. Selecting RX B does not move TX to B. All receive audio is muted during TX; duplex and split TX are not implemented. Frequency changes refresh
 readiness; mode changes prepare the matching DSP on the existing planning worker.
 Neither operation keys the radio. A fresh connection starts at **RF Power 0%**;
 retuning within the connection preserves the operator's percentage.
@@ -199,7 +213,7 @@ CPU, Network, TX, date and the station control keep their positions.
 | MIC / TX-filter recall | Incomplete; RF drive now recalls separately per band/model/protocol |
 | Hardware PTT observation | Not implemented; local MOX state is not hardware readback |
 | Forward/reflected RF power and SWR | P1/P2 detector telemetry with Thetis model reference conversion; individual calibration pending |
-| TX slice / multiple receivers | TX requires the single primary receive slice |
+| TX slice / multiple receivers | TX uses Slice A with additional RX slices; no split TX or duplex |
 
 ## Andromeda and G2-V2 front panels
 

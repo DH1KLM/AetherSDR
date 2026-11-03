@@ -1912,9 +1912,9 @@ void AnanBackend::setPanFrameRate(const QString& panId, int fps)
                                   Q_ARG(int, fps));
 }
 
-int AnanBackend::maximumReceiveAttenuation() const
+int AnanBackend::maximumReceiveAttenuation(int adc) const
 {
-    return m_pendingParams.ddc0AdcIndex == 0
+    return (adc < 0 ? m_pendingParams.ddc0AdcIndex : adc) == 0
         && hasClassicAlexAttenuator(m_pendingParams.model,
             m_discoveryInfoReceived ? m_discoveredBoardId : m_pendingParams.expectedBoardId) ? 61 : 31;
 }
@@ -1922,56 +1922,65 @@ int AnanBackend::maximumReceiveAttenuation() const
 void AnanBackend::publishReceiveGain()
 {
 
-    // Thetis' historical Preamp combo contains attenuation presets, not gain.
-    QStringList labels;
-    const int maximumPreset = maximumReceiveAttenuation() == 61 ? 50 : 30;
-    for (int db = 0; db <= maximumPreset; db += 10) {
-        labels.append(db == 0 ? QStringLiteral("0 dB") : QStringLiteral("-%1 dB").arg(db));
-    }
-    int step = m_attenuationDb / 10;
-    if (m_attenuationDb % 10 != 0 || m_attenuationDb > maximumPreset) {
-        step = labels.size();
-        labels.append(QStringLiteral("-%1 dB (custom)").arg(m_attenuationDb));
-    }
-    for (int st = 0; st < m_receiveLayout.limit(); ++st)
-        if (m_receiveLayout.streams()[st].active) {
-            const auto pan = QStringLiteral("anan-%1").arg(st);
-            emit panRfGainInfoChanged(pan, -maximumReceiveAttenuation(), 0, 1);
-            emit panRfGainChanged(pan, -m_attenuationDb);
-            emit panPreampInfoChanged(pan, labels);
-    emit panPreampChanged(pan, step);
+    // Physical attenuation is shared only by receivers on the same ADC.
+    for (int st = 0; st < m_receiveLayout.limit(); ++st) {
+        if (!m_receiveLayout.streams()[st].active) { continue; }
+        const int adc = m_receiveAdcs[st];
+        const int attenuation = adc == 1 ? m_pendingParams.adc1AttenuationDb
+            : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb;
+        QStringList labels;
+        const int maximumPreset = maximumReceiveAttenuation(adc) == 61 ? 50 : 30;
+        for (int db = 0; db <= maximumPreset; db += 10) {
+            labels.append(db == 0 ? QStringLiteral("0 dB") : QStringLiteral("-%1 dB").arg(db));
         }
+        int step = attenuation / 10;
+        if (attenuation % 10 != 0 || attenuation > maximumPreset) {
+            step = labels.size();
+            labels.append(QStringLiteral("-%1 dB (custom)").arg(attenuation));
+        }
+        const auto pan = QStringLiteral("anan-%1").arg(st);
+        emit panRfGainInfoChanged(pan, -maximumReceiveAttenuation(adc), 0, 1);
+        emit panRfGainChanged(pan, -attenuation);
+        emit panPreampInfoChanged(pan, labels);
+        emit panPreampChanged(pan, step);
+    }
 }
 
 void AnanBackend::setPanPreamp(const QString& panId, int step)
 {
-    const int maximumStep = maximumReceiveAttenuation() == 61 ? 5 : 3;
+    const int stream = streamForPan(panId);
+    if (stream < 0) { return; }
+    const int adc = m_receiveAdcs[stream];
+    const int maximumStep = maximumReceiveAttenuation(adc) == 61 ? 5 : 3;
     if (step < 0 || step > maximumStep) { publishReceiveGain(); return; }
-    if (streamForPan(panId) < 0) { return; }
-    const auto preset = receiveAttenuationPreset(step, maximumReceiveAttenuation() == 61);
-    applyReceiveGain(preset.adcDb, preset.alexDb);
+    const auto preset = receiveAttenuationPreset(step, maximumReceiveAttenuation(adc) == 61);
+    applyReceiveGain(preset.adcDb, preset.alexDb,adc);
 }
 
 void AnanBackend::setPanRfGain(const QString& panId, int gainDb)
 {
-    if (streamForPan(panId) < 0) { return; }
-    const auto attenuation = receiveAttenuation(-std::clamp(gainDb, -maximumReceiveAttenuation(), 0),
-        maximumReceiveAttenuation() == 61);
-    applyReceiveGain(attenuation.adcDb, attenuation.alexDb);
+    const int stream = streamForPan(panId);
+    if (stream < 0) { return; }
+    const int adc = m_receiveAdcs[stream];
+    const auto attenuation = receiveAttenuation(-std::clamp(gainDb, -maximumReceiveAttenuation(adc), 0),
+        maximumReceiveAttenuation(adc) == 61);
+    applyReceiveGain(attenuation.adcDb, attenuation.alexDb,adc);
 }
 
-void AnanBackend::applyReceiveGain(int adcDb, int alexDb)
+void AnanBackend::applyReceiveGain(int adcDb, int alexDb, int adc)
 {
-    m_attenuationDb = adcDb + alexDb;
-    if (m_pendingParams.ddc0AdcIndex == 1) {
+    if (adc < 0) { adc = m_pendingParams.ddc0AdcIndex; }
+    if (adc == 1) {
         m_pendingParams.adc1AttenuationDb = adcDb;
     } else {
         m_pendingParams.adc0AttenuationDb = adcDb;
         m_pendingParams.alexAttenuationDb = alexDb;
     }
+    m_attenuationDb = m_pendingParams.ddc0AdcIndex == 1 ? m_pendingParams.adc1AttenuationDb
+        : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb;
     if (m_client) {
         QMetaObject::invokeMethod(m_client, "setFrontEndAttenuation", Qt::QueuedConnection,
-            Q_ARG(int, m_pendingParams.ddc0AdcIndex), Q_ARG(int, adcDb),
+            Q_ARG(int, adc), Q_ARG(int, adcDb),
             Q_ARG(int, alexDb));
     }
     publishReceiveGain();
@@ -2268,6 +2277,21 @@ void AnanBackend::loadHardwareFilters(int boardId)
     }
     const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
     if (!profile) { return; }
+    m_receiveAdcs.fill(std::clamp(m_pendingParams.ddc0AdcIndex,0,profile->numAdcs-1));
+    const auto assignments = AnanSettings::adcAssignments(m_radioSerial,static_cast<int>(m_pendingParams.model),boardId,m_pendingParams.protocol);
+    if (assignments.size() == 7) {
+        bool valid = true;
+        for (const QVariant& adc : assignments) {
+            const int type = adc.metaType().id();
+            const bool numeric = type == QMetaType::Int || type == QMetaType::UInt
+                || type == QMetaType::LongLong || type == QMetaType::ULongLong || type == QMetaType::Double;
+            const double value = adc.toDouble();
+            valid = valid && numeric && std::isfinite(value)
+                && value == std::floor(value) && value >= 0 && value < profile->numAdcs;
+        }
+        if (valid) { for (int i = 0; i < 7; ++i) { m_receiveAdcs[i] = assignments[i].toInt(); } }
+    }
+    m_pendingParams.ddc0AdcIndex = m_receiveAdcs[0];
     m_rxAntenna = AnanSettings::radioRxAntenna(m_radioSerial,
         static_cast<int>(m_pendingParams.model), boardId);
     m_pendingParams.rxAntenna = m_rxAntenna;
@@ -2559,6 +2583,38 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         emit extensionResult(requestId, QVariantMap{{QStringLiteral("identity"), identity},
             {QStringLiteral("native"), hasNativeVitals(m_pendingParams.model, m_discoveredBoardId)},
             {QStringLiteral("enabled"), vitalsEnabled()}, {QStringLiteral("options"), vitalOptions(m_vitalConfig)}});
+        return;
+    }
+    if (ns == QLatin1String("anan") && verb == QLatin1String("txpower.gain")) {
+        const QVariantMap state = transmitPowerState();
+        const QVariantMap fields = arg.toMap();
+        auto profile = parseTransmitPower(AnanSettings::transmitPower(m_radioSerial,
+            static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol));
+        const QVariant band = fields.value(QStringLiteral("band"));
+        const QVariant gain = fields.value(QStringLiteral("gainDb"));
+        const bool numeric = gain.metaType().id() == QMetaType::Double || gain.metaType().id() == QMetaType::Int;
+        if (!profile || !transmitSessionCurrent() || m_txSessionArming
+            || fields.size() != 4 || fields.value(QStringLiteral("identity")) != state.value(QStringLiteral("identity"))
+            || fields.value(QStringLiteral("sessionIdentity")).toString() != m_txSessionIdentity
+            || band.metaType().id() != QMetaType::Int || band.toInt() != m_txSessionBand
+            || !numeric || !std::isfinite(gain.toDouble()) || gain.toDouble() < 0 || gain.toDouble() > 100) {
+            emit extensionError(requestId,QStringLiteral("Live PA gain requires the current TX-ready session and its active band; gain must be 0–100 dB."));
+            return;
+        }
+        profile->gainsDb[band.toInt()] = gain.toDouble();
+        if (!AnanSettings::setTransmitPower(m_radioSerial,static_cast<int>(m_pendingParams.model),
+            m_discoveredBoardId,m_pendingParams.protocol,transmitPowerOptions(*profile))) {
+            emit extensionError(requestId,QStringLiteral("PA gain could not be saved.")); return;
+        }
+        m_txSessionProfile = *profile;
+        const auto operation = m_transmitDispatchOperation;
+        if (operation.permitsDispatch(TxCoordinator::monotonicMs())) {
+            const int percent = m_tuneActive ? m_tunePowerPercent : m_txPowerPercent;
+            QMetaObject::invokeMethod(m_client,[client = m_client,profile = *profile,band = m_txSessionBand,percent,operation] {
+                client->setTransmitPower(profile,band,percent,operation);
+            },Qt::QueuedConnection);
+        }
+        emit extensionResult(requestId,transmitPowerState());
         return;
     }
     if (ns == QLatin1String("anan") && (verb == QLatin1String("txpower.get")
@@ -2889,6 +2945,52 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         emit extensionResult(requestId, hardwareFilterStatus());
         return;
     }
+    if (ns == QLatin1String("anan") && (verb == QLatin1String("adc.get") || verb == QLatin1String("adc.set"))) {
+        const auto profile = receiveProfile(m_discoveredBoardId,m_pendingParams.model,m_pendingParams.overrideDetection);
+        const QString identity = transmitPreparationIdentity();
+        if (!m_connected || !m_discoveryInfoReceived || !profile) {
+            emit extensionError(requestId,QStringLiteral("Connect a validated ANAN to assign DDC inputs.")); return;
+        }
+        if (verb == QLatin1String("adc.set")) {
+            const auto fields = arg.toMap();
+            const auto assignments = fields.value(QStringLiteral("assignments")).toList();
+            if (fields.value(QStringLiteral("identity")).toString() != identity || fields.size() != 2
+                || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun || m_droopCalibrator.isRunning()
+                || m_transmitOperation.permitsCleanup() || m_txSessionArming
+                || !AnanSettings::setAdcAssignments(m_radioSerial,static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol,assignments)) {
+                emit extensionError(requestId,QStringLiteral("ADC assignment refused: use the current idle receiver, valid ADC inputs and writable settings.")); return;
+            }
+            for (int i = 0; i < 7; ++i) { m_receiveAdcs[i] = assignments[i].toInt(); }
+            m_pendingParams.ddc0AdcIndex = m_receiveAdcs[primaryPanIndex()];
+            m_attenuationDb = m_pendingParams.ddc0AdcIndex == 1 ? m_pendingParams.adc1AttenuationDb
+                : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb;
+            updateReceiveStreams();
+            publishReceiveGain();
+            emit capabilitiesChanged();
+        }
+        QVariantList assignments;
+        for (int adc : m_receiveAdcs) { assignments.append(adc); }
+        QVariantList defaults;
+        const int first = m_pendingParams.protocol == 1 ? 0 : profile->firstDdcIndex;
+        for (int ddc = 0; ddc < 7; ++ddc) {
+            const int physical = first + ddc;
+            defaults.append(profile->numAdcs > 1 && (m_pendingParams.protocol == 1
+                ? physical == 1 || physical == 2 : physical == 1 || physical == 3) ? 1 : 0);
+        }
+        QVariantList windows;
+        for (const auto& [id,slice] : m_receiveLayout.slices()) {
+            windows.append(QVariantMap{{QStringLiteral("slice"),id},{QStringLiteral("ddc"),slice.stream}});
+        }
+        emit extensionResult(requestId,QVariantMap{{QStringLiteral("identity"),identity},
+            {QStringLiteral("assignments"),assignments},{QStringLiteral("numAdcs"),profile->numAdcs},
+            {QStringLiteral("defaults"),defaults},
+            {QStringLiteral("streams"),receiveStreamCeiling()},{QStringLiteral("protocol"),m_pendingParams.protocol},
+            {QStringLiteral("firstDdc"),m_pendingParams.protocol == 1 ? 0 : profile->firstDdcIndex},
+            {QStringLiteral("windows"),windows},
+            {QStringLiteral("busy"),m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun.has_value()
+                || m_droopCalibrator.isRunning() || m_transmitOperation.permitsCleanup() || m_txSessionArming}});
+        return;
+    }
     if (ns == QLatin1String("anan") && verb == QLatin1String("ctun.set")) {
         if (!m_connected || !m_discoveryInfoReceived || m_radioSerial.isEmpty()
             || arg.metaType().id() != QMetaType::Bool
@@ -2900,6 +3002,9 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         m_tunePendingApply = false;
         m_pendingBandView.reset();
         m_ctun = arg.toBool();
+        if (m_ctun) {
+            m_currentViewBand = BandSettings::bandForFrequency(m_sliceFreqHz / 1.0e6);
+        }
         if (!m_ctun) { m_bandViewSpanHz = 0.0; m_beforeBandView = {}; }
         applyTuneToRadioAndPan();
         emitSliceState();

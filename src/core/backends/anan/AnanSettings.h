@@ -3,6 +3,7 @@
 #include <QList>
 #include <QString>
 #include <QVariantMap>
+#include <QVariantList>
 #include "core/backends/anan/AnanModel.h"
 
 class QJsonObject;
@@ -27,6 +28,8 @@ public:
     static QVariantMap hardwareFilters(const QString& serial, int model, int board);
     static QVariantMap microphone(const QString& serial, int model, int board, int protocol);
     static QVariantMap transmitPower(const QString& serial, int model, int board, int protocol);
+    static QVariantList adcAssignments(const QString& serial, int model, int board, int protocol);
+    static bool setAdcAssignments(const QString& serial, int model, int board, int protocol, const QVariantList& assignments);
     static bool setTransmitPower(const QString& serial, int model, int board, int protocol, const QVariantMap& options);
     static int transmitSessionAntenna(const QString& serial, int model, int board, int protocol);
     static bool setTransmitSessionAntenna(const QString& serial, int model, int board, int protocol, int antenna);

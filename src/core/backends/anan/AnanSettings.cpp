@@ -7,6 +7,7 @@
 #include "core/backends/anan/P2Protocol.h"
 #include "core/RadioDiscovery.h"
 #include <QCoreApplication>
+#include <QJsonArray>
 #include "core/backends/anan/AnanFilterOptions.h"
 
 #include "core/AppSettings.h"
@@ -449,6 +450,29 @@ bool AnanSettings::setRedPitayaP1ForRadio(const QString& serial, bool enabled)
     return scope.setFeature(QStringLiteral("HardwareProfile"), 1, doc);
 }
 
+QVariantList AnanSettings::adcAssignments(const QString& serial, int model, int board, int protocol)
+{
+    int version = 0;
+    const auto doc = RadioSettingsScope(QStringLiteral("anan"),serial).featureExact(QStringLiteral("AdcAssignments"),&version);
+    return version == 1 ? doc.value(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol)).toArray().toVariantList() : QVariantList{};
+}
+bool AnanSettings::setAdcAssignments(const QString& serial, int model, int board, int protocol, const QVariantList& assignments)
+{
+    const auto profile = receiveProfile(board,static_cast<AnanModel>(model),true);
+    if (serial.trimmed().isEmpty() || !profile || (protocol != 1 && protocol != 2) || assignments.size() != 7) { return false; }
+    for (const QVariant& adc : assignments) {
+        bool ok = false;
+        const int value = adc.toInt(&ok);
+        if (!ok || adc.metaType().id() != QMetaType::Int || value < 0 || value >= profile->numAdcs) { return false; }
+    }
+    const RadioSettingsScope scope(QStringLiteral("anan"),serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("AdcAssignments"),&version,&status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
+    doc.insert(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol),QJsonArray::fromVariantList(assignments));
+    return scope.setFeature(QStringLiteral("AdcAssignments"),1,doc);
+}
 QVariantMap AnanSettings::transmitPower(const QString& serial, int model, int board, int protocol)
 {
     if (serial.trimmed().isEmpty()) { return {}; }

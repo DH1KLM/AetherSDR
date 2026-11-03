@@ -44,6 +44,11 @@ void AnanBackend::muteReceiveForTransmit(bool muted)
     if (m_dsp) {
         QMetaObject::invokeMethod(m_dsp,"setAudioMuted",Qt::QueuedConnection,Q_ARG(bool,muted));
     }
+    for (const auto& [id, receiver] : m_additionalRx) {
+        if (receiver->dsp) {
+            QMetaObject::invokeMethod(receiver->dsp,"setAudioMuted",Qt::QueuedConnection,Q_ARG(bool,muted));
+        }
+    }
 }
 
 void AnanBackend::publishLocalTransmitState(bool keyed)
@@ -89,7 +94,7 @@ void AnanBackend::refreshIdleTransmitSession()
 
 void AnanBackend::restoreTransmitSession()
 {
-    if (!m_connected || !primaryVisible() || m_receiveLayout.slices().size() != 1 || !m_additionalRx.empty()
+    if (!m_connected || !primaryVisible()
         || m_txSessionEnabled || m_txSessionArming || m_transmitPlanBuilding
         || !m_txSessionError.isEmpty() || !m_transmitPlanError.isEmpty()
         || m_receiveCalibrationRun || m_droopCalibrator.isRunning()) { return; }
@@ -141,7 +146,7 @@ bool AnanBackend::transmitSessionCurrent() const
     return m_txSessionEnabled && m_txSessionPermit && m_txSessionPermit->load()
         && m_connected && !m_receiveBuilding && !m_rateChanging && !m_receiveCalibrationRun
         && !m_droopCalibrator.isRunning()
-        && primaryVisible() && m_receiveLayout.slices().size() == 1 && m_additionalRx.empty()
+        && primaryVisible()
         && m_txSessionIdentity == transmitSessionIdentity();
 }
 
@@ -151,9 +156,9 @@ QString AnanBackend::transmitSessionRefusal() const
         || !p2TransmitProfile(m_discoveredBoardId,m_pendingParams.model,m_pendingParams.overrideDetection)) {
         return QStringLiteral("TX requires a validated OpenHPSDR model and supported protocol.");
     }
-    if (!primaryVisible() || m_receiveLayout.slices().size() != 1 || !m_additionalRx.empty()
+    if (!primaryVisible()
         || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun || m_droopCalibrator.isRunning()) {
-        return QStringLiteral("Use one primary receive slice and finish receive configuration or calibration first.");
+        return QStringLiteral("Keep Slice A open and finish receive configuration or calibration first.");
     }
     const auto recipe = transmitMode(modeFromString(m_mode));
     if (!recipe) { return QStringLiteral("The selected mode is receive-only."); }
@@ -189,6 +194,7 @@ QVariantMap AnanBackend::transmitSessionState()
         {QStringLiteral("available"),refusal.isEmpty() && !m_txSessionArming && !m_txSessionEnabled},
         {QStringLiteral("reason"),m_txSessionError.isEmpty() ? refusal : m_txSessionError},
         {QStringLiteral("frequencyHz"),m_sliceFreqHz}, {QStringLiteral("powerPercent"),m_txPowerPercent},
+        {QStringLiteral("band"),receiveAntennaBandIndex()},
         {QStringLiteral("antenna"),m_txSessionControl ? m_txSessionControl->antenna
             : std::max(1,AnanSettings::transmitSessionAntenna(m_radioSerial,
                 static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol))},

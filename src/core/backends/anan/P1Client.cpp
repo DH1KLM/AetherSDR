@@ -579,10 +579,13 @@ bool P1Client::setReceiveStreams(const std::vector<DdcConfig>& streams,
         streams.size() > std::size_t(std::min(4, m_config.receivers)))
         return false;
     for (std::size_t i = 0; i < streams.size(); ++i)
-        if (streams[i].adcIndex != m_config.adcIndex || streams[i].rateKsps != m_config.rateKsps ||
+        if (streams[i].adcIndex < 0 || streams[i].adcIndex >= m_config.numAdcs || streams[i].rateKsps != m_config.rateKsps ||
             !std::isfinite(centers[i]) || centers[i] < 0 || centers[i] > 61'440'000)
             return false;
     m_config.independentFrequencies = true;
+    m_config.independentAdcs = true;
+    m_config.receiveAdcs.fill(m_config.adcIndex);
+    for (std::size_t i = 0; i < streams.size(); ++i) { m_config.receiveAdcs[i] = streams[i].adcIndex; }
     m_config.frequencyHz = std::uint32_t(centers[0] + 0.5);
     m_config.receiveFrequencies.fill(m_config.frequencyHz);
     for (std::size_t i = 0; i < centers.size(); ++i)

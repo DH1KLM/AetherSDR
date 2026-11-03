@@ -60,6 +60,7 @@ public:
         backend.m_pendingParams.model = AnanModel::Anan200D;
         backend.m_pendingParams.overrideDetection = true;
         backend.m_pendingParams.ddc0AdcIndex = adc;
+        backend.m_receiveAdcs.fill(adc);
         backend.m_pendingParams.filters = defaultFilterConfig(false);
         backend.m_pendingParams.filters->rxOnlyInput = input;
         backend.m_rxAntenna = AnanSettings::radioRxAntenna(serial, 7, 5);

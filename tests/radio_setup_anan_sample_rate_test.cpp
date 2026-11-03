@@ -49,7 +49,7 @@ public:
 using namespace AetherSDR;
 namespace AetherSDR::anan {
 struct TxSessionTrace {
-    std::atomic<int> keyOn{0}, lastKey{0}, drive{0};
+    std::atomic<int> keyOn{0}, lastKey{0}, drive{0}, primaryAdc{-1};
     std::atomic<quint32> frequencyWord{0}, alex{0};
 };
 struct AnanClientTestAccess {
@@ -61,6 +61,11 @@ struct P2ClientTestAccess {
         client.m_running = true; client.m_linkUp = true; client.m_discoveryValidated = true;
         client.m_expectedBoardId = 5; client.m_model = AnanModel::Anan200D; client.m_overrideDetection = true;
         client.m_numAdcs = 2; client.m_firstDdcIndex = 2;
+        client.m_streamLimit = 5;
+        client.m_ddcRateSendOverride = [&trace](const auto& packet) {
+            trace.primaryAdc.store(packet[17+6*2]);
+            return qint64(packet.size());
+        };
         client.m_receiveFilterKind = ReceiveFilterKind::LegacyHpf;
         client.m_activeDdcs = {{48,0}}; client.m_activeDdcCount = 1;
         client.m_transmitProfile = p2TransmitProfile(5,AnanModel::Anan200D,true);
@@ -113,6 +118,13 @@ public:
         return present;
     }
     static bool planReady(const AnanBackend& backend) { return backend.m_transmitPlanReady; }
+    static void forgetViewBand(AnanBackend& backend) { backend.m_currentViewBand.clear(); }
+    static double center(const AnanBackend& backend) { return backend.m_ddcCenterHz; }
+    static bool ctun(const AnanBackend& backend) { return backend.m_ctun; }
+    static double savedGain(const AnanBackend& backend) {
+        return AnanSettings::transmitPower(backend.m_radioSerial,static_cast<int>(backend.m_pendingParams.model),
+            backend.m_discoveredBoardId,backend.m_pendingParams.protocol).value(QStringLiteral("gainsDb")).toList().at(5).toDouble();
+    }
     static bool transportPrepared(AnanBackend& backend)
     {
         bool present = false;
@@ -120,6 +132,7 @@ public:
         return present;
     }
     static void injectTransport(AnanBackend& backend, TxSessionTrace& trace) {
+        backend.m_streamApplyOverride = {};
         QMetaObject::invokeMethod(backend.m_client,[&] {
             P2ClientTestAccess::attach(AnanClientTestAccess::p2(*backend.m_client),trace);
         },Qt::BlockingQueuedConnection);
@@ -242,7 +255,28 @@ int main(int argc, char** argv)
         while (hardwarePoll.elapsed() < 1300) { app.processEvents(); QThread::msleep(5); }
         check(backend->capabilities().canTransmit && trace.lastKey.load() == 1,
               "visible ANAN Hardware polling preserves active TX and readiness");
-        check(await([&] { return !save->isEnabled(); }), "PA edits are locked while keyed");
+        check(await([&] { return !save->isEnabled(); }), "full PA profile edits are locked while keyed");
+        auto* liveGain = static_cast<QDoubleSpinBox*>(table->cellWidget(5,1));
+        check(liveGain->isEnabled() && !table->cellWidget(5,2)->isEnabled(),"only active-band gain is editable during TX");
+        liveGain->setValue(55);
+        check(await([&] { return trace.drive.load() < 11 && trace.lastKey.load() == 1; }),"live gain recalculates drive without stopping TX");
+        check(anan::AnanLinkStatsTestAccess::savedGain(*backend) == 55,"live gain is saved for the exact device profile");
+        liveGain->setValue(50);
+        check(await([&] { return trace.drive.load() == 11 && trace.lastKey.load() == 1; }),"live gain can return to its calibration value");
+        QSignalSpy gainReplies(backend,&IRadioBackend::extensionResult);
+        QSignalSpy gainErrors(backend,&IRadioBackend::extensionError);
+        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("txpower.get"),91001,{});
+        const auto gainState = gainReplies.last().at(1).toMap();
+        QVariantMap gainRequest{{QStringLiteral("identity"),gainState.value(QStringLiteral("identity"))},
+            {QStringLiteral("sessionIdentity"),QStringLiteral("stale-session")},
+            {QStringLiteral("band"),5},{QStringLiteral("gainDb"),40.0}};
+        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("txpower.gain"),91002,gainRequest);
+        check(gainErrors.count() == 1 && trace.drive.load() == 11,"stale live gain cannot change drive");
+        gainRequest[QStringLiteral("sessionIdentity")] = gainState.value(QStringLiteral("session")).toMap().value(QStringLiteral("identity"));
+        gainRequest[QStringLiteral("gainDb")] = true;
+        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("txpower.gain"),91003,gainRequest);
+        check(gainErrors.count() == 2 && anan::AnanLinkStatsTestAccess::savedGain(*backend) == 50,
+            "boolean gain cannot overwrite the calibrated active profile");
         model.transmitModel().setMox(false);
         check(await([&] { return trace.lastKey.load() == 0 && save->isEnabled(); }), "RX allows PA edits without a manual TX-disable step");
         hardwareDialog.hide();
@@ -390,9 +424,15 @@ int main(int argc, char** argv)
             check(await([&] { return trace.lastKey.load() == 1; }), "TX menu MOX uses the same admitted producer path");
             FrontPanelTestAccess::feed(panel, "ZZZP251;ZZZP250;");
             check(await([&] { return trace.lastKey.load() == 0; }), "TX menu MOX releases its captured request");
+            anan::AnanLinkStatsTestAccess::forgetViewBand(*backend);
             FrontPanelTestAccess::feed(panel, "ZZZP451;ZZZP450;");
             check(await([&] { return panel.state().value(QStringLiteral("ctun")).toBool(); }),
                   "CTUN button uses the existing backend operation and reflects its confirmed state");
+            const double ctunCenter = anan::AnanLinkStatsTestAccess::center(*backend);
+            backend->setSliceFrequency(0,14'181'000);
+            check(await([&] { return anan::AnanLinkStatsTestAccess::ctun(*backend)
+                && anan::AnanLinkStatsTestAccess::center(*backend) == ctunCenter; }),
+                "first VFO step after panel CTUN on retains CTUN and capture center even without a prior band view");
             FrontPanelTestAccess::feed(panel, "ZZZP451;ZZZP450;");
             check(await([&] { return !panel.state().value(QStringLiteral("ctun")).toBool(); }), "second CTUN press restores normal tuning");
             check(await([&] { return backend->capabilities().canTransmit; }), "CTUN changes do not strand idle TX readiness");
@@ -405,6 +445,50 @@ int main(int argc, char** argv)
             FrontPanelTestAccess::feed(panel, "ZZZP441;"); app.processEvents();
             check(trace.keyOn.load() == stoppedPanel, "an unidentified disconnected panel cannot replay an old key");
         }
+        check(backend->createSlice(QStringLiteral("anan-0"),14'182'000),"second RX slice opens beside TX source A");
+        check(await([&] { return backend->capabilities().canTransmit; }),"TX readiness returns with two receive slices");
+        backend->setActiveSlice(1);
+        model.transmitModel().setMox(true);
+        check(await([&] { return trace.lastKey.load() == 1; }),"MOX works with two RX slices and RX B selected");
+        check(trace.frequencyWord.load() == anan::phaseWord(14'181'000),"TX remains on Slice A rather than active RX B");
+        model.transmitModel().setMox(false);
+        check(await([&] { return trace.lastKey.load() == 0; }),"multi-RX MOX releases normally");
+        model.transmitModel().startTune();
+        check(await([&] { return trace.lastKey.load() == 1; }),"TUNE also works with multiple receivers");
+        model.transmitModel().stopTune();
+        check(await([&] { return trace.lastKey.load() == 0; }),"multi-RX TUNE releases normally");
+        QSignalSpy adcReplies(backend,&IRadioBackend::extensionResult);
+        QSignalSpy adcErrors(backend,&IRadioBackend::extensionError);
+        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("adc.get"),92001,{});
+        check(!adcReplies.empty(),"ADC routing reports the connected hardware");
+        const auto adcState = adcReplies.last().at(1).toMap();
+        check(adcState.value(QStringLiteral("firstDdc")).toInt() == 2,"P2 UI uses physical DDC2 for primary ANAN-200D RX");
+        auto assignments = adcState.value(QStringLiteral("assignments")).toList();
+        assignments[0] = 1;
+        QVariantMap adcRequest{{QStringLiteral("identity"),adcState.value(QStringLiteral("identity"))},
+            {QStringLiteral("assignments"),assignments}};
+        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("adc.set"),92002,adcRequest);
+        check(adcReplies.last().at(0).toULongLong() == 92002
+            && adcReplies.last().at(1).toMap().value(QStringLiteral("assignments")).toList()[0].toInt() == 1,
+            "ADC assignment changes live with multiple receivers");
+        check(await([&] { return trace.primaryAdc.load() == 1; }),"P2 live ADC1 routing reaches physical DDC2 packet row");
+        std::unique_ptr<QWidget> adcPage(createAnanAdcPage(&model,nullptr)); adcPage->show();
+        auto* primaryAdc = adcPage->findChild<QRadioButton*>(QStringLiteral("ananDdc2Adc1"));
+        check(await([&] { return primaryAdc && primaryAdc->isChecked(); }),"ADC page displays the active physical DDC assignment");
+        model.transmitModel().setMox(true);
+        check(await([&] { return trace.lastKey.load() == 1; }),"ADC routing does not strand multi-RX TX readiness");
+        const int errorsBeforeAdc = adcErrors.count();
+        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("adc.set"),92003,adcRequest);
+        check(adcErrors.count() == errorsBeforeAdc+1 && trace.lastKey.load() == 1,"routing changes during TX are refused without interrupting TX");
+        model.transmitModel().setMox(false);
+        check(await([&] { return trace.lastKey.load() == 0; }),"ADC fixture releases MOX");
+        assignments[0] = 2; adcRequest[QStringLiteral("assignments")] = assignments;
+        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("adc.set"),92004,adcRequest);
+        check(adcErrors.count() == errorsBeforeAdc+2,"nonexistent ADC2 cannot be assigned");
+        assignments[0] = 0; adcRequest[QStringLiteral("assignments")] = assignments;
+        backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("adc.set"),92005,adcRequest);
+        check(adcReplies.last().at(0).toULongLong() == 92005,"ADC0 can be restored without reconnecting");
+        check(backend->removeSlice(1),"extra receiver closes normally");
         check(await([&] { return save->isEnabled(); }), "idle profile can be edited");
         static_cast<QDoubleSpinBox*>(table->cellWidget(5,2))->setValue(0); save->click();
         check(await([&] { return !backend->capabilities().canTransmit; }), "zero band power limit still prevents TX");

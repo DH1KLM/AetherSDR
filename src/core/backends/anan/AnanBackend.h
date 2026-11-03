@@ -272,6 +272,7 @@ private:
     };
     std::map<int, std::shared_ptr<AdditionalRx>> m_additionalRx;
     AnanReceiveLayout m_receiveLayout;
+    std::array<int,7> m_receiveAdcs{};
     std::shared_ptr<std::atomic<int>> m_primaryRoute = std::make_shared<std::atomic<int>>(0);
     std::shared_ptr<std::atomic<quint64>> m_receiveIoEpoch =
         std::make_shared<std::atomic<quint64>>(0);
@@ -364,9 +365,9 @@ private:
     bool m_transmitPlanReady = false;
     double receiveTuningRateHz() const;
     void pushReceiveShift(double shiftHz);
-    int maximumReceiveAttenuation() const;
+    int maximumReceiveAttenuation(int adc = -1) const;
     void publishReceiveGain();
-    void applyReceiveGain(int adcDb, int alexDb);
+    void applyReceiveGain(int adcDb, int alexDb, int adc = -1);
     anan::ReceiveAntennaSelection activeReceiveAntenna() const;
     QString applyReceiveAntenna(int antenna);
     // One physical ADC0 path follows RX1, then the lowest remaining ready slice.

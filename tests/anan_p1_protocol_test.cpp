@@ -28,6 +28,12 @@ void controls()
     check(receiveControl(0, config) == Control{0, 2, 0, 0x18, 0x26}, "general bank bytes");
     check(receiveControl(4, config) == Control{4, 0, 0xd8, 0xac, 0xc0}, "P1 uses Hz, not phase words");
     check(receiveControl(0x1c, config) == Control{0x1c, 0x55, 1, 0, 0}, "five ADC routes");
+    config.independentAdcs = true;
+    config.receiveAdcs = {0,1,1,0,1,0,0};
+    check(receiveControl(0x1c, config) == Control{0x1c, 0x14, 1, 0, 0}, "Thetis P1 bank 0x1c routes each DDC independently");
+    config.receiveAdcs[1] = 2;
+    check(!receiveControl(0x1c,config),"absent ADC cannot enter an independent routing bank");
+    config.independentAdcs = false;
     check(receiveControl(0x12, config) == Control{0x12, 0, 0x40, 0xa0, 0x10}, "filters, zero drive, PA disabled");
     check(receiveControl(0x14, config) == Control{0x14, 0x40, 0, 0, 0x31}, "ADC0 attenuation and mic PTT disable");
     check(receiveControl(0x16, config) == Control{0x16, 0x3f, 0, 0, 0}, "ADC1 attenuation");

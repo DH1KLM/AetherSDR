@@ -106,7 +106,7 @@ std::vector<ReceiveFilterDemand> AnanBackend::receiveFilterDemands() const
             const auto it = m_additionalRx.find(id);
             if (it == m_additionalRx.end() || !it->second->ready) { continue; }
         }
-        demands.push_back({m_pendingParams.ddc0AdcIndex, slice.frequencyHz,
+        demands.push_back({m_receiveAdcs[slice.stream], slice.frequencyHz,
                            m_receiveLayout.streams()[slice.stream].centerHz});
     }
     return demands;
@@ -125,6 +125,12 @@ void AnanBackend::updateReceiveStreams()
 {
     if (!m_connected)
         return;
+    if (primaryVisible() && m_pendingParams.ddc0AdcIndex != m_receiveAdcs[primaryPanIndex()]) {
+        m_pendingParams.ddc0AdcIndex = m_receiveAdcs[primaryPanIndex()];
+        m_attenuationDb = m_pendingParams.ddc0AdcIndex == 1 ? m_pendingParams.adc1AttenuationDb
+            : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb;
+        publishReceiveGain();
+    }
     const auto antenna = receiveAntennaRoute();
     const bool antennaChanged = m_appliedAntenna != antenna.antenna || m_appliedRxOnly != antenna.rxOnly;
     applyReceiveAntennaRouting();
@@ -137,7 +143,7 @@ void AnanBackend::updateReceiveStreams()
     for (int st = 0; st < count; ++st) {
         const auto& w = m_receiveLayout.streams()[st];
         configs.push_back(
-            {w.active ? w.rateKsps : m_pendingParams.ddc0RateKsps, m_pendingParams.ddc0AdcIndex});
+            {w.active ? w.rateKsps : m_pendingParams.ddc0RateKsps, m_receiveAdcs[st]});
         centers.push_back(w.active ? w.centerHz : frontEndReferenceHz());
     }
     std::vector<std::pair<std::shared_ptr<AdditionalRx>, int>> routes;
@@ -295,13 +301,18 @@ bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
                 }
                 auto values = bins;
                 for (auto& v : values)
-                    v += float(m_attenuationDb + m_receiveCalibration.displayOffsetDb[m_pendingParams.ddc0AdcIndex]);
+                    v += float((m_receiveAdcs[s->stream] == 1 ? m_pendingParams.adc1AttenuationDb
+                        : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb)
+                        + m_receiveCalibration.displayOffsetDb[m_receiveAdcs[s->stream]]);
                 emit spectrumFrameReady(s->stream, rxBytes(values));
             });
     connect(r->dsp, &AnanRxDsp::meterUpdate, this, [this, r, epoch](float dbfs) {
-        if (epoch == m_receiveEpoch && r->ready && m_additionalRx.contains(r->id))
-            if (const auto level = r->sMeter.feed(double(dbfs) + m_attenuationDb
-                + m_receiveCalibration.meterOffsetDb[m_pendingParams.ddc0AdcIndex]))
+        const auto* slice = m_receiveLayout.slice(r->id);
+        if (epoch == m_receiveEpoch && r->ready && slice && m_additionalRx.contains(r->id))
+            if (const auto level = r->sMeter.feed(double(dbfs)
+                + (m_receiveAdcs[slice->stream] == 1 ? m_pendingParams.adc1AttenuationDb
+                    : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb)
+                + m_receiveCalibration.meterOffsetDb[m_receiveAdcs[slice->stream]]))
                 emit meterUpdate(QStringLiteral("SLC%1:LEVEL").arg(r->id), *level);
     });
     std::vector<QPointer<AnanRxDsp>> running{m_dsp};

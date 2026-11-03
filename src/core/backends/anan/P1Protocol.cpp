@@ -25,6 +25,8 @@ float sample24(const std::uint8_t* bytes) noexcept
 
 bool validConfig(const ReceiveConfig& c) noexcept
 {
+    if (c.independentAdcs && std::any_of(c.receiveAdcs.begin(),c.receiveAdcs.end(),
+        [&](int adc) { return adc < 0 || adc >= c.numAdcs; })) { return false; }
     const bool rate = c.rateKsps == 48 || c.rateKsps == 96
         || c.rateKsps == 192 || c.rateKsps == 384;
     if (c.independentFrequencies &&
@@ -102,7 +104,7 @@ std::optional<Control> receiveControl(std::uint8_t address,
         break;
     case 0x1c:
         for (int slot = 0; slot < c.receivers; ++slot)
-            bytes[1 + slot / 4] |= static_cast<std::uint8_t>(c.adcIndex << (2 * (slot % 4)));
+            bytes[1 + slot / 4] |= static_cast<std::uint8_t>((c.independentAdcs ? c.receiveAdcs[slot] : c.adcIndex) << (2 * (slot % 4)));
         break;
     case 0x1e:
         break; // CW engine disabled.

@@ -24,6 +24,8 @@ struct ReceiveConfig {
     int receivers = 1;
     int numAdcs = 1;
     int adcIndex = 0;
+    bool independentAdcs = false;
+    std::array<int,7> receiveAdcs{};
     std::uint32_t frequencyHz = 10'000'000;
     bool independentFrequencies = false;
     std::array<std::uint32_t, 7> receiveFrequencies{};

@@ -581,6 +581,19 @@ int main(int argc, char** argv)
         check(scope.setFeature(QStringLiteral("TransmitPower"),99,QJsonObject{{QStringLiteral("future"),true}}), "seed future PA schema");
         check(!AnanSettings::setTransmitPower(QStringLiteral("PA-FUTURE"),static_cast<int>(AnanModel::Anan7000),5,2,options), "future PA schema preserved");
     }
+    {
+        const int model = static_cast<int>(AnanModel::Anan200D);
+        const QVariantList routing{0,1,1,0,0,0,0};
+        check(AnanSettings::setAdcAssignments(QStringLiteral("ADC-MAC"),model,5,1,routing),"ADC routing saves atomically");
+        const auto restored = AnanSettings::adcAssignments(QStringLiteral("ADC-MAC"),model,5,1);
+        check(restored.size() == 7 && restored[1].toInt() == 1,"ADC routing survives JSON integer roundtrip");
+        check(AnanSettings::adcAssignments(QStringLiteral("ADC-MAC"),model,5,2).isEmpty()
+            && AnanSettings::adcAssignments(QStringLiteral("ADC-OTHER"),model,5,1).isEmpty(),"ADC assignments isolate devices and protocols");
+        auto invalid = routing; invalid[1] = 2;
+        check(!AnanSettings::setAdcAssignments(QStringLiteral("ADC-MAC"),model,5,1,invalid),"invalid ADC cannot replace stored routing");
+        invalid[1] = true;
+        check(!AnanSettings::setAdcAssignments(QStringLiteral("ADC-MAC"),model,5,1,invalid),"boolean is not an ADC index");
+    }
     if (g_failures == 0)
         std::printf("anan_settings_test: all checks passed\n");
     return g_failures == 0 ? 0 : 1;
