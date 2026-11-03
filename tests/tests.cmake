@@ -7167,6 +7167,14 @@ add_executable(tci_sql_level_test tests/tci_sql_level_test.cpp)
 target_include_directories(tci_sql_level_test PRIVATE src tests)
 target_link_libraries(tci_sql_level_test PRIVATE aethercore Qt6::Core Qt6::Network)
 add_test(NAME tci_sql_level_test COMMAND tci_sql_level_test)
+# An HL2 pan centre outside receivePanCenterControl stops at the edge, in the
+# backend and in the pan model. A real, unconnected Hl2Backend behind
+# RadioModel. Socket-free.
+add_executable(hl2_pan_center_range_test tests/hl2_pan_center_range_test.cpp)
+target_include_directories(hl2_pan_center_range_test PRIVATE src tests)
+target_link_libraries(hl2_pan_center_range_test PRIVATE
+    aethercore Qt6::Core Qt6::Network)
+add_test(NAME hl2_pan_center_range_test COMMAND hl2_pan_center_range_test)
 
 # TCI agc_gain in dB (TCI 2.1 §AGC_GAIN): socket-free stub backend and
 # TciProtocol driven by command text. Nothing is bound, opened or keyed.
@@ -9309,9 +9317,8 @@ target_include_directories(hl2_adc_age_gate_test PRIVATE src tests)
 target_link_libraries(hl2_adc_age_gate_test PRIVATE aethercore Qt6::Core Qt6::Network)
 add_test(NAME hl2_adc_age_gate_test COMMAND hl2_adc_age_gate_test)
 # Socket-free HL2 panadapter-limit DECLARATIONS: the span shape, the four
-# discrete rates and the dBm axis. NOT radioOwnsDbmScale -- the HL2 deliberately
-# leaves that undeclared and this target asserts only its DEFAULT, which is a
-# different fact. An earlier version of this line claimed otherwise. The span
+# discrete rates, the dBm axis and radioOwnsDbmScale (false: no command plane,
+# the auto-floor gate open through absolute bins). The span
 # floor and rate set, the shared span, and the uncalibrated dBm axis — each
 # asserted against the constant or predicate production reads, never a copy.
 # Constructs a backend and reads capabilities(); binds nothing and connects
@@ -9716,6 +9723,12 @@ target_include_directories(pan_control_routing_test PRIVATE src tests)
 target_link_libraries(pan_control_routing_test PRIVATE aethercore Qt6::Core Qt6::Network)
 add_test(NAME pan_control_routing_test COMMAND pan_control_routing_test)
 set_tests_properties(pan_control_routing_test PROPERTIES TIMEOUT 30)
+
+# Socket-free Flex status parsing through RadioModel's real routing seam.
+add_executable(radiomodel_spot_status_test tests/radiomodel_spot_status_test.cpp)
+target_include_directories(radiomodel_spot_status_test PRIVATE src tests)
+target_link_libraries(radiomodel_spot_status_test PRIVATE aethercore Qt6::Core)
+add_test(NAME radiomodel_spot_status_test COMMAND radiomodel_spot_status_test)
 
 # RadioModel's own client-owned state on an ANAN: the master-volume read-back,
 # the restored line-out level, and the Tuning-domain step. Socket-free, through
@@ -10133,6 +10146,27 @@ add_test(NAME tx_applet_power_reconciliation_test
 set_tests_properties(tx_applet_power_reconciliation_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Two Tone TUNE refuses (menu entry dimmed with a reason, MIDI action and the
+# shortcut predicate decline before keying) on a radio with no two-tone
+# generator. Same link set as tx_applet_power_reconciliation_test.
+add_executable(two_tone_tune_gate_test
+    tests/two_tone_tune_gate_test.cpp
+    src/gui/TxApplet.cpp
+    src/gui/AtuPreTuneDialog.cpp
+    src/gui/DragValuePopup.cpp
+    src/gui/FramelessResizer.cpp
+    src/gui/FramelessWindowTitleBar.cpp
+)
+target_include_directories(two_tone_tune_gate_test PRIVATE src)
+target_link_libraries(two_tone_tune_gate_test PRIVATE
+    aethercore Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(two_tone_tune_gate_test PROPERTIES AUTOMOC ON)
+add_test(NAME two_tone_tune_gate_test
+         COMMAND two_tone_tune_gate_test)
+set_tests_properties(two_tone_tune_gate_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(phone_tx_filter_numeric_entry_test
     tests/phone_tx_filter_numeric_entry_test.cpp
     src/gui/PhoneApplet.cpp
@@ -10271,6 +10305,25 @@ add_test(NAME phone_cw_acc_availability_test
 set_tests_properties(phone_cw_acc_availability_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# MON and VOX dim with an announced reason on a radio that declares no
+# txMonitorControl / voxControl (HL2). Same link set as the +ACC test.
+add_executable(phone_mon_vox_availability_test
+    tests/phone_mon_vox_availability_test.cpp
+    src/gui/PhoneApplet.cpp
+    src/gui/PhoneCwApplet.cpp
+    src/gui/DragValuePopup.cpp
+    src/gui/GuardedSlider.h      # Q_OBJECT in a header with no .cpp — AUTOMOC
+)
+target_include_directories(phone_mon_vox_availability_test PRIVATE src)
+target_link_libraries(phone_mon_vox_availability_test PRIVATE
+    aethercore Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(phone_mon_vox_availability_test PROPERTIES AUTOMOC ON)
+add_test(NAME phone_mon_vox_availability_test
+         COMMAND phone_mon_vox_availability_test)
+set_tests_properties(phone_mon_vox_availability_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(container_manager_test
     tests/container_manager_test.cpp
     src/gui/FramelessResizer.cpp
@@ -10360,6 +10413,7 @@ if(TARGET Qt6::WebSockets)
 endif()
 
 set(AETHER_SETTINGS_CONSUMERS
+    two_tone_tune_gate_test
     update_controller_test
     update_installer_test
     update_stager_test
@@ -10382,9 +10436,11 @@ set(AETHER_SETTINGS_CONSUMERS
     tci_rx_volume_test
     hl2_bandstack_digital_agc_test
     tci_sql_level_test
+    hl2_pan_center_range_test
     tci_agc_gain_test
     radio_model_client_state_test
     pan_control_routing_test
+    radiomodel_spot_status_test
     squelch_level_scale_test
     hl2_pan_create_async_test
     hl2_session_memory_test
@@ -10444,6 +10500,7 @@ set(AETHER_SETTINGS_CONSUMERS
     radio_capacity_declaration_test
     extension_namespace_gate_test
     control_availability_registry_test
+    phone_mon_vox_availability_test
     dax_iq_rate_limits_test
     offline_health_registry_test
     tx_operation_integration_test
