@@ -14,7 +14,7 @@
 
 namespace AetherSDR {
 AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* parent)
-    : QGroupBox(tr("ASIO RX Output"), parent)
+    : QGroupBox(tr("ASIO RX Output / Microphone"), parent)
 {
     const AsioOutputConfig saved = AsioOutputConfig::load();
     auto* form = new QFormLayout(this);
@@ -42,6 +42,23 @@ AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* 
     channel->setAccessibleName(tr("First ASIO output channel"));
     channel->setAccessibleDescription(tr("One-based first channel of two consecutive stereo output channels."));
     form->addRow(tr("First stereo channel:"), channel);
+    auto* microphone = new QCheckBox(tr("Use ASIO microphone input"), this);
+    microphone->setAccessibleName(tr("Use ASIO microphone input"));
+    microphone->setChecked(saved.microphoneEnabled);
+    form->addRow(microphone);
+    auto* inputChannel = new QSpinBox(this);
+    inputChannel->setRange(1, 255);
+    inputChannel->setValue(saved.firstInputChannel + 1);
+    inputChannel->setAccessibleName(tr("First ASIO microphone input channel"));
+    form->addRow(tr("First input channel:"), inputChannel);
+    auto* inputMode = new GuardedComboBox(this);
+    applyComboStyle(inputMode);
+    inputMode->setAccessibleName(tr("ASIO microphone channel selection"));
+    inputMode->addItem(tr("Left / first channel"), 0);
+    inputMode->addItem(tr("Right / next channel"), 1);
+    inputMode->addItem(tr("Both channels mixed"), 2);
+    inputMode->setCurrentIndex(saved.inputMode);
+    form->addRow(tr("Microphone source:"), inputMode);
     auto* rate = new GuardedComboBox(this);
     applyComboStyle(rate);
     rate->setAccessibleName(tr("ASIO sample rate"));
@@ -54,7 +71,7 @@ AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* 
     buffer->setValue(saved.bufferFrames);
     buffer->setAccessibleName(tr("ASIO buffer frames"));
     form->addRow(tr("Buffer frames:"), buffer);
-    auto* status = new QLabel(tr("Applies to RX speakers. Microphone, CW sidetone and other outputs use their existing devices."), this);
+    auto* status = new QLabel(tr("RX and microphone share this driver, sample rate and buffer. Apply changes while receiving. CW sidetone and other outputs retain their devices."), this);
     status->setWordWrap(true);
     status->setAccessibleName(tr("ASIO output status"));
 #ifdef Q_OS_WIN
@@ -66,7 +83,7 @@ AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* 
     apply->setAccessibleName(tr("Apply ASIO changes"));
     form->addRow(apply);
     const QPointer<AudioEngine> engine(audio);
-    connect(apply, &QPushButton::clicked, this, [engine, enabled, driver, channel, rate, buffer, status] {
+    connect(apply, &QPushButton::clicked, this, [engine, enabled, driver, channel, rate, buffer, status, microphone, inputChannel, inputMode] {
         if (!engine) { return; }
         AsioOutputConfig config;
         config.enabled = enabled->isChecked();
@@ -74,7 +91,10 @@ AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* 
         config.firstChannel = channel->value() - 1;
         config.sampleRate = rate->currentData().toInt();
         config.bufferFrames = buffer->value();
-        if (config.enabled && config.driver.isEmpty()) {
+        config.microphoneEnabled = microphone->isChecked();
+        config.firstInputChannel = inputChannel->value() - 1;
+        config.inputMode = inputMode->currentData().toInt();
+        if ((config.enabled || config.microphoneEnabled) && config.driver.isEmpty()) {
             status->setText(tr("Select an installed 64-bit ASIO driver first."));
             return;
         }

@@ -10,6 +10,7 @@
 #include <cmath>
 #include <complex>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include <numbers>
 #include <string>
@@ -143,6 +144,7 @@ void carriersAndModulators()
             const auto iq = std::span(storage).first(dsp.outputSamples());
             double peak = 0;
             double minimum = 1;
+            double monitorPeak = 0;
             for (int block = 0; block < 60; ++block) {
                 for (std::size_t i = 0; i < audio.size(); ++i) {
                     audio[i] = static_cast<float>(0.1 * std::sin(2 * std::numbers::pi * 1000
@@ -152,7 +154,14 @@ void carriersAndModulators()
                     check(false, "analog/digital modulator produces protocol-rate IQ");
                     break;
                 }
+                const auto monitor = dsp.monitorAudio(iq);
                 if (block < 40) { continue; }
+                for (qsizetype n = 0; n + 4 <= monitor.size(); n += 4) {
+                    float sample = 0;
+                    std::memcpy(&sample, monitor.constData() + n, sizeof(sample));
+                    check(std::isfinite(sample), "AM/FM/DSB monitor samples remain finite");
+                    monitorPeak = std::max(monitorPeak, static_cast<double>(std::abs(sample)));
+                }
                 for (const auto value : iq) {
                     peak = std::max(peak, static_cast<double>(std::abs(value)));
                     minimum = std::min(minimum, static_cast<double>(std::abs(value)));
@@ -160,6 +169,7 @@ void carriersAndModulators()
             }
             std::printf("modulator=%d rate=%d envelope=%.6f..%.6f\n", static_cast<int>(mode),rate,minimum,peak);
             check(peak > 0.001 && peak <= 0.500001, "modulator has finite output with reserved headroom");
+            check(monitorPeak > 0.001, "AM/SAM/FM/DSB monitor recovers the modulated audio from final I/Q");
             if (mode == WdspChannel::Mode::Fm) {
                 check(minimum > 0.99 * peak, "FM preserves a constant envelope");
             }
@@ -181,26 +191,39 @@ void liveVoiceFilter(WdspChannel::Mode mode, int rate)
     std::array<std::complex<float>, AnanTxDsp::kOutputSamples> storage{};
     const auto iq = std::span(storage).first(dsp.outputSamples());
     std::size_t inputIndex = 0;
+    double monitorEnergy = 0;
     const auto energy = [&] {
         double sum = 0;
+        monitorEnergy = 0;
         for (int block = 0; block < 90; ++block) {
             for (float& sample : audio) {
                 sample = static_cast<float>(0.1 * std::sin(2 * std::numbers::pi * 1000 * inputIndex++ / AnanTxDsp::kInputRate));
             }
             check(exchange(dsp, audio, context, iq) == AnanTxDsp::Result::Output,
                   "live filter change preserves media context and continuous IQ output");
+            const auto monitor = dsp.monitorAudio(iq);
             if (block >= 60) {
                 for (const auto sample : iq) { sum += std::norm(sample); }
+                for (qsizetype n = 0; n + 4 <= monitor.size(); n += 4) {
+                    float sample = 0;
+                    std::memcpy(&sample, monitor.constData() + n, sizeof(sample));
+                    check(std::isfinite(sample), "post-TXA monitor samples stay finite");
+                    monitorEnergy += sample * sample;
+                }
             }
         }
         return sum;
     };
     const double passed = energy();
+    const double monitorPassed = monitorEnergy;
     check(!dsp.trySetFilter(1000, 1000), "invalid live filter is refused");
     check(dsp.trySetFilter(lsb ? -2800 : 1800, lsb ? -1800 : 2800), "live voice passband changes without ending TX");
     const double rejected = energy();
+    const double monitorRejected = monitorEnergy;
     check(dsp.trySetFilter(initial.first, initial.second), "live filter restores during the same over");
     const double restored = energy();
+    check(monitorPassed > 1e-6 && monitorRejected < monitorPassed * 0.001 && monitorEnergy > monitorPassed * 0.5,
+          "MON reproduces the live TX filter rejection and restoration for USB/LSB and P1/P2");
     check(passed > 1e-6 && rejected < passed * 0.001 && restored > passed * 0.5,
           "USB and LSB live filters reject the excluded tone and restore it by at least 30 dB");
 }

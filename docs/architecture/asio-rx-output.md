@@ -1,4 +1,4 @@
-# Native Windows ASIO receive output
+# Native Windows ASIO receive output and microphone capture
 
 The existing AudioEngine mixer writes stereo float PCM through a QIODevice.
 `AsioOutput` supplies that device on Windows when explicitly enabled, using
@@ -6,7 +6,14 @@ the existing AudioEngine owner thread for COM/driver creation and teardown.
 Its driver callback consumes a bounded SPSC FIFO, converts to the driver's
 native planar PCM/float format, applies atomic volume/mute and fills underruns
 with silence. No Qt calls, allocation, mutex or DSP runs in that callback.
-The normal Qt output remains the default; no input/TX path is added.
+The normal Qt devices remain the default. Optional microphone capture uses
+the same driver session, clock and buffer switch. Input-only and full-duplex
+sessions select only the required channels. The callback decodes native
+little-endian PCM/float samples into a bounded SPSC capture FIFO; the existing
+AudioEngine thread polls it every 5 ms and feeds the normal TX voice chain.
+Left, right or mixed input is selected independently of RX output. Capture
+overflow or a driver reset stops microphone capture without device fallback.
+Applying configuration while keyed is refused. Opening capture never keys TX.
 
 The owner-thread refill timer runs every 10 ms, while ASIO consumes a complete
 driver quantum at once. The playback FIFO therefore reserves at least 50 ms

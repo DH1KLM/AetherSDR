@@ -43,6 +43,7 @@
 #include <QMessageBox>
 #include <QLabel>
 #include <QFontMetrics>
+#include <QPointer>
 
 #include <memory>
 
@@ -55,10 +56,14 @@ QWidget* MainWindow::createAudioOutputStatusIndicator()
     indicator->setObjectName(QStringLiteral("asioOutputStatusIndicator"));
     indicator->setAlignment(Qt::AlignCenter);
     indicator->setAccessibleName(tr("ASIO receive audio output"));
-    const auto update = [indicator](bool active) {
+    const QPointer<AudioEngine> audio(m_audio);
+    const auto update = [indicator, audio](bool) {
+        const bool rx = audio && audio->asioOutputActive();
+        const bool mic = audio && audio->asioInputActive();
+        const bool active = rx || mic;
         indicator->setText(active ? QStringLiteral("ASIO\nACTIVE") : QStringLiteral("ASIO\nOFF"));
-        const QString reason = active ? QObject::tr("The ASIO receive output is running.")
-            : QObject::tr("The ASIO receive output is not running.");
+        const QString reason = QObject::tr("ASIO receive output: %1; microphone input: %2.")
+            .arg(rx ? QObject::tr("active") : QObject::tr("off"), mic ? QObject::tr("active") : QObject::tr("off"));
         indicator->setToolTip(reason);
         indicator->setAccessibleDescription(reason);
         ThemeManager::instance().applyStyleSheet(indicator,active
@@ -70,6 +75,7 @@ QWidget* MainWindow::createAudioOutputStatusIndicator()
     indicator->setFixedWidth(std::max(64,QFontMetrics(indicator->font()).horizontalAdvance(QStringLiteral("ACTIVE"))+16));
     if (m_audio) {
         connect(m_audio,&AudioEngine::asioOutputActiveChanged,indicator,update);
+        connect(m_audio,&AudioEngine::asioInputActiveChanged,indicator,update);
         connect(m_audio,&AudioEngine::asioOutputStatus,indicator,[indicator](const QString& message) { indicator->setToolTip(message); });
     }
     return indicator;

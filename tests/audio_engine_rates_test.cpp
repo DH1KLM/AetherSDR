@@ -2,6 +2,8 @@
 // output device. No QAudioSink, socket peer, radio connection, or RF is used.
 #include "TestSettingsProfile.h"
 #include "core/AudioEngine.h"
+#include "core/AsioOutput.h"
+#include "core/AppSettings.h"
 #include "core/AudioFormatNegotiator.h"
 #include "core/ClientComp.h"
 #include "core/ClientDeEss.h"
@@ -1217,6 +1219,17 @@ int main(int argc, char** argv)
         runStage("negotiatedSpeakerOutput", negotiatedSpeakerOutput);
     }
     if (selected("negotiationOpenFailure")) {
+        AppSettings::instance().load();
+        AsioOutputConfig asio;
+        asio.microphoneEnabled = true;
+        asio.driver = QStringLiteral("{00000000-0000-0000-0000-000000000000}");
+        check(asio.save(), "isolated ASIO microphone selection saves");
+        {
+            AudioEngine engine;
+            check(!engine.startTxStream(QHostAddress::LocalHost, 0) && !engine.isTxStreaming(),
+                  "missing ASIO microphone fails without opening the default Qt microphone");
+        }
+        check(AsioOutputConfig{}.save(), "restore regular capture for the remaining isolated checks");
         runStage("negotiationOpenFailure", negotiationOpenFailure);
     }
     if (selected("negotiationLifetimeAndCoalescing")) {

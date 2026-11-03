@@ -288,7 +288,7 @@ AnanBackend::AnanBackend(QObject* parent)
             initialDrive.rfPower = 0;
             emit transmitChanged(initialDrive);
             emit connected();
-            setTxMonitor(false,50);
+            setTxMonitor(false,m_txMonitorLevel);
             emit capabilitiesChanged();
             defineMeters();
             // A new session's needle starts from its first reading, not from
@@ -677,6 +677,11 @@ void AnanBackend::applyRestoredState(const RestoredRadioState& state)
     // A missing document resets both ADCs on a same-family radio swap.
     // RadioStateMemory owns persistence; validate its opaque extension here.
     m_txBandPower = {};
+    const auto monitor = state.extension.value(QStringLiteral("txSetpoints")).toObject()
+        .value(QStringLiteral("ananMonitorLevel")).toDouble(50);
+    m_txMonitorLevel = std::isfinite(monitor) && monitor >= 0 && monitor <= 100 && std::floor(monitor) == monitor
+        ? static_cast<int>(monitor) : 50;
+    m_txMonitor = false;
     m_txFilterLowHz = 300;
     m_txFilterHighHz = 3000;
     const auto savedFilter = state.extension.value(QStringLiteral("txSetpoints")).toObject()
@@ -758,6 +763,7 @@ RestoredRadioState AnanBackend::currentOperatingState() const
         {QStringLiteral("adc1AttenuationDb"), m_pendingParams.adc1AttenuationDb}}}};
     state.extension.insert(QStringLiteral("txSetpoints"), QJsonObject{
         {QStringLiteral("ananBandPower"), m_txBandPower},
+        {QStringLiteral("ananMonitorLevel"), m_txMonitorLevel},
         {QStringLiteral("ananVoiceFilter"), QJsonObject{
             {QStringLiteral("lowHz"), m_txFilterLowHz},
             {QStringLiteral("highHz"), m_txFilterHighHz}}}});

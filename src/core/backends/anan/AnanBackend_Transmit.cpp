@@ -318,6 +318,8 @@ void AnanBackend::publishTransmitFilter()
     TransmitDelta delta;
     delta.txFilterLow = m_txFilterLowHz;
     delta.txFilterHigh = m_txFilterHighHz;
+    delta.monGainSb = m_txMonitorLevel;
+    delta.sbMonitor = m_txMonitor;
     emit transmitChanged(delta);
 }
 
@@ -384,6 +386,7 @@ void AnanBackend::applyTransmitFilter(int lowHz, int highHz, quint64 revision, i
 
 void AnanBackend::setTxMonitor(bool on, int level)
 {
+    const bool changed = m_txMonitorLevel != std::clamp(level,0,100);
     m_txMonitor = on;
     m_txMonitorLevel = std::clamp(level,0,100);
     QMetaObject::invokeMethod(m_client,[client = m_client,on] { client->setTransmitMonitor(on); },Qt::QueuedConnection);
@@ -391,6 +394,7 @@ void AnanBackend::setTxMonitor(bool on, int level)
     delta.sbMonitor = on;
     delta.monGainSb = m_txMonitorLevel;
     emit transmitChanged(delta);
+    if (changed) { emit operatingStateChanged(); }
 }
 
 QString AnanBackend::txPowerProfileKey() const

@@ -42,7 +42,33 @@ bool AnanTxDsp::configure(WdspChannel::Mode mode, std::string* error, int output
         return false;
     }
     m_mode = mode;
+    m_monitorResampler = std::make_unique<Resampler>(outputRate, kInputRate, static_cast<int>(m_outputSamples));
     return true;
+}
+
+QByteArray AnanTxDsp::monitorAudio(std::span<const std::complex<float>> iq)
+{
+    if (!m_active || !m_mode || !m_monitorResampler || iq.size() != m_outputSamples) { return {}; }
+    const double rate = m_monitorResampler->srcRate();
+    const double dcAlpha = 1.0 - std::exp(-2.0 * 3.141592653589793 * 20.0 / rate);
+    for (std::size_t i = 0; i < iq.size(); ++i) {
+        double audio = 2.0 * iq[i].real();
+        if (*m_mode == WdspChannel::Mode::Fm) {
+            const auto phase = iq[i] * std::conj(m_monitorPrevious);
+            audio = std::norm(iq[i]) > 1e-12 && std::norm(m_monitorPrevious) > 1e-12
+                ? -std::arg(phase) * rate / (2.0 * 3.141592653589793 * 5000.0) : 0;
+        } else if (*m_mode == WdspChannel::Mode::Am || *m_mode == WdspChannel::Mode::Sam) {
+            const double envelope = 2.0 * std::abs(iq[i]);
+            if (!m_monitorStarted) { m_monitorDc = envelope; }
+            m_monitorDc += dcAlpha * (envelope - m_monitorDc);
+            audio = envelope - m_monitorDc;
+        }
+        m_monitorMono[i] = std::isfinite(audio) ? static_cast<float>(audio) : 0;
+        m_monitorPrevious = iq[i];
+        m_monitorStarted = true;
+    }
+    // Demodulate the actual post-TXA I/Q; the monitor never feeds back into RF drive.
+    return m_monitorResampler->processMonoToStereo(m_monitorMono.data(), static_cast<int>(iq.size()));
 }
 
 bool AnanTxDsp::trySetFilter(double lowHz, double highHz)
@@ -58,6 +84,10 @@ bool AnanTxDsp::begin(const TxCoordinator::Context& context, qint64 now)
         return false;
     }
     m_context = context;
+    m_monitorPrevious = {};
+    m_monitorDc = 0;
+    m_monitorStarted = false;
+    if (m_monitorResampler) { m_monitorResampler->reset(); }
     m_active = true;
     return true;
 }

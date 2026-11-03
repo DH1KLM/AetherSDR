@@ -27,7 +27,7 @@ Choose the computer's microphone (**Input**) and speaker (**Output**) devices. T
 
 ### ASIO receive output on Windows
 
-**ASIO RX Output** selects a native 64-bit ASIO driver for the computer's
+**ASIO RX Output / Microphone** selects a native 64-bit ASIO driver for the computer's
 receive speakers. It is off by default. Enable **Use ASIO for PC receive audio**,
 choose the **Driver**, **First stereo channel**, **Sample rate** and
 **Buffer frames**, then select **Apply ASIO changes**. Turn on **PC Audio**
@@ -35,9 +35,9 @@ to hear reception. Applying while reception is playing restarts the speaker outp
 Both enabling and disabling ASIO require **Apply ASIO changes**; changing
 the checkbox alone leaves the current output playing.
 
-The footer shows **ASIO ACTIVE** while the ASIO receive output is running and
-**ASIO OFF** otherwise. This reports the opened output, rather than the saved
-checkbox preference. Hover over the indicator for its status.
+The footer shows **ASIO ACTIVE** while ASIO receive output or microphone capture
+is running and **ASIO OFF** otherwise. Hover over it to see the separate RX and
+microphone states. Saved checkbox preferences alone do not activate the indicator.
 
 Playback starts after a short prebuffer. After an interruption it waits for
 the buffer to recover and fades back in, rather than repeatedly switching
@@ -49,9 +49,18 @@ and rates must be supported by the driver. The status beneath the controls
 reports an unavailable driver, invalid pair, unsupported format or failed start.
 Close other applications holding the same driver before retrying.
 
-The master volume and mute control the ASIO receive output. Microphone input,
-CW sidetone, Quindar and separately routed outputs continue using their existing
-devices. ASIO does not enable transmission. On other operating systems the
+Enable **Use ASIO microphone input** to capture from the same driver.
+**First input channel** identifies the first channel of the input pair;
+**Microphone source** selects that channel, the next channel, or their mix.
+Microphone capture can be selected independently of ASIO receive output.
+Both share **Sample rate** and **Buffer frames**. Apply changes while receiving;
+changes during transmission are refused. An unavailable ASIO microphone does
+not fall back to another microphone. Driver resets or capture overflow stop
+capture; check the driver and apply the settings again.
+
+The master volume and mute control only the receive output. CW sidetone,
+Quindar and separately routed outputs continue using their existing devices.
+Selecting ASIO does not enable transmission. On other operating systems the
 ASIO group is dimmed and the regular audio devices remain available.
 
 If the driver requests a reset or changes its sample rate or buffer size,

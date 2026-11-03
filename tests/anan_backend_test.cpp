@@ -44,6 +44,7 @@ namespace AetherSDR::anan {
 // no socket, which is the only deterministic way to reach LinkStats::alive.
 class AnanLinkStatsTestAccess {
 public:
+    static void notifyLinkUp(AnanBackend& backend) { emit backend.m_client->linkUp(); }
     static void setConnected(AnanBackend& backend, bool connected)
     {
         backend.m_connected = connected;
@@ -1582,10 +1583,19 @@ int main(int argc, char** argv)
     {
         AnanBackend backend;
         AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("TX-FILTER-MEMORY"));
+        backend.setTxMonitor(true, 17);
         backend.setTxFilter(250, 2850);
         const auto memory = backend.currentOperatingState();
         AnanBackend restored;
         restored.applyRestoredState(memory);
+        check(restored.currentOperatingState().extension.value(QStringLiteral("txSetpoints")).toObject()
+                  .value(QStringLiteral("ananMonitorLevel")).toInt() == 17,
+              "MON listening volume survives a radio operating-state round trip");
+        AnanLinkStatsTestAccess::antennaSession(restored, QStringLiteral("TX-FILTER-MEMORY"));
+        AnanLinkStatsTestAccess::notifyLinkUp(restored);
+        check(restored.currentOperatingState().extension.value(QStringLiteral("txSetpoints")).toObject()
+                  .value(QStringLiteral("ananMonitorLevel")).toInt() == 17,
+              "connection initialization preserves the restored MON volume");
         const auto filter = restored.currentOperatingState().extension.value(QStringLiteral("txSetpoints")).toObject()
             .value(QStringLiteral("ananVoiceFilter")).toObject();
         check(filter.value(QStringLiteral("lowHz")).toInt() == 250

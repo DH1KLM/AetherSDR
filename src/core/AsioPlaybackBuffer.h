@@ -105,6 +105,28 @@ public:
             for (int i = 0; i < bytes; ++i) { out[i] = static_cast<std::uint8_t>(word >> (8 * i)); }
         }
     }
+    static float decode(const std::uint8_t* in, int type)
+    {
+        double value = 0;
+        if (type == 19) {
+            float sample = 0;
+            std::memcpy(&sample, in, sizeof(sample));
+            value = sample;
+        } else if (type == 20) {
+            std::memcpy(&value, in, sizeof(value));
+        } else {
+            const int bytes = sampleBytes(type);
+            if (!bytes) { return 0; }
+            const int bits = type == 24 ? 16 : type == 25 ? 18 : type == 26 ? 20 : type == 27 ? 24 : bytes * 8;
+            std::uint32_t word = 0;
+            for (int i = 0; i < bytes; ++i) { word |= std::uint32_t(in[i]) << (8 * i); }
+            const std::uint64_t sign = std::uint64_t{1} << (bits - 1);
+            const std::uint64_t mask = (sign << 1) - 1;
+            const std::int64_t integer = (word & sign) ? std::int64_t(word & mask) - std::int64_t(sign << 1) : word & mask;
+            value = double(integer) / double(sign);
+        }
+        return std::isfinite(value) ? static_cast<float>(std::clamp(value, -1.0, 1.0)) : 0;
+    }
 private:
     // A dry run fades once and waits for a complete prefill instead of alternating PCM and zeros.
     std::array<float, 2> fadeOut()

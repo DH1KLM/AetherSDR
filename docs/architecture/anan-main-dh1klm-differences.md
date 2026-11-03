@@ -24,4 +24,4 @@ Main provides a single-receiver ANAN-G2 implementation. Our branch expands this 
 | **Hardware outputs and microphone options** | G2 front-end and speaker controls | RX band/SWL open-collector assignments, manual digital outputs and model-dependent microphone wiring, bias and PTT configuration |
 | **Telemetry** | G2 voltage and link status | Model-dependent voltage/current display with configurable DIY sensors, plus forward/reflected RF power and SWR |
 | **Front panels** | Standard Aether controls | Andromeda USB/COM and G2-V2 TCP integration, configurable mappings, standard Andromeda mapping and panel feedback |
-| **PC receive audio** | Standard audio-device output | Standard output plus native Windows ASIO receive output, driver/channel/buffer selection and an active-status indicator |
+| **PC audio** | Standard audio devices | Standard devices plus native Windows ASIO receive output and microphone input, shared driver/clock/buffer settings, input channel selection and an active-status indicator |

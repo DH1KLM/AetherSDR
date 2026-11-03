@@ -91,10 +91,23 @@ int main(int argc, char** argv)
     config.firstChannel = 4;
     config.sampleRate = 96000;
     config.bufferFrames = 256;
+    config.microphoneEnabled = true;
+    config.firstInputChannel = 2;
+    config.inputMode = 1;
     check(config.save(), "save the whole ASIO config");
     const AsioOutputConfig loaded = AsioOutputConfig::load();
     check(loaded.enabled && loaded.driver == config.driver && loaded.firstChannel == 4
           && loaded.sampleRate == 96000 && loaded.bufferFrames == 256, "restore all ASIO fields");
+    check(loaded.microphoneEnabled && loaded.firstInputChannel == 2 && loaded.inputMode == 1,
+          "restore the microphone source alongside the shared driver settings");
+    const auto savedDocument = AppSettings::instance().value("AsioOutput");
+    AppSettings::instance().setValue("AsioOutput", QStringLiteral("{\"version\":1,\"microphoneEnabled\":true,\"inputMode\":7}"));
+    check(AsioOutputConfig::load().microphoneEnabled && !AsioOutputConfig::load().valid(),
+          "invalid ASIO microphone settings retain the explicit selection and fail closed");
+    AppSettings::instance().setValue("AsioOutput", savedDocument);
+    config.inputMode = 3;
+    check(!config.save() && AsioOutputConfig::load().inputMode == 1, "invalid input mode cannot replace the saved microphone source");
+    config.inputMode = 1;
     config.sampleRate = 12345;
     check(!config.save() && AsioOutputConfig::load().sampleRate == 96000, "refuse unsupported rate without mutation");
     config.sampleRate = 48000;
@@ -116,6 +129,9 @@ int main(int argc, char** argv)
             std::array<std::uint8_t, 10> encoded{};
             encoded.fill(0x55);
             AsioPlaybackBuffer::encode(sample, type, encoded.data() + 1);
+            check(std::abs(AsioPlaybackBuffer::decode(encoded.data() + 1, type)
+                  - std::clamp(sample, -1.0f, 1.0f)) < 0.00004f,
+                  "ASIO integer microphone samples decode with correct sign and scaling");
             check(encoded[0] == 0x55 && encoded[bytes + 1] == 0x55, "conversion respects buffer bounds");
             std::uint32_t word = 0;
             for (int i = 0; i < bytes; ++i) { word |= std::uint32_t{encoded[i + 1]} << (8 * i); }
@@ -125,6 +141,20 @@ int main(int argc, char** argv)
                 static_cast<std::int64_t>(std::llround(std::clamp<double>(sample, -1, 1) * scale)), -scale, scale - 1);
             check(std::bit_cast<std::int32_t>(word) == expected, "signed little-endian PCM, clipping and aligned depth");
         }
+    }
+    for (const int type : {19,20}) {
+        std::array<std::uint8_t, 8> bytes{};
+        AsioPlaybackBuffer::encode(-0.375f, type, bytes.data());
+        check(std::abs(AsioPlaybackBuffer::decode(bytes.data(), type) + 0.375f) < 1e-6,
+              "ASIO float microphone input preserves signed amplitudes");
+        if (type == 19) {
+            const float invalid = std::numeric_limits<float>::quiet_NaN();
+            std::memcpy(bytes.data(), &invalid, sizeof(invalid));
+        } else {
+            const double invalid = std::numeric_limits<double>::infinity();
+            std::memcpy(bytes.data(), &invalid, sizeof(invalid));
+        }
+        check(AsioPlaybackBuffer::decode(bytes.data(), type) == 0, "nonfinite driver input becomes silence");
     }
     for (const int type : {16,17,18,19,20,24,25,26,27}) {
         for (const float invalid : {std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {

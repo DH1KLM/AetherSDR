@@ -221,12 +221,8 @@ void AnanClient::pumpTransmitAudio()
             const auto gain = m_transmitDsp->meter(WdspChannel::TransmitMeter::AlcGain);
             if (mic && alc && gain) { emit transmitMeters(*mic,*alc,*gain,m_transmitContext,m_transmitOperation); }
         }
-        if (m_transmitMonitor) {
-            QByteArray monitor(static_cast<qsizetype>(mono.size() * 2 * sizeof(float)),Qt::Uninitialized);
-            for (std::size_t i = 0; i < mono.size(); ++i) {
-                std::memcpy(monitor.data() + 2*i*sizeof(float),&mono[i],sizeof(float));
-                std::memcpy(monitor.data() + (2*i+1)*sizeof(float),&mono[i],sizeof(float));
-            }
+        const QByteArray monitor = m_transmitDsp->monitorAudio(std::span(iq).first(outputSamples));
+        if (m_transmitMonitor && !monitor.isEmpty()) {
             emit transmitMonitorAudio(monitor,m_transmitContext,m_transmitOperation);
         }
         m_transmitHead = (m_transmitHead + mono.size()) % kTransmitAudioCapacity;

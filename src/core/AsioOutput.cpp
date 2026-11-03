@@ -32,11 +32,17 @@ AsioOutputConfig AsioOutputConfig::load()
     config.firstChannel = doc.value("firstChannel").toInt(-1);
     config.sampleRate = doc.value("sampleRate").toInt();
     config.bufferFrames = doc.value("bufferFrames").toInt(-1);
-    return config.valid() ? config : AsioOutputConfig{};
+    config.microphoneEnabled = doc.value("microphoneEnabled").toBool(false);
+    config.firstInputChannel = doc.contains("firstInputChannel") ? doc.value("firstInputChannel").toInt(-1) : 0;
+    config.inputMode = doc.contains("inputMode") ? doc.value("inputMode").toInt(-1) : 0;
+    // Preserve an explicit ASIO microphone request so invalid settings fail
+    // at open instead of selecting an unrelated Qt microphone.
+    return config.valid() || config.microphoneEnabled ? config : AsioOutputConfig{};
 }
 bool AsioOutputConfig::valid() const
 {
-    return (!enabled || !driver.isEmpty()) && firstChannel >= 0 && firstChannel < 255
+    return (!(enabled || microphoneEnabled) || !driver.isEmpty()) && firstChannel >= 0 && firstChannel < 255
+        && firstInputChannel >= 0 && firstInputChannel < 255 && inputMode >= 0 && inputMode <= 2
         && (sampleRate == 44100 || sampleRate == 48000 || sampleRate == 96000
             || sampleRate == 192000) && bufferFrames >= 0 && bufferFrames <= 8192;
 }
@@ -49,7 +55,8 @@ bool AsioOutputConfig::save() const
     const QJsonObject old = QJsonDocument::fromJson(settings.value("AsioOutput").toByteArray()).object();
     if (!old.isEmpty() && old.value("version").toInt() != 1) { return false; }
     const QJsonObject doc{{"version", 1}, {"enabled", enabled}, {"driver", driver},
-        {"firstChannel", firstChannel}, {"sampleRate", sampleRate}, {"bufferFrames", bufferFrames}};
+        {"firstChannel", firstChannel}, {"sampleRate", sampleRate}, {"bufferFrames", bufferFrames},
+        {"microphoneEnabled", microphoneEnabled}, {"firstInputChannel", firstInputChannel}, {"inputMode", inputMode}};
     const QString value = QString::fromUtf8(QJsonDocument(doc).toJson(QJsonDocument::Compact));
     settings.setValue("AsioOutput", value);
     settings.save();
@@ -60,12 +67,42 @@ bool AsioOutputConfig::save() const
     return false;
 }
 
+namespace {
+class CaptureDevice final : public QIODevice {
+public:
+    std::unique_ptr<AsioPlaybackBuffer> ring;
+    std::size_t capacity = 0;
+    std::atomic_bool overflow{false};
+    std::atomic_bool active{false};
+    bool isSequential() const override { return true; }
+    qint64 bytesAvailable() const override
+    { return ring ? static_cast<qint64>((capacity - ring->freeFrames()) * 8) : 0; }
+    void push(float sample)
+    {
+        const std::array<float, 2> frame{sample, sample};
+        if (ring && ring->write(frame) != 1) { overflow.store(true); }
+    }
+protected:
+    qint64 readData(char* bytes, qint64 size) override
+    {
+        const qint64 count = std::min(size / 8, bytesAvailable() / 8);
+        for (qint64 i = 0; i < count; ++i) {
+            const auto frame = ring->read();
+            std::memcpy(bytes + i * 8, frame.data(), 8);
+        }
+        return count * 8;
+    }
+    qint64 writeData(const char*, qint64) override { return -1; }
+};
+}
+
 struct AsioOutput::Impl {
     std::unique_ptr<AsioPlaybackBuffer> ring;
     std::atomic<float> gain{1};
     std::atomic_bool reset{false};
     int frames = 0;
     std::size_t capacity = 0;
+    std::unique_ptr<CaptureDevice> capture;
 #ifdef Q_OS_WIN
     IASIO* driver = nullptr;
     bool comOwned = false;
@@ -73,8 +110,11 @@ struct AsioOutput::Impl {
     bool started = false;
     std::atomic_bool ready{false};
     int sampleRate = 0;
-    std::array<ASIOBufferInfo, 2> buffers{};
+    int outputCount = 0;
+    int inputCount = 0;
+    std::array<ASIOBufferInfo, 4> buffers{};
     std::array<int, 2> types{};
+    std::array<int, 2> inputTypes{};
     static std::atomic<Impl*> active;
     static void switched(long index, ASIOBool)
     {
@@ -83,11 +123,20 @@ struct AsioOutput::Impl {
         const float gain = state->reset.load(std::memory_order_relaxed)
             ? 0 : state->gain.load(std::memory_order_relaxed);
         for (int frame = 0; frame < state->frames; ++frame) {
-            const std::array<float, 2> sample = state->ring->read();
-            for (int channel = 0; channel < 2; ++channel) {
+            const std::array<float, 2> sample = state->outputCount ? state->ring->read() : std::array<float, 2>{};
+            for (int channel = 0; channel < state->outputCount; ++channel) {
                 auto* dst = static_cast<std::uint8_t*>(state->buffers[channel].buffers[index]);
                 AsioPlaybackBuffer::encode(sample[channel] * gain, state->types[channel],
                     dst + frame * AsioPlaybackBuffer::sampleBytes(state->types[channel]));
+            }
+            if (state->capture && state->capture->active.load(std::memory_order_acquire)
+                && !state->reset.load(std::memory_order_relaxed)) {
+                float mono = 0;
+                for (int channel = 0; channel < state->inputCount; ++channel) {
+                    const auto* src = static_cast<const std::uint8_t*>(state->buffers[state->outputCount + channel].buffers[index]);
+                    mono += AsioPlaybackBuffer::decode(src + frame * AsioPlaybackBuffer::sampleBytes(state->inputTypes[channel]), state->inputTypes[channel]);
+                }
+                state->capture->push(mono / state->inputCount);
             }
         }
         state->driver->outputReady();
@@ -157,7 +206,7 @@ QList<AsioOutputDriver> AsioOutput::drivers()
 bool AsioOutput::start(const AsioOutputConfig& config, QString& error)
 {
     stop();
-    if (!config.valid() || !config.enabled) { error = tr("Invalid ASIO output configuration."); return false; }
+    if (!config.valid() || !(config.enabled || config.microphoneEnabled)) { error = tr("Invalid ASIO configuration."); return false; }
 #ifdef Q_OS_WIN
     Impl& state = *m_impl;
     Impl* expected = nullptr;
@@ -180,7 +229,12 @@ bool AsioOutput::start(const AsioOutputConfig& config, QString& error)
         return fail(tr("ASIO driver initialization failed. Close other applications using this driver."));
     }
     long inputs = 0, outputs = 0, minimum = 0, maximum = 0, preferred = 0, granularity = 0;
-    if (state.driver->getChannels(&inputs, &outputs) != ASE_OK || config.firstChannel + 1 >= outputs
+    state.outputCount = config.enabled ? 2 : 0;
+    state.inputCount = config.microphoneEnabled ? (config.inputMode == 2 ? 2 : 1) : 0;
+    const int inputBase = config.firstInputChannel + (config.inputMode == 1 ? 1 : 0);
+    if (state.driver->getChannels(&inputs, &outputs) != ASE_OK
+        || (state.outputCount && config.firstChannel + 1 >= outputs)
+        || (state.inputCount && inputBase + state.inputCount > inputs)
         || state.driver->getBufferSize(&minimum, &maximum, &preferred, &granularity) != ASE_OK) {
         return fail(tr("The ASIO driver does not provide the selected stereo pair or buffer limits."));
     }
@@ -204,24 +258,36 @@ bool AsioOutput::start(const AsioOutputConfig& config, QString& error)
     state.capacity = AsioPlaybackBuffer::playbackCapacity(config.sampleRate, state.frames);
     state.ring = std::make_unique<AsioPlaybackBuffer>(state.capacity, state.capacity / 2,
         static_cast<std::size_t>(config.sampleRate / 200));
-    for (int channel = 0; channel < 2; ++channel) {
+    for (int channel = 0; channel < state.outputCount; ++channel) {
         state.buffers[channel] = {ASIOFalse, config.firstChannel + channel, {nullptr, nullptr}};
     }
-    if (state.driver->createBuffers(state.buffers.data(), 2, frames, &state.callbacks) != ASE_OK) {
+    for (int channel = 0; channel < state.inputCount; ++channel) {
+        state.buffers[state.outputCount + channel] = {ASIOTrue, inputBase + channel, {nullptr, nullptr}};
+    }
+    if (state.inputCount) {
+        state.capture = std::make_unique<CaptureDevice>();
+        state.capture->capacity = static_cast<std::size_t>(std::max(config.sampleRate / 2, 4 * state.frames));
+        state.capture->ring = std::make_unique<AsioPlaybackBuffer>(state.capture->capacity);
+        state.capture->open(QIODevice::ReadOnly | QIODevice::Unbuffered);
+    }
+    const int bufferCount = state.outputCount + state.inputCount;
+    if (state.driver->createBuffers(state.buffers.data(), bufferCount, frames, &state.callbacks) != ASE_OK) {
         return fail(tr("ASIO output buffer creation failed."));
     }
     state.buffersCreated = true;
-    for (int channel = 0; channel < 2; ++channel) {
+    for (int channel = 0; channel < bufferCount; ++channel) {
         ASIOChannelInfo info{};
-        info.channel = config.firstChannel + channel;
-        info.isInput = ASIOFalse;
+        const bool input = channel >= state.outputCount;
+        info.channel = state.buffers[channel].channelNum;
+        info.isInput = input ? ASIOTrue : ASIOFalse;
         if (state.driver->getChannelInfo(&info) != ASE_OK || !AsioPlaybackBuffer::sampleBytes(info.type)) {
             return fail(tr("Unsupported ASIO sample format; use a little-endian PCM/float driver."));
         }
-        state.types[channel] = static_cast<int>(info.type);
+        if (input) { state.inputTypes[channel - state.outputCount] = static_cast<int>(info.type); }
+        else { state.types[channel] = static_cast<int>(info.type); }
         for (void* buffer : state.buffers[channel].buffers) {
             if (!buffer) { return fail(tr("ASIO returned an empty output buffer.")); }
-            std::memset(buffer, 0, frames * AsioPlaybackBuffer::sampleBytes(info.type));
+            if (!input) { std::memset(buffer, 0, frames * AsioPlaybackBuffer::sampleBytes(info.type)); }
         }
     }
     state.reset.store(false);
@@ -262,6 +328,7 @@ void AsioOutput::stop()
                           << "playback capacity frames:" << state.capacity;
     }
     state.ring.reset();
+    state.capture.reset();
     state.capacity = 0;
 }
 bool AsioOutput::flush()
@@ -272,7 +339,7 @@ bool AsioOutput::flush()
     if (state.driver->stop() != ASE_OK) { return false; }
     state.started = false;
     state.ring->reset();
-    for (int channel = 0; channel < 2; ++channel) {
+    for (int channel = 0; channel < state.outputCount; ++channel) {
         for (void* buffer : state.buffers[channel].buffers) {
             std::memset(buffer, 0, state.frames * AsioPlaybackBuffer::sampleBytes(state.types[channel]));
         }
@@ -288,6 +355,22 @@ qsizetype AsioOutput::bytesFree() const { return m_impl->ring ? static_cast<qsiz
 qsizetype AsioOutput::bufferBytes() const { return static_cast<qsizetype>(m_impl->capacity * 8); }
 int AsioOutput::deviceBufferFrames() const { return m_impl->frames; }
 bool AsioOutput::resetRequested() const { return m_impl->reset.load(); }
+bool AsioOutput::inputFaulted() const { return resetRequested() || (m_impl->capture && m_impl->capture->overflow.load()); }
+QIODevice* AsioOutput::inputDevice() const { return m_impl->capture.get(); }
+void AsioOutput::discardInput()
+{
+    if (m_impl->capture) {
+        m_impl->capture->readAll();
+        m_impl->capture->overflow.store(false);
+    }
+}
+void AsioOutput::setInputActive(bool active)
+{
+    if (!m_impl->capture) { return; }
+    m_impl->capture->active.store(false, std::memory_order_release);
+    discardInput();
+    m_impl->capture->active.store(active, std::memory_order_release);
+}
 qint64 AsioOutput::writeData(const char* bytes, qint64 size)
 {
     if (!isOpen() || !m_impl->ring || size < 0 || size % 8 != 0 || resetRequested()) { return -1; }

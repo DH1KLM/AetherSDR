@@ -2,6 +2,8 @@
 
 #include "core/TxCoordinator.h"
 #include "core/dsp/WdspChannel.h"
+#include "core/Resampler.h"
+#include <QByteArray>
 
 #include <array>
 #include <complex>
@@ -29,6 +31,7 @@ public:
     bool configure(WdspChannel::Mode mode, std::string* error = nullptr, int outputRate = kOutputRate,
                    std::optional<std::pair<double,double>> passband = std::nullopt);
     bool trySetFilter(double lowHz, double highHz);
+    QByteArray monitorAudio(std::span<const std::complex<float>> iq);
     [[nodiscard]] std::size_t outputSamples() const noexcept { return m_outputSamples; }
     bool begin(const TxCoordinator::Context& context, qint64 now);
     bool end();
@@ -47,5 +50,10 @@ private:
     std::array<float, kInputSamples> m_zeroQ{};
     std::array<float, kOutputSamples> m_i{};
     std::array<float, kOutputSamples> m_q{};
+    std::unique_ptr<Resampler> m_monitorResampler;
+    std::array<float, kOutputSamples> m_monitorMono{};
+    std::complex<float> m_monitorPrevious{};
+    double m_monitorDc = 0;
+    bool m_monitorStarted = false;
 };
 } // namespace AetherSDR::anan

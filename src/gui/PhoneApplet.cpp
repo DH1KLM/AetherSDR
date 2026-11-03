@@ -15,6 +15,8 @@
 #include "core/TxKeyingMarker.h"
 
 #include <QPointer>
+#include <algorithm>
+#include <cmath>
 
 namespace AetherSDR {
 
@@ -442,9 +444,27 @@ void PhoneApplet::buildUI()
         lowRow->addWidget(m_lowCutUp);
 
         lowCol->addLayout(lowRow);
-        grid->addLayout(lowCol);
+        m_lowCutDown->hide();
+        m_lowCutUp->hide();
+        m_lowCutSlider = new GuardedSlider(Qt::Horizontal);
+        m_lowCutSlider->setObjectName(QStringLiteral("txLowCutSlider"));
+        m_lowCutSlider->setAccessibleName(tr("TX low cut frequency"));
+        m_lowCutSlider->setRange(0, TransmitModel::kTxFilterMaxHz);
+        m_lowCutSlider->setSingleStep(50);
+        applyPrimarySliderStyle(m_lowCutSlider);
+        connect(m_lowCutSlider, &QSlider::valueChanged, this, [this](int hz) {
+            if (m_updatingFromModel || !m_model) { return; }
+            if (!m_txLowEdgesHz.isEmpty()) {
+                hz = *std::min_element(m_txLowEdgesHz.begin(), m_txLowEdgesHz.end(),
+                    [hz](int a, int b) { return std::abs(a - hz) < std::abs(b - hz); });
+            }
+            if (hz <= m_model->txFilterHigh() - m_model->txFilterMinWidthHz()) { m_model->setTxFilterLow(hz); }
+            syncFromModel();
+        });
+        lowCol->addWidget(m_lowCutSlider);
+        grid->addLayout(lowCol, 1);
 
-        grid->addStretch();
+        grid->addSpacing(8);
 
         // ── Right column: High Cut ───────────────────────────────────────
         auto* highCol = new QVBoxLayout;
@@ -527,7 +547,25 @@ void PhoneApplet::buildUI()
         highRow->addWidget(m_highCutUp);
 
         highCol->addLayout(highRow);
-        grid->addLayout(highCol);
+        m_highCutDown->hide();
+        m_highCutUp->hide();
+        m_highCutSlider = new GuardedSlider(Qt::Horizontal);
+        m_highCutSlider->setObjectName(QStringLiteral("txHighCutSlider"));
+        m_highCutSlider->setAccessibleName(tr("TX high cut frequency"));
+        m_highCutSlider->setRange(0, TransmitModel::kTxFilterMaxHz);
+        m_highCutSlider->setSingleStep(50);
+        applyPrimarySliderStyle(m_highCutSlider);
+        connect(m_highCutSlider, &QSlider::valueChanged, this, [this](int hz) {
+            if (m_updatingFromModel || !m_model) { return; }
+            if (!m_txHighEdgesHz.isEmpty()) {
+                hz = *std::min_element(m_txHighEdgesHz.begin(), m_txHighEdgesHz.end(),
+                    [hz](int a, int b) { return std::abs(a - hz) < std::abs(b - hz); });
+            }
+            if (hz >= m_model->txFilterLow() + m_model->txFilterMinWidthHz()) { m_model->setTxFilterHigh(hz); }
+            syncFromModel();
+        });
+        highCol->addWidget(m_highCutSlider);
+        grid->addLayout(highCol, 1);
 
         vbox->addWidget(m_txFilterWidget);
     }
@@ -631,6 +669,14 @@ void PhoneApplet::syncFromModel()
     // TX filter
     m_lowCutLabel->setText(QString::number(m_model->txFilterLow()));
     m_highCutLabel->setText(QString::number(m_model->txFilterHigh()));
+    {
+        const QSignalBlocker low(m_lowCutSlider);
+        const QSignalBlocker high(m_highCutSlider);
+        m_lowCutSlider->setRange(m_model->txFilterMinHz(), m_model->txFilterHigh() - m_model->txFilterMinWidthHz());
+        m_highCutSlider->setRange(m_model->txFilterLow() + m_model->txFilterMinWidthHz(), m_model->txFilterMaxHz());
+        m_lowCutSlider->setValue(m_model->txFilterLow());
+        m_highCutSlider->setValue(m_model->txFilterHigh());
+    }
 
     m_updatingFromModel = false;
 }

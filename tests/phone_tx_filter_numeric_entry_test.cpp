@@ -98,6 +98,19 @@ int main(int argc, char** argv)
     TransmitModel model;
     PhoneApplet applet;
     applet.setTransmitModel(&model);
+    auto* lowSlider = applet.findChild<QSlider*>(QStringLiteral("txLowCutSlider"));
+    auto* highSlider = applet.findChild<QSlider*>(QStringLiteral("txHighCutSlider"));
+    check(lowSlider && highSlider, "both TX filter sliders are present");
+    if (lowSlider && highSlider) {
+        model.setTxFilter(300, 3000);
+        lowSlider->setValue(450);
+        highSlider->setValue(2800);
+        check(model.txFilterLow() == 450 && model.txFilterHigh() == 2800,
+              "TX cutoff sliders dispatch separate low and high changes");
+        check(lowSlider->maximum() <= highSlider->value() - model.txFilterMinWidthHz(),
+              "sliders preserve the minimum TX passband width");
+    }
+    model.setTxFilter(50, 3300);
 
     ScrollableLabel* low  = cutLabel(applet, "TX low cut frequency");
     ScrollableLabel* high = cutLabel(applet, "TX high cut frequency");

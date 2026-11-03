@@ -193,8 +193,10 @@ DRM modem are not integrated for ANAN.
 Radio microphone/PTT qualification and PA calibration remain open. Software tests do not establish actual RF power,
 signal quality or protection. The radio speaker stream is silenced while this
 client keys P1 or P2 TX. Receive audio is muted while keyed, with a short hold after release; the independent spectrum stays live. This prevents hearing the receiver pick up its own transmission. **MON** in the **Phone & CW** panel enables a local microphone/audio monitor;
-its monitor level adjusts the PC playback volume. It monitors the audio entering
-TX signal processing, not received RF, PA output or a CW sidetone. MON is off by
+its monitor level adjusts only the listening volume and is remembered per radio.
+It demodulates the final local TX I/Q after TX filtering and processing, so live
+Low/High Cut and processing changes are audible. It does not monitor the physical
+PA or a remote receiver and is separate from CW sidetone. MON is off by
 default. Microphone, post-ALC audio peak and ALC gain meters use the actual WDSP
 TX channel; they are not measured RF power. **ALC Gain** reads 0 dB when the limiter
 is not reducing the signal. **PROC** uses the shared local `ClientComp` voice processor, as on HL2.
@@ -226,14 +228,14 @@ are not provided by this extended path. No new SWR protection is implied.
 The PA table uses its row height; **Use Thetis defaults**, **Save PA profile**,
 **TX antenna** and readiness appear directly below the last band.
 
-In **Phone/CW**, **Low Cut** and **High Cut** set the USB/LSB transmit voice
+In the **Phone** applet, **Low Cut** and **High Cut** sliders set the USB/LSB transmit voice
 passband. Values are positive audio frequencies; LSB is mirrored automatically.
 Changes apply during an ongoing transmission without rekeying. A live change
 outside the selected band plan is refused and the previous values are restored.
 The voice filter is remembered per radio. Other modes retain their mode-specific
 filters; changing these controls in another mode prepares the next USB/LSB use.
 
-The footer shows **ASIO ACTIVE** only while the ASIO receive output is running;
+The footer shows **ASIO ACTIVE** while ASIO receive output or microphone input is running;
 **ASIO OFF** means it is not running, regardless of the saved checkbox setting.
 The station/model name uses its full text width.
 

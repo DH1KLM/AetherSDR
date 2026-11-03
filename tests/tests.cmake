@@ -4496,6 +4496,9 @@ set_tests_properties(radio_setup_headphone_output_gate_test PROPERTIES
 # Real backend status and same-rate intent; no radio transport or sockets.
 add_executable(radio_setup_anan_sample_rate_test
     tests/radio_setup_anan_sample_rate_test.cpp
+    src/gui/NtpSourcesPage.cpp
+    src/gui/CanonMessageBox.cpp
+    src/gui/ModemChrome.cpp
     src/gui/DragValuePopup.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/AsioOutputSettingsWidget.cpp

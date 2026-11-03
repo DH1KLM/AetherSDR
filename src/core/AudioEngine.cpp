@@ -2031,7 +2031,7 @@ AudioEngine::AudioEngine(QObject* parent)
     m_rxTimer->setInterval(10);
     connect(m_rxTimer, &QTimer::timeout, this, [this]() {
         retireInvalidPcmSources();
-        if (m_asioOutput) {
+        if (asioOutputActive()) {
             if (m_asioOutput->resetRequested()) {
                 const QString reason = QStringLiteral("ASIO driver requested a reset. Apply the ASIO settings again to restart playback.");
                 qCWarning(lcAudio) << reason;
@@ -2782,9 +2782,9 @@ void AudioEngine::drainRxAudio(qsizetype freeBytes)
         }
     }
 
-    if ((m_audioSink || m_asioOutput) && sampleRate > 0) {
-        const qsizetype sinkBufferBytes = m_asioOutput ? m_asioOutput->bufferBytes() : m_audioSink->bufferSize();
-        const qsizetype sinkFreeBytes = m_asioOutput ? m_asioOutput->bytesFree() : m_audioSink->bytesFree();
+    if ((m_audioSink || asioOutputActive()) && sampleRate > 0) {
+        const qsizetype sinkBufferBytes = asioOutputActive() ? m_asioOutput->bufferBytes() : m_audioSink->bufferSize();
+        const qsizetype sinkFreeBytes = asioOutputActive() ? m_asioOutput->bytesFree() : m_audioSink->bytesFree();
         const qsizetype sinkQueuedBytes =
             std::clamp(sinkBufferBytes - sinkFreeBytes,
                        static_cast<qsizetype>(0),
@@ -2860,18 +2860,18 @@ QJsonArray AudioEngine::audioEndpointDiagnostics() const
 
     QJsonArray endpoints;
 
-    const bool rxRunning = m_audioSink != nullptr || m_asioOutput != nullptr;
+    const bool rxRunning = m_audioSink != nullptr || asioOutputActive();
     const bool rxDeviceOpen = !m_audioDevice.isNull() && m_audioDevice->isOpen();
     QJsonObject rx;
     rx["name"] = QStringLiteral("RX output");
     rx["direction"] = QStringLiteral("rx");
     rx["kind"] = QStringLiteral("sink");
-    rx["backend"] = m_asioOutput ? QStringLiteral("ASIO") : QStringLiteral("QAudioSink");
-    rx["device"] = m_asioOutput ? AsioOutputConfig::load().driver : outputDescription();
+    rx["backend"] = asioOutputActive() ? QStringLiteral("ASIO") : QStringLiteral("QAudioSink");
+    rx["device"] = asioOutputActive() ? AsioOutputConfig::load().driver : outputDescription();
     rx["running"] = rxRunning;
     rx["operational"] = rxRunning && rxDeviceOpen;
     rx["device_open"] = rxDeviceOpen;
-    rx["state"] = m_asioOutput ? QStringLiteral("Active")
+    rx["state"] = asioOutputActive() ? QStringLiteral("Active")
         : m_audioSink ? audioStateName(m_audioSink->state()) : QStringLiteral("Stopped");
     rx["error"] = m_audioSink ? audioErrorName(m_audioSink->error()) : QStringLiteral("NoError");
     rx["sample_rate_hz"] = rxRunning ? QJsonValue(m_rxBufferSampleRate.load()) : QJsonValue();
@@ -2882,7 +2882,7 @@ QJsonArray AudioEngine::audioEndpointDiagnostics() const
     rx["buffer_bytes"] = static_cast<double>(m_rxBufferBytes.load());
     rx["buffer_ms"] = m_rxBufferMs.load();
     rx["buffer_capacity_bytes"] = rxRunning
-        ? static_cast<double>(m_asioOutput ? m_asioOutput->bufferBytes() : m_audioSink->bufferSize()) : 0.0;
+        ? static_cast<double>(asioOutputActive() ? m_asioOutput->bufferBytes() : m_audioSink->bufferSize()) : 0.0;
     rx["buffer_peak_bytes"] = static_cast<double>(m_rxBufferPeakBytes.load());
     rx["buffer_peak_ms"] = m_rxBufferPeakMs.load();
     rx["underrun_count"] = static_cast<double>(m_rxBufferUnderrunCount.load());
@@ -2913,7 +2913,7 @@ QJsonArray AudioEngine::audioEndpointDiagnostics() const
     rx["receive_presentation"] = presentation;
     endpoints.append(rx);
 
-    const bool txRunning = m_audioSource != nullptr;
+    const bool txRunning = isTxStreaming();
 #ifdef Q_OS_MACOS
     const bool txDeviceOpen = m_micBuffer && m_micBuffer->isOpen();
 #else
@@ -2923,13 +2923,13 @@ QJsonArray AudioEngine::audioEndpointDiagnostics() const
     tx["name"] = QStringLiteral("TX input");
     tx["direction"] = QStringLiteral("tx");
     tx["kind"] = QStringLiteral("source");
-    tx["backend"] = QStringLiteral("QAudioSource");
-    tx["device"] = inputDescription();
+    tx["backend"] = m_asioMicPollTimer ? QStringLiteral("ASIO") : QStringLiteral("QAudioSource");
+    tx["device"] = m_asioMicPollTimer ? AsioOutputConfig::load().driver : inputDescription();
     tx["running"] = txRunning;
     tx["operational"] = txRunning && txDeviceOpen;
     tx["device_open"] = txDeviceOpen;
-    tx["state"] = txRunning ? audioStateName(m_audioSource->state()) : QStringLiteral("Stopped");
-    tx["error"] = txRunning ? audioErrorName(m_audioSource->error()) : QStringLiteral("NoError");
+    tx["state"] = m_asioMicPollTimer ? QStringLiteral("Active") : m_audioSource ? audioStateName(m_audioSource->state()) : QStringLiteral("Stopped");
+    tx["error"] = m_audioSource ? audioErrorName(m_audioSource->error()) : QStringLiteral("NoError");
     tx["sample_rate_hz"] = txRunning ? QJsonValue(m_txInputRate) : QJsonValue();
     tx["channel_count"] = txRunning ? QJsonValue(m_txInputChannels) : QJsonValue();
     tx["sample_format"] = txRunning
@@ -4116,7 +4116,7 @@ void AudioEngine::captureAutomationAudio(const QString& point,
 
 bool AudioEngine::startRxStream()
 {
-    if (m_audioSink || m_asioOutput) { return true; }
+    if (m_audioSink || asioOutputActive()) { return true; }
 
     m_rxBuffer.clear();
     m_rxPackets.clear();
@@ -4180,16 +4180,18 @@ bool AudioEngine::openRxSinkDevice(int producerRate)
 #ifdef Q_OS_WIN
     const AsioOutputConfig asio = AsioOutputConfig::load();
     if (asio.enabled) {
-        auto output = std::make_unique<AsioOutput>();
-        output->setGain(m_muted.load() ? 0.0f : m_rxVolume.load());
-        QString error;
-        if (!output->start(asio, error)) {
-            qCWarning(lcAudio) << "AudioEngine: ASIO output failed:" << error;
-            emit asioOutputStatus(error);
-            return false;
+        if (!m_asioOutput) {
+            auto output = std::make_unique<AsioOutput>();
+            QString error;
+            if (!output->start(asio, error)) {
+                qCWarning(lcAudio) << "AudioEngine: ASIO output failed:" << error;
+                emit asioOutputStatus(error);
+                return false;
+            }
+            m_asioOutput = std::move(output);
         }
-        m_audioDevice = output.get();
-        m_asioOutput = std::move(output);
+        m_asioOutput->setGain(m_muted.load() ? 0.0f : m_rxVolume.load());
+        m_audioDevice = m_asioOutput.get();
         if (!m_asioOutputActive.exchange(true,std::memory_order_acq_rel)) { emit asioOutputActiveChanged(true); }
         setRxDeviceRate(asio.sampleRate);
         m_rxResampler.reset();
@@ -4406,7 +4408,7 @@ void AudioEngine::requestRxSinkRate()
         return; // receiving PCM must not start a stopped speaker
     }
     const int producerRate = m_rxProducerRate.load();
-    if (m_asioOutput) {
+    if (asioOutputActive()) {
         // ASIO owns its configured device clock; producer changes use the existing resampler.
         m_rxSinkProducerRate = producerRate;
         m_pendingRxSinkRate.reset();
@@ -4519,7 +4521,7 @@ void AudioEngine::closeRxSink()
     m_rxSinkProducerRate = 0;
     m_audioDevice = nullptr;
     m_rxPlaybackQueuedMs.store(0, std::memory_order_relaxed);
-    m_asioOutput.reset();
+    if (!m_asioMicPollTimer) { m_asioOutput.reset(); }
     if (m_asioOutputActive.exchange(false,std::memory_order_acq_rel)) { emit asioOutputActiveChanged(false); }
     if (m_audioSink) {
         // Null out m_audioSink BEFORE stopping so that the stateChanged
@@ -4831,7 +4833,7 @@ QByteArray AudioEngine::resampleStereo(const QByteArray& pcm,
 
 void AudioEngine::flushRxDevice()
 {
-    if (m_asioOutput) {
+    if (asioOutputActive()) {
         if (!m_asioOutput->flush()) {
             stopRxStream();
             emit asioOutputStatus(QStringLiteral("ASIO output could not restart after clearing retired audio."));
@@ -8881,9 +8883,67 @@ void AudioEngine::logTxCaptureHealthSummary(const QString& reason, bool anomaly)
 
 // ─── TX stream ────────────────────────────────────────────────────────────────
 
+bool AudioEngine::startAsioMicrophone()
+{
+    const AsioOutputConfig config = AsioOutputConfig::load();
+    if (!m_asioOutput) {
+        auto session = std::make_unique<AsioOutput>();
+        QString error;
+        if (!session->start(config, error)) {
+            qCWarning(lcAudio) << "AudioEngine: ASIO microphone failed:" << error;
+            emit asioOutputStatus(error);
+            return false;
+        }
+        m_asioOutput = std::move(session);
+    }
+    if (!m_asioOutput->inputDevice() || m_asioOutput->inputFaulted()) {
+        emit asioOutputStatus(QStringLiteral("ASIO microphone is unavailable; apply ASIO settings again."));
+        return false;
+    }
+    m_txInputRate = config.sampleRate;
+    m_txInputChannels = 2;
+    m_txInputMono = false;
+    m_txInputFormat = QAudioFormat::Float;
+    m_radeTxNeedsResample = m_txInputRate != DEFAULT_SAMPLE_RATE;
+    m_txResampler = m_radeTxNeedsResample
+        ? std::make_unique<Resampler>(m_txInputRate, DEFAULT_SAMPLE_RATE, 16384) : nullptr;
+    if (!m_txVoiceProcessor->prepare(m_txInputRate, 16384)) {
+        emit asioOutputStatus(QStringLiteral("ASIO microphone voice processing could not be prepared."));
+        if (m_audioDevice != m_asioOutput.get()) { m_asioOutput.reset(); }
+        return false;
+    }
+    m_micDevice = m_asioOutput->inputDevice();
+    m_asioOutput->setInputActive(true);
+    m_txSourceStartTime.start();
+    m_txCaptureHealth.reset(txCaptureState(QAudio::ActiveState));
+    ++m_txLifecycleGeneration;
+    m_asioMicPollTimer = new QTimer(this);
+    m_asioMicPollTimer->setInterval(5);
+    m_asioMicPollTimer->setTimerType(Qt::PreciseTimer);
+    connect(m_asioMicPollTimer, &QTimer::timeout, this, [this] {
+        if (!m_asioOutput || m_asioOutput->inputFaulted()) {
+            qCWarning(lcAudio) << "AudioEngine: ASIO microphone stopped after driver reset or capture overflow";
+            emit asioOutputStatus(QStringLiteral("ASIO microphone stopped; check the driver and apply ASIO settings again."));
+            stopTxStream();
+            m_asioMicRestartPending = true;
+            return;
+        }
+        if (!m_hostModulation && m_txStreamId == 0 && m_remoteTxStreamId == 0) {
+            m_asioOutput->discardInput();
+            return;
+        }
+        onTxAudioReady();
+    });
+    m_asioMicPollTimer->start();
+    if (!m_asioInputActive.exchange(true)) { emit asioInputActiveChanged(true); }
+    emit asioOutputStatus(QStringLiteral("ASIO microphone active: %1 Hz, first input %2, mode %3")
+        .arg(config.sampleRate).arg(config.firstInputChannel + 1).arg(config.inputMode));
+    return true;
+}
+
 bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioPort)
 {
-    if (m_audioSource) return true;  // already running
+    if (m_audioSource || m_asioMicPollTimer) { return true; }
 
     // WASAPI silent-open recovery (#2929). If the previous open was driven by
     // the silence watchdog, m_txSilentOpenRetryArmed is true; consume it here
@@ -8902,6 +8962,7 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
     m_txAccumulator.clear();
     m_txMicChannelState.reset();
     m_lastTxMicChannelLog.invalidate();
+    if (AsioOutputConfig::load().microphoneEnabled) { return startAsioMicrophone(); }
 
     // Seed values only — every platform branch below overrides format, rate and
     // channel count from its own ladder, so nothing here survives negotiation.
@@ -9340,6 +9401,17 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
 
 void AudioEngine::stopTxStream()
 {
+    m_asioMicRestartPending = false;
+    if (m_asioMicPollTimer) {
+        m_asioMicPollTimer->stop();
+        delete m_asioMicPollTimer;
+        m_asioMicPollTimer = nullptr;
+        if (m_asioInputActive.exchange(false)) { emit asioInputActiveChanged(false); }
+        if (m_asioOutput) {
+            m_asioOutput->setInputActive(false);
+            if (m_audioDevice != m_asioOutput.get()) { m_asioOutput.reset(); }
+        }
+    }
     if (m_audioSource) {
         logTxCaptureHealthSummary(QStringLiteral("source lifecycle ended"), false);
     }
@@ -10026,11 +10098,19 @@ void AudioEngine::setOutputDevice(const QAudioDevice& dev, AudioDeviceSelection 
 
 void AudioEngine::setAsioOutputConfig(const AsioOutputConfig& config)
 {
-    if (!config.save()) {
-        emit asioOutputStatus(QStringLiteral("ASIO output settings could not be saved."));
+    if (m_radioTransmitting.load() || m_transmitting.load()) {
+        emit asioOutputStatus(QStringLiteral("Return to receive before changing ASIO settings."));
         return;
     }
-    const bool running = m_audioSink || m_asioOutput;
+    if (!config.save()) {
+        emit asioOutputStatus(QStringLiteral("ASIO settings could not be saved."));
+        return;
+    }
+    const bool captureRunning = isTxStreaming() || m_asioMicRestartPending;
+    const auto txAddress = m_txAddress;
+    const quint16 txPort = m_txPort;
+    const bool running = m_audioDevice || m_audioSink;
+    if (captureRunning) { stopTxStream(); }
     if (running) {
         stopRxStream();
         startRxStream();
@@ -10038,6 +10118,9 @@ void AudioEngine::setAsioOutputConfig(const AsioOutputConfig& config)
         emit asioOutputStatus(QStringLiteral("ASIO settings saved. Enable PC Audio to start playback."));
     }
     if (!config.enabled) { emit asioOutputStatus(QStringLiteral("Qt audio output selected.")); }
+    if (captureRunning && !startTxStream(txAddress, txPort)) {
+        emit asioOutputStatus(QStringLiteral("Microphone restart failed; apply valid audio settings before transmitting."));
+    }
 }
 
 void AudioEngine::setInputDevice(const QAudioDevice& dev, AudioDeviceSelection selection)
