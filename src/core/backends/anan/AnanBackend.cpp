@@ -459,8 +459,9 @@ AnanBackend::AnanBackend(QObject* parent)
         }
         m_droopCalibrator.onSpectrumFrame(dbm);
         const double rateHz = receiveTuningRateHz();
-        if (m_bandViewSpanHz > 0 && m_bandViewSpanHz < rateHz) {
-            dbm = bandViewSpectrum(dbm, m_bandViewSpanHz / rateHz);
+        const double span = m_receiveViews[primaryPanIndex()].spanHz > 0 ? receiveViewSpanHz(primaryPanIndex()) : m_bandViewSpanHz;
+        if (span > 0 && span < rateHz) {
+            dbm = bandViewSpectrum(dbm, span / rateHz);
         }
         emit spectrumFrameReady(primaryPanIndex(), floatBytes(dbm));
     });
@@ -921,6 +922,8 @@ void AnanBackend::seedDroopCorrectionTables(bool useSaturnDefaults)
 void AnanBackend::connectRadio(const RadioConnectRequest& request)
 {
     cancelTransmitPreparation();
+    m_txSlice = 0;
+    m_receiveViews = {};
     m_transmitOperation = {};
     m_transmitQueuedBytes = std::make_shared<std::atomic<std::size_t>>(0);
     clearAdditionalRx();
@@ -1314,7 +1317,7 @@ void AnanBackend::pushModeFilterShift()
 
 void AnanBackend::setSliceFrequency(int sliceId, double hz)
 {
-    if (sliceId == 0 && hz != m_sliceFreqHz
+    if (sliceId == m_txSlice && hz != transmitFrequencyHz()
         && (m_txSessionArming || m_transmitOperation.permitsCleanup())) { disableTransmitSession(); }
     if (m_receiveBuilding) {
         emitSliceState();
@@ -1325,7 +1328,8 @@ void AnanBackend::setSliceFrequency(int sliceId, double hz)
         if (i == m_additionalRx.end() || !i->second->ready)
             return;
         const auto before = m_receiveLayout.streams();
-        if (!m_receiveLayout.tune(sliceId, hz, false)) {
+        const auto* previous = m_receiveLayout.slice(sliceId);
+        if (!m_receiveLayout.tune(sliceId, hz, previous && m_receiveViews[previous->stream].band)) {
             publishAdditionalRx(sliceId);
             return;
         }
@@ -1334,6 +1338,7 @@ void AnanBackend::setSliceFrequency(int sliceId, double hz)
         pushAdditionalShifts();
         publishAdditionalRx(sliceId);
         publishReceiveWindows();
+        if (sliceId == m_txSlice) { recallBandTransmitPower(); refreshIdleTransmitSession(); }
         return;
     }
     if (m_connected) {
@@ -1365,8 +1370,8 @@ void AnanBackend::setSliceFrequency(int sliceId, double hz)
         m_bandViewSpanHz = 0.0;
     }
     m_sliceFreqHz = hz;
-    if (targetBand != oldTransmitBand) { recallBandTransmitPower(); }
-    refreshIdleTransmitSession();
+    if (m_txSlice == 0 && targetBand != oldTransmitBand) { recallBandTransmitPower(); }
+    if (m_txSlice == 0) { refreshIdleTransmitSession(); }
     // Digit readout / slice model: unthrottled. Cheap (no radio round trip,
     // no pan re-layout), and it is what makes a drag gesture feel like it is
     // tracking the mouse at all.
@@ -1384,6 +1389,7 @@ void AnanBackend::setSliceMode(int sliceId, const QString& mode)
         if (i == m_additionalRx.end() || !isKnownModeString(mode))
             return;
         auto& r = *i->second;
+        if (sliceId == m_txSlice && r.mode != mode) { cancelTransmitPreparation(); }
         if (r.mode.compare(mode, Qt::CaseInsensitive) != 0) {
             const auto f = defaultPassbandForMode(mode);
             r.low = f.first;
@@ -1402,7 +1408,7 @@ void AnanBackend::setSliceMode(int sliceId, const QString& mode)
         m_filterLowHz = lo;
         m_filterHighHz = hi;
     }
-    if (m_mode != mode) { cancelTransmitPreparation(); }
+    if (m_txSlice == 0 && m_mode != mode) { cancelTransmitPreparation(); }
     m_mode = mode;
     if (m_ctun) { scheduleTuneApply(); }
     else if (m_receiveLayout.occupants(primaryPanIndex()) <= 1) { m_ddcCenterHz = m_sliceFreqHz; }
@@ -1695,10 +1701,27 @@ int AnanBackend::nearestSessionRateKsps(int requestedKsps) const noexcept
 
 void AnanBackend::setPanBandwidth(const QString& panId, double hz)
 {
-    if (!m_additionalRx.empty()) {
+    const int addressedStream = streamForPan(panId);
+    if (!m_additionalRx.empty() || (addressedStream >= 0 && m_receiveViews[addressedStream].spanHz > 0)) {
         const int st = streamForPan(panId);
-        if (st >= 0 && std::isfinite(hz) && hz > 0)
-            changeReceiveStreamRate(st, nearestSessionRateKsps(int(std::min(hz / 1000.0, 1536.0))));
+        if (st >= 0 && std::isfinite(hz) && hz > 0 && !m_receiveBuilding && !m_rateChanging) {
+            for (int n = 0; n < m_receiveLayout.limit(); ++n) {
+                if (m_receiveLayout.streams()[n].active && m_receiveViews[n].spanHz <= 0) {
+                    m_receiveViews[n].spanHz = m_receiveLayout.streams()[n].rateKsps * 1000.0;
+                }
+            }
+            m_receiveViews[st].spanHz = std::clamp(hz,1000.0,nearestSessionRateKsps(1536)*1000.0);
+            double required = m_receiveViews[st].spanHz;
+            if (m_pendingParams.protocol == 1) {
+                for (int n = 0; n < m_receiveLayout.limit(); ++n) {
+                    if (m_receiveLayout.streams()[n].active) { required = std::max(required,m_receiveViews[n].spanHz); }
+                }
+            }
+            int rate = 48;
+            while (rate*1000.0 < required && rate < nearestSessionRateKsps(1536)) { rate *= 2; }
+            changeReceiveStreamRate(st,rate);
+            publishReceiveWindows();
+        }
         return;
     }
     Q_UNUSED(panId);   // one pan in this phase
@@ -2186,10 +2209,10 @@ int AnanBackend::receiveAntennaOwner() const
     return -1;
 }
 
-int AnanBackend::receiveAntennaBandIndex() const
+int AnanBackend::receiveAntennaBandIndex(double frequencyHz) const
 {
     const auto* owner = m_receiveLayout.slice(receiveAntennaOwner());
-    const double hz = owner ? owner->frequencyHz : m_sliceFreqHz;
+    const double hz = frequencyHz >= 0 ? frequencyHz : owner ? owner->frequencyHz : m_sliceFreqHz;
     // GEN and WWV are explicit Aether band slots, rather than Thetis's nearest-band fallback.
     for (const double center : {2.5e6, 5e6, 10e6, 15e6, 20e6, 25e6}) {
         if (std::abs(hz - center) <= 5000) { return 13; }
@@ -2803,8 +2826,57 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         emit extensionResult(requestId,QVariantMap{{QStringLiteral("restored"),false},{QStringLiteral("ctun"),id==0&&m_ctun},{QStringLiteral("frequencyHz"),hz}});
         return;
     }
-    if(ns==QLatin1String("anan")&&!m_additionalRx.empty()&&verb==QLatin1String("band.center")) {
-        emit extensionError(requestId,QStringLiteral("Band-view memory requires the original receiver to be the only slice"));return;
+    if (ns == QLatin1String("anan") && verb == QLatin1String("band.center")
+        && (!m_additionalRx.empty() || m_receiveViews[primaryPanIndex()].spanHz > 0)) {
+        const auto fields = arg.toMap();
+        if (fields.contains(QStringLiteral("sliceId")) && fields.value(QStringLiteral("sliceId")).metaType().id() != QMetaType::Int) {
+            emit extensionError(requestId,QStringLiteral("Band view requires an integer RX slice identity.")); return;
+        }
+        const int id = fields.value(QStringLiteral("sliceId"),0).toInt();
+        const auto* slice = m_receiveLayout.slice(id);
+        const int st = slice ? slice->stream : -1;
+        const auto selectedReceiver = m_additionalRx.find(id);
+        if (!m_connected || !m_discoveryInfoReceived || m_receiveBuilding || m_rateChanging
+            || m_droopCalibrator.isRunning() || st < 0 || !slice || slice->stream != st
+            || (id != 0 && (selectedReceiver == m_additionalRx.end() || !selectedReceiver->second->ready))) {
+            emit extensionError(requestId,QStringLiteral("Band view requires a ready slice on the addressed panadapter.")); return;
+        }
+        auto& state = m_receiveViews[st];
+        const auto window = m_receiveLayout.streams()[st];
+        bool whole = false;
+        if (state.band) {
+            state.band = false;
+            state.pendingCenterHz = state.previousCenterHz;
+            state.spanHz = state.previousSpanHz;
+        } else {
+            const auto receiver = m_additionalRx.find(id);
+            const QString mode = id == 0 ? m_mode : receiver->second->mode;
+            const int lowFilter = id == 0 ? m_filterLowHz : receiver->second->low;
+            const int highFilter = id == 0 ? m_filterHighHz : receiver->second->high;
+            const auto view = receiveBandView(fields.value(QStringLiteral("lowHz")).toDouble(),
+                fields.value(QStringLiteral("highHz")).toDouble(),slice->frequencyHz,
+                nearestSessionRateKsps(1536),lowFilter,highFilter,cwBfoOffsetHz(mode,m_cwPitchHz));
+            if (!view) { emit extensionError(requestId,QStringLiteral("No valid regional band view for this slice.")); return; }
+            for (const auto& [otherId,other] : m_receiveLayout.slices()) {
+                if (other.stream == st && std::abs(other.frequencyHz-view->centerHz) >= view->rateKsps*460.0) {
+                    emit extensionError(requestId,QStringLiteral("The band view must retain every slice sharing this DDC.")); return;
+                }
+            }
+            state.previousCenterHz = window.centerHz;
+            state.previousSpanHz = receiveViewSpanHz(st);
+            state.pendingCenterHz = view->centerHz;
+            state.spanHz = view->spanHz;
+            state.band = true;
+            whole = view->wholeBand;
+        }
+        if (st == primaryPanIndex() && primaryVisible()) { m_ctun = state.band; }
+        const double span = state.spanHz;
+        setPanBandwidth(QStringLiteral("anan-%1").arg(st),span);
+        if (!m_receiveBuilding) { applyReceiveViews(); }
+        emit extensionResult(requestId,QVariantMap{{QStringLiteral("ctun"),state.band},
+            {QStringLiteral("wholeBand"),whole},{QStringLiteral("rateKsps"),int(span/1000)},
+            {QStringLiteral("pending"),m_receiveBuilding}});
+        return;
     }
     if (ns == QLatin1String("anan") && verb == QLatin1String("band.select")) {
         const auto fields = arg.toMap();
@@ -3016,6 +3088,15 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         const QVariantMap state = hardwareFilterStatus();
         if (state.isEmpty()) {
             emit extensionError(requestId, QStringLiteral("Connect an ANAN with a validated receive profile first."));
+            return;
+        }
+        if (verb == QLatin1String("hw.get") && arg.toMap().contains(QStringLiteral("sliceId"))) {
+            QVariantMap receiverState = state;
+            const int id = arg.toMap().value(QStringLiteral("sliceId")).toInt();
+            const auto* slice = m_receiveLayout.slice(id);
+            receiverState.insert(QStringLiteral("ctun"),slice && (id == 0 ? m_ctun : m_receiveViews[slice->stream].band));
+            receiverState.insert(QStringLiteral("ctunAvailable"),slice && !m_receiveBuilding && !m_rateChanging && !m_droopCalibrator.isRunning());
+            emit extensionResult(requestId,receiverState);
             return;
         }
         if (verb != QLatin1String("hw.get")) {
@@ -3375,7 +3456,7 @@ void AnanBackend::emitSliceState()
     d.filterLow = m_filterLowHz;
     d.filterHigh = m_filterHighHz;
     d.active = m_activeReceiveSlice == 0;
-    d.txSlice = m_connected && m_discoveryInfoReceived
+    d.txSlice = m_txSlice == 0 && m_connected && m_discoveryInfoReceived
         && p2TransmitProfile(m_discoveredBoardId,m_pendingParams.model,m_pendingParams.overrideDetection).has_value();
     d.xitOn = false; d.xitFreq = 0;
     if (d.txSlice.value() && m_txSessionControl) {
@@ -3431,13 +3512,15 @@ void AnanBackend::emitSliceState()
     }
 }
 
-ReceiveAntennaSelection AnanBackend::activeReceiveAntenna() const
+ReceiveAntennaSelection AnanBackend::activeReceiveAntenna(int sliceId) const
 {
     if (!m_connected || !m_discoveryInfoReceived) { return {}; }
     const auto profile = receiveProfile(m_discoveredBoardId, m_pendingParams.model, m_pendingParams.overrideDetection);
     if (!profile) { return {}; }
     const auto route = receiveAntennaRoute();
-    return receiveAntennaSelection(profile->numAdcs, m_pendingParams.ddc0AdcIndex,
+    const auto* slice = m_receiveLayout.slice(sliceId);
+    const int adc = slice ? m_receiveAdcs[slice->stream] : m_pendingParams.ddc0AdcIndex;
+    return receiveAntennaSelection(profile->numAdcs, adc,
         route.rxOnly, route.antenna,
         receiveInputNames(m_pendingParams.model, m_discoveredBoardId));
 }
@@ -3475,7 +3558,7 @@ QString AnanBackend::applyReceiveAntenna(int antenna)
 
 ReceiveDispatch AnanBackend::requestSliceRxAntenna(int sliceId, const QString& antenna)
 {
-    const auto route = activeReceiveAntenna();
+    const auto route = activeReceiveAntenna(sliceId);
     const bool automatic = m_pendingParams.filters && m_pendingParams.filters->antennaBands
         && m_pendingParams.filters->antennaBands->enabled;
     if (automatic && sliceId != receiveAntennaOwner()) {
@@ -3505,12 +3588,13 @@ void AnanBackend::emitPanState()
     const double sampleRateHz = receiveTuningRateHz();
     // Calibration always observes the hardware capture, before display cropping.
     m_droopCalibrator.setLandedRate(static_cast<int>(sampleRateHz / 1000.0));
-    const double spanHz = m_bandViewSpanHz > 0 ? std::min(m_bandViewSpanHz, sampleRateHz) : sampleRateHz;
+    const double spanHz = m_receiveViews[primaryPanIndex()].spanHz > 0 ? receiveViewSpanHz(primaryPanIndex())
+        : m_bandViewSpanHz > 0 ? std::min(m_bandViewSpanHz, sampleRateHz) : sampleRateHz;
     emit panBandwidthLimitsChanged(primaryPanId(),
-        std::min(48'000.0, spanHz) / 1.0e6,
+        std::min(1'000.0, spanHz) / 1.0e6,
         nearestSessionRateKsps(kDdc0RatesKsps.back()) * 1000.0 / 1.0e6);
     emit panCenterBandwidthChanged(primaryPanId(), m_ddcCenterHz / 1.0e6, spanHz / 1.0e6);
-    emit panZoomModesChanged(primaryPanId(),m_ctun && validBandViewSnapshot(m_beforeBandView),false);
+    emit panZoomModesChanged(primaryPanId(),m_receiveViews[primaryPanIndex()].band || (m_ctun && validBandViewSnapshot(m_beforeBandView)),false);
 }
 
 void AnanBackend::resetSpeakerResamplers()

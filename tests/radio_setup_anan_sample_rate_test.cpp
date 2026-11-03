@@ -10,6 +10,7 @@
 #include <QTableWidget>
 #include <QLabel>
 #include "models/RadioModel.h"
+#include "models/SliceModel.h"
 #include <QApplication>
 #include <QComboBox>
 #include <QCheckBox>
@@ -425,6 +426,13 @@ int main(int argc, char** argv)
             FrontPanelTestAccess::feed(panel, "ZZZP251;ZZZP250;");
             check(await([&] { return trace.lastKey.load() == 0; }), "TX menu MOX releases its captured request");
             anan::AnanLinkStatsTestAccess::forgetViewBand(*backend);
+            const auto bandViewBridge = QObject::connect(&panel,&FrontPanelModel::desktopActionRequested,&app,
+                [&](const QString& action,int id,int) {
+                    if (action != QLatin1String("bandView")) { return; }
+                    backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("band.center"),91020,
+                        QVariantMap{{QStringLiteral("panId"),QStringLiteral("anan-0")},{QStringLiteral("sliceId"),id},
+                            {QStringLiteral("lowHz"),14'000'000.0},{QStringLiteral("highHz"),14'350'000.0}});
+                });
             FrontPanelTestAccess::feed(panel, "ZZZP451;ZZZP450;");
             check(await([&] { return panel.state().value(QStringLiteral("ctun")).toBool(); }),
                   "CTUN button uses the existing backend operation and reflects its confirmed state");
@@ -436,6 +444,7 @@ int main(int argc, char** argv)
             FrontPanelTestAccess::feed(panel, "ZZZP451;ZZZP450;");
             check(await([&] { return !panel.state().value(QStringLiteral("ctun")).toBool(); }), "second CTUN press restores normal tuning");
             check(await([&] { return backend->capabilities().canTransmit; }), "CTUN changes do not strand idle TX readiness");
+            QObject::disconnect(bandViewBridge);
             FrontPanelTestAccess::prepare(panel, QStringLiteral("pttHold"));
             FrontPanelTestAccess::feed(panel, "ZZZP441;");
             check(await([&] { return trace.lastKey.load() == 1; }), "panel held PTT is admitted explicitly");
@@ -457,6 +466,17 @@ int main(int argc, char** argv)
         check(await([&] { return trace.lastKey.load() == 1; }),"TUNE also works with multiple receivers");
         model.transmitModel().stopTune();
         check(await([&] { return trace.lastKey.load() == 0; }),"multi-RX TUNE releases normally");
+        model.slice(1)->setTxSlice(true);
+        check(await([&] { return model.txSlice() == model.slice(1) && backend->capabilities().canTransmit; }),
+            "operator can select RX B as the ready transmit source");
+        model.transmitModel().setMox(true);
+        check(await([&] { return trace.lastKey.load() == 1 && trace.frequencyWord.load() == anan::phaseWord(14'182'000); }),
+            "selected TX B keys at its own frequency");
+        model.transmitModel().setMox(false);
+        check(await([&] { return trace.lastKey.load() == 0; }),"TX B releases normally");
+        model.slice(0)->setTxSlice(true);
+        check(await([&] { return model.txSlice() == model.slice(0) && backend->capabilities().canTransmit; }),
+            "operator can restore TX A without keying");
         QSignalSpy adcReplies(backend,&IRadioBackend::extensionResult);
         QSignalSpy adcErrors(backend,&IRadioBackend::extensionError);
         backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("adc.get"),92001,{});
@@ -488,6 +508,18 @@ int main(int argc, char** argv)
         assignments[0] = 0; adcRequest[QStringLiteral("assignments")] = assignments;
         backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("adc.set"),92005,adcRequest);
         check(adcReplies.last().at(0).toULongLong() == 92005,"ADC0 can be restored without reconnecting");
+        const QString beforeBandAntenna = model.slice(0)->rxAntenna();
+        const auto bandView = [&] {
+            backend->invokeExtension(QStringLiteral("anan"),QStringLiteral("band.center"),92006,
+                QVariantMap{{QStringLiteral("panId"),QStringLiteral("0xe1000000")},{QStringLiteral("sliceId"),0},
+                    {QStringLiteral("lowHz"),14'000'000.0},{QStringLiteral("highHz"),14'350'000.0}});
+        };
+        bandView();
+        check(await([&] { return backend->capabilities().canTransmit; }),"B band view prepares with multiple slices");
+        bandView();
+        check(await([&] { return backend->capabilities().canTransmit; }),"B restores the previous view with multiple slices");
+        check(model.slice(0)->rxAntenna() == beforeBandAntenna && trace.primaryAdc.load() == 0,
+            "B on/off preserves the commanded RX antenna and physical ADC selection");
         check(backend->removeSlice(1),"extra receiver closes normally");
         check(await([&] { return save->isEnabled(); }), "idle profile can be edited");
         static_cast<QDoubleSpinBox*>(table->cellWidget(5,2))->setValue(0); save->click();

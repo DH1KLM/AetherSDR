@@ -2061,7 +2061,8 @@ void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
         lifetime->start(10000);
         m_radioModel.invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("band.center"),
             request, band ? QVariantMap{{QStringLiteral("lowHz"), band->lowMhz * 1.0e6},
-                                        {QStringLiteral("highHz"), band->highMhz * 1.0e6}}
+                                        {QStringLiteral("highHz"), band->highMhz * 1.0e6},
+                                        {QStringLiteral("sliceId"),target->sliceId()}}
                           : QVariantMap{});
         return;
     }

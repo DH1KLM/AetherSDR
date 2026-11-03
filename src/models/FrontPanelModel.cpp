@@ -171,7 +171,9 @@ void FrontPanelModel::requestCtun(bool toggle)
         }
         updateIndicators(); emit stateChanged();
     });
-    m_model.invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("hw.get"), request);
+    SliceModel* slice = target(0);
+    m_model.invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("hw.get"), request,
+        QVariantMap{{QStringLiteral("sliceId"),slice ? slice->sliceId() : 0}});
 }
 
 FrontPanelModel::FrontPanelModel(RadioModel& model)
@@ -519,7 +521,11 @@ void FrontPanelModel::press(const QString& action, int number, int state, SliceM
     }
     if (action == QLatin1String("shift")) { m_shift = !m_shift; emit stateChanged(); return; }
     if (action == QLatin1String("multifunctionMenu")) { m_selectingMultifunction = !m_selectingMultifunction; emit stateChanged(); return; }
-    if (action == QLatin1String("ctun")) { requestCtun(true); return; }
+    if (action == QLatin1String("ctun")) {
+        emit desktopActionRequested(QStringLiteral("bandView"),slice ? slice->sliceId() : 0,1);
+        requestCtun(false);
+        return;
+    }
     const QStringList desktopActions{"filterReset", "multifunctionMenu", "bandUp", "bandDown", "filterUp", "filterDown",
         "modeMenu", "filterMenu", "bandMenu", "stepMenu", "gainMenu", "setup", "txSettings", "displayMenu",
         "audioSettings", "equalizer", "centerDisplay", "zoomIn", "zoomOut", "recordAudio", "playAudio", "receiverMenu", "receiverToggle",

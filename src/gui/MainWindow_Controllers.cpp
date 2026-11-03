@@ -2825,6 +2825,7 @@ void MainWindow::wireExternalControllers()
         } else if (action == QLatin1String("nr")) { fire(QStringLiteral("nr2_toggle")); }
         else if (action == QLatin1String("zoomIn")) { fire(QStringLiteral("pan_zoom_in")); }
         else if (action == QLatin1String("zoomOut")) { fire(QStringLiteral("pan_zoom_out")); }
+        else if (action == QLatin1String("bandView")) { togglePanZoomModeForPan(slice->panId(),false); }
         else if (action == QLatin1String("centerDisplay")) { m_radioModel.requestPanCenter(slice->panId(), slice->frequency()); }
         else if (action == QLatin1String("setup")) { openRadioSetupPage(); }
         else if (action == QLatin1String("txSettings")) { openRadioSetupPage(QStringLiteral("Transmit")); }

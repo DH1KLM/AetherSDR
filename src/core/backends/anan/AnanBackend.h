@@ -273,6 +273,16 @@ private:
     std::map<int, std::shared_ptr<AdditionalRx>> m_additionalRx;
     AnanReceiveLayout m_receiveLayout;
     std::array<int,7> m_receiveAdcs{};
+    struct ReceiveView {
+        double spanHz = 0;
+        double previousSpanHz = 0;
+        double previousCenterHz = 0;
+        std::optional<double> pendingCenterHz;
+        bool band = false;
+    };
+    std::array<ReceiveView,5> m_receiveViews{};
+    double receiveViewSpanHz(int stream) const;
+    void applyReceiveViews();
     std::shared_ptr<std::atomic<int>> m_primaryRoute = std::make_shared<std::atomic<int>>(0);
     std::shared_ptr<std::atomic<quint64>> m_receiveIoEpoch =
         std::make_shared<std::atomic<quint64>>(0);
@@ -348,6 +358,10 @@ private:
     TxCoordinator::Completion m_cwReleaseCompletion;
     bool m_txSessionArming = false;
     int m_txSessionBand = -1;
+    int m_txSlice = 0;
+    double transmitFrequencyHz() const;
+    QString transmitModeName() const;
+    bool transmitSlicePresent() const;
     int m_txPowerPercent = 0;
     QJsonObject m_txBandPower;
     QString txPowerProfileKey() const;
@@ -368,11 +382,11 @@ private:
     int maximumReceiveAttenuation(int adc = -1) const;
     void publishReceiveGain();
     void applyReceiveGain(int adcDb, int alexDb, int adc = -1);
-    anan::ReceiveAntennaSelection activeReceiveAntenna() const;
+    anan::ReceiveAntennaSelection activeReceiveAntenna(int sliceId = 0) const;
     QString applyReceiveAntenna(int antenna);
     // One physical ADC0 path follows RX1, then the lowest remaining ready slice.
     int receiveAntennaOwner() const;
-    int receiveAntennaBandIndex() const;
+    int receiveAntennaBandIndex(double frequencyHz = -1) const;
     ReceiveAntennaBand receiveAntennaRoute() const;
     void applyReceiveAntennaRouting(bool force = false);
     void publishReceiveAntennas();

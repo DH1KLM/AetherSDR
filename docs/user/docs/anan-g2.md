@@ -102,6 +102,21 @@ board and protocol. TX, calibration and receive reconfiguration lock routing.
 **Reset to default** restores Thetis' model- and protocol-specific ADC assignments. Existing installations retain their
 previous common ADC selection until assignments are changed.
 
+
+## Multiple receive views
+
+**B** toggles the band view of the addressed panadapter, also with additional
+receivers. The Andromeda **CTUN** button uses the same command for its target
+slice. **+** and **−** change only that panadapter's visible span. P1 retains its
+common hardware sample rate; other views retain their own displayed spans.
+Slices sharing one DDC also share its capture center. Band view preserves RX
+antenna and ADC assignments.
+
+Click **LIVE** to pause the waterfall, then drag the time scale at its right
+edge upward to view older retained rows. Click **LIVE** again to return to live
+reception. History belongs to each waterfall and contains only rows already
+received.
+
 ## Transmit settings
 
 Open **Settings > Radio Setup > ANAN Hardware > Transmit** in the extended
@@ -124,13 +139,13 @@ transmission. After a successful local stop, readiness is prepared again without
 requiring **Save PA profile**. Starting another transmission requires a new
 operator action; a failed stop keeps TX unavailable or disconnects the session.
 
-TX signal processing and readiness are managed automatically. Idle tuning within
+Select the TX source with the slice **TX** control while receiving. A, B and other ready slices can be selected; only one transmits at a time. Switching source never keys the radio. TX signal processing and readiness are managed automatically. Idle tuning within
 the same permitted band retains TX readiness and the selected TX slice. Retuning
 while keyed cancels the current transmission; changing band or mode rechecks the
 TX prerequisites. There is no
 preview calculator, manual DSP preparation or extra transmit-enable button.
 The status explains when the current mode, band plan or hardware state prevents
-transmission. Keep **Slice A** open as the TX source; additional RX slices do not prevent TX. Selecting RX B does not move TX to B. All receive audio is muted during TX; duplex and split TX are not implemented. Frequency changes refresh
+transmission. Keep the selected TX slice open; additional RX slices do not prevent TX. Activating an RX slice alone does not change the TX source. All receive audio is muted during TX; duplex and split TX are not implemented. Frequency changes refresh
 readiness; mode changes prepare the matching DSP on the existing planning worker.
 Neither operation keys the radio. A fresh connection starts at **RF Power 0%**;
 retuning within the connection preserves the operator's percentage.
@@ -213,7 +228,7 @@ CPU, Network, TX, date and the station control keep their positions.
 | MIC / TX-filter recall | Incomplete; RF drive now recalls separately per band/model/protocol |
 | Hardware PTT observation | Not implemented; local MOX state is not hardware readback |
 | Forward/reflected RF power and SWR | P1/P2 detector telemetry with Thetis model reference conversion; individual calibration pending |
-| TX slice / multiple receivers | TX uses Slice A with additional RX slices; no split TX or duplex |
+| TX slice / multiple receivers | Select any ready slice as the one TX source; no simultaneous TX or duplex |
 
 ## Andromeda and G2-V2 front panels
 

@@ -10055,7 +10055,7 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
     if (y >= scaleY && y < scaleY + freqScaleH()) {
         const QRect wfRect(0, scaleY + freqScaleH(), width(), height() - (scaleY + freqScaleH()));
         if (waterfallLiveButtonRect(wfRect).contains(ev->position().toPoint())) {
-            setWaterfallLive(true);
+            setWaterfallLive(!m_wfLive);
             ev->accept();
             return;
         }

@@ -81,12 +81,12 @@ void AnanBackend::refreshIdleTransmitSession()
 {
     if (!m_txSessionEnabled) { return; }
     if (m_transmitOperation.permitsCleanup() || !m_txSessionControl || !m_txSessionProfile
-        || receiveAntennaBandIndex() != m_txSessionBand || !transmitSessionRefusal().isEmpty()) {
+        || receiveAntennaBandIndex(transmitFrequencyHz()) != m_txSessionBand || !transmitSessionRefusal().isEmpty()) {
         disableTransmitSession();
         return;
     }
     P2TxControl control = *m_txSessionControl;
-    control.frequencyHz = m_sliceFreqHz;
+    control.frequencyHz = transmitFrequencyHz();
     if (!validP2TxControl(control)) { disableTransmitSession(); return; }
     m_txSessionControl = control;
     m_txSessionIdentity = transmitSessionIdentity();
@@ -94,13 +94,13 @@ void AnanBackend::refreshIdleTransmitSession()
 
 void AnanBackend::restoreTransmitSession()
 {
-    if (!m_connected || !primaryVisible()
+    if (!m_connected || !transmitSlicePresent()
         || m_txSessionEnabled || m_txSessionArming || m_transmitPlanBuilding
         || !m_txSessionError.isEmpty() || !m_transmitPlanError.isEmpty()
         || m_receiveCalibrationRun || m_droopCalibrator.isRunning()) { return; }
     const auto profile = parseTransmitPower(AnanSettings::transmitPower(m_radioSerial,
         static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol));
-    const int band = receiveAntennaBandIndex();
+    const int band = receiveAntennaBandIndex(transmitFrequencyHz());
     if (!profile || band < 0 || band >= 11 || profile->limitsWatts[band] <= 0) { return; }
     const int savedAntenna = AnanSettings::transmitSessionAntenna(m_radioSerial,
         static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol);
@@ -135,7 +135,7 @@ QVariantMap AnanBackend::transmitPowerState()
 
 QString AnanBackend::transmitSessionIdentity() const
 {
-    return transmitPreparationIdentity() + QLatin1Char(':') + QString::number(m_sliceFreqHz,'g',17)
+    return transmitPreparationIdentity() + QLatin1Char(':') + QString::number(transmitFrequencyHz(),'g',17)
         + QLatin1Char(':') + QString::number(m_receiveCalibration.frequencyFactor,'g',17)
         + QLatin1Char(':') + QString::number(m_receiveLayout.slices().size())
         + QLatin1Char(':') + AppSettings::instance().value(QStringLiteral("BandPlanName"),QStringLiteral("ARRL (US)")).toString();
@@ -146,7 +146,7 @@ bool AnanBackend::transmitSessionCurrent() const
     return m_txSessionEnabled && m_txSessionPermit && m_txSessionPermit->load()
         && m_connected && !m_receiveBuilding && !m_rateChanging && !m_receiveCalibrationRun
         && !m_droopCalibrator.isRunning()
-        && primaryVisible()
+        && transmitSlicePresent()
         && m_txSessionIdentity == transmitSessionIdentity();
 }
 
@@ -156,15 +156,15 @@ QString AnanBackend::transmitSessionRefusal() const
         || !p2TransmitProfile(m_discoveredBoardId,m_pendingParams.model,m_pendingParams.overrideDetection)) {
         return QStringLiteral("TX requires a validated OpenHPSDR model and supported protocol.");
     }
-    if (!primaryVisible()
+    if (!transmitSlicePresent()
         || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun || m_droopCalibrator.isRunning()) {
-        return QStringLiteral("Keep Slice A open and finish receive configuration or calibration first.");
+        return QStringLiteral("Keep the selected TX slice open and finish receive configuration or calibration first.");
     }
-    const auto recipe = transmitMode(modeFromString(m_mode));
+    const auto recipe = transmitMode(modeFromString(transmitModeName()));
     if (!recipe) { return QStringLiteral("The selected mode is receive-only."); }
     const auto profile = parseTransmitPower(AnanSettings::transmitPower(m_radioSerial,
         static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol));
-    const int band = receiveAntennaBandIndex();
+    const int band = receiveAntennaBandIndex(transmitFrequencyHz());
     if (!profile || band < 0 || band >= 11 || profile->limitsWatts[band] <= 0) {
         return QStringLiteral("Save a PA profile with a positive current-band operator power limit.");
     }
@@ -172,9 +172,9 @@ QString AnanBackend::transmitSessionRefusal() const
         return m_transmitPlanError.isEmpty() ? QStringLiteral("TX signal processing is being prepared automatically.")
             : QStringLiteral("TX signal processing failed: %1").arg(m_transmitPlanError);
     }
-    const auto envelope = m_antennaBandPlan->amateurBandAt(m_sliceFreqHz / 1e6);
-    const double low = (m_sliceFreqHz + std::min(-250.0,recipe->occupiedLowHz)) / 1e6;
-    const double high = (m_sliceFreqHz + std::max(250.0,recipe->occupiedHighHz)) / 1e6;
+    const auto envelope = m_antennaBandPlan->amateurBandAt(transmitFrequencyHz() / 1e6);
+    const double low = (transmitFrequencyHz() + std::min(-250.0,recipe->occupiedLowHz)) / 1e6;
+    const double high = (transmitFrequencyHz() + std::max(250.0,recipe->occupiedHighHz)) / 1e6;
     if (envelope) {
         const auto regions = m_antennaBandPlan->contiguousRegionsForBand(envelope->lowMhz,envelope->highMhz);
         for (const auto& region : regions) {
@@ -193,8 +193,10 @@ QVariantMap AnanBackend::transmitSessionState()
         {QStringLiteral("keyed"),m_transmitDispatchOperation.permitsDispatch(TxCoordinator::monotonicMs())},
         {QStringLiteral("available"),refusal.isEmpty() && !m_txSessionArming && !m_txSessionEnabled},
         {QStringLiteral("reason"),m_txSessionError.isEmpty() ? refusal : m_txSessionError},
-        {QStringLiteral("frequencyHz"),m_sliceFreqHz}, {QStringLiteral("powerPercent"),m_txPowerPercent},
-        {QStringLiteral("band"),receiveAntennaBandIndex()},
+        {QStringLiteral("frequencyHz"),transmitFrequencyHz()}, {QStringLiteral("powerPercent"),m_txPowerPercent},
+        {QStringLiteral("band"),receiveAntennaBandIndex(transmitFrequencyHz())},
+        {QStringLiteral("slice"),m_txSlice},
+        {QStringLiteral("sliceLabel"),QString(QChar('A'+(m_receiveLayout.slice(m_txSlice) ? m_receiveLayout.slice(m_txSlice)->labelIndex : 0)))},
         {QStringLiteral("antenna"),m_txSessionControl ? m_txSessionControl->antenna
             : std::max(1,AnanSettings::transmitSessionAntenna(m_radioSerial,
                 static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol))},
@@ -231,9 +233,9 @@ void AnanBackend::enableTransmitSession(int antenna)
     if (!refusal.isEmpty() || antenna < 1 || antenna > 3 || m_txSessionEnabled || m_txSessionArming) { return; }
     m_txSessionProfile = parseTransmitPower(AnanSettings::transmitPower(m_radioSerial,
         static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol));
-    m_txSessionBand = receiveAntennaBandIndex();
+    m_txSessionBand = receiveAntennaBandIndex(transmitFrequencyHz());
     P2TxControl control;
-    control.frequencyHz = m_sliceFreqHz;
+    control.frequencyHz = transmitFrequencyHz();
     control.frequencyCorrection = m_receiveCalibration.frequencyFactor;
     control.antenna = antenna;
     control.disablePa = false;
@@ -310,7 +312,7 @@ QString AnanBackend::txPowerProfileKey() const
 
 void AnanBackend::recallBandTransmitPower()
 {
-    const QString band = BandSettings::bandForFrequency(m_sliceFreqHz / 1.0e6);
+    const QString band = BandSettings::bandForFrequency(transmitFrequencyHz() / 1.0e6);
     const auto bands = m_txBandPower.value(txPowerProfileKey()).toObject();
     m_txPowerPercent = bands.value(band).toInt(0);
     TransmitDelta delta;
@@ -322,7 +324,7 @@ void AnanBackend::setTxPower(int percent)
 {
     const int value = std::clamp(percent,0,100);
     if (m_connected && value != m_txPowerPercent) {
-        const QString band = BandSettings::bandForFrequency(m_sliceFreqHz / 1.0e6);
+        const QString band = BandSettings::bandForFrequency(transmitFrequencyHz() / 1.0e6);
         auto bands = m_txBandPower.value(txPowerProfileKey()).toObject();
         if (!band.isEmpty()) {
             bands.insert(band, value);
@@ -371,7 +373,7 @@ void AnanBackend::setTunePower(int percent)
 void AnanBackend::setCwKeying(bool down, bool breakIn, int delayMs,
     const TxCoordinator::Operation& operation, const TxCoordinator::Completion& completion)
 {
-    const auto mode = transmitMode(modeFromString(m_mode));
+    const auto mode = transmitMode(modeFromString(transmitModeName()));
     if (!TxCoordinator::Command{operation,down}.permitsDispatch(TxCoordinator::monotonicMs())
         || (down && (!transmitSessionCurrent() || !mode || !mode->cw))) { completion.finish(); return; }
     if (m_cwHangTimer) { m_cwHangTimer->stop(); }
@@ -414,16 +416,41 @@ int AnanBackend::finishTxAudio(const TxCoordinator::Context& context)
     return static_cast<int>((pending * 1000 + AnanTxDsp::kInputRate - 1) / AnanTxDsp::kInputRate) + 128;
 }
 
+double AnanBackend::transmitFrequencyHz() const
+{
+    const auto* slice = m_receiveLayout.slice(m_txSlice);
+    return m_txSlice == 0 ? m_sliceFreqHz : slice ? slice->frequencyHz : 0.0;
+}
+QString AnanBackend::transmitModeName() const
+{
+    const auto it = m_additionalRx.find(m_txSlice);
+    return m_txSlice == 0 ? m_mode : it != m_additionalRx.end() ? it->second->mode : QString();
+}
+bool AnanBackend::transmitSlicePresent() const
+{
+    if (!m_receiveLayout.slice(m_txSlice)) { return false; }
+    const auto it = m_additionalRx.find(m_txSlice);
+    return m_txSlice == 0 || (it != m_additionalRx.end() && it->second->ready);
+}
 ReceiveDispatch AnanBackend::requestTxSlice(int id, bool enabled, const RadioControlCompletion& completion,
                                            const RadioControlFence& current)
 {
-    if ((current && !current()) || id != 0 || !m_connected || !primaryVisible()
+    const auto* slice = m_receiveLayout.slice(id);
+    const auto receiver = m_additionalRx.find(id);
+    if ((current && !current()) || !m_connected || !slice
+        || (id != 0 && (receiver == m_additionalRx.end() || !receiver->second->ready))
+        || m_receiveBuilding || m_rateChanging || m_transmitOperation.permitsCleanup()
         || !p2TransmitProfile(m_discoveredBoardId,m_pendingParams.model,m_pendingParams.overrideDetection)) {
-        if (completion) { completion({RadioControlReply::Kind::Refused,-1,QStringLiteral("Only the supported primary slice can be selected for TX")}); }
+        if (completion) { completion({RadioControlReply::Kind::Refused,-1,QStringLiteral("Select a ready RX slice while receiving to change the TX source")}); }
         return ReceiveDispatch::Unsupported;
     }
-    if (!enabled) { disableTransmitSession(); }
-    else { emitSliceState(); }
+    if (enabled && m_txSlice != id) {
+        cancelTransmitPreparation();
+        m_txSlice = id;
+        recallBandTransmitPower();
+    } else if (!enabled && m_txSlice == id) { disableTransmitSession(); }
+    emitSliceState();
+    emit capabilitiesChanged();
     if (completion) { completion({RadioControlReply::Kind::Accepted,0,{}}); }
     return ReceiveDispatch::Dispatched;
 }
@@ -432,7 +459,7 @@ QString AnanBackend::transmitPreparationIdentity() const
 {
     return QStringLiteral("%1:%2:%3:%4:%5:%6").arg(m_radioSerial).arg(m_connectGeneration)
         .arg(static_cast<int>(m_pendingParams.model)).arg(m_discoveredBoardId)
-        .arg(m_pendingParams.protocol).arg(m_mode);
+        .arg(m_pendingParams.protocol).arg(transmitModeName()) + QLatin1Char(':') + QString::number(m_txSlice);
 }
 
 void AnanBackend::cancelTransmitPreparation()
@@ -454,12 +481,12 @@ QVariantMap AnanBackend::transmitPreparationState()
 {
     const bool supported = m_connected && m_discoveryInfoReceived && (m_pendingParams.protocol == 1 || m_pendingParams.protocol == 2)
         && p2TransmitProfile(m_discoveredBoardId,m_pendingParams.model,m_pendingParams.overrideDetection)
-        && transmitMode(modeFromString(m_mode)).has_value();
+        && transmitMode(modeFromString(transmitModeName())).has_value();
     if (!m_transmitPlanIdentity.isEmpty()
         && (!supported || m_transmitPlanIdentity != transmitPreparationIdentity())) { cancelTransmitPreparation(); }
     return {{QStringLiteral("available"),supported && !m_rateChanging && !m_receiveBuilding},
         {QStringLiteral("building"),m_transmitPlanBuilding}, {QStringLiteral("ready"),m_transmitPlanReady},
-        {QStringLiteral("error"),m_transmitPlanError}, {QStringLiteral("mode"),m_mode}};
+        {QStringLiteral("error"),m_transmitPlanError}, {QStringLiteral("mode"),transmitModeName()}};
 }
 
 void AnanBackend::prepareTransmitDsp()
@@ -470,7 +497,7 @@ void AnanBackend::prepareTransmitDsp()
     m_transmitPlanCancelled = std::make_shared<std::atomic<bool>>(false);
     const auto cancelled = m_transmitPlanCancelled;
     const quint64 ticket = m_transmitPlanTicket;
-    const auto mode = modeFromString(m_mode);
+    const auto mode = modeFromString(transmitModeName());
     const int outputRate = m_pendingParams.protocol == 1 ? 48000 : 192000;
     QMetaObject::invokeMethod(m_dspBuildContext,[this,cancelled,ticket,mode,outputRate] {
         if (cancelled->load()) { return; }
@@ -562,7 +589,7 @@ void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
     const auto dispatch = m_transmitDispatchOperation;
     const quint64 revision = m_txSessionRevision;
     QMetaObject::invokeMethod(m_client,[this,operation,dispatch,completion,control,permit,revision,continuing,
-                                      mode = modeFromString(m_mode)] {
+                                      mode = modeFromString(transmitModeName())] {
         if (!permit->load() || !operation.permitsDispatch(TxCoordinator::monotonicMs())) { completion.finish(); return; }
         const bool ok = m_client->transmitMode() == mode
             && (continuing || m_client->armStagedTransmit(control))
@@ -588,7 +615,7 @@ void AnanBackend::submitTxAudio(const QByteArray& pcm, int sampleRateHz, TxAudio
 {
     const qint64 now = TxCoordinator::monotonicMs();
     const auto operation = m_transmitDispatchOperation;
-    const auto mode = transmitMode(modeFromString(m_mode));
+    const auto mode = transmitMode(modeFromString(transmitModeName()));
     if (!m_connected || !mode || mode->cw || m_tuneActive || !m_client || !m_ioThread
         || !m_ioThread->isRunning() || !operation.permitsDispatch(now)
         || !context.permitsDispatch(now)) { return; }

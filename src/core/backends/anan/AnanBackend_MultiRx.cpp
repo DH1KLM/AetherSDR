@@ -1,5 +1,6 @@
 #include "core/backends/WdspNoiseBlanker.h"
 #include "core/backends/anan/AnanBackend.h"
+#include "core/backends/anan/AnanModel.h"
 #include <QMetaObject>
 #include <cmath>
 
@@ -81,7 +82,10 @@ void AnanBackend::retireEmptyReceiveWindows(const std::array<AnanReceiveLayout::
 {
     for (int st = 0; st < 5; ++st)
         if (before[st].active && !m_receiveLayout.streams()[st].active)
+        {
+            m_receiveViews[st] = {};
             emit panRemoved(rxPan(st));
+        }
 }
 void AnanBackend::publishReceiveWindows()
 {
@@ -93,10 +97,32 @@ void AnanBackend::publishReceiveWindows()
             emitPanState();
             continue;
         }
-        emit panBandwidthLimitsChanged(rxPan(st), 0.048,
+        emit panBandwidthLimitsChanged(rxPan(st), 0.001,
                                        nearestSessionRateKsps(kDdc0RatesKsps.back()) / 1000.0);
-        emit panCenterBandwidthChanged(rxPan(st), w.centerHz / 1e6, w.rateKsps / 1000.0);
+        emit panCenterBandwidthChanged(rxPan(st), w.centerHz / 1e6, receiveViewSpanHz(st) / 1e6);
+        emit panZoomModesChanged(rxPan(st),m_receiveViews[st].band,false);
     }
+}
+double AnanBackend::receiveViewSpanHz(int stream) const
+{
+    const double capture = m_receiveLayout.streams()[stream].rateKsps * 1000.0;
+    return m_receiveViews[stream].spanHz > 0 ? std::min(m_receiveViews[stream].spanHz,capture) : capture;
+}
+void AnanBackend::applyReceiveViews()
+{
+    for (int st = 0; st < m_receiveLayout.limit(); ++st) {
+        auto& view = m_receiveViews[st];
+        if (!view.pendingCenterHz) { continue; }
+        const auto window = m_receiveLayout.streams()[st];
+        if (m_receiveLayout.setWindow(st,*view.pendingCenterHz,window.rateKsps)) {
+            if (primaryVisible() && primaryPanIndex() == st) { m_ddcCenterHz = *view.pendingCenterHz; }
+        }
+        view.pendingCenterHz.reset();
+    }
+    updateReceiveStreams();
+    pushAdditionalShifts();
+    if (primaryVisible()) { pushReceiveShift(m_sliceFreqHz-m_ddcCenterHz-cwBfoHz()); }
+    publishReceiveWindows();
 }
 std::vector<ReceiveFilterDemand> AnanBackend::receiveFilterDemands() const
 {
@@ -216,6 +242,14 @@ bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
     const auto id = m_receiveLayout.add(hz, requested, own);
     if (!id)
         return false;
+    if (m_additionalRx.empty() && primaryVisible() && m_ctun && validBandViewSnapshot(m_beforeBandView)) {
+        auto& view = m_receiveViews[primaryPanIndex()];
+        view.spanHz = m_bandViewSpanHz > 0 ? m_bandViewSpanHz : receiveTuningRateHz();
+        view.previousSpanHz = m_beforeBandView.value(QStringLiteral("spanHz")).toDouble();
+        if (view.previousSpanHz <= 0) { view.previousSpanHz = m_beforeBandView.value(QStringLiteral("rateKsps")).toDouble()*1000; }
+        view.previousCenterHz = m_sliceFreqHz;
+        view.band = true;
+    }
     ++m_connectGeneration; // Retire any trailing single-receiver rate retries.
     const auto* slice = m_receiveLayout.slice(*id);
     auto r = std::make_shared<AdditionalRx>();
@@ -304,6 +338,7 @@ bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
                     v += float((m_receiveAdcs[s->stream] == 1 ? m_pendingParams.adc1AttenuationDb
                         : m_pendingParams.adc0AttenuationDb + m_pendingParams.alexAttenuationDb)
                         + m_receiveCalibration.displayOffsetDb[m_receiveAdcs[s->stream]]);
+                values = bandViewSpectrum(values,receiveViewSpanHz(s->stream)/(m_receiveLayout.streams()[s->stream].rateKsps*1000.0));
                 emit spectrumFrameReady(s->stream, rxBytes(values));
             });
     connect(r->dsp, &AnanRxDsp::meterUpdate, this, [this, r, epoch](float dbfs) {
@@ -469,6 +504,11 @@ void AnanBackend::publishAdditionalRx(int id)
     d.audioGain = r.gain;
     d.audioMute = r.mute;
     d.active = id == m_activeReceiveSlice;
+    d.txSlice = id == m_txSlice;
+    if (d.txSlice.value() && m_txSessionControl) {
+        d.txAntenna = QStringLiteral("ANT%1").arg(m_txSessionControl->antenna);
+        d.txAntennaList = QStringList{*d.txAntenna};
+    }
     d.nb = r.nb != AetherSDR::NoiseBlankerKind::Off;
     d.nbKind = r.nb;
     d.nbLevel = r.nbLevel;
@@ -480,7 +520,7 @@ void AnanBackend::publishAdditionalRx(int id)
     d.agcThreshold = r.threshold;
     d.agcThresholdMode = r.autoAgc ? AgcThresholdMode::Automatic : AgcThresholdMode::Manual;
     d.agcOffLevel = r.off;
-    const auto a = activeReceiveAntenna();
+    const auto a = activeReceiveAntenna(id);
     QStringList ports;
     for (std::size_t n = 0; n < a.count; ++n)
         ports.append(QString::fromLatin1(a.ports[n].data(), int(a.ports[n].size())));
@@ -539,6 +579,11 @@ bool AnanBackend::removeSlice(int id)
     const auto before = m_receiveLayout.streams();
     if (!m_receiveLayout.remove(id))
         return false;
+    if (m_txSlice == id) {
+        cancelTransmitPreparation();
+        m_txSlice = m_receiveLayout.slices().begin()->first;
+        recallBandTransmitPower();
+    }
     if (auto i = m_additionalRx.find(id); i != m_additionalRx.end()) {
         i->second->route->store(-1);
         retireReceiveDsp(i->second->dsp);
@@ -828,7 +873,7 @@ bool AnanBackend::changeReceiveStreamRate(int stream, int rate)
                                                 disconnectRadio();
                                                 return;
                                             }
-                                            updateReceiveStreams();
+                                            applyReceiveViews();
                                             publishReceiveWindows();
                                             for (const auto& [id, r] : m_additionalRx) {
                                                 applyAdditionalRx(id);

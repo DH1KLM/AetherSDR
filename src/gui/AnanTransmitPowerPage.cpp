@@ -129,7 +129,7 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
 {
     auto* page = new QWidget(parent);
     auto* layout = new QVBoxLayout(page);
-    auto* hint = new QLabel(QStringLiteral("TX uses Slice A, also with additional receivers. During TX, the active band's PA gain applies and saves immediately. Power limits and antenna changes require RX and Save PA profile. Thetis reference gains are not PA measurements."),page);
+    auto* hint = new QLabel(QStringLiteral("Select the TX source with the slice TX control. Only that slice transmits. During TX, the active band's PA gain applies and saves immediately. Power limits and antenna changes require RX and Save PA profile. Thetis reference gains are not PA measurements."),page);
     hint->setWordWrap(true);
     layout->addWidget(hint);
     auto* group = new QGroupBox(QStringLiteral("Transmit power profile"),page);
@@ -235,10 +235,11 @@ QWidget* createAnanTransmitPowerPage(RadioModel* model, QWidget* parent)
                 state->filling = false;
             }
             table->setEnabled(!arming); apply->setEnabled(!busy); defaults->setEnabled(!busy);
-            sessionStatus->setText(armed ? QStringLiteral("TX ready: Slice A, %1 MHz, ANT%2, band limit %3 W.")
+            sessionStatus->setText(armed ? QStringLiteral("TX ready: Slice %4, %1 MHz, ANT%2, band limit %3 W.")
                 .arg(session.value(QStringLiteral("frequencyHz")).toDouble()/1e6,0,'f',6)
                 .arg(session.value(QStringLiteral("antenna")).toInt())
                 .arg(session.value(QStringLiteral("limitWatts")).toDouble())
+                .arg(session.value(QStringLiteral("sliceLabel")).toString())
                 : preparing || arming ? QStringLiteral("Preparing TX signal processing automatically.")
                 : QStringLiteral("TX unavailable. %1").arg(reason));
             state->reference = data.value(QStringLiteral("reference")).toMap();

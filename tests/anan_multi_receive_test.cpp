@@ -327,15 +327,16 @@ int main(int argc, char** argv)
     check(b.requestPanDisplay(QStringLiteral("anan-1"), {},
               {PanDisplayField::Geometry, PanGeometryRequest{{}, 0.1}}) == ReceiveDispatch::Dispatched,
           "typed geometry reaches the independent ANAN capture");
-    check(spanReports > 0 && std::abs(reportedSpanMhz - 0.096) < 1e-9 &&
-              !AnanMultiRxTestAccess::busy(b),
-          "unchanged snapped rate confirms actual span without a DSP rebuild");
+    wait([&] { return !AnanMultiRxTestAccess::busy(b); });
+    check(spanReports > 0 && std::abs(reportedSpanMhz - 0.1) < 1e-9
+              && AnanMultiRxTestAccess::rate(b,0) == 48 && AnanMultiRxTestAccess::rate(b,1) == 192,
+          "requested view span is exact, covered by its capture, and leaves other panes unchanged");
     samples[1].clear();
-    AnanMultiRxTestAccess::feed(b, 1, -2000, 96000);
+    AnanMultiRxTestAccess::feed(b, 1, -2000, 192000);
     AnanMultiRxTestAccess::barrier(b);
     QCoreApplication::processEvents();
     check(tonePower(1, 2000) > 1e-9 && tonePower(1, 2000) > 20 * tonePower(1, 2200),
-          "independent LSB receiver adopts 96 ksps and demodulates at 2 kHz");
+          "independent LSB receiver adopts its wider capture and demodulates at 2 kHz");
     AnanMultiRxTestAccess::p1(b);
     requestRate(QStringLiteral("anan-2"), 384000);
     check(rateRefused == 8 && !AnanMultiRxTestAccess::busy(b), "standard P1 refuses the Red Pitaya-only 384 kHz rate");
