@@ -4,6 +4,7 @@
 #include "core/Resampler.h"
 #include "core/backends/IRadioBackend.h"
 #include "core/backends/anan/AnanClient.h"
+#include "core/backends/anan/AnanTxMode.h"
 #include "core/backends/anan/AnanAudioMixer.h"
 #include "core/backends/anan/AnanDroopCalibrator.h"
 #include "core/backends/anan/AnanReceiveLayout.h"
@@ -114,6 +115,7 @@ public:
     void setPanPixelWidth(const QString& panId, int pixels) override;
     void setCwPitch(int hz) override;
     void setTxPower(int percent) override;
+    void setTxFilter(int lowHz, int highHz) override;
     void setTune(bool on, int percent, const TxCoordinator::Operation& operation,
                  const TxCoordinator::Completion& completion = {}) override;
     void setTunePower(int percent) override;
@@ -364,6 +366,13 @@ private:
     bool transmitSlicePresent() const;
     int m_txPowerPercent = 0;
     QJsonObject m_txBandPower;
+    int m_txFilterLowHz = 300;
+    int m_txFilterHighHz = 3000;
+    bool m_txFilterPending = false;
+    std::shared_ptr<std::atomic<quint64>> m_txFilterRevision = std::make_shared<std::atomic<quint64>>(0);
+    std::optional<anan::TxMode> effectiveTransmitMode() const;
+    void publishTransmitFilter();
+    void applyTransmitFilter(int lowHz, int highHz, quint64 revision, int attempts);
     QString txPowerProfileKey() const;
     void recallBandTransmitPower();
     TxCoordinator::Operation m_transmitDispatchOperation;

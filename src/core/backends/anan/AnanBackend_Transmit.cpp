@@ -160,7 +160,7 @@ QString AnanBackend::transmitSessionRefusal() const
         || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun || m_droopCalibrator.isRunning()) {
         return QStringLiteral("Keep the selected TX slice open and finish receive configuration or calibration first.");
     }
-    const auto recipe = transmitMode(modeFromString(transmitModeName()));
+    const auto recipe = effectiveTransmitMode();
     if (!recipe) { return QStringLiteral("The selected mode is receive-only."); }
     const auto profile = parseTransmitPower(AnanSettings::transmitPower(m_radioSerial,
         static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol));
@@ -276,6 +276,12 @@ ReceiveDispatch AnanBackend::requestTransmitControl(const TransmitControlRequest
     Q_UNUSED(context);
     if (!request.valid()) { return ReceiveDispatch::Unsupported; }
     using Field = TransmitControlRequest::Field;
+    if (request.field == Field::Filter && m_connected) {
+        const auto filter = std::get<TxPassband>(request.value);
+        if (filter.highHz - filter.lowHz < 50) { return ReceiveDispatch::Unsupported; }
+        setTxFilter(filter.lowHz, filter.highHz);
+        return ReceiveDispatch::Dispatched;
+    }
     if (request.field == Field::MonitorEnabled || request.field == Field::MonitorLevel) {
         const auto setting = std::get<MonitorSetting>(request.value);
         setTxMonitor(setting.enabled,setting.level);
@@ -291,6 +297,89 @@ ReceiveDispatch AnanBackend::requestTransmitControl(const TransmitControlRequest
         || request.field == Field::CwSidetone || request.field == Field::CwIambic
         || request.field == Field::CwIambicMode || request.field == Field::CwSwap) { return ReceiveDispatch::LocalOnly; }
     return ReceiveDispatch::Unsupported;
+}
+
+std::optional<TxMode> AnanBackend::effectiveTransmitMode() const
+{
+    auto recipe = transmitMode(modeFromString(transmitModeName()));
+    if (!recipe) { return {}; }
+    const QString mode = transmitModeName();
+    if (mode == QStringLiteral("USB") || mode == QStringLiteral("LSB")) {
+        recipe->filterLowHz = mode == QStringLiteral("LSB") ? -m_txFilterHighHz : m_txFilterLowHz;
+        recipe->filterHighHz = mode == QStringLiteral("LSB") ? -m_txFilterLowHz : m_txFilterHighHz;
+        recipe->occupiedLowHz = recipe->filterLowHz;
+        recipe->occupiedHighHz = recipe->filterHighHz;
+    }
+    return recipe;
+}
+
+void AnanBackend::publishTransmitFilter()
+{
+    TransmitDelta delta;
+    delta.txFilterLow = m_txFilterLowHz;
+    delta.txFilterHigh = m_txFilterHighHz;
+    emit transmitChanged(delta);
+}
+
+void AnanBackend::setTxFilter(int lowHz, int highHz)
+{
+    if (!m_connected || lowHz < 0 || highHz > 10000 || highHz - lowHz < 50) { return; }
+    const QString mode = transmitModeName();
+    const bool ssb = mode == QStringLiteral("USB") || mode == QStringLiteral("LSB");
+    if (ssb && m_transmitDispatchOperation.permitsDispatch(TxCoordinator::monotonicMs())) {
+        const int band = receiveAntennaBandIndex(transmitFrequencyHz());
+        if (band < 0 || !m_antennaBandPlan) { publishTransmitFilter(); return; }
+        const auto envelope = m_antennaBandPlan->amateurBandAt(transmitFrequencyHz() / 1e6);
+        bool inside = false;
+        if (envelope) {
+            const double low = (transmitFrequencyHz() + std::min(-250, mode == QStringLiteral("LSB") ? -highHz : lowHz)) / 1e6;
+            const double high = (transmitFrequencyHz() + std::max(250, mode == QStringLiteral("LSB") ? -lowHz : highHz)) / 1e6;
+            for (const auto& region : m_antennaBandPlan->contiguousRegionsForBand(envelope->lowMhz, envelope->highMhz)) {
+                if (low >= region.lowMhz && high <= region.highMhz) { inside = true; break; }
+            }
+        }
+        if (!inside) { publishTransmitFilter(); return; }
+    }
+    const quint64 revision = m_txFilterRevision->fetch_add(1) + 1;
+    if (!ssb || !m_transmitPlanReady) {
+        m_txFilterLowHz = lowHz;
+        m_txFilterHighHz = highHz;
+        emit operatingStateChanged();
+        publishTransmitFilter();
+        if (ssb) { prepareTransmitDsp(); }
+        return;
+    }
+    m_txFilterPending = true;
+    applyTransmitFilter(lowHz, highHz, revision, 75);
+}
+
+void AnanBackend::applyTransmitFilter(int lowHz, int highHz, quint64 revision, int attempts)
+{
+    if (m_txFilterRevision->load() != revision) { return; }
+    const bool lsb = transmitModeName() == QStringLiteral("LSB");
+    QMetaObject::invokeMethod(m_client, [this, client = m_client, epoch = m_txFilterRevision,
+                                        lowHz, highHz, lsb, revision, attempts] {
+        if (epoch->load() != revision) { return; }
+        const bool ok = client->trySetTransmitFilter(lsb ? -highHz : lowHz, lsb ? -lowHz : highHz);
+        QMetaObject::invokeMethod(this, [this, lowHz, highHz, revision, attempts, ok] {
+            if (m_txFilterRevision->load() != revision) { return; }
+            if (!ok && attempts > 1) {
+                QTimer::singleShot(20, this, [this, lowHz, highHz, revision, attempts] {
+                    applyTransmitFilter(lowHz, highHz, revision, attempts - 1);
+                });
+                return;
+            }
+            m_txFilterPending = false;
+            if (ok) {
+                m_txFilterLowHz = lowHz;
+                m_txFilterHighHz = highHz;
+                emit operatingStateChanged();
+            } else {
+                qCWarning(lcAnanTx) << "TX filter change deferred too long; retaining the previous passband";
+            }
+            publishTransmitFilter();
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
 }
 
 void AnanBackend::setTxMonitor(bool on, int level)
@@ -464,6 +553,8 @@ QString AnanBackend::transmitPreparationIdentity() const
 
 void AnanBackend::cancelTransmitPreparation()
 {
+    m_txFilterRevision->fetch_add(1);
+    m_txFilterPending = false;
     m_restoreTxAntenna.reset();
     disableTransmitSession();
     if (m_transmitPlanCancelled) { m_transmitPlanCancelled->store(true); }
@@ -499,11 +590,14 @@ void AnanBackend::prepareTransmitDsp()
     const quint64 ticket = m_transmitPlanTicket;
     const auto mode = modeFromString(transmitModeName());
     const int outputRate = m_pendingParams.protocol == 1 ? 48000 : 192000;
-    QMetaObject::invokeMethod(m_dspBuildContext,[this,cancelled,ticket,mode,outputRate] {
+    const auto recipe = effectiveTransmitMode();
+    const auto passband = recipe ? std::optional(std::pair(recipe->filterLowHz, recipe->filterHighHz)) : std::nullopt;
+    publishTransmitFilter();
+    QMetaObject::invokeMethod(m_dspBuildContext,[this,cancelled,ticket,mode,outputRate,passband] {
         if (cancelled->load()) { return; }
         auto channel = std::make_unique<AnanTxDsp>();
         std::string error;
-        const bool ok = channel->configure(mode,&error,outputRate);
+        const bool ok = channel->configure(mode,&error,outputRate,passband);
         if (cancelled->load()) { return; }
         auto prepared = retainPlannedResource(std::move(channel),m_dspBuildContext);
         QMetaObject::invokeMethod(m_client,[this,cancelled,ticket,ok,prepared = std::move(prepared),
@@ -564,7 +658,7 @@ void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
         },Qt::QueuedConnection);
         return;
     }
-    if (!transmitSessionCurrent() || !m_txSessionProfile || !m_txSessionControl) {
+    if (m_txFilterPending || !transmitSessionCurrent() || !m_txSessionProfile || !m_txSessionControl) {
         qCWarning(lcAnanTx) << "ANAN TX key-on refused:" << transmitSessionRefusal();
         completion.finish();
         return;

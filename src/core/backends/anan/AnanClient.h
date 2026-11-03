@@ -26,6 +26,8 @@ public:
     bool prepareTransmit(std::unique_ptr<AnanTxDsp> dsp, const P2TxControl& control);
     void setTransmitPlanner(QObject* planner) { m_transmitPlanner = planner; }
     bool stageTransmitDsp(std::shared_ptr<AnanTxDsp> dsp);
+    bool trySetTransmitFilter(double lowHz, double highHz)
+    { return m_transmitDsp && m_transmitDsp->trySetFilter(lowHz, highHz); }
     void discardStagedTransmit();
     bool armStagedTransmit(const P2TxControl& control);
     bool disarmTransmit(bool discardDsp = true);

@@ -701,6 +701,14 @@ bool WdspChannel::setMode(Mode mode) noexcept
 
 bool WdspChannel::setFilter(double lowHz, double highHz) noexcept
 {
+    return setFilterImpl(lowHz,highHz,true);
+}
+bool WdspChannel::trySetFilter(double lowHz, double highHz) noexcept
+{
+    return setFilterImpl(lowHz,highHz,false);
+}
+bool WdspChannel::setFilterImpl(double lowHz, double highHz, bool waitForPlanner) noexcept
+{
     if (!std::isfinite(lowHz) || !std::isfinite(highHz) || lowHz >= highHz ||
         (m_config.amReceive && (lowHz > -100 || highHz < 100
             || lowHz < -12000 || highHz > 12000)) ||
@@ -709,7 +717,9 @@ bool WdspChannel::setFilter(double lowHz, double highHz) noexcept
         return false;
     }
     {
-        const std::scoped_lock setupLock(g_setupMutex);
+        std::unique_lock setupLock(g_setupMutex,std::defer_lock);
+        if (waitForPlanner) { setupLock.lock(); }
+        else if (!setupLock.try_lock()) { endControlOperation(); return false; }
         if (m_wbfm) {
             setFreqs_bps(m_wbfm->filter.get(), -highHz, -lowHz);
             flush_bps(m_wbfm->filter.get());

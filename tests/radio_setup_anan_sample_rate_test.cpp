@@ -52,7 +52,7 @@ public:
 using namespace AetherSDR;
 namespace AetherSDR::anan {
 struct TxSessionTrace {
-    std::atomic<int> keyOn{0}, lastKey{0}, drive{0}, primaryAdc{-1};
+    std::atomic<int> keyOn{0}, lastKey{0}, drive{0}, primaryAdc{-1}, keyReleases{0};
     std::atomic<quint32> frequencyWord{0}, alex{0};
 };
 struct AnanClientTestAccess {
@@ -76,7 +76,8 @@ struct P2ClientTestAccess {
         client.m_controlSendOverride = [&trace](auto bytes, quint16 port) {
             if (port == kHighPriorityPort && bytes.size() == 1444) {
                 const bool key = (bytes[4] & 2) != 0;
-                trace.lastKey.store(key); if (key) { ++trace.keyOn; }
+                if (trace.lastKey.exchange(key) == 1 && !key) { ++trace.keyReleases; }
+                if (key) { ++trace.keyOn; }
                 trace.drive.store(bytes[345]);
                 const auto word = [&](int offset) { return (quint32(bytes[offset])<<24) | (quint32(bytes[offset+1])<<16)
                     | (quint32(bytes[offset+2])<<8) | bytes[offset+3]; };
@@ -317,6 +318,18 @@ int main(int argc, char** argv)
         model.transmitModel().setMox(true);
         check(await([&] { return trace.lastKey.load() == 1; }), "MOX remains the explicit TX trigger");
         check(trace.drive.load() == 11 && (trace.alex.load() & 0x07000000u) == (1u<<25), "automatic readiness captures ANT2 and the saved band power limit");
+        const int releases = trace.keyReleases.load();
+        model.transmitModel().setTxFilterLow(250);
+        model.transmitModel().setTxFilterHigh(2850);
+        check(await([&] {
+            const auto voice = backend->currentOperatingState().extension.value(QStringLiteral("txSetpoints")).toObject()
+                .value(QStringLiteral("ananVoiceFilter")).toObject();
+            return voice.value(QStringLiteral("lowHz")).toInt() == 250
+                && voice.value(QStringLiteral("highHz")).toInt() == 2850;
+        }), "Phone/CW controls apply and acknowledge a live ANAN voice filter");
+        check(trace.lastKey.load() == 1 && trace.keyReleases.load() == releases
+              && backend->capabilities().canTransmit,
+              "live filter application preserves keyed TX without a key-off edge");
         hardwareDialog.selectTab(QStringLiteral("ANAN Hardware"));
         QElapsedTimer hardwarePoll; hardwarePoll.start();
         while (hardwarePoll.elapsed() < 1300) { app.processEvents(); QThread::msleep(5); }

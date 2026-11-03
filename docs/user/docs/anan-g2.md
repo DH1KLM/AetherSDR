@@ -226,6 +226,17 @@ are not provided by this extended path. No new SWR protection is implied.
 The PA table uses its row height; **Use Thetis defaults**, **Save PA profile**,
 **TX antenna** and readiness appear directly below the last band.
 
+In **Phone/CW**, **Low Cut** and **High Cut** set the USB/LSB transmit voice
+passband. Values are positive audio frequencies; LSB is mirrored automatically.
+Changes apply during an ongoing transmission without rekeying. A live change
+outside the selected band plan is refused and the previous values are restored.
+The voice filter is remembered per radio. Other modes retain their mode-specific
+filters; changing these controls in another mode prepares the next USB/LSB use.
+
+The footer shows **ASIO ACTIVE** only while the ASIO receive output is running;
+**ASIO OFF** means it is not running, regardless of the saved checkbox setting.
+The station/model name uses its full text width.
+
 Band-view and CTUN notices overlay the right side of the footer temporarily.
 CPU, Network, TX, date and the station control keep their positions.
 
@@ -236,11 +247,11 @@ CPU, Network, TX, date and the station control keep their positions.
 | MON, microphone peak, ALC peak/gain | Local monitor and actual WDSP TXA meters |
 | PROC / Compression | Shared local ClientComp and its gain-reduction meter |
 | MIC gain before ALC | Backend MIC-slider gain mapping not implemented |
-| Adjustable TX voice filter | Fixed mode defaults; operator filter control not implemented |
+| Adjustable TX voice filter | Live USB/LSB Low Cut and High Cut, including mirrored LSB |
 | CW pitch | Connected to the host receiver BFO; CW monitor level/pan dispatch is incomplete |
 | PC microphone selection | PCM path exists; explicit local input-selection acknowledgement is incomplete |
 | Graphic EQ | Shared host controls exist; saved-layout reapplication after delayed TX readiness is incomplete |
-| MIC / TX-filter recall | Incomplete; RF drive now recalls separately per band/model/protocol |
+| MIC / TX-filter recall | Voice filter saved per radio; MIC recall incomplete; RF drive recalls per band/model/protocol |
 | Hardware PTT observation | Not implemented; local MOX state is not hardware readback |
 | Forward/reflected RF power and SWR | P1/P2 detector telemetry with Thetis model reference conversion; individual calibration pending |
 | TX slice / multiple receivers | Select any ready slice as the one TX source; no simultaneous TX or duplex |

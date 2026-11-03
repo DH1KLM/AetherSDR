@@ -10,7 +10,8 @@ AnanTxDsp::~AnanTxDsp()
     end();
 }
 
-bool AnanTxDsp::configure(WdspChannel::Mode mode, std::string* error, int outputRate)
+bool AnanTxDsp::configure(WdspChannel::Mode mode, std::string* error, int outputRate,
+                         std::optional<std::pair<double,double>> passband)
 {
     end();
     m_channel.reset();
@@ -30,8 +31,8 @@ bool AnanTxDsp::configure(WdspChannel::Mode mode, std::string* error, int output
     m_outputSamples = kInputSamples * outputRate / kInputRate;
     config.inputBlockSize = kInputSamples;
     config.dspBlockSize = kInputSamples * kDspRate / kInputRate;
-    config.filterLowHz = recipe->filterLowHz;
-    config.filterHighHz = recipe->filterHighHz;
+    config.filterLowHz = passband ? passband->first : recipe->filterLowHz;
+    config.filterHighHz = passband ? passband->second : recipe->filterHighHz;
     config.blockForOutput = false;
     m_channel = WdspChannel::create(config, error);
     if (!m_channel) { return false; }
@@ -42,6 +43,12 @@ bool AnanTxDsp::configure(WdspChannel::Mode mode, std::string* error, int output
     }
     m_mode = mode;
     return true;
+}
+
+bool AnanTxDsp::trySetFilter(double lowHz, double highHz)
+{
+    return m_channel && std::isfinite(lowHz) && std::isfinite(highHz) && lowHz >= -10000
+        && highHz <= 10000 && highHz-lowHz >= 50 && m_channel->trySetFilter(lowHz,highHz);
 }
 
 bool AnanTxDsp::begin(const TxCoordinator::Context& context, qint64 now)

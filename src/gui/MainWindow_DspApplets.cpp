@@ -35,17 +35,45 @@
 #include "core/ClientEq.h"
 #include "core/HostVoiceChainPolicy.h"
 #include "core/LogManager.h"
+#include "core/ThemeManager.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
 
 #include <QTimer>
 #include <QMessageBox>
+#include <QLabel>
+#include <QFontMetrics>
 
 #include <memory>
 
 #include <algorithm>
 
 namespace AetherSDR {
+QWidget* MainWindow::createAudioOutputStatusIndicator()
+{
+    auto* indicator = new QLabel(m_statusBarContainer);
+    indicator->setObjectName(QStringLiteral("asioOutputStatusIndicator"));
+    indicator->setAlignment(Qt::AlignCenter);
+    indicator->setAccessibleName(tr("ASIO receive audio output"));
+    const auto update = [indicator](bool active) {
+        indicator->setText(active ? QStringLiteral("ASIO\nACTIVE") : QStringLiteral("ASIO\nOFF"));
+        const QString reason = active ? QObject::tr("The ASIO receive output is running.")
+            : QObject::tr("The ASIO receive output is not running.");
+        indicator->setToolTip(reason);
+        indicator->setAccessibleDescription(reason);
+        ThemeManager::instance().applyStyleSheet(indicator,active
+            ? QStringLiteral("QLabel { color: {{color.accent.success}}; font-size: 12px; }")
+            : QStringLiteral("QLabel { color: {{color.text.secondary}}; font-size: 12px; }"));
+    };
+    update(m_audio && m_audio->asioOutputActive());
+    indicator->ensurePolished();
+    indicator->setFixedWidth(std::max(64,QFontMetrics(indicator->font()).horizontalAdvance(QStringLiteral("ACTIVE"))+16));
+    if (m_audio) {
+        connect(m_audio,&AudioEngine::asioOutputActiveChanged,indicator,update);
+        connect(m_audio,&AudioEngine::asioOutputStatus,indicator,[indicator](const QString& message) { indicator->setToolTip(message); });
+    }
+    return indicator;
+}
 
 MainWindow::TxAudioPathBlock MainWindow::txAudioPathBlock() const
 {

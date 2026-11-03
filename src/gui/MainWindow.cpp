@@ -340,7 +340,7 @@ void reserveStatusBarStackWidth(QWidget* stack, const QStringList& samples, int 
     stack->setMinimumWidth(qMax(minimumWidth, statusBarCompactTextWidth(samples, 16)));
 }
 
-// The station label's resting type size. Single-token values keep it.
+// The station label keeps its normal type size for the complete identity.
 constexpr int kStationFontPx = 21;
 
 // Property carrying the size the label is currently styled at, so the
@@ -356,51 +356,7 @@ QString statusBarStationLabelStyle(int fontPx)
         .arg(fontPx);
 }
 
-// Floor for the shrink below. Smaller than this stops reading as the station
-// identity and starts reading as one more compact telemetry label (those are
-// 12px), so a name that will not fit even here is elided instead.
-constexpr int kStationMinFontPx = 15;
-
-// Text width a multi-word nickname may occupy before it is shrunk. This is a
-// layout budget, not a measurement of any particular string: the station box
-// is centred between the radio-info stack and the GPS/reference stack, and at
-// full size a two-word nickname pushes into the latter. Against our HL2 this
-// resolves to kStationMinFontPx for "Hermes-Lite 2".
-constexpr int kStationWideTextBudgetPx = 105;
-
-// The largest size in [kStationMinFontPx, kStationFontPx] at which the text
-// still fits the budget on ONE line. Returns the floor when nothing fits;
-// stationFittedText() then elides at that size.
-int stationFittedFontPx(const QString& text)
-{
-    for (int px = kStationFontPx; px >= kStationMinFontPx; --px) {
-        QFont candidate = QApplication::font();
-        candidate.setPixelSize(px);
-        if (QFontMetrics(candidate).horizontalAdvance(text)
-                <= kStationWideTextBudgetPx) {
-            return px;
-        }
-    }
-    return kStationMinFontPx;
-}
-
-// One line, elided only if it still overruns the budget at the floor size.
-QString stationFittedText(const QString& text, int fontPx)
-{
-    QFont font = QApplication::font();
-    font.setPixelSize(fontPx);
-    const QFontMetrics metrics(font);
-    if (metrics.horizontalAdvance(text) <= kStationWideTextBudgetPx) {
-        return text;
-    }
-    return metrics.elidedText(text, Qt::ElideRight, kStationWideTextBudgetPx);
-}
-
-// Callsign or radio nickname. Single-token values render at kStationFontPx; a
-// value with whitespace shrinks to fit one line, down to kStationMinFontPx,
-// then elides. Whitespace, not width, is the trigger: HL2 substitutes its
-// two-word model string, and widths are too close to separate ("ANT1-AV640"
-// 157px vs "Hermes-Lite 2" 170px).
+// Keep the complete identity at its normal size; the footer reserves its measured width.
 bool setStatusBarStationText(QLabel* label, const QString& text)
 {
     if (!label) {
@@ -408,14 +364,8 @@ bool setStatusBarStationText(QLabel* label, const QString& text)
     }
 
     const QString trimmed = text.trimmed();
-    // std::any_of over QChar::isSpace rather than a QRegularExpression: this is
-    // reached from the MeterModel::hwTelemetryChanged handler, so a per-call
-    // pattern compile would land on every PA-temperature delta.
-    const bool multiWord = std::any_of(trimmed.cbegin(), trimmed.cend(),
-                                       [](QChar c) { return c.isSpace(); });
-    const int fontPx = multiWord ? stationFittedFontPx(trimmed) : kStationFontPx;
-    const QString rendered =
-        multiWord ? stationFittedText(trimmed, fontPx) : text;
+    const int fontPx = kStationFontPx;
+    const QString rendered = trimmed;
 
     bool changed = false;
     if (label->property(kStationFontPxProperty).toInt() != fontPx) {
@@ -6167,6 +6117,7 @@ void MainWindow::buildUI()
     hbox->addStretch(1);
 
     // ── Right section ────────────────────────────────────────────────────
+    hbox->addWidget(createAudioOutputStatusIndicator());
     // Reserve consistent width for the compact telemetry stacks so updates
     // do not cause the status bar to reshuffle as values change.
     constexpr int kTelemetryStackMinWidth = 84;

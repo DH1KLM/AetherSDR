@@ -9,6 +9,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 
 namespace AetherSDR::anan {
 
@@ -25,7 +26,9 @@ public:
     enum class Result { Output, WouldBlock, Refused, Fault };
 
     ~AnanTxDsp();
-    bool configure(WdspChannel::Mode mode, std::string* error = nullptr, int outputRate = kOutputRate);
+    bool configure(WdspChannel::Mode mode, std::string* error = nullptr, int outputRate = kOutputRate,
+                   std::optional<std::pair<double,double>> passband = std::nullopt);
+    bool trySetFilter(double lowHz, double highHz);
     [[nodiscard]] std::size_t outputSamples() const noexcept { return m_outputSamples; }
     bool begin(const TxCoordinator::Context& context, qint64 now);
     bool end();

@@ -612,6 +612,7 @@ RadioCapabilities AnanBackend::capabilities() const
         ? m_txSessionProfile->limitsWatts[m_txSessionBand] : 0.0;
     c.forwardPowerRequiresSmoothing = true;
     c.hostModulates = true;        // client-side WDSP, like the HL2
+    c.hasTxFilterControls = true;
     c.takesTxAudioOverSeam = true;
     // Drive is engine intent, not measured forward power or hardware readback.
     c.transmitDriveControl = RadioCapabilities::TransmitDriveControl{
@@ -663,6 +664,17 @@ void AnanBackend::applyRestoredState(const RestoredRadioState& state)
     // A missing document resets both ADCs on a same-family radio swap.
     // RadioStateMemory owns persistence; validate its opaque extension here.
     m_txBandPower = {};
+    m_txFilterLowHz = 300;
+    m_txFilterHighHz = 3000;
+    const auto savedFilter = state.extension.value(QStringLiteral("txSetpoints")).toObject()
+        .value(QStringLiteral("ananVoiceFilter")).toObject();
+    const double low = savedFilter.value(QStringLiteral("lowHz")).toDouble(-1);
+    const double high = savedFilter.value(QStringLiteral("highHz")).toDouble(-1);
+    if (std::isfinite(low) && std::isfinite(high) && low >= 0 && high <= 10000
+        && high - low >= 50 && std::floor(low) == low && std::floor(high) == high) {
+        m_txFilterLowHz = static_cast<int>(low);
+        m_txFilterHighHz = static_cast<int>(high);
+    }
     const auto savedPower = state.extension.value(QStringLiteral("txSetpoints")).toObject()
         .value(QStringLiteral("ananBandPower")).toObject();
     if (savedPower.size() <= 128) {
@@ -721,7 +733,10 @@ RestoredRadioState AnanBackend::currentOperatingState() const
         {QStringLiteral("adc0AttenuationDb"), m_pendingParams.adc0AttenuationDb},
         {QStringLiteral("adc1AttenuationDb"), m_pendingParams.adc1AttenuationDb}}}};
     state.extension.insert(QStringLiteral("txSetpoints"), QJsonObject{
-        {QStringLiteral("ananBandPower"), m_txBandPower}});
+        {QStringLiteral("ananBandPower"), m_txBandPower},
+        {QStringLiteral("ananVoiceFilter"), QJsonObject{
+            {QStringLiteral("lowHz"), m_txFilterLowHz},
+            {QStringLiteral("highHz"), m_txFilterHighHz}}}});
     const auto views = capturedBandViewMemory();
     if (!views.isEmpty()) { state.extension.insert(QStringLiteral("tuning"), views); }
     return state;

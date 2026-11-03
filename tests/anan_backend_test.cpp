@@ -1525,6 +1525,25 @@ int main(int argc, char** argv)
     }
     {
         AnanBackend backend;
+        AnanLinkStatsTestAccess::antennaSession(backend, QStringLiteral("TX-FILTER-MEMORY"));
+        backend.setTxFilter(250, 2850);
+        const auto memory = backend.currentOperatingState();
+        AnanBackend restored;
+        restored.applyRestoredState(memory);
+        const auto filter = restored.currentOperatingState().extension.value(QStringLiteral("txSetpoints")).toObject()
+            .value(QStringLiteral("ananVoiceFilter")).toObject();
+        check(filter.value(QStringLiteral("lowHz")).toInt() == 250
+              && filter.value(QStringLiteral("highHz")).toInt() == 2850,
+              "voice passband survives radio operating-state round trip");
+        restored.applyRestoredState({});
+        const auto reset = restored.currentOperatingState().extension.value(QStringLiteral("txSetpoints")).toObject()
+            .value(QStringLiteral("ananVoiceFilter")).toObject();
+        check(reset.value(QStringLiteral("lowHz")).toInt() == 300
+              && reset.value(QStringLiteral("highHz")).toInt() == 3000,
+              "a radio without stored voice settings cannot inherit another radio's filter");
+    }
+    {
+        AnanBackend backend;
         AnanSupplyRailTestAccess::currentFixture(backend);
         const auto caps = backend.capabilities();
         check(caps.hasSupplyVoltageTelemetry && caps.hasPaCurrentTelemetry && caps.paTelemetryAudit

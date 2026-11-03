@@ -700,6 +700,7 @@ private:
     void wirePanStreamDaxIqSink();            // MainWindow_Session.cpp
     void wirePooDooTiles();         // MainWindow_DspApplets.cpp
     void wireDspApplets();          // MainWindow_DspApplets.cpp
+    QWidget* createAudioOutputStatusIndicator();
     using TxAudioPathBlock = AetherSDR::TxAudioPathBlock;
     TxAudioPathBlock txAudioPathBlock() const; // MainWindow_DspApplets.cpp
     QString txAudioPathBlockMessage(TxAudioPathBlock block) const;

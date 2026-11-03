@@ -338,6 +338,7 @@ public:
     bool reconfigure(const Config& config, std::string* error = nullptr) noexcept;
     bool setMode(Mode mode) noexcept;
     bool setFilter(double lowHz, double highHz) noexcept;
+    bool trySetFilter(double lowHz, double highHz) noexcept;
     bool setWbfmDeemphasis(WbfmReceive::Deemphasis deemphasis) noexcept;
     // Lock-free latest completed output-mode observation, sampled by processIq().
     // Forced Mono is false independently of reception diagnostics.pilotLocked.
@@ -580,6 +581,7 @@ public:
     [[nodiscard]] static std::unique_lock<std::mutex> fftwSetupLock();
 
 private:
+    bool setFilterImpl(double lowHz, double highHz, bool waitForPlanner) noexcept;
     explicit WdspChannel(int channelId, const Config& config) noexcept;
 
     static bool validateConfig(const Config& config, std::string* error) noexcept;

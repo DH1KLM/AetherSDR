@@ -35,6 +35,10 @@ to hear reception. Applying while reception is playing restarts the speaker outp
 Both enabling and disabling ASIO require **Apply ASIO changes**; changing
 the checkbox alone leaves the current output playing.
 
+The footer shows **ASIO ACTIVE** while the ASIO receive output is running and
+**ASIO OFF** otherwise. This reports the opened output, rather than the saved
+checkbox preference. Hover over the indicator for its status.
+
 Playback starts after a short prebuffer. After an interruption it waits for
 the buffer to recover and fades back in, rather than repeatedly switching
 between sound and silence.

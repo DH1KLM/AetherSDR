@@ -206,6 +206,7 @@ public:
     bool isMuted() const       { return m_muted.load(); }
     void setMuted(bool m);
     bool isRxStreaming() const { return m_audioSink != nullptr; }
+    bool asioOutputActive() const { return m_asioOutputActive.load(std::memory_order_acquire); }
     bool isTxStreaming() const { return m_audioSource != nullptr; }
     // Which producer currently owns the QSO recorder's TX slot (#2539,
     // #4281). Both the mic monitor tap and the CW record pump reach
@@ -877,6 +878,7 @@ signals:
     void inputDeviceChanged();
     void outputDeviceChanged();
     void asioOutputStatus(const QString& message);
+    void asioOutputActiveChanged(bool active);
     void txBypassChanged(bool on);                          // master TX BYPASS state
     void rxBypassChanged(bool on);                          // master RX BYPASS state
     // Fired by saveClientReverbSettings() after any reverb param
@@ -1095,6 +1097,7 @@ private:
     // RX
     QAudioSink*   m_audioSink{nullptr};
     std::unique_ptr<AsioOutput> m_asioOutput;
+    std::atomic<bool> m_asioOutputActive{false};
     QPointer<QIODevice> m_audioDevice;   // sink-owned device, may vanish on hot-unplug
     // A negotiated fallback still satisfies one producer-domain attempt. Keep
     // this separate from m_rxOutputRate so a 48 -> 24 fallback cannot reopen on

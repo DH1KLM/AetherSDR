@@ -167,6 +167,44 @@ void carriersAndModulators()
     }
 }
 }
+void liveVoiceFilter(WdspChannel::Mode mode, int rate)
+{
+    TxCoordinator coordinator([](const auto&, auto) {});
+    const auto producer = coordinator.registerProducer(true);
+    const auto context = coordinator.mediaContext(producer);
+    AnanTxDsp dsp;
+    const bool lsb = mode == WdspChannel::Mode::Lsb;
+    const auto initial = lsb ? std::pair(-2800.0, -200.0) : std::pair(200.0, 2800.0);
+    check(dsp.configure(mode, nullptr, rate, initial), "custom voice passband configures");
+    check(dsp.begin(context, 0), "live filter test starts one continuous over");
+    std::array<float, AnanTxDsp::kInputSamples> audio{};
+    std::array<std::complex<float>, AnanTxDsp::kOutputSamples> storage{};
+    const auto iq = std::span(storage).first(dsp.outputSamples());
+    std::size_t inputIndex = 0;
+    const auto energy = [&] {
+        double sum = 0;
+        for (int block = 0; block < 90; ++block) {
+            for (float& sample : audio) {
+                sample = static_cast<float>(0.1 * std::sin(2 * std::numbers::pi * 1000 * inputIndex++ / AnanTxDsp::kInputRate));
+            }
+            check(exchange(dsp, audio, context, iq) == AnanTxDsp::Result::Output,
+                  "live filter change preserves media context and continuous IQ output");
+            if (block >= 60) {
+                for (const auto sample : iq) { sum += std::norm(sample); }
+            }
+        }
+        return sum;
+    };
+    const double passed = energy();
+    check(!dsp.trySetFilter(1000, 1000), "invalid live filter is refused");
+    check(dsp.trySetFilter(lsb ? -2800 : 1800, lsb ? -1800 : 2800), "live voice passband changes without ending TX");
+    const double rejected = energy();
+    check(dsp.trySetFilter(initial.first, initial.second), "live filter restores during the same over");
+    const double restored = energy();
+    check(passed > 1e-6 && rejected < passed * 0.001 && restored > passed * 0.5,
+          "USB and LSB live filters reject the excluded tone and restore it by at least 30 dB");
+}
+
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
@@ -177,6 +215,10 @@ int main(int argc, char** argv)
     sideband(WdspChannel::Mode::Digu);
     sideband(WdspChannel::Mode::Digl);
     carriersAndModulators();
+    for (const int rate : {48000, 192000}) {
+        liveVoiceFilter(WdspChannel::Mode::Usb, rate);
+        liveVoiceFilter(WdspChannel::Mode::Lsb, rate);
+    }
     AnanTxDsp unsupported;
     check(!unsupported.configure(WdspChannel::Mode::Drm), "DRM has no local transmit modem");
     return failures == 0 ? 0 : 1;

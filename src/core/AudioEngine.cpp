@@ -4190,6 +4190,7 @@ bool AudioEngine::openRxSinkDevice(int producerRate)
         }
         m_audioDevice = output.get();
         m_asioOutput = std::move(output);
+        if (!m_asioOutputActive.exchange(true,std::memory_order_acq_rel)) { emit asioOutputActiveChanged(true); }
         setRxDeviceRate(asio.sampleRate);
         m_rxResampler.reset();
         m_rxResamplerR.reset();
@@ -4519,6 +4520,7 @@ void AudioEngine::closeRxSink()
     m_audioDevice = nullptr;
     m_rxPlaybackQueuedMs.store(0, std::memory_order_relaxed);
     m_asioOutput.reset();
+    if (m_asioOutputActive.exchange(false,std::memory_order_acq_rel)) { emit asioOutputActiveChanged(false); }
     if (m_audioSink) {
         // Null out m_audioSink BEFORE stopping so that the stateChanged
         // handler's generation/sink guard prevents a cascading
