@@ -1,5 +1,7 @@
 # DH1KLM ANAN changes and Saturn implementation separation
 
+For a concise feature comparison, see [ANAN Features: DH1KLM anan-tx-implementation Branch](./anan-main-dh1klm-differences.md).
+
 Documentation inventory and requested integration contract, 2026-10-25.
 The Saturn separation is implemented with independent executable code paths.
 Original baseline: `c2a67af5bc4a2bae17302e36b4e77e14aedeb2b5`.
