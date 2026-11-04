@@ -1131,6 +1131,10 @@ void MainWindow::showAddPanadapterDialog()
 {
     if (!m_radioModel.isConnected()) return;
     const int maxPans = m_radioModel.maxPanadapters();
+    if (maxPans <= 0) {
+        showPanadapterSliceCapacityMessage();
+        return;
+    }
     // Determine current layout from actual pan count, not saved setting
     const bool canvasEnabled = m_workspaceController
         && m_workspaceController->isEnabled();
@@ -1436,6 +1440,13 @@ void MainWindow::registerShortcutActions()
     m_shortcutManager.registerAction("vox_toggle", "VOX Toggle", "TX",
         QKeySequence(), [this]() {
             if (!m_radioModel.isConnected()) return;
+            // Same refusal as dax_toggle: a radio that declares no VOX would
+            // flip the optimistic voxEnable() and transmit nothing.
+            if (!m_radioModel.voxAvailable()) {
+                qCWarning(lcDevices) << "vox_toggle refused: this radio has no VOX";
+                showUnsupportedControlNotice();
+                return;
+            }
             auto& tx = m_radioModel.transmitModel();
             tx.setVoxEnable(!tx.voxEnable());
         }, false, true);
@@ -1464,6 +1475,11 @@ void MainWindow::registerShortcutActions()
     m_shortcutManager.registerAction("tx_monitor_toggle", "TX Monitor Toggle", "TX",
         QKeySequence(), [this]() {
             if (!m_radioModel.isConnected()) return;
+            if (!m_radioModel.transmitMonitorAvailable()) {
+                qCWarning(lcDevices) << "tx_monitor_toggle refused: this radio has no transmit monitor";
+                showUnsupportedControlNotice();
+                return;
+            }
             auto& tx = m_radioModel.transmitModel();
             tx.setSbMonitor(!tx.sbMonitor());
         });

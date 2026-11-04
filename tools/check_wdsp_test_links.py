@@ -205,7 +205,7 @@ def check(repo: Path = REPO,
                 and resolved not in attributed and resolved not in exempt):
             via = includes.wdsp_header(resolved)
             if via:
-                errors.append(f"{path.relative_to(repo)} includes {via}. " + ADVICE)
+                errors.append(f"{path.relative_to(repo).as_posix()} includes {via}. " + ADVICE)
     return errors, len(sources)
 
 

@@ -405,7 +405,7 @@ public:
     float dfnrAttenLimit() const;
     void setDfnrPostFilterBeta(float beta);
 
-    // Client-side NNR (WDSP 2.10 neural noise reduction, trained on HF).
+    // Client-side NNR (WDSP 2.11 neural noise reduction).
     // Unconditional, unlike DFNR/MNR/BNR: the models are compiled into the
     // vendored WDSP, so there is no library to find and no GPU to require.
     Q_INVOKABLE void setNnrEnabled(bool on);
@@ -755,6 +755,7 @@ public:
     }
 
 public slots:
+    void setLineOutCaptureEnabled(bool enabled);
     // Legacy internal/playback ingress: native float32 stereo at 24 kHz.
     // Live producers use feedPcmFrame so validation survives queued delivery.
     void feedAudioData(const QByteArray& pcm);
@@ -776,6 +777,7 @@ public slots:
     void removeKiwiSdrAudioSource(const QString& sourceId);
 
 signals:
+    void lineOutPcmReady(const AetherSDR::PcmFrame& frame, bool transmitting);
     void rxStarted();
     void rxStopped();
     void levelChanged(float rms);  // audio level for VU meter, 0.0–1.0
@@ -1329,6 +1331,15 @@ private:
     std::unique_ptr<Resampler> m_txResampler;  // RADE e.g. 48k -> 24k (lazy init)
 
     friend class AudioEngineRatesTestAccess;
+    void captureLineOutAudio(const QByteArray& pcm, int sampleRate);
+    void resetLineOutCapture();
+    PcmProducer m_lineOutProducer;
+    bool m_lineOutCaptureEnabled{false};
+    bool m_lineOutProducerStarted{false};
+    int m_lineOutDeviceRate{0};
+    bool m_lineOutCaptureTransmitting{false};
+    std::unique_ptr<Resampler> m_lineOutLeftResampler;
+    std::unique_ptr<Resampler> m_lineOutRightResampler;
     void drainRxAudio(qsizetype freeBytes);
     bool retireInvalidPcmSources();
     void queueLegacyKiwiAudioData(const QByteArray& pcm24kStereoFloat);
@@ -1392,7 +1403,7 @@ private:
 #endif
     std::atomic<bool> m_dfnrEnabled{false};
 
-    // Client-side NNR (WDSP 2.10). No build guard: the models ship in-tree.
+    // Client-side NNR (WDSP 2.11). No build guard: the models ship in-tree.
     std::unique_ptr<NnrFilter> m_nnr;
     std::unique_ptr<NnrFilter> m_kiwiSdrNnr;
     std::atomic<bool> m_nnrEnabled{false};
@@ -1550,6 +1561,7 @@ private:
 
     // RX audio buffer handling
     QTimer*       m_rxTimer{nullptr};
+    QElapsedTimer m_lineOutDrainClock;
     QByteArray    m_rxBuffer;  // normal Flex RX source audio at 24 kHz, pre-DSP
     std::deque<QByteArray> m_rxPackets;  // whole Flex packets for NR2 packet-mode
     QByteArray    m_kiwiSdrRxBuffer;  // decoded Kiwi source audio at 24 kHz, pre-DSP

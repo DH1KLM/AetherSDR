@@ -209,7 +209,14 @@ def main():
             print("::error::aetherd touchpoints require a valid semantic tag: "
                   + ", ".join(invalid_tags))
             return 1
-        current = MANIFEST_MD.read_text(encoding="utf-8") if MANIFEST_MD.is_file() else ""
+        # Explicit utf-8 so the locale codec gets no say, but default
+        # (universal) newline handling: a core.autocrlf=true checkout
+        # materializes the committed LF as CRLF, and that file is pristine.
+        # Compare content, not line endings.
+        if MANIFEST_MD.is_file():
+            current = MANIFEST_MD.read_text(encoding="utf-8")
+        else:
+            current = ""
         if current != out:
             print("::error::aetherd-touchpoints.md is stale — run"
                   " `python tools/gen_touchpoint_manifest.py`")
@@ -218,7 +225,15 @@ def main():
         return 0
 
     MANIFEST_MD.parent.mkdir(parents=True, exist_ok=True)
-    MANIFEST_MD.write_text(out, encoding="utf-8")
+    # encoding= and newline= are both load-bearing.
+    #
+    # Without encoding=, the write uses the locale codec — cp1252 on a Windows
+    # console, which cannot represent the "gui->engine" arrow this script
+    # generates. The write truncates first and raises second, leaving the
+    # manifest empty (#6818).
+    #
+    # newline="" pins LF, so the committed file is LF on every platform.
+    MANIFEST_MD.write_text(out, encoding="utf-8", newline="")
     print(f"wrote {MANIFEST_MD.relative_to(REPO)}: "
           f"{len(touchpoints)} touchpoint headers")
     return 0

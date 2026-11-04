@@ -217,7 +217,8 @@ target_link_libraries(audio_engine_rates_test PRIVATE aethercore Qt6::Core)
 # DSP initialization and effect comparison under one sanitizer timeout.
 foreach(_case IN ITEMS rateMatrix bandwidthAndMono negotiatedSpeakerOutput
         negotiationOpenFailure negotiationLifetimeAndCoalescing auxiliaryAcrossNegotiation
-        transitionsAndRejection queueBudgetsAndDeviceTransitions effects-bypass effects-EQ
+        transitionsAndRejection queueBudgetsAndDeviceTransitions lineOutDrainCatchUp
+        effects-bypass effects-EQ
         effects-NR2 effects-RN2 effects-NR4 effects-DFNR effects-MNR kiwiDeviceRateMatrix
         processingStateReset legacyReplacementAndKiwiReset fixedProcessingDomains)
     add_test(NAME audio_engine_rates_${_case}_test
@@ -721,6 +722,11 @@ target_link_libraries(model_control_routing_test PRIVATE aethercore Qt6::Core Qt
 add_test(NAME model_control_routing_test COMMAND model_control_routing_test)
 
 add_executable(radio_setup_control_routing_test tests/radio_setup_control_routing_test.cpp)
+add_executable(radio_administration_control_test tests/radio_administration_control_test.cpp)
+target_include_directories(radio_administration_control_test PRIVATE src tests)
+target_link_libraries(radio_administration_control_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME radio_administration_control_test COMMAND radio_administration_control_test)
+set_tests_properties(radio_administration_control_test PROPERTIES TIMEOUT 45)
 target_include_directories(radio_setup_control_routing_test PRIVATE src tests)
 target_link_libraries(radio_setup_control_routing_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME radio_setup_control_routing_test COMMAND radio_setup_control_routing_test)
@@ -1784,6 +1790,29 @@ add_executable(hl2_noise_blanker_test tests/hl2_noise_blanker_test.cpp)
 target_include_directories(hl2_noise_blanker_test PRIVATE src)
 target_link_libraries(hl2_noise_blanker_test PRIVATE aethercore Qt6::Core Qt6::Test)
 add_test(NAME hl2_noise_blanker_test COMMAND hl2_noise_blanker_test)
+
+# The receive AGC, manual notch and squelch, measured at the audio of the real
+# Hl2RxDsp (offline, sample-counted, no sockets or audio device), and the
+# declaration of which receive-DSP stages the HL2 does and does not have.
+add_executable(hl2_rxdsp_agc_test tests/hl2_rxdsp_agc_test.cpp)
+target_include_directories(hl2_rxdsp_agc_test PRIVATE src)
+target_link_libraries(hl2_rxdsp_agc_test PRIVATE aethercore Qt6::Core)
+add_test(NAME hl2_rxdsp_agc_test COMMAND hl2_rxdsp_agc_test)
+
+add_executable(hl2_rxdsp_notch_audio_test tests/hl2_rxdsp_notch_audio_test.cpp)
+target_include_directories(hl2_rxdsp_notch_audio_test PRIVATE src)
+target_link_libraries(hl2_rxdsp_notch_audio_test PRIVATE aethercore Qt6::Core)
+add_test(NAME hl2_rxdsp_notch_audio_test COMMAND hl2_rxdsp_notch_audio_test)
+
+add_executable(hl2_rxdsp_squelch_audio_test tests/hl2_rxdsp_squelch_audio_test.cpp)
+target_include_directories(hl2_rxdsp_squelch_audio_test PRIVATE src)
+target_link_libraries(hl2_rxdsp_squelch_audio_test PRIVATE aethercore Qt6::Core)
+add_test(NAME hl2_rxdsp_squelch_audio_test COMMAND hl2_rxdsp_squelch_audio_test)
+
+add_executable(hl2_rx_dsp_declaration_test tests/hl2_rx_dsp_declaration_test.cpp)
+target_include_directories(hl2_rx_dsp_declaration_test PRIVATE src tests)
+target_link_libraries(hl2_rx_dsp_declaration_test PRIVATE aethercore Qt6::Core)
+add_test(NAME hl2_rx_dsp_declaration_test COMMAND hl2_rx_dsp_declaration_test)
 
 # Receive squelch from Hl2RxDsp to the WDSP channel: held before configure,
 # moved by mode, kept across configure() and the asynchronous rebuild (#5678
@@ -6313,6 +6342,7 @@ set_tests_properties(pgxl_direct_protocol_test PROPERTIES SKIP_RETURN_CODE 77)
 # Existing loopback QTcpServer binds for the live status portion of this test.
 add_executable(pgxl_panel_test
     tests/pgxl_panel_test.cpp
+    ${THEME_TEST_RESOURCES}
     src/gui/AmpApplet.cpp
     src/gui/AccessoryPanelWidgets.cpp
     src/gui/DragValuePopup.cpp
@@ -7171,6 +7201,12 @@ target_include_directories(cwx_quote_test PRIVATE src)
 target_link_libraries(cwx_quote_test PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME cwx_quote_test COMMAND cwx_quote_test)
 
+# Socket-free typed CWX requests, callback ordering and original-batch fences.
+add_executable(cwx_control_routing_test tests/cwx_control_routing_test.cpp)
+target_include_directories(cwx_control_routing_test PRIVATE src)
+target_link_libraries(cwx_control_routing_test PRIVATE aethercore Qt6::Core)
+add_test(NAME cwx_control_routing_test COMMAND cwx_control_routing_test)
+
 add_executable(cwx_panel_test
     tests/cwx_panel_test.cpp
     src/gui/CwxPanel.cpp
@@ -7390,6 +7426,14 @@ target_link_libraries(rigctl_rf_gain_pan_test PRIVATE
     aethercore Qt6::Core Qt6::Network)
 add_test(NAME rigctl_rf_gain_pan_test COMMAND rigctl_rf_gain_pan_test)
 
+# MON and VOX on the rigctl and TCI roads refuse where the radio declares no
+# txMonitorControl / voxControl. Injected backend, no socket, nothing keyed.
+add_executable(mon_vox_roads_test tests/mon_vox_roads_test.cpp)
+target_include_directories(mon_vox_roads_test PRIVATE src tests)
+target_link_libraries(mon_vox_roads_test PRIVATE
+    aethercore Qt6::Core Qt6::Network)
+add_test(NAME mon_vox_roads_test COMMAND mon_vox_roads_test)
+
 # #5775 / #5776: the receiver letters (slice tabs, CAT VFO targets) follow a
 # backend's capacity declared after connect. Injected backend, no socket.
 add_executable(receiver_slot_count_test tests/receiver_slot_count_test.cpp)
@@ -7464,6 +7508,8 @@ if(UNIX)
     target_link_libraries(meter_applet_voltage_state_test PRIVATE pthread)
 endif()
 set_target_properties(meter_applet_voltage_state_test PROPERTIES AUTOMOC ON)
+target_compile_definitions(meter_applet_voltage_state_test PRIVATE
+    AETHER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME meter_applet_voltage_state_test COMMAND meter_applet_voltage_state_test)
 set_tests_properties(meter_applet_voltage_state_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
@@ -7650,6 +7696,16 @@ target_link_libraries(hl2_tx_passband_onset_test PRIVATE aethercore Qt6::Core)
 add_test(NAME hl2_tx_passband_onset_test COMMAND hl2_tx_passband_onset_test)
 set_tests_properties(hl2_tx_passband_onset_test PROPERTIES SKIP_RETURN_CODE 77)
 
+# Transmit latency of the HL2's WDSP TXA channel, offline (#6052): tone onset
+# and impulse delay read off emitted IQ, plus the sideband suppression the
+# latency choices must not cost. TXA-only -- the phasing build has no channel.
+if(AETHER_HL2_TX_TXA)
+    add_executable(hl2_tx_latency_test tests/hl2_tx_latency_test.cpp)
+    target_include_directories(hl2_tx_latency_test PRIVATE src)
+    target_link_libraries(hl2_tx_latency_test PRIVATE aethercore Qt6::Core)
+    add_test(NAME hl2_tx_latency_test COMMAND hl2_tx_latency_test)
+endif()
+
 # radiocert's measurement primitives. Header-only by design so this needs no
 # Qt and no link against aethercore — see the test's header comment for why it
 # exists at all (both shipped bugs in the diagnostic were in this arithmetic).
@@ -7737,6 +7793,13 @@ add_executable(slice_rit_xit_seam_test tests/slice_rit_xit_seam_test.cpp)
 target_include_directories(slice_rit_xit_seam_test PRIVATE src tests)
 target_link_libraries(slice_rit_xit_seam_test PRIVATE aethercore Qt6::Core)
 add_test(NAME slice_rit_xit_seam_test COMMAND slice_rit_xit_seam_test)
+
+# #6052: a late transmit block must not become keyed zeros in mid-over. Drives
+# MetisClient's TX IQ queue in virtual time (EP2 samples) — no socket, no clock.
+add_executable(hl2_tx_queue_jitter_test tests/hl2_tx_queue_jitter_test.cpp)
+target_include_directories(hl2_tx_queue_jitter_test PRIVATE src tests)
+target_link_libraries(hl2_tx_queue_jitter_test PRIVATE aethercore Qt6::Core Qt6::Network)
+add_test(NAME hl2_tx_queue_jitter_test COMMAND hl2_tx_queue_jitter_test)
 
 # #5497: the unkey unmute waits for the radio's T/R, and the MOX-off is queued
 # ahead of it. An ordering test with a clock in it — no WDSP, no socket.
@@ -7915,6 +7978,21 @@ endif()
 # The registry is src/gui/ code — it uses QWidget, so it cannot live in
 # aethercore without breaking the engine boundary. Compiled directly into the
 # test, the way every other gui-widget test in this file does it.
+add_executable(meter_applet_supply_availability_test
+    tests/meter_applet_supply_availability_test.cpp
+    src/gui/MeterApplet.cpp
+    src/gui/DragValuePopup.cpp
+    src/gui/ControlAvailabilityRegistry.cpp
+    ${THEME_TEST_RESOURCES})
+target_include_directories(meter_applet_supply_availability_test PRIVATE src)
+target_link_libraries(meter_applet_supply_availability_test PRIVATE aethercore Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+set_target_properties(meter_applet_supply_availability_test PROPERTIES AUTOMOC ON)
+target_compile_definitions(meter_applet_supply_availability_test PRIVATE
+    AETHER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME meter_applet_supply_availability_test COMMAND meter_applet_supply_availability_test)
+set_tests_properties(meter_applet_supply_availability_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(control_availability_registry_test
     tests/control_availability_registry_test.cpp
     src/gui/ControlAvailabilityRegistry.cpp
@@ -9867,6 +9945,7 @@ set_tests_properties(filter_passband_widget_test PROPERTIES
 
 add_executable(amp_applet_test
     tests/amp_applet_test.cpp
+    ${THEME_TEST_RESOURCES}
     src/gui/AmpApplet.cpp
     src/gui/AccessoryPanelWidgets.cpp
     src/gui/DragValuePopup.cpp
@@ -9884,6 +9963,8 @@ target_link_libraries(amp_applet_test PRIVATE
 )
 set_target_properties(amp_applet_test PROPERTIES AUTOMOC ON)
 add_test(NAME amp_applet_test COMMAND amp_applet_test)
+set_tests_properties(amp_applet_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # Socket-free legacy display-key retirement, including WNB and per-pan isolation.
 add_executable(radio_owned_display_settings_test tests/radio_owned_display_settings_test.cpp)
@@ -10615,9 +10696,19 @@ add_test(NAME asio_settings_model_test COMMAND asio_settings_model_test)
 set_tests_properties(asio_settings_model_test PROPERTIES TIMEOUT 20)
 
 if(TARGET Qt6::WebSockets)
+    add_executable(tci_applet_test tests/tci_applet_test.cpp
+        src/gui/TciApplet.cpp src/gui/MeterSlider.h src/gui/DragValuePopup.cpp
+        src/gui/SliceLabel.cpp src/gui/SliceColorManager.cpp
+        src/gui/ControlAvailabilityRegistry.cpp)
+    target_include_directories(tci_applet_test PRIVATE src tests)
+    target_link_libraries(tci_applet_test PRIVATE aetherdesktop_support Qt6::Widgets Qt6::Test)
+    add_test(NAME tci_applet_test COMMAND tci_applet_test)
+    set_tests_properties(tci_applet_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(tci_rx_applet_test tests/tci_rx_applet_test.cpp
         src/gui/TciApplet.cpp src/gui/MeterSlider.h src/gui/DragValuePopup.cpp
-        src/gui/SliceLabel.cpp src/gui/SliceColorManager.cpp)
+        src/gui/SliceLabel.cpp src/gui/SliceColorManager.cpp
+        src/gui/ControlAvailabilityRegistry.cpp)
     target_include_directories(tci_rx_applet_test PRIVATE src tests)
     target_link_libraries(tci_rx_applet_test PRIVATE aetherdesktop_support Qt6::Widgets Qt6::Test)
     add_test(NAME tci_rx_applet_test COMMAND tci_rx_applet_test)
@@ -10668,6 +10759,7 @@ set(AETHER_SETTINGS_CONSUMERS
     noise_blanker_kind_model_test
     automation_nb2_capability_test
     tci_rx_audio_test
+    tci_applet_test
     tci_rx_applet_test
     bandscope_trace_render_test
     decoder_audio_routing_test
@@ -10762,6 +10854,7 @@ set(AETHER_SETTINGS_CONSUMERS
     hl2_tx_gate_test
     hl2_pan_limits_declaration_test
     hl2_fm_controls_declaration_test
+    hl2_rx_dsp_declaration_test
     hl2_mode_vocabulary_test
     hl2_client_side_spots_declaration_test
     hl2_gain_split_test
@@ -10832,6 +10925,7 @@ set(AETHER_SETTINGS_CONSUMERS
     cwx_speed_modifier_test
     cwx_drain_watch_test
     cwx_quote_test
+    cwx_control_routing_test
     cwx_panel_test
     dvk_panel_test
     local_voice_keyer_test
@@ -10840,6 +10934,7 @@ set(AETHER_SETTINGS_CONSUMERS
     health_applet_test
     meter_applet_capability_test
     meter_applet_voltage_state_test
+    meter_applet_supply_availability_test
     perf_telemetry_test
     local_memory_bank_test
     memory_import_test
