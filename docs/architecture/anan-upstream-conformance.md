@@ -343,6 +343,36 @@ provided. They support the listed RX behavior for these two configurations,
 without establishing other models, firmware versions, multi-RX, TX or live
 ASIO behavior.
 
+## Cleanup diff review
+
+Review range: original fork head `c71419fd` through `d768f593`. This is a
+self-review of the cleanup series, not an independent review of the inherited
+204-commit fork or approval to merge. No actionable new regression was found
+in the reviewed diff.
+
+| Fork issue | Implementation commit | Reviewed behavior |
+|---|---|---|
+| [#1](https://github.com/DH1KLM/AetherSDR/issues/1) | `1ef0077e` | Connect/reconnect identity preparation preserves board zero, missing board, protocol default and original-option reset order. |
+| [#2](https://github.com/DH1KLM/AetherSDR/issues/2) | `1f7c18b9` | ASIO configuration is copied into the existing queued engine call; QObject ownership and guarded engine retirement remain intact. |
+| [#3](https://github.com/DH1KLM/AetherSDR/issues/3) | `d997c523` | Saved/explicit profile selection preserves protocol refusal, original/extended isolation and control reset after a successful profile write even if implementation persistence fails. |
+| [#4](https://github.com/DH1KLM/AetherSDR/issues/4) | `9f8f0e14` | The 14 picker choices retain their IDs, order and captions; removed disabled-item code targeted entries absent from the table. |
+| [#5](https://github.com/DH1KLM/AetherSDR/issues/5) | `7fa81902` | Shared normalization retains directed-port validation, physical identity and busy status; callers retain profile admission and routing metadata. |
+| [#6](https://github.com/DH1KLM/AetherSDR/issues/6) | `efc230d3` | Saturn presentation preserves disconnected preference scope, connected selection refusal, original-only live edits and next-connect-only settings. |
+| [#7](https://github.com/DH1KLM/AetherSDR/issues/7) | `f1e80b89` | Generated probe covers the existing signal; explicit UTF-8 reads preserve the table comparison rather than weakening it. |
+
+The review also covered CMake/test registration, model headers and ownership,
+touchpoint classifications and manifest changes, ASIO contributor documentation,
+and generated Log Analyzer citation shifts. No new thread, external dependency,
+capability or TX-keying route appears in this cleanup diff. The two settings
+model touchpoints replace direct GUI consumers; their manifest rows remain
+unconverted and do not claim a daemon protocol migration. No frozen baseline or
+vendor classification was weakened.
+
+Existing test/build results above are the verification evidence; this prose
+adds no new test run. Required PR checks, independent/CODEOWNERS review,
+inherited architecture approval and the unqualified hardware behaviors remain
+open. The operator RX observations do not identify an exact executable revision.
+
 ## Outstanding validation
 
 - Continue the approval search beyond #5554, #5262, #6106 and #3242, which were read.
