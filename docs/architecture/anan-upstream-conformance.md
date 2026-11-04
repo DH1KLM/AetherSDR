@@ -283,6 +283,46 @@ connection seeding and manual discovery transport remain staged migration
 touchpoints, not automatic evidence that every retained include is a new
 violation. None of the local green checks grants architecture or TX approval.
 
+## Fork build qualification at f1e80b89
+
+The signed branch was pushed to DH1KLM/AetherSDR. Manual workflows ran against
+`f1e80b89b846dfd6c063f337a9f94662339c9b96` on 2026-11-04:
+
+- [AppImage run](https://github.com/DH1KLM/AetherSDR/actions/runs/41815378368):
+  Linux x86_64 and ARM64 jobs succeeded, including packaging and runtime-closure
+  checks. Release attachment was skipped.
+- [macOS run](https://github.com/DH1KLM/AetherSDR/actions/runs/41815391178):
+  Apple Silicon and Intel build jobs succeeded, including binary and bundled
+  framework checks and unsigned bundle upload. Signing/notarization was skipped;
+  both subsequent app-update tarball jobs were cancelled. This is successful
+  application build evidence, not a fully successful release workflow.
+
+These packaging workflows do not replace the required PR CI test gate.
+The consolidated Windows CTest pass covered seven targets:
+anan_implementation_test, anan_discovery_test,
+radio_setup_anan_sample_rate_test, backend_seam_affinity_test,
+connection_panel_size_test, asio_output_test and asio_settings_model_test.
+All seven passed with the Qt runtime directory on PATH.
+
+A clean docs/user npm ci followed by npm run build also succeeded. npm audit
+reported 34 affected dependency nodes (3 low, 11 moderate, 5 high, 15 critical).
+Many critical nodes inherit the same Tinypool advisory classification through
+Docusaurus. Package files were unchanged by this cleanup; no exploitation was
+established. [Fork issue #8](https://github.com/DH1KLM/AetherSDR/issues/8)
+tracks separate dependency triage. No forced dependency update was applied.
+
+Review should distinguish the seven implemented cleanup issues from approval of
+the inherited feature architecture. Issues #1 through #7 remain open pending
+review and integration. No upstream PR, tag or release was created.
+
+Before an RX qualification session, record the exact radio model, firmware,
+P1/P2 protocol, original/extended implementation, connection method and host
+audio configuration. Compare discovery, connection, slice-0 reception,
+disconnect/reconnect and saved-profile behavior with the preserved original
+branch. Capture logs and observations for each result. No live-radio or ASIO
+driver behavior is established by the builds above; TX needs its own approved
+hardware-specific procedure.
+
 ## Outstanding validation
 
 - Continue the approval search beyond #5554, #5262, #6106 and #3242, which were read.
