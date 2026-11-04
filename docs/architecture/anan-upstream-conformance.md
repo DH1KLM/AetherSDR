@@ -93,6 +93,41 @@ The accessibility checker reports no findings in the ASIO widget and nine in
 RadioSetupDialog; comparing the before/after findings with line shifts ignored
 confirms all nine predate this cleanup.
 
+## Connection panel audit and next bounded cleanup
+
+The first two cleanups are saved as signed commits `1ef0077e` (ANAN request
+mapping) and `1f7c18b9` (ASIO model and audit). Both signatures were verified
+locally. They have not been pushed.
+
+Inspection of the remaining GUI touchpoints identifies three separate scopes:
+
+| Surface | Current ownership | Next action |
+| --- | --- | --- |
+| ConnectionPanel manual profile picker | GUI embeds the AnanModel choice table and numeric sentinel choices | Expose the same ordered choices and opaque IDs from the existing backend-local selection facade; preserve labels, order and omissions. |
+| ConnectionPanel::probeAnan | GUI sends/parses discovery, constructs physical RadioInfo, resolves saved/explicit model and protocol, validates receive profiles and writes preferences | First isolate selection resolution through the existing AnanImplementation facade. Keep unsupported-board refusal, protocol-mismatch retry and persistence failure distinct. Do not combine this with transport migration. |
+| RadioSetupDialog_Saturn | GUI directly calls implementation preference and original-option helpers | A later model-facing extraction must preserve disconnected selection, per-radio/family fallback, original-option routing and active-session identity guards. |
+
+RadioSetupDialog_Anan already uses RadioModel and the extension route rather
+than including AnanSettings or AnanImplementation. It is not evidence of the
+same direct-header defect merely because it is an ANAN-specific page.
+
+Broadcast discovery already constructs physical RadioInfo inside AnanDiscovery;
+the manual path repeats board/name/MAC/version/status mapping. That duplication
+is a further extraction candidate, but its removal must retain routed-address
+and source-bind metadata. The existing P2Protocol include in ConnectionPanel
+predates this fork; do not classify its mere presence as a newly introduced
+vendor include. The added P1 behavior and GUI hardware policy need their own
+review regardless of the unchanged include baseline.
+
+The next implementation should cover one selection path at a time, without
+starting the deferred cross-family connector registry or adding a generic
+backend interface. Before editing it, create and claim a separate fork issue.
+Required socket-free cases: saved/explicit/automatic choices; original Saturn
+versus another board or P1; incompatible protocol ignored without saving;
+invalid/future saved profile; override off/on; failed persistence; and preserved
+physical identity. Existing picker labels and button behavior must remain the
+same. A full directed-probe transport replacement is a separate design scope.
+
 ## Outstanding validation
 
 - Continue the approval search beyond #5554, #5262, #6106 and #3242, which were read.
