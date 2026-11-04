@@ -1,5 +1,7 @@
 #include "AnanImplementation.h"
 #include "AnanBackend.h"
+#include "AnanSettings.h"
+#include "P2Protocol.h"
 #include "core/backends/anan_original/AnanBackend.h"
 #include "core/backends/anan_original/AnanSettings.h"
 #include "core/RadioSettingsScope.h"
@@ -56,6 +58,59 @@ RadioInfo AnanImplementation::selected(const RadioInfo& radio)
 {
     RadioInfo result = radio;
     if (isSaturn(radio)) { result.implementation = preferred(radio.serial); }
+    return result;
+}
+
+AnanImplementation::ManualSelectionResult AnanImplementation::selectForManualConnect(
+    const RadioInfo& radio, const ManualSelection& selection)
+{
+    ManualSelectionResult result;
+    result.radio = radio;
+    if (selection.protocol > 0 && selection.protocol != radio.hpsdrProtocol) {
+        result.status = ManualSelectionStatus::IgnoreProtocol;
+        return result;
+    }
+    const bool originalChoice = selection.profileId == -200
+        || (selection.profileId == -100 && isSaturn(radio) && preferred(radio.serial) == originalId());
+    if (originalChoice) {
+        if (!isSaturn(radio)) {
+            result.status = ManualSelectionStatus::OriginalUnavailable;
+            return result;
+        }
+        result.radio.implementation = originalId();
+    } else {
+        const AnanSettings::RadioProfile saved = AnanSettings::radioProfile(radio.serial);
+        const AnanModel model = selection.profileId == -100
+            ? saved.model : static_cast<AnanModel>(selection.profileId);
+        const int protocol = selection.protocol < 0 ? saved.protocol : selection.protocol;
+        const bool overrideDetection = selection.overrideDetection.value_or(saved.overrideDetection);
+        if (protocol > 0 && protocol != radio.hpsdrProtocol) {
+            result.status = ManualSelectionStatus::IgnoreProtocol;
+            return result;
+        }
+        if ((!saved.valid && (selection.profileId == -100 || selection.protocol < 0
+                             || !selection.overrideDetection.has_value()))
+            || !receiveProfile(radio.boardId, model, overrideDetection)) {
+            result.status = overrideDetection ? ManualSelectionStatus::InvalidOverride
+                                              : ManualSelectionStatus::InvalidProfile;
+            return result;
+        }
+        if (selection.profileId != -100 || selection.protocol >= 0 || selection.overrideDetection.has_value()) {
+            if (!AnanSettings::setRadioProfile(radio.serial, model, protocol, overrideDetection)) {
+                result.status = ManualSelectionStatus::ProfileSaveFailed;
+                return result;
+            }
+            // A successful profile write consumes the explicit selection even
+            // if the separate implementation preference cannot be saved.
+            result.resetChoices = true;
+        }
+    }
+    if (isSaturn(radio) && !setPreferred(radio.serial, result.radio.implementation)) {
+        result.status = ManualSelectionStatus::ImplementationSaveFailed;
+        return result;
+    }
+    result.status = ManualSelectionStatus::Accepted;
+    result.resetChoices = true;
     return result;
 }
 

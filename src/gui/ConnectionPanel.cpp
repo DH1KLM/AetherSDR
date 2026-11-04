@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 
 #include <QAbstractItemView>
@@ -3640,54 +3641,45 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             info.model    = QString::fromLatin1(reply->boardDisplayName());
             info.name     = info.model;
             info.serial   = anan::AnanDiscovery::macToSerial(reply->mac);
-            const int modelChoice = m_manualAnanProfileCombo->currentData().toInt();
-            const bool originalChoice = modelChoice == -200 || (modelChoice == -100
-                && anan::AnanImplementation::isSaturn(info)
-                && anan::AnanImplementation::preferred(info.serial) == anan::AnanImplementation::originalId());
-            if (originalChoice) {
-                if (!anan::AnanImplementation::isSaturn(info)) {
-                    setManualMessage(tr("The original Saturn implementation requires Board 10 and Protocol 2."), true);
-                    return AnanProbeResult::Answered;
-                }
-                info.implementation = anan::AnanImplementation::originalId();
-            } else {
-                const auto saved = anan::AnanSettings::radioProfile(info.serial);
-                const auto model = modelChoice == -100 ? saved.model : static_cast<anan::AnanModel>(modelChoice);
-                const int desiredProtocol = protocolChoice < 0 ? saved.protocol : protocolChoice;
-                const auto overrideState = m_manualAnanOverrideCheck->checkState();
-                const bool overrideDetection = overrideState == Qt::PartiallyChecked
-                    ? saved.overrideDetection : overrideState == Qt::Checked;
-                if (desiredProtocol > 0 && desiredProtocol != reply->wireProtocol) { continue; }
-                if ((!saved.valid && (modelChoice == -100 || protocolChoice < 0
-                                      || overrideState == Qt::PartiallyChecked))
-                    || !anan::receiveProfile(info.boardId, model, overrideDetection)) {
-                    const QString reason = overrideDetection
-                        ? tr("Board override requires an explicit supported receive profile. Check the saved model and protocol settings.")
-                        : tr("The selected or saved model does not match this radio's board. Enable Override detection only for a deliberate hardware override.");
-                    setManualMessage(reason, true);
-                    reportStartupProbeFailure(reason);
-                    return AnanProbeResult::Answered;
-                }
-                if (modelChoice != -100 || protocolChoice >= 0 || overrideState != Qt::PartiallyChecked) {
-                    if (!anan::AnanSettings::setRadioProfile(info.serial, model, desiredProtocol, overrideDetection)) {
-                        setManualMessage(tr("Could not save this radio's receive profile."), true);
-                        reportStartupProbeFailure(tr("Could not save this radio's receive profile."));
-                        return AnanProbeResult::Answered;
-                    }
-                    m_manualAnanProfileCombo->setCurrentIndex(0);
-                    m_manualAnanProtocolCombo->setCurrentIndex(0);
-                    m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
-                }
+            using Selection = anan::AnanImplementation::ManualSelection;
+            using SelectionStatus = anan::AnanImplementation::ManualSelectionStatus;
+            const Qt::CheckState overrideState = m_manualAnanOverrideCheck->checkState();
+            const Selection selection{m_manualAnanProfileCombo->currentData().toInt(), protocolChoice,
+                overrideState == Qt::PartiallyChecked ? std::nullopt
+                    : std::optional<bool>(overrideState == Qt::Checked)};
+            const anan::AnanImplementation::ManualSelectionResult resolved =
+                anan::AnanImplementation::selectForManualConnect(info, selection);
+            if (resolved.resetChoices) {
+                m_manualAnanProfileCombo->setCurrentIndex(0);
+                m_manualAnanProtocolCombo->setCurrentIndex(0);
+                m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
             }
-            if (anan::AnanImplementation::isSaturn(info)
-                && !anan::AnanImplementation::setPreferred(info.serial, info.implementation)) {
-                setManualMessage(tr("Could not save the selected Saturn implementation."), true);
+            switch (resolved.status) {
+            case SelectionStatus::IgnoreProtocol:
+                continue;
+            case SelectionStatus::OriginalUnavailable:
+                setManualMessage(tr("The original Saturn implementation requires Board 10 and Protocol 2."), true);
+                return AnanProbeResult::Answered;
+            case SelectionStatus::InvalidProfile:
+            case SelectionStatus::InvalidOverride: {
+                const QString reason = resolved.status == SelectionStatus::InvalidOverride
+                    ? tr("Board override requires an explicit supported receive profile. Check the saved model and protocol settings.")
+                    : tr("The selected or saved model does not match this radio's board. Enable Override detection only for a deliberate hardware override.");
+                setManualMessage(reason, true);
+                reportStartupProbeFailure(reason);
                 return AnanProbeResult::Answered;
             }
-            // An explicit original choice must not follow the next, unrelated radio address.
-            m_manualAnanProfileCombo->setCurrentIndex(0);
-            m_manualAnanProtocolCombo->setCurrentIndex(0);
-            m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
+            case SelectionStatus::ProfileSaveFailed:
+                setManualMessage(tr("Could not save this radio's receive profile."), true);
+                reportStartupProbeFailure(tr("Could not save this radio's receive profile."));
+                return AnanProbeResult::Answered;
+            case SelectionStatus::ImplementationSaveFailed:
+                setManualMessage(tr("Could not save the selected Saturn implementation."), true);
+                return AnanProbeResult::Answered;
+            case SelectionStatus::Accepted:
+                info = resolved.radio;
+                break;
+            }
             anan::AnanSettings::applyRadioProfileDisplay(info);
             info.nickname = anan::AnanDiscovery::effectiveNickname(info.family, info.serial,
                                                                     info.model);

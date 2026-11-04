@@ -9,8 +9,119 @@
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <cstdio>
+#include <optional>
 
 using namespace AetherSDR;
+
+static int manualSelectionTests()
+{
+    using anan::AnanImplementation;
+    using anan::AnanModel;
+    using anan::AnanSettings;
+    using Selection = AnanImplementation::ManualSelection;
+    using Status = AnanImplementation::ManualSelectionStatus;
+    int failures = 0;
+    const auto check = [&](bool ok, const char* message) {
+        std::printf("%s %s\n", ok ? "PASS" : "FAIL", message);
+        if (!ok) { ++failures; }
+    };
+    RadioInfo radio;
+    radio.family = QStringLiteral("anan");
+    radio.serial = QStringLiteral("00:11:22:33:44:A0");
+    radio.boardId = 10;
+    radio.hpsdrProtocol = 2;
+    radio.address = QHostAddress(QStringLiteral("192.0.2.4"));
+    radio.port = 1024;
+    radio.model = QStringLiteral("Physical Saturn");
+    const RadioSettingsScope scope(QStringLiteral("anan"), radio.serial);
+    const QString hardware = QStringLiteral("HardwareProfile");
+    const QString implementation = QStringLiteral("Implementation");
+    auto result = AnanImplementation::selectForManualConnect(radio, {});
+    check(result.status == Status::Accepted && result.resetChoices && scope.featureExact(hardware).isEmpty(),
+          "saved automatic selection connects without creating a hardware override");
+    check(result.radio.address == radio.address && result.radio.serial == radio.serial
+        && result.radio.boardId == radio.boardId && result.radio.hpsdrProtocol == radio.hpsdrProtocol
+        && result.radio.model == radio.model && result.radio.port == radio.port,
+          "manual profile resolution preserves physical discovery identity");
+    check(AnanImplementation::setPreferred(radio.serial, AnanImplementation::originalId()), "seed original preference");
+    result = AnanImplementation::selectForManualConnect(radio, {});
+    check(result.status == Status::Accepted && result.radio.implementation == AnanImplementation::originalId(),
+          "saved original preference resolves to the original backend");
+    const Selection explicitG2{static_cast<int>(AnanModel::AnanG2), 0, false};
+    result = AnanImplementation::selectForManualConnect(radio, explicitG2);
+    check(result.status == Status::Accepted && result.radio.implementation.isEmpty()
+        && AnanImplementation::preferred(radio.serial).isEmpty()
+        && AnanSettings::radioProfile(radio.serial).model == AnanModel::AnanG2,
+          "explicit extended profile replaces an original preference");
+    check(AnanSettings::setRadioProfile(radio.serial, AnanModel::AnanG2, 1), "seed saved P1 preference");
+    const QJsonObject beforeMismatch = scope.featureExact(hardware);
+    result = AnanImplementation::selectForManualConnect(radio, {});
+    check(result.status == Status::IgnoreProtocol && !result.resetChoices
+        && scope.featureExact(hardware) == beforeMismatch,
+          "saved protocol mismatch is ignored without consuming choices or saving");
+    result = AnanImplementation::selectForManualConnect(radio, Selection{-100, 2, std::nullopt});
+    check(result.status == Status::Accepted && AnanSettings::radioProfile(radio.serial).protocol == 2,
+          "explicit protocol replaces the saved preference");
+    const QJsonObject beforeOverride = scope.featureExact(hardware);
+    const Selection mismatched{static_cast<int>(AnanModel::Anan200D), 0, false};
+    result = AnanImplementation::selectForManualConnect(radio, mismatched);
+    check(result.status == Status::InvalidProfile && !result.resetChoices
+        && scope.featureExact(hardware) == beforeOverride,
+          "board mismatch without override refuses before persistence");
+    result = AnanImplementation::selectForManualConnect(radio,
+        Selection{static_cast<int>(AnanModel::Anan200D), 0, true});
+    check(result.status == Status::Accepted && AnanSettings::radioProfile(radio.serial).overrideDetection,
+          "explicit supported board override is retained");
+    result = AnanImplementation::selectForManualConnect(radio, {});
+    check(result.status == Status::Accepted && AnanSettings::radioProfile(radio.serial).overrideDetection,
+          "saved override is used when its control is unspecified");
+    result = AnanImplementation::selectForManualConnect(radio, Selection{-1, 0, true});
+    check(result.status == Status::InvalidOverride && !result.resetChoices,
+          "automatic profile cannot acquire an explicit board override");
+    result = AnanImplementation::selectForManualConnect(radio, Selection{-200, 1, std::nullopt});
+    check(result.status == Status::IgnoreProtocol, "explicit wire protocol also constrains original selection");
+    radio.hpsdrProtocol = 1;
+    result = AnanImplementation::selectForManualConnect(radio, Selection{-200, 0, std::nullopt});
+    check(result.status == Status::OriginalUnavailable, "original implementation refuses P1");
+    radio.hpsdrProtocol = 2;
+    radio.boardId = 20;
+    result = AnanImplementation::selectForManualConnect(radio, Selection{-200, 0, std::nullopt});
+    check(result.status == Status::OriginalUnavailable, "original implementation refuses non-Saturn boards");
+    radio.boardId = 10;
+    radio.serial = QStringLiteral("00:11:22:33:44:A1");
+    const RadioSettingsScope futureScope(QStringLiteral("anan"), radio.serial);
+    const QJsonObject future{{QStringLiteral("future"), true}};
+    check(futureScope.setFeature(hardware, 99, future), "seed future hardware profile");
+    result = AnanImplementation::selectForManualConnect(radio, {});
+    check(result.status == Status::InvalidProfile && !result.resetChoices,
+          "saved future hardware profile cannot resolve a selection");
+    result = AnanImplementation::selectForManualConnect(radio, explicitG2);
+    check(result.status == Status::ProfileSaveFailed && !result.resetChoices
+        && futureScope.featureExact(hardware) == future && futureScope.featureExact(implementation).isEmpty(),
+          "explicit selection cannot overwrite a future profile or save implementation after failure");
+    check(futureScope.setFeature(hardware, 3, QJsonObject{{QStringLiteral("model"), 999},
+        {QStringLiteral("protocol"), 0}, {QStringLiteral("overrideDetection"), false}}), "seed invalid saved model");
+    result = AnanImplementation::selectForManualConnect(radio, {});
+    check(result.status == Status::InvalidProfile, "invalid saved model is refused");
+    radio.serial = QStringLiteral("00:11:22:33:44:A2");
+    const RadioSettingsScope failedImplementation(QStringLiteral("anan"), radio.serial);
+    check(failedImplementation.setFeature(implementation, 99, future), "seed future implementation preference");
+    result = AnanImplementation::selectForManualConnect(radio, {});
+    check(result.status == Status::ImplementationSaveFailed && !result.resetChoices
+        && failedImplementation.featureExact(hardware).isEmpty(),
+          "implementation failure without profile edit retains explicit controls");
+    result = AnanImplementation::selectForManualConnect(radio, explicitG2);
+    check(result.status == Status::ImplementationSaveFailed && result.resetChoices
+        && AnanSettings::radioProfile(radio.serial).model == AnanModel::AnanG2
+        && failedImplementation.featureExact(implementation) == future,
+          "successful profile write consumes choices even if implementation persistence fails");
+    radio.serial.clear();
+    result = AnanImplementation::selectForManualConnect(radio, explicitG2);
+    check(result.status == Status::ProfileSaveFailed && !result.resetChoices,
+          "unknown identity cannot persist an explicit hardware profile");
+    return failures;
+}
+
 int main(int argc, char** argv)
 {
     TestSettingsProfile profile(QStringLiteral("anan-implementation"));
@@ -125,5 +236,6 @@ int main(int argc, char** argv)
     const auto ddc = anan_original::buildDdcSpecific();
     check(ddc[4] == 2, "original DDC packet still declares its two physical ADCs");
     AnanImplementation::setOriginalOption(QStringLiteral("ddc0RateKsps"), originalBefore.value(QStringLiteral("ddc0RateKsps")));
+    failures += manualSelectionTests();
     return failures == 0 ? 0 : 1;
 }

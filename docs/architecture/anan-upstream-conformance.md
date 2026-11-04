@@ -128,6 +128,37 @@ invalid/future saved profile; override off/on; failed persistence; and preserved
 physical identity. Existing picker labels and button behavior must remain the
 same. A full directed-probe transport replacement is a separate design scope.
 
+## Manual profile resolution cleanup
+
+[DH1KLM/AetherSDR #3](https://github.com/DH1KLM/AetherSDR/issues/3) was created
+and assigned before this change. ConnectionPanel now passes the selected
+profile ID, protocol and optional override value to the existing
+AnanImplementation facade. It receives distinct accepted, ignored-protocol,
+invalid-profile/override, incompatible-original and persistence-failure results.
+The panel retains its current input controls, messages and transport loop.
+
+The helper owns saved-profile resolution, physical-board compatibility,
+original Saturn/P2 eligibility and the existing preference writes. A successful
+hardware-profile write consumes the controls even if the subsequent, separate
+implementation-preference write fails, matching the previous panel behavior.
+Future-schema refusal and per-radio persistence still use the existing settings
+methods. No generic connector or backend interface was added.
+
+The expanded socket-free implementation test passes. It covers saved,
+automatic, explicit and original selections; physical identity; protocol
+mismatch without saving; override validation; invalid/future saved profiles;
+refused profile/implementation writes and the partial-success reset case.
+Engine-boundary, capability, command-plane, manifest and QSettings checks pass.
+The manifest requires no regeneration; accessibility findings in ConnectionPanel
+match the preceding commit when shifted line numbers are ignored.
+The complete Windows desktop target and the expanded implementation-test target
+built successfully; CTest passed anan_implementation_test. No live directed
+probe, audio driver or radio session was started for this validation.
+
+The GUI profile-choice table, physical discovery-to-RadioInfo construction and
+Saturn setup facade remain separate follow-up scopes. This cleanup does not
+complete the entire connector migration or establish firmware qualification.
+
 ## Outstanding validation
 
 - Continue the approval search beyond #5554, #5262, #6106 and #3242, which were read.
