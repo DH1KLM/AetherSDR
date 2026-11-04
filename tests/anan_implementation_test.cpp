@@ -53,6 +53,42 @@ int main(int argc, char** argv)
     check(!request.params.contains(QStringLiteral("anan.model")) && !request.params.contains(QStringLiteral("anan.overrideDetection"))
         && request.params.value(QStringLiteral("anan.ddc0RateKsps")).toInt() == 96
         && request.params.value(QStringLiteral("other.keep")).toInt() == 4, "original connect ignores extended override and uses its own config");
+    RadioInfo selected = physical;
+    selected.implementation = AnanImplementation::originalId();
+    RadioConnectRequest originalRequest;
+    originalRequest.params = {{QStringLiteral("anan.model"), 7}, {QStringLiteral("other.keep"), 4}};
+    AnanImplementation::populateParams(originalRequest, selected);
+    check(originalRequest.params.value(QStringLiteral("anan.boardId"), -1).toInt() == 10
+        && originalRequest.params.value(QStringLiteral("anan.protocol"), -1).toInt() == 2
+        && originalRequest.params.value(QStringLiteral("anan.ddc0RateKsps")).toInt() == 96
+        && !originalRequest.params.contains(QStringLiteral("anan.model"))
+        && originalRequest.params.value(QStringLiteral("other.keep")).toInt() == 4,
+          "original option reset retains discovered identity and unrelated parameters");
+    selected.implementation.clear();
+    selected.boardId = 0;
+    selected.hpsdrProtocol = 1;
+    RadioConnectRequest p1Request;
+    p1Request.params.insert(QStringLiteral("anan.model"), 7);
+    AnanImplementation::populateParams(p1Request, selected);
+    check(p1Request.params.value(QStringLiteral("anan.boardId"), -1).toInt() == 0
+        && p1Request.params.value(QStringLiteral("anan.protocol"), -1).toInt() == 1
+        && p1Request.params.value(QStringLiteral("anan.model"), -1).toInt() == 7,
+          "P1 board zero and extended profile options survive request preparation");
+    selected.family = QStringLiteral("ANAN");
+    selected.boardId = -1;
+    selected.hpsdrProtocol = 0;
+    RadioConnectRequest manualRequest;
+    AnanImplementation::populateParams(manualRequest, selected);
+    check(!manualRequest.params.contains(QStringLiteral("anan.boardId"))
+        && manualRequest.params.value(QStringLiteral("anan.protocol"), -1).toInt() == 2,
+          "case-insensitive family and address-only P2 default retain existing behavior");
+    selected.family = QStringLiteral("icom");
+    selected.implementation = AnanImplementation::originalId();
+    RadioConnectRequest foreignRequest;
+    foreignRequest.params.insert(QStringLiteral("icom.waitingForWake"), true);
+    const QVariantMap foreignBefore = foreignRequest.params;
+    AnanImplementation::populateParams(foreignRequest, selected);
+    check(foreignRequest.params == foreignBefore, "non-ANAN wake requests remain untouched");
     auto extended = AnanImplementation::makeBackend({});
     auto original = AnanImplementation::makeBackend(AnanImplementation::originalId());
     check(extended && original && QByteArray(extended->metaObject()->className()) != original->metaObject()->className(),

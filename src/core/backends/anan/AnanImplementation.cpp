@@ -72,6 +72,20 @@ QVariantMap AnanImplementation::originalOptions()
             {QStringLiteral("speakerAmpMuted"), OriginalSettings::speakerAmpMuted()}};
 }
 
+void AnanImplementation::populateParams(RadioConnectRequest& request, const RadioInfo& radio)
+{
+    if (radio.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) != 0) {
+        return;
+    }
+    populateParams(request, radio.implementation);
+    // Identity follows implementation options so the original variant's reset
+    // cannot discard the physical board and discovered protocol.
+    if (radio.boardId >= 0) {
+        request.params.insert(QStringLiteral("anan.boardId"), radio.boardId);
+    }
+    request.params.insert(QStringLiteral("anan.protocol"), radio.hpsdrProtocol == 1 ? 1 : 2);
+}
+
 void AnanImplementation::populateParams(RadioConnectRequest& request, const QString& implementation)
 {
     if (implementation != originalId()) { return; }

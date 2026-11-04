@@ -16,6 +16,7 @@ public:
     static QString preferred(const QString& serial);
     static bool setPreferred(const QString& serial, const QString& implementation);
     static RadioInfo selected(const RadioInfo& radio);
+    static void populateParams(RadioConnectRequest& request, const RadioInfo& radio);
     static void populateParams(RadioConnectRequest& request, const QString& implementation);
     static QVariantMap originalOptions();
     static void setOriginalOption(const QString& name, const QVariant& value);
