@@ -323,6 +323,26 @@ branch. Capture logs and observations for each result. No live-radio or ASIO
 driver behavior is established by the builds above; TX needs its own approved
 hardware-specific procedure.
 
+## Operator-reported RX checks
+
+DH1KLM reported successful manual checks for these hardware configurations:
+
+| Radio | Firmware | Protocol | Implementation/profile |
+|---|---|---|---|
+| Anvelina Pro III | v2.2.15 | P2 | Original |
+| Red Pitaya | v3.2 (20251012) | P1 | Extended, ANAN-200D |
+
+For both configurations, the operator confirmed spectrum, waterfall and audio
+on slice 0; frequency, mode and filter changes; disconnect/reconnect without
+restarting AetherSDR; and operation after restarting AetherSDR.
+
+These are operator observations supplied in the chat, not agent-observed tests.
+The exact executable revision, connection method, host audio configuration,
+logs and a comparison run against the preserved original branch were not
+provided. They support the listed RX behavior for these two configurations,
+without establishing other models, firmware versions, multi-RX, TX or live
+ASIO behavior.
+
 ## Outstanding validation
 
 - Continue the approval search beyond #5554, #5262, #6106 and #3242, which were read.
