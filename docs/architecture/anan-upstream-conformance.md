@@ -104,17 +104,17 @@ Inspection of the remaining GUI touchpoints identifies three separate scopes:
 | Surface | Current ownership | Next action |
 | --- | --- | --- |
 | ConnectionPanel manual profile picker | Backend facade supplies the operating-profile choice table; GUI retains saved/original wrapper entries | Choice-table extraction implemented under fork #4, preserving captions, order, IDs and omissions. |
-| ConnectionPanel::probeAnan | GUI sends/parses discovery, constructs physical RadioInfo, resolves saved/explicit model and protocol, validates receive profiles and writes preferences | First isolate selection resolution through the existing AnanImplementation facade. Keep unsupported-board refusal, protocol-mismatch retry and persistence failure distinct. Do not combine this with transport migration. |
+| ConnectionPanel::probeAnan | GUI retains discovery transport and presentation; backend helpers normalize replies and resolve selection | Selection and identity extractions are implemented under fork #3/#5. Any transport migration remains a separate design scope. |
 | RadioSetupDialog_Saturn | GUI directly calls implementation preference and original-option helpers | A later model-facing extraction must preserve disconnected selection, per-radio/family fallback, original-option routing and active-session identity guards. |
 
 RadioSetupDialog_Anan already uses RadioModel and the extension route rather
 than including AnanSettings or AnanImplementation. It is not evidence of the
 same direct-header defect merely because it is an ANAN-specific page.
 
-Broadcast discovery already constructs physical RadioInfo inside AnanDiscovery;
-the manual path repeats board/name/MAC/version/status mapping. That duplication
-is a further extraction candidate, but its removal must retain routed-address
-and source-bind metadata. The existing P2Protocol include in ConnectionPanel
+At the connector audit baseline, broadcast discovery constructed physical
+RadioInfo inside AnanDiscovery while the manual path repeated its mapping.
+The shared normalizer described below removes that duplication and leaves
+routed-address and source-bind metadata with the caller. The P2Protocol include in ConnectionPanel
 predates this fork; do not classify its mere presence as a newly introduced
 vendor include. The added P1 behavior and GUI hardware policy need their own
 review regardless of the unchanged include baseline.
@@ -155,8 +155,7 @@ The complete Windows desktop target and the expanded implementation-test target
 built successfully; CTest passed anan_implementation_test. No live directed
 probe, audio driver or radio session was started for this validation.
 
-Physical discovery-to-RadioInfo construction and the Saturn setup facade
-remain separate follow-up scopes. This cleanup does not
+The Saturn setup facade remains a separate follow-up scope. This cleanup does not
 complete the entire connector migration or establish firmware qualification.
 
 ## Manual profile choice cleanup
@@ -178,6 +177,36 @@ The complete Windows desktop and both affected test targets built successfully.
 CTest passed connection_panel_size_test and anan_implementation_test (2/2)
 after extraction. The existing GUI test confirms unchanged captions/order and
 G2/original routing IDs. No live radio or audio-driver validation was performed.
+
+## Shared discovery identity normalization
+
+[DH1KLM/AetherSDR #5](https://github.com/DH1KLM/AetherSDR/issues/5) was created
+and assigned before this change. AnanDiscovery::fromDiscoveryReply accepts a
+datagram, address and optional directed source port, reuses the existing P1/P2
+parsers, and returns physical RadioInfo without loading settings. Its public
+signature exposes no vendor wire payload type.
+
+Both broadcast and manual discovery use this normalization for family, board,
+protocol, address, radio port, physical name, MAC, integer firmware version,
+gateware label and in-use status. Profile admission remains with each caller:
+automatic listing still requires a qualified receive profile, while manual
+connection can report a recognized but unqualified board. Source-IP matching,
+directed source-port policy, protocol preference, busy-radio refusal and bind/
+routed metadata retain their existing paths. Discovery never authorizes TX.
+
+Socket-free fixtures cover corresponding P1/P2 Orion MkII identities, canonical
+MAC rendering, unmodified shared-board names, protocol-specific firmware labels,
+available/busy status, recognized-but-unqualified identities, unknown boards,
+truncation and directed port acceptance/refusal (including P2 port zero).
+The four conformance checks pass with unchanged accessibility findings and
+no additional GUI headers or touchpoint-manifest changes.
+CTest passed the expanded anan_discovery_test. The Log Analyzer maintenance
+tool refreshed 15 moved source-line citations, including earlier RadioModel
+cleanup offsets; only line numbers changed. All 767 checks across 49 log rules
+pass after that generated update.
+The Windows desktop and both affected test targets built successfully, and
+connection_panel_size_test also passed after the build. No live discovery
+traffic or radio/audio-driver session was used for validation.
 
 ## Outstanding validation
 

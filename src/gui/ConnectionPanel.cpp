@@ -3574,40 +3574,28 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             if (datagram.senderAddress() != dest)
                 continue;
             const QByteArray d = datagram.data();
-            const auto reply = anan::parseDirectedDiscoveryReply(
-                std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t*>(d.constData()), std::size_t(d.size())),
-                static_cast<std::uint16_t>(datagram.senderPort()));
+            const std::optional<RadioInfo> discovered = anan::AnanDiscovery::fromDiscoveryReply(
+                d, dest, static_cast<quint16>(datagram.senderPort()));
             // Discovery can identify several Thetis board families, but
             // only implemented RX profiles may proceed to the session. Discovery
             // still labels the physical family rather than guessing a SKU.
-            if (!reply || !reply->isSupportedOpenHpsdrBoard()
-                || (preferP1 && reply->wireProtocol != 1)
-                || (protocolChoice == 2 && reply->wireProtocol != 2))
+            if (!discovered || (preferP1 && discovered->hpsdrProtocol != 1)
+                || (protocolChoice == 2 && discovered->hpsdrProtocol != 2))
                 continue;
             resetManualConnectButton();
-            if (!anan::receiveProfile(reply->boardId)) {
+            if (!anan::receiveProfile(discovered->boardId)) {
                 setManualMessage(
                     QStringLiteral("Detected %1 at %2, but AetherSDR's ANAN backend "
                                    "does not yet have a verified hardware profile for it.")
-                        .arg(QString::fromLatin1(reply->boardDisplayName()), dest.toString()),
+                        .arg(discovered->model, dest.toString()),
                     true);
                 reportStartupProbeFailure(
                     QStringLiteral("Detected unsupported OpenHPSDR board ID %1 at %2.")
-                        .arg(static_cast<int>(reply->boardId)).arg(dest.toString()));
+                        .arg(discovered->boardId).arg(dest.toString()));
                 return AnanProbeResult::Answered;
             }
 
-            RadioInfo info;
-            info.family   = QString::fromLatin1(kFamilyAnan);
-            // Keep the physical identity on the manual-connect path too.
-            info.boardId  = reply->boardId;
-            info.hpsdrProtocol = reply->wireProtocol;
-            info.address  = dest;
-            info.port     = anan::kRadioPort;
-            info.model    = QString::fromLatin1(reply->boardDisplayName());
-            info.name     = info.model;
-            info.serial   = anan::AnanDiscovery::macToSerial(reply->mac);
+            RadioInfo info = *discovered;
             using Selection = anan::AnanImplementation::ManualSelection;
             using SelectionStatus = anan::AnanImplementation::ManualSelectionStatus;
             const Qt::CheckState overrideState = m_manualAnanOverrideCheck->checkState();
@@ -3650,15 +3638,6 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             anan::AnanSettings::applyRadioProfileDisplay(info);
             info.nickname = anan::AnanDiscovery::effectiveNickname(info.family, info.serial,
                                                                     info.model);
-            info.version  = QString::number(reply->firmwareVer);
-            // A bare integer is a gateware bitstream number, not a software
-            // version (discrepancy #1, see P2Protocol.h's DiscoveryReply) --
-            // same label the broadcast path sets.
-            info.versionLabel = reply->wireProtocol == 1 ? QStringLiteral("P1 Gateware")
-                                                       : QStringLiteral("P2 Gateware");
-            info.inUse    = reply->streaming;
-            info.status   = reply->streaming ? QStringLiteral("In_Use")
-                                             : QStringLiteral("Available");
             info.isRouted           = true;
             info.bindSettings       = bindSettings;
             info.sessionBindAddress = bindSettings.mode == RadioBindMode::Explicit
@@ -3667,7 +3646,7 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
 
             resetManualConnectButton();
 
-            if (reply->streaming) {
+            if (info.inUse) {
                 // openHPSDR Protocol 2 is single-client, same as Protocol 1.
                 // Fail closed rather than wedging both clients.
                 setManualMessage(

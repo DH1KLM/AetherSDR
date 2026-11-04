@@ -3,6 +3,7 @@
 #include "core/RadioDiscovery.h"   // RadioInfo
 
 #include <QHash>
+#include <QByteArray>
 #include <QHostAddress>
 #include <QSet>
 #include <QList>
@@ -15,6 +16,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 
 class QTimer;
 class QUdpSocket;
@@ -78,6 +80,12 @@ public:
     void sweepNow();
 
     [[nodiscard]] bool isRunning() const noexcept;
+
+    // Physical identity only; callers retain profile admission and routed/bind
+    // metadata. A directed source port engages the existing endpoint checks.
+    [[nodiscard]] static std::optional<RadioInfo> fromDiscoveryReply(
+        const QByteArray& data, const QHostAddress& address,
+        std::optional<quint16> directedSourcePort = std::nullopt);
 
     // Every address one sweep sends its discovery datagram to, built from the
     // host's own interface addresses.
