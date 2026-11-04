@@ -323,7 +323,7 @@ branch. Capture logs and observations for each result. No live-radio or ASIO
 driver behavior is established by the builds above; TX needs its own approved
 hardware-specific procedure.
 
-## Operator-reported RX checks
+## Operator-reported hardware checks
 
 DH1KLM reported successful manual checks for these hardware configurations:
 
@@ -340,8 +340,14 @@ These are operator observations supplied in the chat, not agent-observed tests.
 The exact executable revision, connection method, host audio configuration,
 logs and a comparison run against the preserved original branch were not
 provided. They support the listed RX behavior for these two configurations,
-without establishing other models, firmware versions, multi-RX, TX or live
-ASIO behavior.
+without establishing other models or firmware versions.
+
+In a subsequent report, DH1KLM also confirmed working ASIO RX/TX functionality
+and MultiRX on both configurations above. This records the operator's functional
+result without inferring a receiver count, ASIO driver/device, channel mapping,
+sample rate, buffer size, test duration or exact executable revision. No test
+logs or measurements accompanied this report. These observations do not establish
+comprehensive TX intent/stop/recovery behavior or replace architecture approval.
 
 ## Cleanup diff review
 
