@@ -293,6 +293,7 @@ bool AnanBackend::addReceiveSlice(double hz, int requested, bool own)
     r->dsp = new AnanRxDsp;
     r->dsp->moveToThread(m_ioThread);
     m_additionalRx[*id] = r;
+    restoreAutoAgc(*id);
     m_receiveBuilding = true;
     syncReceiveAudioRoutes();
     const auto epoch = m_receiveEpoch;

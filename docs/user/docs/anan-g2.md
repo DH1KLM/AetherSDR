@@ -499,8 +499,10 @@ pauses automatic tracking without changing its fixed-gain setting.
 Under **Settings → Radio Setup → ANAN Hardware → Radio Info → Auto AGC-T**,
 select the **Receive slice** and set its **Noise-floor offset** (-60 to +60 dB,
 initially +20 dB). Each slice measures its own receive stream. Automatic mode
-and offsets belong to the current receive session; a new connection starts
-in manual mode. The original **tropo1234** implementation remains unchanged
+and offsets are remembered per radio across connections and application restarts.
+Additional receivers recall their preferences when the same receiver is recreated.
+A radio without saved preferences starts in manual mode.
+The original **tropo1234** implementation remains unchanged
 and does not offer this feature.
 
 Increasing **Noise-floor offset** reduces automatic gain; decreasing it raises
@@ -1139,7 +1141,7 @@ ADC1 changes. Both protocols keep each ADC register within 0–31 dB.
 - **Panadapter** computed by WDSP's display analyzer: a ≥16384-point windowed FFT at one point per screen pixel. **FFT AVG** and **Wt Avg** drive it, and noise-floor auto-adjust works.
 - **S-meter.**
 - **NB** cycles Off → **NB** → **NB2** → Off: WDSP's two impulse blankers, run on this computer before the demodulator. **NB** silences each impulse; **NB2** reconstructs the blanked window from the samples either side, and shows an **NB2** fill selector (**Zero**, **Sample hold**, **Mean hold**, **Hold sample** or **Interpolate**) while it runs. Neither is offered in FM.
-- **AGC-T** sets the AGC's maximum gain from −20 to 120 dB, 1.4 dB per slider step. Tooltips show the gain in dB. RX1's AGC mode, AGC-T and AGC-off level are remembered per radio across launches. A radio without saved values starts at medium, AGC-T 71 (79.4 dB) and AGC-off 29 (20.6 dB). Additional receivers and automatic AGC-T activation remain session-local.
+- **AGC-T** sets the AGC's maximum gain from −20 to 120 dB, 1.4 dB per slider step. Tooltips show the gain in dB. RX1's AGC mode, AGC-T and AGC-off level are remembered per radio across launches. A radio without saved values starts at medium, AGC-T 71 (79.4 dB) and AGC-off 29 (20.6 dB). Automatic AGC-T activation and noise-floor offsets are also remembered per radio; additional receivers recall them when recreated.
 - **RF Gain** from −31 to 0 dB drives the G2's ADC step attenuator, and is restored per radio.
 - **AF gain, mute and balance** apply. With **Send receive audio to the radio** on, the receiver's mute and volume apply to both the computer and the radio's speaker, and the title-bar speaker button mutes the radio's speaker too.
 - Manual **Black Level** and waterfall **NB Blank**. See [Panadapter Controls](./panadapter-controls.md).

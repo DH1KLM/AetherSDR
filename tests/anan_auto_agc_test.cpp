@@ -1,9 +1,12 @@
 #include "TestSettingsProfile.h"
 #include "core/AppSettings.h"
+#include "core/RadioStateMemory.h"
+#include "core/RadioSettingsScope.h"
 #include "core/backends/anan/AnanBackend.h"
 #include "core/backends/anan/AnanRxDsp.h"
 #include "core/backends/anan_original/AnanBackend.h"
 #include <QCoreApplication>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QElapsedTimer>
 #include <QThread>
@@ -37,6 +40,8 @@ public:
     static void applied(AnanBackend& b, int id, quint64 revision, double gain)
     { b.onAutoAgcApplied(id, revision, gain); }
     static void disconnected(AnanBackend& b) { b.m_connected = false; }
+    static void recallAdditional(AnanBackend& b) { b.restoreAutoAgc(1); }
+    static bool setOffset(AnanBackend& b, int id, double value) { return b.setAutoAgcOffset(id, value); }
 };
 }
 int main(int argc, char** argv)
@@ -84,6 +89,25 @@ int main(int argc, char** argv)
         b.requestSliceAgcThresholdMode(0, AgcThresholdMode::Automatic);
         AnanAutoAgcTestAccess::applied(b, 0, first, 120.0);
         check(AnanAutoAgcTestAccess::threshold(b, 0) == 50, "old auto activation cannot overwrite a newer activation");
+        check(AnanAutoAgcTestAccess::setOffset(b, 0, 35.0) && AnanAutoAgcTestAccess::setOffset(b, 1, -12.0),
+            "independent non-default automatic offsets are accepted");
+        const RadioSettingsScope scope(QStringLiteral("anan"), QStringLiteral("auto-agc-p%1").arg(protocol));
+        const RestoredRadioState captured = b.currentOperatingState();
+        check(RadioStateMemory::store(scope, b.capabilities(), captured), "automatic threshold preference stores through OperatingState");
+        AnanBackend restarted;
+        AnanAutoAgcTestAccess::prepare(restarted, protocol);
+        restarted.applyRestoredState(RadioStateMemory::load(scope, b.capabilities()));
+        AnanAutoAgcTestAccess::recallAdditional(restarted);
+        check(restarted.currentOperatingState().extension.value(QStringLiteral("agc")) == captured.extension.value(QStringLiteral("agc")),
+            "fresh backend restores automatic threshold and offset for primary and recreated additional receiver");
+        check(restarted.currentOperatingState().agcThreshold == captured.agcThreshold,
+            "automatic measurements do not replace the stored manual threshold");
+        restarted.applyRestoredState({});
+        AnanAutoAgcTestAccess::recallAdditional(restarted);
+        const QJsonObject cleared = restarted.currentOperatingState().extension.value(QStringLiteral("agc")).toObject();
+        check(!cleared.value(QStringLiteral("0")).toObject().value(QStringLiteral("enabled")).toBool()
+            && !cleared.value(QStringLiteral("1")).toObject().value(QStringLiteral("enabled")).toBool(),
+            "an unconfigured radio cannot inherit another radio's automatic threshold activation");
         QSignalSpy errors(&b, &IRadioBackend::extensionError);
         b.invokeExtension(QStringLiteral("anan"), QStringLiteral("autoagc.set"), 9,
             QVariantMap{{QStringLiteral("slice"), 0}, {QStringLiteral("offsetDb"), 10.0}, {QStringLiteral("identity"), QStringLiteral("stale")}});

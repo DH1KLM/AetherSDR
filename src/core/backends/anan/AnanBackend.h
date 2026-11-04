@@ -246,6 +246,8 @@ private:
     friend struct AnanMultiRxTestAccess;
     // Auto AGC-T is opt-in per live slice; revisions fence queued observations.
     bool m_autoAgcEnabled = false;
+    QJsonObject m_autoAgcRecall;
+    void restoreAutoAgc(int id);
     int m_manualAgcBeforeAuto = kDefaultAgcThreshold;
     double m_autoAgcOffset = AnanAutoAgc::kDefaultOffsetDb;
     quint64 m_autoAgcRevision = 0, m_primaryAutoAgcRevision = 0;

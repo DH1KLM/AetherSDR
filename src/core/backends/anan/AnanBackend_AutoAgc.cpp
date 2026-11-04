@@ -1,9 +1,30 @@
 #include "AnanBackend.h"
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QVariantList>
 #include <cmath>
 #include <algorithm>
 
 namespace AetherSDR::anan {
+void AnanBackend::restoreAutoAgc(int id)
+{
+    const QJsonObject saved = m_autoAgcRecall.value(QString::number(id)).toObject();
+    const QJsonValue offsetValue = saved.value(QStringLiteral("offsetDb"));
+    const double offset = offsetValue.toDouble(AnanAutoAgc::kDefaultOffsetDb);
+    const bool enabled = saved.value(QStringLiteral("enabled")).isBool()
+        && saved.value(QStringLiteral("enabled")).toBool();
+    const double validOffset = offsetValue.isDouble() && std::isfinite(offset) && offset >= -60.0 && offset <= 60.0
+        ? offset : AnanAutoAgc::kDefaultOffsetDb;
+    if (id == 0) {
+        m_manualAgcBeforeAuto = m_agcThreshold;
+        m_autoAgcEnabled = enabled;
+        m_autoAgcOffset = validOffset;
+    } else if (const auto it = m_additionalRx.find(id); it != m_additionalRx.end()) {
+        it->second->autoAgc = enabled;
+        it->second->autoAgcOffset = validOffset;
+    }
+}
+
 ReceiveDispatch AnanBackend::requestSliceAgcThresholdMode(int id, AgcThresholdMode mode)
 {
     if (!m_connected || !m_receiveLayout.slice(id)
@@ -29,6 +50,7 @@ ReceiveDispatch AnanBackend::requestSliceAgcThresholdMode(int id, AgcThresholdMo
         }
         publishAdditionalRx(id);
     }
+    emit operatingStateChanged();
     return ReceiveDispatch::Dispatched;
 }
 
@@ -87,6 +109,7 @@ bool AnanBackend::setAutoAgcOffset(int id, double offsetDb)
         it->second->autoAgcRevision = ++m_autoAgcRevision;
     }
     pushAutoAgc(id);
+    emit operatingStateChanged();
     return true;
 }
 

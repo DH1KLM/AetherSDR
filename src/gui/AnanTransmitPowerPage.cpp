@@ -117,6 +117,13 @@ QWidget* createAnanDiversityPage(RadioModel* model, QWidget* parent)
     auto* enabled = new QCheckBox(QStringLiteral("Enable coherent IQ diversity"), page);
     enabled->setObjectName(QStringLiteral("ananDiversityEnabled"));
     enabled->setAccessibleName(QStringLiteral("Enable coherent IQ diversity"));
+    ThemeManager::instance().applyStyleSheet(enabled, QStringLiteral(
+        "QCheckBox { spacing: 10px; padding: 6px 2px; }"
+        "QCheckBox::indicator { width: 20px; height: 20px; border-radius: 3px;"
+        " border: 2px solid {{color.canon.ink}}; background: {{color.canon.ground}}; }"
+        "QCheckBox::indicator:checked { background: {{color.canon.cyan}}; border-color: {{color.canon.cyan}}; }"
+        "QCheckBox::indicator:hover, QCheckBox::indicator:focus { border-color: {{color.canon.cyan}}; }"
+        "QCheckBox::indicator:disabled { border-color: {{color.canon.muted}}; background: {{color.canon.nested}}; }"));
     form->addRow(enabled);
     auto* gain = new QDoubleSpinBox(page);
     gain->setObjectName(QStringLiteral("ananDiversityGain"));

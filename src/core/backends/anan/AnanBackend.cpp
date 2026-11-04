@@ -747,6 +747,9 @@ void AnanBackend::applyRestoredState(const RestoredRadioState& state)
         ? state.agcThreshold : kDefaultAgcThreshold;
     const int offLevel = state.agcOffLevels.value(0, -1);
     m_agcOffLevel = offLevel >= 0 && offLevel <= 100 ? offLevel : kDefaultAgcOffLevel;
+    m_autoAgcRecall = state.extension.value(QStringLiteral("agc")).toObject();
+    if (m_autoAgcRecall.size() > 128) { m_autoAgcRecall = {}; }
+    restoreAutoAgc(0);
 }
 
 RestoredRadioState AnanBackend::currentOperatingState() const
@@ -758,9 +761,16 @@ RestoredRadioState AnanBackend::currentOperatingState() const
     state.mode = m_mode;
     state.receiveOutputLevelPct = m_lineoutGainPercent;
     state.agcMode = agcModeName(m_agcMode);
-    state.agcThreshold = m_agcThreshold;
+    state.agcThreshold = m_autoAgcEnabled ? m_manualAgcBeforeAuto : m_agcThreshold;
     state.agcOffLevels = {m_agcOffLevel};
     state.extensionSchemaVersion = 1;
+    QJsonObject autoThresholds;
+    autoThresholds.insert(QStringLiteral("0"), QJsonObject{{QStringLiteral("enabled"), m_autoAgcEnabled},
+        {QStringLiteral("offsetDb"), m_autoAgcOffset}});
+    for (const auto& [id, receiver] : m_additionalRx) {
+        autoThresholds.insert(QString::number(id), QJsonObject{{QStringLiteral("enabled"), receiver->autoAgc},
+            {QStringLiteral("offsetDb"), receiver->autoAgcOffset}});
+    }
     state.extension = QJsonObject{{QStringLiteral("rfGain"), QJsonObject{
         {QStringLiteral("alexAttenuationDb"), m_pendingParams.alexAttenuationDb},
         {QStringLiteral("adc0AttenuationDb"), m_pendingParams.adc0AttenuationDb},
@@ -771,6 +781,7 @@ RestoredRadioState AnanBackend::currentOperatingState() const
         {QStringLiteral("ananVoiceFilter"), QJsonObject{
             {QStringLiteral("lowHz"), m_txFilterLowHz},
             {QStringLiteral("highHz"), m_txFilterHighHz}}}});
+    state.extension.insert(QStringLiteral("agc"), autoThresholds);
     const auto views = capturedBandViewMemory();
     if (!views.isEmpty()) { state.extension.insert(QStringLiteral("tuning"), views); }
     return state;
@@ -999,10 +1010,11 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     if (m_connected)
         disconnectRadio();
 
-    // A new session never inherits another receiver's automatic gain or offset.
+    // Recall belongs to the scoped OperatingState handed in before connect.
     if (m_autoAgcEnabled) { m_agcThreshold = m_manualAgcBeforeAuto; }
     m_autoAgcEnabled = false;
     m_autoAgcOffset = AnanAutoAgc::kDefaultOffsetDb;
+    restoreAutoAgc(0);
     m_primaryAutoAgcRevision = ++m_autoAgcRevision;
     pushAutoAgc(0);
 

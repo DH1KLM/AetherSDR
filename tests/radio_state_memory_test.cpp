@@ -418,6 +418,20 @@ int main(int argc, char** argv)
               "an undeclared ext domain's sub-object is NOT handed over");
     }
 
+    {
+        const RadioSettingsScope scope(QStringLiteral("anan"), QStringLiteral("agc-extension-test"));
+        RestoredRadioState automatic;
+        automatic.extensionSchemaVersion = 1;
+        automatic.extension = QJsonObject{{QStringLiteral("agc"), QJsonObject{{QStringLiteral("enabled"), true}}}};
+        RadioCapabilities caps = hl2Caps();
+        check(RadioStateMemory::store(scope, caps, automatic)
+            && RadioStateMemory::load(scope, caps).extension == automatic.extension,
+            "AGC extension survives the declared AGC domain gate");
+        caps.clientSettingsDomains = Domain::RfGain;
+        check(!RadioStateMemory::load(scope, caps).extension.contains(QStringLiteral("agc")),
+            "automatic AGC preferences do not bypass an undeclared AGC domain");
+    }
+
     // ---- store is read-only toward newer documents (PR #4614 review) ------
     // The load→capture→store cycle against a v2 document must refuse, not
     // truncate-and-downgrade.
