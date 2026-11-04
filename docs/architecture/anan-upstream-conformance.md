@@ -243,6 +243,46 @@ CTest passed the expanded anan_implementation_test and the existing
 radio_setup_anan_sample_rate_test. All 767 Log Analyzer checks pass without
 another citation update. No live radio, audio driver or network peer was used.
 
+## Consolidated gate review and missing seam probe
+
+The wider review at `efc230d3` ran 15 platform-independent checks from the static
+workflow: engine boundary, touchpoint manifest, seam probe table, generated user
+references, test registration, WDSP links, capability records, command plane,
+frozen CI test gate, network timeouts, QSettings, theme seed, shader dialects,
+Qt pin and documented build options. Fourteen passed immediately. The seam
+table check failed because panZoomModesChanged had no generated probe. The
+signal and missing probe already coexist at the original fork head `c71419fd`;
+this was not introduced by the cleanup commits.
+
+[DH1KLM/AetherSDR #7](https://github.com/DH1KLM/AetherSDR/issues/7) tracks the fix.
+The canonical generator adds that one probe. The freshness check now passes for
+all 58 declared seam signals. Its 23 parser tests also pass after explicitly
+reading UTF-8 in the live-header comparison: with the Windows CP1252 default,
+the test previously reported a false stale-table error even after regeneration.
+Running it in UTF-8 mode isolated that encoding defect before the two reads
+were corrected. No equality check, parser guard or baseline was weakened.
+
+backend_seam_affinity_test rebuilt and passed. It checks simulator emissions
+and cold construction/getters for other families; this does not establish live
+ANAN signal affinity or hardware behavior. The 15 named checks are now green.
+Local logs are in build/conformance-audit/final-static, including the original
+failing seam-table check. This is a broader local gate pass, not a complete
+GitHub CI run or a Linux/macOS application build.
+
+The available shell has no Docker executable on PATH; WSL listing returned the
+installation/help interface rather than a usable distribution. No Linux build
+environment or macOS runner was established. Installing one, pushing for CI,
+opening a PR and changing repository settings were not part of this review.
+
+The remaining work is qualification and review, rather than a reason to keep
+adding speculative interfaces: confirm maintainer approval for the expanded
+ANAN/P1/multi-RX/TX and ASIO scope; run the required Linux/macOS CI checks in
+their proper environments; and collect the model/firmware-specific RX/TX and
+ASIO evidence required by the existing design documents. The existing family
+connection seeding and manual discovery transport remain staged migration
+touchpoints, not automatic evidence that every retained include is a new
+violation. None of the local green checks grants architecture or TX approval.
+
 ## Outstanding validation
 
 - Continue the approval search beyond #5554, #5262, #6106 and #3242, which were read.
