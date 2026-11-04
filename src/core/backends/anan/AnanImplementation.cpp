@@ -1,5 +1,7 @@
 #include "AnanImplementation.h"
 #include "AnanBackend.h"
+#include "AnanSettings.h"
+#include "P2Protocol.h"
 #include "core/backends/anan_original/AnanBackend.h"
 #include "core/backends/anan_original/AnanSettings.h"
 #include "core/RadioSettingsScope.h"
@@ -15,6 +17,28 @@ QString AnanImplementation::label(bool original)
 {
     return original ? QStringLiteral("Saturn (ANAN G2) — tropo1234")
                     : QStringLiteral("Saturn (ANAN G2) — DH1KLM");
+}
+
+QList<AnanImplementation::ManualProfileChoice> AnanImplementation::manualProfileChoices()
+{
+    // This operating-model picker excludes Atlas/Metis, the separately handled
+    // HL2, the Orion board designation and G2 1K. Wire recognition is independent.
+    return {
+        {static_cast<int>(AnanModel::Automatic), QStringLiteral("Automatic physical-board profile")},
+        {static_cast<int>(AnanModel::Hermes), QStringLiteral("HERMES")},
+        {static_cast<int>(AnanModel::Anan10), QStringLiteral("ANAN-10")},
+        {static_cast<int>(AnanModel::Anan10E), QStringLiteral("ANAN-10E")},
+        {static_cast<int>(AnanModel::Anan100), QStringLiteral("ANAN-100")},
+        {static_cast<int>(AnanModel::Anan100B), QStringLiteral("ANAN-100B")},
+        {static_cast<int>(AnanModel::Anan100D), QStringLiteral("ANAN-100D")},
+        {static_cast<int>(AnanModel::Anan200D), QStringLiteral("ANAN-200D")},
+        {static_cast<int>(AnanModel::Anan7000), QStringLiteral("ANAN-7000DLE")},
+        {static_cast<int>(AnanModel::Anan8000), QStringLiteral("ANAN-8000DLE")},
+        {static_cast<int>(AnanModel::AnanG2E), QStringLiteral("ANAN-G2E")},
+        {static_cast<int>(AnanModel::AnanG2), QStringLiteral("ANAN-G2")},
+        {static_cast<int>(AnanModel::AnvelinaPro3), QStringLiteral("ANVELINA-Pro III")},
+        {static_cast<int>(AnanModel::RedPitaya), QStringLiteral("RED-PITAYA")}
+    };
 }
 
 bool AnanImplementation::isSaturn(const RadioInfo& radio)
@@ -59,6 +83,59 @@ RadioInfo AnanImplementation::selected(const RadioInfo& radio)
     return result;
 }
 
+AnanImplementation::ManualSelectionResult AnanImplementation::selectForManualConnect(
+    const RadioInfo& radio, const ManualSelection& selection)
+{
+    ManualSelectionResult result;
+    result.radio = radio;
+    if (selection.protocol > 0 && selection.protocol != radio.hpsdrProtocol) {
+        result.status = ManualSelectionStatus::IgnoreProtocol;
+        return result;
+    }
+    const bool originalChoice = selection.profileId == -200
+        || (selection.profileId == -100 && isSaturn(radio) && preferred(radio.serial) == originalId());
+    if (originalChoice) {
+        if (!isSaturn(radio)) {
+            result.status = ManualSelectionStatus::OriginalUnavailable;
+            return result;
+        }
+        result.radio.implementation = originalId();
+    } else {
+        const AnanSettings::RadioProfile saved = AnanSettings::radioProfile(radio.serial);
+        const AnanModel model = selection.profileId == -100
+            ? saved.model : static_cast<AnanModel>(selection.profileId);
+        const int protocol = selection.protocol < 0 ? saved.protocol : selection.protocol;
+        const bool overrideDetection = selection.overrideDetection.value_or(saved.overrideDetection);
+        if (protocol > 0 && protocol != radio.hpsdrProtocol) {
+            result.status = ManualSelectionStatus::IgnoreProtocol;
+            return result;
+        }
+        if ((!saved.valid && (selection.profileId == -100 || selection.protocol < 0
+                             || !selection.overrideDetection.has_value()))
+            || !receiveProfile(radio.boardId, model, overrideDetection)) {
+            result.status = overrideDetection ? ManualSelectionStatus::InvalidOverride
+                                              : ManualSelectionStatus::InvalidProfile;
+            return result;
+        }
+        if (selection.profileId != -100 || selection.protocol >= 0 || selection.overrideDetection.has_value()) {
+            if (!AnanSettings::setRadioProfile(radio.serial, model, protocol, overrideDetection)) {
+                result.status = ManualSelectionStatus::ProfileSaveFailed;
+                return result;
+            }
+            // A successful profile write consumes the explicit selection even
+            // if the separate implementation preference cannot be saved.
+            result.resetChoices = true;
+        }
+    }
+    if (isSaturn(radio) && !setPreferred(radio.serial, result.radio.implementation)) {
+        result.status = ManualSelectionStatus::ImplementationSaveFailed;
+        return result;
+    }
+    result.status = ManualSelectionStatus::Accepted;
+    result.resetChoices = true;
+    return result;
+}
+
 QVariantMap AnanImplementation::originalOptions()
 {
     return {{QStringLiteral("ddc0RateKsps"), OriginalSettings::ddc0RateKsps()},
@@ -70,6 +147,20 @@ QVariantMap AnanImplementation::originalOptions()
             {QStringLiteral("speakerAudioEnabled"), OriginalSettings::speakerAudioEnabled()},
             {QStringLiteral("bandFiltersEnabled"), OriginalSettings::bandFiltersEnabled()},
             {QStringLiteral("speakerAmpMuted"), OriginalSettings::speakerAmpMuted()}};
+}
+
+void AnanImplementation::populateParams(RadioConnectRequest& request, const RadioInfo& radio)
+{
+    if (radio.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) != 0) {
+        return;
+    }
+    populateParams(request, radio.implementation);
+    // Identity follows implementation options so the original variant's reset
+    // cannot discard the physical board and discovered protocol.
+    if (radio.boardId >= 0) {
+        request.params.insert(QStringLiteral("anan.boardId"), radio.boardId);
+    }
+    request.params.insert(QStringLiteral("anan.protocol"), radio.hpsdrProtocol == 1 ? 1 : 2);
 }
 
 void AnanImplementation::populateParams(RadioConnectRequest& request, const QString& implementation)

@@ -12,6 +12,9 @@
 #include <QTimer>
 #include <QUdpSocket>
 #include <utility>
+#include <span>
+#include <cstddef>
+#include <cstdint>
 
 #ifdef Q_OS_WIN
 // winsock2.h pulls in windows.h, whose min/max function-like macros otherwise
@@ -323,49 +326,52 @@ void AnanDiscovery::onSweepTimer()
     sweepNow();
 }
 
+std::optional<RadioInfo> AnanDiscovery::fromDiscoveryReply(
+    const QByteArray& data, const QHostAddress& address, std::optional<quint16> directedSourcePort)
+{
+    const std::span<const std::uint8_t> bytes{
+        reinterpret_cast<const std::uint8_t*>(data.constData()), static_cast<std::size_t>(data.size())};
+    const std::optional<DiscoveryReply> reply = directedSourcePort.has_value()
+        ? parseDirectedDiscoveryReply(bytes, *directedSourcePort) : parseOpenHpsdrDiscoveryReply(bytes);
+    if (!reply || !reply->isSupportedOpenHpsdrBoard()) {
+        return std::nullopt;
+    }
+    RadioInfo info;
+    info.family = QStringLiteral("anan");
+    info.boardId = reply->boardId;
+    info.hpsdrProtocol = reply->wireProtocol;
+    info.address = address;
+    info.port = kRadioPort;
+    // Shared board identities are physical families, never inferred product SKUs.
+    info.model = QString::fromLatin1(reply->boardDisplayName());
+    info.name = info.model;
+    info.serial = macToSerial(reply->mac);
+    // Firmware is an integer gateware build, rather than a decimal software version.
+    info.version = QString::number(reply->firmwareVer);
+    info.versionLabel = reply->wireProtocol == 1 ? QStringLiteral("P1 Gateware")
+                                               : QStringLiteral("P2 Gateware");
+    info.inUse = reply->streaming;
+    info.status = reply->streaming ? QStringLiteral("In_Use") : QStringLiteral("Available");
+    return info;
+}
+
 void AnanDiscovery::onReadyRead()
 {
     while (m_socket && m_socket->hasPendingDatagrams()) {
         const QNetworkDatagram dg = m_socket->receiveDatagram();
         const QByteArray data = dg.data();
-        const auto reply = parseOpenHpsdrDiscoveryReply(
-            {reinterpret_cast<const std::uint8_t*>(data.constData()),
-             static_cast<std::size_t>(data.size())});
+        const std::optional<RadioInfo> discovered = fromDiscoveryReply(data, dg.senderAddress());
         // The registry knows all physical board IDs documented by
         // Thetis/NereusSDR. Advertise only families with an implemented RX
         // profile; the session still validates its own Discovery reply.
-        if (!reply || !reply->isSupportedOpenHpsdrBoard() || !receiveProfile(reply->boardId))
+        if (!discovered || !receiveProfile(discovered->boardId))
             continue;
         m_log.replyListed();
 
-        RadioInfo info;
-        info.family   = QStringLiteral("anan");
-        // Carry the numeric P2 board ID as data; downstream connection
-        // setup must not reverse-engineer it from info.model.
-        info.boardId   = reply->boardId;
-        info.hpsdrProtocol = reply->wireProtocol;
-        info.address  = dg.senderAddress();
-        info.port     = kRadioPort;
-        // Show the reported physical board family. Orion MkII is
-        // intentionally not mislabeled as one specific ANAN SKU because
-        // Red Pitaya and AnvelinaPro3 can share this board family.
-        info.model    = QString::fromLatin1(reply->boardDisplayName());
-        info.name     = info.model;
-        info.serial   = macToSerial(reply->mac);
+        RadioInfo info = *discovered;
         const auto savedProfile = AnanSettings::radioProfile(info.serial);
         AnanSettings::applyRadioProfileDisplay(info);
         info.nickname = effectiveNickname(QStringLiteral("anan"), info.serial, info.model);
-        info.version  = QString::number(reply->firmwareVer);
-        // A bare integer is not self-describing in a status bar -- and this
-        // one especially: it is a gateware bitstream number, not a software
-        // version (discrepancy #1, see P2Protocol.h's DiscoveryReply).
-        info.versionLabel = reply->wireProtocol == 1 ? QStringLiteral("P1 Gateware")
-                                                     : QStringLiteral("P2 Gateware");
-        // A radio already streaming to another client answers with 0x03.
-        // Show it as present-but-taken rather than hiding it.
-        info.inUse    = reply->streaming;
-        info.status   = reply->streaming ? QStringLiteral("In_Use")
-                                         : QStringLiteral("Available");
 
         auto it = m_seen.find(info.serial);
         if (it == m_seen.end()) {

@@ -4,7 +4,7 @@
 
 Burndown manifest for the engine/UI decoupling ([RFC](../aetherd-headless-engine-design.md) §2, §10). One row per engine header the UI includes; converting a touchpoint means the UI reaches that surface through the versioned protocol instead of the header.
 
-**Totals:** 283 touchpoint headers (230 core, 53 models) — 283/283 tagged, 0/283 converted.
+**Totals:** 284 touchpoint headers (229 core, 55 models) — 284/284 tagged, 0/284 converted.
 
 | Header | Includers | Tag | Status |
 |---|---:|---|---|
@@ -19,9 +19,8 @@ Burndown manifest for the engine/UI decoupling ([RFC](../aetherd-headless-engine
 | `core/AgcTCalibrator.h` | 1 | universal — Engine algo sweeping slice AGC threshold vs audio RMS/S-meter to recommend a value; only canonical state. | unconverted |
 | `core/AppActivity.h` | 3 | ui-support — Process-lifetime activity hold (App Nap opt-out on macOS, process power-throttling opt-out on Windows; never blocks sleep) and startStreamThread(), the High-QoS thread start for stream threads; app plumbing, not radio state. | unconverted |
 | `core/AppSettings.h` | 111 | ui-support — Client-side XML settings store (SSDR.settings-style key/value persistence); app plumbing, not radio state. | unconverted |
-| `core/AsioOutput.h` | 1 | ui-support — Host audio-device enumeration, ASIO RX output configuration and a local PCM sink. No radio state, radio wire format or TX controls; the Audio page edits this client-only device configuration through the existing AudioEngine owner thread. | unconverted |
 | `core/AudioDevicePreferencePolicy.h` | 1 | ui-support — Header-only policy over PC audio device ids: whether a device-list change keeps the engine's device, falls back to the system default or returns to the saved device, and whether a selection is written to the saved id (#6040); also which enumerable ids count as present and which as arrivals. Host audio, no radio state. | unconverted |
-| `core/AudioEngine.h` | 50 | mixed(flex) — Client audio I/O + full RX/TX DSP chain (universal) fused with Flex VITA-49/DAX/Opus TX and Kiwi buffering | unconverted |
+| `core/AudioEngine.h` | 49 | mixed(flex) — Client audio I/O + full RX/TX DSP chain (universal) fused with Flex VITA-49/DAX/Opus TX and Kiwi buffering | unconverted |
 | `core/AudioOutputRouter.h` | 1 | ui-support — Registry fanning the user-selected QAudioDevice to local playback sinks; OS device plumbing, no radio state | unconverted |
 | `core/AutomationBridgeSettings.h` | 3 | ui-support — Owned configuration for the agent automation bridge (enabled / txAllowed / txAck / readOnly) under one nested key; the secret token lives in the OS keychain, not here. Dev and test tooling — same home decision as core/AutomationServer.h. NOTE for RFC §6: txAllowed() is read as a TX-guard input by BOTH AutomationServer and Hl2Backend, so this header is a step-4 consolidation target. | unconverted |
 | `core/AutomationServer.h` | 3 | ui-support — QLocalServer GUI-automation/test bridge (dumpTree/grab/invoke on QWidgets); dev tooling, stays in gui shell | unconverted |
@@ -211,7 +210,7 @@ Burndown manifest for the engine/UI decoupling ([RFC](../aetherd-headless-engine
 | `core/backends/SquelchLevelScale.h` | 2 | universal — Where a slice's squelch level sits on the panadapter's vertical axis, as a backend-published record (RadioCapabilities::squelchLevelScale) plus the mode filter and Auto-SQL predicate both the widget and MainWindow read, so the SQL line and Auto SQL share one gate. No family name or wire concept; each backend declares its own map or leaves it absent (#6092). | unconverted |
 | `core/backends/WaveformEnvRequest.h` | 2 | universal — Seam vocabulary for a radio-held waveform container environment: the typed clear/stage/recreate request with its validation, and the apply outcome. No wire text; FlexBackend encodes it (SmartSDR 4.3.16) and capabilities().waveformEnvControl gates it. | unconverted |
 | `core/backends/anan/AnanDiscovery.h` | 2 | vendor(anan) — openHPSDR Protocol 2 discovery and ANAN-G2 identity handling. Family-specific discovery belongs below the ANAN backend seam. | unconverted |
-| `core/backends/anan/AnanImplementation.h` | 3 | ui-support — Selection and configuration facade for independent Saturn implementations; no wire types are exposed. | unconverted |
+| `core/backends/anan/AnanImplementation.h` | 2 | ui-support — Selection and configuration facade for independent Saturn implementations; no wire types are exposed. | unconverted |
 | `core/backends/anan/AnanSettings.h` | 2 | ui-support — Client-side connection and ADC configuration for the ANAN backend. Persisted setup plumbing, not live radio state. | unconverted |
 | `core/backends/anan/P2Protocol.h` | 1 | vendor(anan) — openHPSDR Ethernet Protocol 2 wire primitives for the ANAN-G2 backend. Family protocol code belongs below the radio seam. | unconverted |
 | `core/backends/flex/PanadapterStream.h` | 4 | vendor(flex) — SmartSDR VITA-49 UDP receiver (FlexLib PCCs, DAX/IQ routing, SmartLink WAN reg); emits core-profile data | unconverted |
@@ -243,6 +242,7 @@ Burndown manifest for the engine/UI decoupling ([RFC](../aetherd-headless-engine
 | `models/AntennaAnalyzerModel.h` | 3 | peripheral(rigexpert) — Independent antenna analyzer state and finite-sweep model, exposed to the GUI and automation bridge. Does not use RadioModel or IRadioBackend. | unconverted |
 | `models/AntennaGeniusModel.h` | 5 | peripheral(4o3a) — 4O3A Antenna Genius switch client — standalone accessory with its own UDP-broadcast discovery (port 9007) + direct TCP; connects by device IP/port independent of the radio, works with any radio. Not radio-family wire; a peripheral accessory, NOT behind the IRadioBackend radio seam (reclassified from vendor(flex), #4087 follow-up). | unconverted |
 | `models/AprsDigipeaterModel.h` | 1 | universal — Session-local APRS fill-in policy and bounded modem queue; no backend-specific commands or transport ownership. | unconverted |
+| `models/AsioSettingsModel.h` | 2 | ui-support — Client ASIO settings facade: configuration, driver enumeration and queued AudioEngine application/status. No radio state or vendor wire interface. | unconverted |
 | `models/Ax25ReceiveModel.h` | 1 | universal — Selected AX.25 receive model over the existing typed decoder route; continuous mono24 conversion and bounded modem worker results retain source leases and generation retirement. Existing transmit ownership is separate. | unconverted |
 | `models/BandDefs.h` | 5 | universal — Static ARRL band plan table (edges, default freq/mode, GEN/WWV); canonical band-plan data, no vendor ties. | unconverted |
 | `models/BandPlanManager.h` | 12 | universal — Band-plan overlay data (segments/spots/license classes, region merge) from JSON; radio-agnostic canon | unconverted |
@@ -275,11 +275,12 @@ Burndown manifest for the engine/UI decoupling ([RFC](../aetherd-headless-engine
 | `models/Nr2SettingsModel.h` | 5 | universal — Process-wide owner of client-side NR2 configuration as one versioned object (Principle V), so every editing surface shares state. Engine DSP configuration; radio-agnostic. | unconverted |
 | `models/PanadapterModel.h` | 6 | mixed(flex) — Per-pan display state is core-profile; DAX IQ ch, client_handle, VITA stream IDs, SmartSDR kv parsing are flex. | unconverted |
 | `models/ProfileLoadCommand.h` | 1 | vendor(flex) — Parses SmartSDR 'profile global/tx/mic load' wire command + recall-hold timing/suppression sentinels; Flex-only | unconverted |
-| `models/RadioModel.h` | 63 | mixed(flex) — Central radio aggregate: core slice/pan/TX/meter/memory state fused with Flex protocol, DAX, SmartLink, Multi-Flex | unconverted |
+| `models/RadioModel.h` | 62 | mixed(flex) — Central radio aggregate: core slice/pan/TX/meter/memory state fused with Flex protocol, DAX, SmartLink, Multi-Flex | unconverted |
 | `models/RadioSession.h` | 1 | universal — Per-radio session aggregate: owns RadioModel + id/label; session concept is core-profile, no vendor surface | unconverted |
 | `models/RadioStatusOwnership.h` | 1 | vendor(flex) — SmartSDR status parsing helpers: Flex hex handles, client_handle ownership, remote_audio_rx, interlock gate | unconverted |
 | `models/ReceiverSlotCount.h` | 2 | universal — How many receiver letters (A, B, C, ...) the UI offers — the RX applet's slice tabs and the CAT applet's VFO targets — tracked from the connection/capability/slice edges. Family-agnostic: the backend's declared ceiling, floored by the slots live receivers occupy (#5775, #5776). | unconverted |
 | `models/Rn2SettingsModel.h` | 1 | universal — Process-wide owner of client-side RN2 configuration as one versioned object (Principle V). Engine DSP configuration; radio-agnostic. | unconverted |
+| `models/SaturnSettingsModel.h` | 1 | ui-support — Saturn implementation-choice and original receiver settings presentation. Persistence and live frontend routing remain model/backend-owned; no wire types exposed. | unconverted |
 | `models/SliceLinkPolicy.h` | 2 | universal — Pure decision logic for Slice Link (cross-panadapter VFO link) — echo classification on integer Hz, no QObject, no I/O, no model access. Canonical slice state only. | unconverted |
 | `models/SliceModel.h` | 38 | mixed(flex) — Slice state (freq/mode/filter/DSP) is core-profile; DAX, index_letter, SmartSDR status KVs are flex ext | unconverted |
 | `models/SpotModel.h` | 1 | universal — Panadapter spot store (callsign/freq/mode/lifetime/priority) on canonical state; kv ingest is trivially generic | unconverted |

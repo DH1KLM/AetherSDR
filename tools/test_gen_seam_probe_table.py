@@ -257,7 +257,7 @@ def test_missing_class_is_an_error_not_an_empty_table():
 
 
 def test_live_header_matches_the_committed_table():
-    names = gen.seam_signals(gen.BACKEND_H.read_text(errors="replace"))
+    names = gen.seam_signals(gen.BACKEND_H.read_text(encoding="utf-8", errors="replace"))
     check(len(names) > 40,
           f"only {len(names)} signals parsed from the real header — "
           "the scanner is under-reading")
@@ -269,7 +269,7 @@ def test_live_header_matches_the_committed_table():
         check(excluded not in names,
               f"{excluded} is a protected/private member of IRadioBackend, "
               "not a signal")
-    check(gen.render(names) == gen.PROBE_TABLE.read_text(),
+    check(gen.render(names) == gen.PROBE_TABLE.read_text(encoding="utf-8"),
           "tests/SeamSignalProbeTable.inc is stale — run "
           "`python tools/gen_seam_probe_table.py`")
 

@@ -2761,14 +2761,7 @@ RadioModel::RadioModel(QObject* parent)
                 // initial connect gives a session that authenticates once and
                 // then fails every automatic retry.
                 populateFamilyParams(req, m_family, m_lastInfo.sessionBindAddress);
-                anan::AnanImplementation::populateParams(req, m_lastInfo.implementation);
-                // Preserve the normalized board and actual wire protocol on reconnect.
-                if (m_family == QLatin1String("anan")) {
-                    if (m_lastInfo.boardId >= 0)
-                        req.params.insert(QStringLiteral("anan.boardId"), m_lastInfo.boardId);
-                    req.params.insert(QStringLiteral("anan.protocol"),
-                                      m_lastInfo.hpsdrProtocol == 1 ? 1 : 2);
-                }
+                anan::AnanImplementation::populateParams(req, m_lastInfo);
                 handRestoredStateToBackend();
                 m_backend->connectRadio(req);
             }
@@ -3917,15 +3910,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
         req.serial = info.serial;
         req.serialIdentity = info.serialIdentity;
         populateFamilyParams(req, info.family, info.sessionBindAddress);
-        anan::AnanImplementation::populateParams(req, info.implementation);
-        // Carry the discovery protocol's numeric board ID into the backend;
-        //never reconstruct a hardware profile from the display model string.
-        if (info.family.compare(QLatin1String("anan"), Qt::CaseInsensitive) == 0) {
-            if (info.boardId >= 0)
-                req.params.insert(QStringLiteral("anan.boardId"), info.boardId);
-            req.params.insert(QStringLiteral("anan.protocol"),
-                              info.hpsdrProtocol == 1 ? 1 : 2);
-        }
+        anan::AnanImplementation::populateParams(req, info);
         handRestoredStateToBackend();
         m_backend->connectRadio(req);
     }
@@ -4236,14 +4221,7 @@ bool RadioModel::wakeIcomRadio(int modelId, int address, QString* error)
         request.port = selectedRadio.port;
         request.serial = selectedRadio.serial;
         populateFamilyParams(request, m_family, selectedRadio.sessionBindAddress);
-        anan::AnanImplementation::populateParams(request, selectedRadio.implementation);
-        // Keep ANAN's discovery identity intact if this reconnect path is reused.
-        if (m_family == QLatin1String("anan")) {
-            if (selectedRadio.boardId >= 0)
-                request.params.insert(QStringLiteral("anan.boardId"), selectedRadio.boardId);
-            request.params.insert(QStringLiteral("anan.protocol"),
-                              selectedRadio.hpsdrProtocol == 1 ? 1 : 2);
-        }
+        anan::AnanImplementation::populateParams(request, selectedRadio);
         request.params.insert(QStringLiteral("icom.wakeOnConnect"), false);
         request.params.insert(QStringLiteral("icom.waitingForWake"), true);
         request.params.insert(QStringLiteral("icom.civAddress"), address);

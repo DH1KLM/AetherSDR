@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 
 #include <QAbstractItemView>
@@ -43,7 +44,6 @@
 #include <QSizePolicy>
 #include <QSet>
 #include <QSpinBox>
-#include <QStandardItemModel>
 #include <QTcpSocket>
 #include <QHostInfo>
 #include <QUdpSocket>
@@ -949,42 +949,10 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualAnanProfileCombo->setToolTip(tr("Saved per radio. Automatic keeps the physical-board profile."));
     AetherSDR::applyComboStyle(m_manualAnanProfileCombo, comboExtraRules);
     m_manualAnanProfileCombo->addItem(tr("Use saved model"), -100);
-    // Picker order and captions are independent of stable model IDs and board detection.
-    const std::pair<anan::AnanModel, const char*> receiveProfiles[]{
-        {anan::AnanModel::Automatic, "Automatic physical-board profile"},
-        // {anan::AnanModel::Hpsdr, "OpenHPSDR / Atlas / Metis"}, omitted from this picker; board recognition remains.
-        {anan::AnanModel::Hermes, "HERMES"},
-        // {anan::AnanModel::HermesLite2, "HERMES-LITE 2"}, use the dedicated radio type; board recognition remains.
-        {anan::AnanModel::Anan10, "ANAN-10"},
-        {anan::AnanModel::Anan10E, "ANAN-10E"},
-        {anan::AnanModel::Anan100, "ANAN-100"},
-        {anan::AnanModel::Anan100B, "ANAN-100B"},
-        {anan::AnanModel::Anan100D, "ANAN-100D"},
-        {anan::AnanModel::Anan200D, "ANAN-200D"},
-        // {anan::AnanModel::OrionMkII, "Orion MkII"}, board designation, not a transceiver.
-        {anan::AnanModel::Anan7000, "ANAN-7000DLE"},
-        {anan::AnanModel::Anan8000, "ANAN-8000DLE"},
-        {anan::AnanModel::AnanG2E, "ANAN-G2E"},
-        {anan::AnanModel::AnanG2, "ANAN-G2"},
-        // {anan::AnanModel::AnanG21K, "ANAN-G2 1K"}, omitted from this picker by request.
-        {anan::AnanModel::AnvelinaPro3, "ANVELINA-Pro III"},
-        {anan::AnanModel::RedPitaya, "RED-PITAYA"}
-    };
-    for (const auto& [model, caption] : receiveProfiles) {
-        m_manualAnanProfileCombo->addItem(QString::fromLatin1(caption), static_cast<int>(model));
-        if (model == anan::AnanModel::Hpsdr || model == anan::AnanModel::HermesLite2) {
-            const QString reason = model == anan::AnanModel::HermesLite2
-                ? tr("Use the dedicated Hermes-Lite 2 connection type (P1).")
-                : tr("Atlas/Metis receive control initialization is not yet qualified.");
-            auto* items = qobject_cast<QStandardItemModel*>(m_manualAnanProfileCombo->model());
-            if (items) {
-                auto* item = items->item(m_manualAnanProfileCombo->count() - 1);
-                // Item accessibility is supplied through model roles.
-                item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-                item->setToolTip(reason);
-                item->setData(reason, Qt::AccessibleDescriptionRole);
-            }
-        }
+    const QList<anan::AnanImplementation::ManualProfileChoice> receiveProfiles =
+        anan::AnanImplementation::manualProfileChoices();
+    for (const anan::AnanImplementation::ManualProfileChoice& profile : receiveProfiles) {
+        m_manualAnanProfileCombo->addItem(profile.caption, profile.profileId);
     }
     m_manualAnanProfileCombo->addItem(anan::AnanImplementation::label(true), -200);
     m_manualAnanProfileRow = addManualRow(QStringLiteral("Receive profile:"), m_manualAnanProfileCombo);
@@ -3606,100 +3574,70 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
             if (datagram.senderAddress() != dest)
                 continue;
             const QByteArray d = datagram.data();
-            const auto reply = anan::parseDirectedDiscoveryReply(
-                std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t*>(d.constData()), std::size_t(d.size())),
-                static_cast<std::uint16_t>(datagram.senderPort()));
+            const std::optional<RadioInfo> discovered = anan::AnanDiscovery::fromDiscoveryReply(
+                d, dest, static_cast<quint16>(datagram.senderPort()));
             // Discovery can identify several Thetis board families, but
             // only implemented RX profiles may proceed to the session. Discovery
             // still labels the physical family rather than guessing a SKU.
-            if (!reply || !reply->isSupportedOpenHpsdrBoard()
-                || (preferP1 && reply->wireProtocol != 1)
-                || (protocolChoice == 2 && reply->wireProtocol != 2))
+            if (!discovered || (preferP1 && discovered->hpsdrProtocol != 1)
+                || (protocolChoice == 2 && discovered->hpsdrProtocol != 2))
                 continue;
             resetManualConnectButton();
-            if (!anan::receiveProfile(reply->boardId)) {
+            if (!anan::receiveProfile(discovered->boardId)) {
                 setManualMessage(
                     QStringLiteral("Detected %1 at %2, but AetherSDR's ANAN backend "
                                    "does not yet have a verified hardware profile for it.")
-                        .arg(QString::fromLatin1(reply->boardDisplayName()), dest.toString()),
+                        .arg(discovered->model, dest.toString()),
                     true);
                 reportStartupProbeFailure(
                     QStringLiteral("Detected unsupported OpenHPSDR board ID %1 at %2.")
-                        .arg(static_cast<int>(reply->boardId)).arg(dest.toString()));
+                        .arg(discovered->boardId).arg(dest.toString()));
                 return AnanProbeResult::Answered;
             }
 
-            RadioInfo info;
-            info.family   = QString::fromLatin1(kFamilyAnan);
-            // Keep the physical identity on the manual-connect path too.
-            info.boardId  = reply->boardId;
-            info.hpsdrProtocol = reply->wireProtocol;
-            info.address  = dest;
-            info.port     = anan::kRadioPort;
-            info.model    = QString::fromLatin1(reply->boardDisplayName());
-            info.name     = info.model;
-            info.serial   = anan::AnanDiscovery::macToSerial(reply->mac);
-            const int modelChoice = m_manualAnanProfileCombo->currentData().toInt();
-            const bool originalChoice = modelChoice == -200 || (modelChoice == -100
-                && anan::AnanImplementation::isSaturn(info)
-                && anan::AnanImplementation::preferred(info.serial) == anan::AnanImplementation::originalId());
-            if (originalChoice) {
-                if (!anan::AnanImplementation::isSaturn(info)) {
-                    setManualMessage(tr("The original Saturn implementation requires Board 10 and Protocol 2."), true);
-                    return AnanProbeResult::Answered;
-                }
-                info.implementation = anan::AnanImplementation::originalId();
-            } else {
-                const auto saved = anan::AnanSettings::radioProfile(info.serial);
-                const auto model = modelChoice == -100 ? saved.model : static_cast<anan::AnanModel>(modelChoice);
-                const int desiredProtocol = protocolChoice < 0 ? saved.protocol : protocolChoice;
-                const auto overrideState = m_manualAnanOverrideCheck->checkState();
-                const bool overrideDetection = overrideState == Qt::PartiallyChecked
-                    ? saved.overrideDetection : overrideState == Qt::Checked;
-                if (desiredProtocol > 0 && desiredProtocol != reply->wireProtocol) { continue; }
-                if ((!saved.valid && (modelChoice == -100 || protocolChoice < 0
-                                      || overrideState == Qt::PartiallyChecked))
-                    || !anan::receiveProfile(info.boardId, model, overrideDetection)) {
-                    const QString reason = overrideDetection
-                        ? tr("Board override requires an explicit supported receive profile. Check the saved model and protocol settings.")
-                        : tr("The selected or saved model does not match this radio's board. Enable Override detection only for a deliberate hardware override.");
-                    setManualMessage(reason, true);
-                    reportStartupProbeFailure(reason);
-                    return AnanProbeResult::Answered;
-                }
-                if (modelChoice != -100 || protocolChoice >= 0 || overrideState != Qt::PartiallyChecked) {
-                    if (!anan::AnanSettings::setRadioProfile(info.serial, model, desiredProtocol, overrideDetection)) {
-                        setManualMessage(tr("Could not save this radio's receive profile."), true);
-                        reportStartupProbeFailure(tr("Could not save this radio's receive profile."));
-                        return AnanProbeResult::Answered;
-                    }
-                    m_manualAnanProfileCombo->setCurrentIndex(0);
-                    m_manualAnanProtocolCombo->setCurrentIndex(0);
-                    m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
-                }
+            RadioInfo info = *discovered;
+            using Selection = anan::AnanImplementation::ManualSelection;
+            using SelectionStatus = anan::AnanImplementation::ManualSelectionStatus;
+            const Qt::CheckState overrideState = m_manualAnanOverrideCheck->checkState();
+            const Selection selection{m_manualAnanProfileCombo->currentData().toInt(), protocolChoice,
+                overrideState == Qt::PartiallyChecked ? std::nullopt
+                    : std::optional<bool>(overrideState == Qt::Checked)};
+            const anan::AnanImplementation::ManualSelectionResult resolved =
+                anan::AnanImplementation::selectForManualConnect(info, selection);
+            if (resolved.resetChoices) {
+                m_manualAnanProfileCombo->setCurrentIndex(0);
+                m_manualAnanProtocolCombo->setCurrentIndex(0);
+                m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
             }
-            if (anan::AnanImplementation::isSaturn(info)
-                && !anan::AnanImplementation::setPreferred(info.serial, info.implementation)) {
-                setManualMessage(tr("Could not save the selected Saturn implementation."), true);
+            switch (resolved.status) {
+            case SelectionStatus::IgnoreProtocol:
+                continue;
+            case SelectionStatus::OriginalUnavailable:
+                setManualMessage(tr("The original Saturn implementation requires Board 10 and Protocol 2."), true);
+                return AnanProbeResult::Answered;
+            case SelectionStatus::InvalidProfile:
+            case SelectionStatus::InvalidOverride: {
+                const QString reason = resolved.status == SelectionStatus::InvalidOverride
+                    ? tr("Board override requires an explicit supported receive profile. Check the saved model and protocol settings.")
+                    : tr("The selected or saved model does not match this radio's board. Enable Override detection only for a deliberate hardware override.");
+                setManualMessage(reason, true);
+                reportStartupProbeFailure(reason);
                 return AnanProbeResult::Answered;
             }
-            // An explicit original choice must not follow the next, unrelated radio address.
-            m_manualAnanProfileCombo->setCurrentIndex(0);
-            m_manualAnanProtocolCombo->setCurrentIndex(0);
-            m_manualAnanOverrideCheck->setCheckState(Qt::PartiallyChecked);
+            case SelectionStatus::ProfileSaveFailed:
+                setManualMessage(tr("Could not save this radio's receive profile."), true);
+                reportStartupProbeFailure(tr("Could not save this radio's receive profile."));
+                return AnanProbeResult::Answered;
+            case SelectionStatus::ImplementationSaveFailed:
+                setManualMessage(tr("Could not save the selected Saturn implementation."), true);
+                return AnanProbeResult::Answered;
+            case SelectionStatus::Accepted:
+                info = resolved.radio;
+                break;
+            }
             anan::AnanSettings::applyRadioProfileDisplay(info);
             info.nickname = anan::AnanDiscovery::effectiveNickname(info.family, info.serial,
                                                                     info.model);
-            info.version  = QString::number(reply->firmwareVer);
-            // A bare integer is a gateware bitstream number, not a software
-            // version (discrepancy #1, see P2Protocol.h's DiscoveryReply) --
-            // same label the broadcast path sets.
-            info.versionLabel = reply->wireProtocol == 1 ? QStringLiteral("P1 Gateware")
-                                                       : QStringLiteral("P2 Gateware");
-            info.inUse    = reply->streaming;
-            info.status   = reply->streaming ? QStringLiteral("In_Use")
-                                             : QStringLiteral("Available");
             info.isRouted           = true;
             info.bindSettings       = bindSettings;
             info.sessionBindAddress = bindSettings.mode == RadioBindMode::Explicit
@@ -3708,7 +3646,7 @@ ConnectionPanel::AnanProbeResult ConnectionPanel::probeAnan(
 
             resetManualConnectButton();
 
-            if (reply->streaming) {
+            if (info.inUse) {
                 // openHPSDR Protocol 2 is single-client, same as Protocol 1.
                 // Fail closed rather than wedging both clients.
                 setManualMessage(

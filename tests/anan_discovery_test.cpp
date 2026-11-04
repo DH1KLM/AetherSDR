@@ -27,6 +27,7 @@
 #include "core/LogManager.h"
 
 #include <QCoreApplication>
+#include <QByteArray>
 #include <QHostAddress>
 #include <QList>
 #include <QLoggingCategory>
@@ -354,6 +355,64 @@ void sweepWhileStoppedSendsNothing()
           "sweepNow() on a discovery that is not running opens no socket");
 }
 
+void physicalIdentityNormalization()
+{
+    // Discovery layouts already pinned by the P1/P2 codec tests: the P1
+    // Orion MkII wire ID 10 maps to P2 board 5, with the same physical MAC.
+    QByteArray p2(60, '\0');
+    p2[4] = 2;
+    p2[5] = 2; p2[6] = 0x11; p2[7] = 0x22;
+    p2[8] = 0x33; p2[9] = 0x44; p2[10] = 0x55;
+    p2[11] = 5; p2[12] = 2; p2[13] = 43; p2[20] = 7; p2[21] = 1;
+    QByteArray p1(60, '\0');
+    p1[0] = static_cast<char>(0xef); p1[1] = static_cast<char>(0xfe); p1[2] = 2;
+    p1[3] = 2; p1[4] = 0x11; p1[5] = 0x22;
+    p1[6] = 0x33; p1[7] = 0x44; p1[8] = 0x55;
+    p1[9] = 43; p1[10] = 10;
+    const QHostAddress address(QStringLiteral("192.0.2.10"));
+    const auto modern = AnanDiscovery::fromDiscoveryReply(p2, address);
+    const auto legacy = AnanDiscovery::fromDiscoveryReply(p1, address, 1024);
+    check(modern && legacy, "both discovery formats yield physical identity without a socket");
+    if (!modern || !legacy) { return; }
+    const QString familyName = QStringLiteral("Orion MkII (ANAN-7000DLE/8000DLE, Anvelina Pro 3, Red Pitaya)");
+    check(modern->family == QLatin1String("anan") && modern->boardId == 5
+        && legacy->boardId == 5 && modern->serial == QLatin1String("02:11:22:33:44:55")
+        && legacy->serial == modern->serial && modern->model == familyName
+        && legacy->model == familyName && modern->name == familyName,
+          "shared board identity and canonical MAC are independent of wire format");
+    check(modern->address == address && legacy->address == address && modern->port == 1024
+        && legacy->port == 1024 && modern->version == QLatin1String("43")
+        && legacy->version == modern->version && modern->hpsdrProtocol == 2 && legacy->hpsdrProtocol == 1
+        && modern->versionLabel == QLatin1String("P2 Gateware") && legacy->versionLabel == QLatin1String("P1 Gateware"),
+          "network target and integer gateware versions retain protocol attribution");
+    check(!modern->inUse && modern->status == QLatin1String("Available")
+        && !modern->isRouted && modern->sessionBindAddress.isNull()
+        && modern->connectionProfile.isEmpty() && modern->effectiveModel.isEmpty() && modern->nickname.isEmpty(),
+          "physical normalization does not infer routing, profiles or client preferences");
+    const auto directed = AnanDiscovery::fromDiscoveryReply(p2, address, 0);
+    check(directed && directed->serial == modern->serial && directed->model == modern->model
+        && directed->version == modern->version && directed->status == modern->status,
+          "directed P2 source port zero preserves the broadcast identity");
+    check(!AnanDiscovery::fromDiscoveryReply(p1, address, 0)
+        && !AnanDiscovery::fromDiscoveryReply(p2, address, 1025),
+          "directed source-port exceptions do not admit P1 port zero or arbitrary ports");
+    p2[4] = 3; p1[2] = 3;
+    const auto busyP2 = AnanDiscovery::fromDiscoveryReply(p2, address);
+    const auto busyP1 = AnanDiscovery::fromDiscoveryReply(p1, address, 1024);
+    check(busyP2 && busyP1 && busyP2->inUse && busyP1->inUse
+        && busyP2->status == QLatin1String("In_Use") && busyP1->status == busyP2->status,
+          "both formats retain occupied-radio status");
+    p2[11] = 6;
+    const auto recognized = AnanDiscovery::fromDiscoveryReply(p2, address);
+    check(recognized && recognized->boardId == 6,
+          "recognized board identity remains available for the caller's profile-refusal path");
+    p2[11] = static_cast<char>(0xff);
+    check(!AnanDiscovery::fromDiscoveryReply(p2, address), "unrecognized physical boards remain unlisted");
+    p2[11] = 5;
+    check(!AnanDiscovery::fromDiscoveryReply(p2.left(23), address)
+        && !AnanDiscovery::fromDiscoveryReply(p1.left(10), address), "truncated discovery frames have no identity");
+}
+
 }  // namespace
 
 // One ordinary IPv4 entry: an address, its netmask, and the broadcast address
@@ -370,6 +429,7 @@ static QNetworkAddressEntry ipv4Entry(const char* ip, const char* mask, const ch
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    physicalIdentityNormalization();
 
     const QHostAddress global(QHostAddress::Broadcast);   // 255.255.255.255
 

@@ -10,6 +10,7 @@
 #include "NtpSourcesPage.h"
 #include "RtlReceiverSettingsWidget.h"
 #include "AsioOutputSettingsWidget.h"
+#include "models/AsioSettingsModel.h"
 #include "SerialPortCombo.h"
 #include "models/CwDecodeSettings.h"
 #include "RttyDecodeSettings.h"
@@ -5623,7 +5624,8 @@ QWidget* RadioSetupDialog::buildAudioTab()
     }
 
     vbox->addWidget(pcGroup);
-    vbox->addWidget(new AsioOutputSettingsWidget(m_audio, this));
+    auto* asioSettings = new AsioSettingsModel(m_audio, this);
+    vbox->addWidget(new AsioOutputSettingsWidget(asioSettings, this));
 
     // ── Recording ───────────────────────────────────────────────────────
     {
