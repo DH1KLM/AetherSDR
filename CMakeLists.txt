@@ -1275,6 +1275,7 @@ if(WIN32)
 endif()
 
 set(MODEL_SOURCES
+    src/models/AsioSettingsModel.cpp
     src/models/DecoderAudioModel.cpp
     src/models/Ax25ReceiveModel.cpp
     src/models/AprsDigipeaterModel.cpp

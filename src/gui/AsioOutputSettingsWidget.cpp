@@ -1,22 +1,21 @@
 #include "AsioOutputSettingsWidget.h"
-#include "core/AudioEngine.h"
-#include "core/AsioOutput.h"
+#include "models/AsioSettingsModel.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 
 #include <QCheckBox>
 #include <QFormLayout>
 #include <QLabel>
-#include <QMetaObject>
+#include <QList>
 #include <QPointer>
 #include <QPushButton>
 #include <QSpinBox>
 
 namespace AetherSDR {
-AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* parent)
+AsioOutputSettingsWidget::AsioOutputSettingsWidget(AsioSettingsModel* model, QWidget* parent)
     : QGroupBox(tr("ASIO RX Output / Microphone"), parent)
 {
-    const AsioOutputConfig saved = AsioOutputConfig::load();
+    const AsioOutputConfig saved = model ? model->config() : AsioOutputConfig{};
     auto* form = new QFormLayout(this);
     auto* enabled = new QCheckBox(tr("Use ASIO for PC receive audio"), this);
     enabled->setAccessibleName(tr("Use ASIO for PC receive audio"));
@@ -30,7 +29,8 @@ AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* 
     auto* driver = new GuardedComboBox(this);
     applyComboStyle(driver);
     driver->setAccessibleName(tr("ASIO driver"));
-    for (const AsioOutputDriver& item : AsioOutput::drivers()) { driver->addItem(item.name, item.id); }
+    const QList<AsioOutputDriver> drivers = model ? model->drivers() : QList<AsioOutputDriver>{};
+    for (const AsioOutputDriver& item : drivers) { driver->addItem(item.name, item.id); }
     if (driver->findData(saved.driver) < 0 && !saved.driver.isEmpty()) {
         driver->addItem(tr("Unavailable: %1").arg(saved.driver), saved.driver);
     }
@@ -82,9 +82,9 @@ AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* 
     apply->setAutoDefault(false);
     apply->setAccessibleName(tr("Apply ASIO changes"));
     form->addRow(apply);
-    const QPointer<AudioEngine> engine(audio);
-    connect(apply, &QPushButton::clicked, this, [engine, enabled, driver, channel, rate, buffer, status, microphone, inputChannel, inputMode] {
-        if (!engine) { return; }
+    const QPointer<AsioSettingsModel> settings(model);
+    connect(apply, &QPushButton::clicked, this, [settings, enabled, driver, channel, rate, buffer, status, microphone, inputChannel, inputMode] {
+        if (!settings || !settings->available()) { return; }
         AsioOutputConfig config;
         config.enabled = enabled->isChecked();
         config.driver = driver->currentData().toString();
@@ -99,12 +99,10 @@ AsioOutputSettingsWidget::AsioOutputSettingsWidget(AudioEngine* audio, QWidget* 
             return;
         }
         status->setText(tr("Applying ASIO output settings…"));
-        QMetaObject::invokeMethod(engine, [engine, config] {
-            if (engine) { engine->setAsioOutputConfig(config); }
-        }, Qt::QueuedConnection);
+        settings->applyConfig(config);
     });
-    if (engine) {
-        connect(engine, &AudioEngine::asioOutputStatus, status, &QLabel::setText);
+    if (settings) {
+        connect(settings, &AsioSettingsModel::statusChanged, status, &QLabel::setText);
     }
 #ifndef Q_OS_WIN
     const QString reason = tr("ASIO output is available on Windows only.");

@@ -23,12 +23,12 @@ One starvation interval counts once, and its count is logged when the sink
 closes. The prefill is separate from the driver's configured buffer frames.
 It covers bounded scheduling jitter; it is not adaptive clock-rate matching.
 
-The Audio-page widget uses the existing AudioEngine device-selection pattern
-to queue the complete configuration and receive status. Its direct AsioOutput
-header dependency supplies only host-device settings and driver identities;
-the header is classified `ui-support`, like AudioOutputRouter. The SDK stays
-private to the implementation, and no radio vendor header or wire verb is
-added to the UI.
+The Audio-page widget consumes AsioSettingsModel for saved configuration,
+driver enumeration, application and status. The model queues complete value
+snapshots to the existing AudioEngine owner thread; AudioEngine retains
+configuration validation, persistence and driver lifetime. The widget has no
+direct AudioEngine or AsioOutput include. The model is client audio plumbing,
+classified `ui-support`; it introduces no radio vendor wire or daemon method.
 
 The driver is identified by CLSID from the 64-bit ASIO registry. A single
 session may be open. The host validates the stereo pair, rate, buffer range

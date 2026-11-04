@@ -2,9 +2,9 @@
 #include <QGroupBox>
 
 namespace AetherSDR {
-class AudioEngine;
+class AsioSettingsModel;
 class AsioOutputSettingsWidget final : public QGroupBox {
 public:
-    explicit AsioOutputSettingsWidget(AudioEngine* audio, QWidget* parent = nullptr);
+    explicit AsioOutputSettingsWidget(AsioSettingsModel* model, QWidget* parent = nullptr);
 };
 }

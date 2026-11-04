@@ -10607,6 +10607,13 @@ target_link_libraries(asio_output_test PRIVATE aethercore Qt6::Core)
 add_test(NAME asio_output_test COMMAND asio_output_test)
 set_tests_properties(asio_output_test PROPERTIES TIMEOUT 20)
 
+# Queued host-audio settings dispatch and engine retirement; no driver is opened.
+add_executable(asio_settings_model_test tests/asio_settings_model_test.cpp)
+target_include_directories(asio_settings_model_test PRIVATE src tests)
+target_link_libraries(asio_settings_model_test PRIVATE aethercore Qt6::Core Qt6::Test)
+add_test(NAME asio_settings_model_test COMMAND asio_settings_model_test)
+set_tests_properties(asio_settings_model_test PROPERTIES TIMEOUT 20)
+
 if(TARGET Qt6::WebSockets)
     add_executable(tci_rx_applet_test tests/tci_rx_applet_test.cpp
         src/gui/TciApplet.cpp src/gui/MeterSlider.h src/gui/DragValuePopup.cpp
@@ -10618,6 +10625,7 @@ if(TARGET Qt6::WebSockets)
 endif()
 
 set(AETHER_SETTINGS_CONSUMERS
+    asio_settings_model_test
     asio_output_test
     two_tone_tune_gate_test
     update_controller_test

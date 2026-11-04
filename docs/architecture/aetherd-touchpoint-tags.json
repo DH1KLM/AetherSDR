@@ -1787,6 +1787,12 @@
   "split": "",
   "confidence": "high"
  },
+ "models/AsioSettingsModel.h": {
+  "tag": "ui-support",
+  "note": "Client ASIO settings facade: configuration, driver enumeration and queued AudioEngine application/status. No radio state or vendor wire interface.",
+  "split": "",
+  "confidence": "high"
+ },
  "core/backends/anan/AnanImplementation.h": {
   "tag": "ui-support",
   "note": "Selection and configuration facade for independent Saturn implementations; no wire types are exposed.",
