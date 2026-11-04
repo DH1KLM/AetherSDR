@@ -1768,6 +1768,7 @@ private:
     QAction* m_liveCwContactsAction{nullptr};
     QString m_lastCwContactCall;
     QPointer<RadioSetupDialog> m_radioSetupDialog;
+    QPointer<QDialog> m_ananPhasingWindow;
     QPointer<NetworkDiagnosticsDialog> m_networkDiagnosticsDialog;
     QPointer<SystemInfoDialog> m_systemInfoDialog;
     QPointer<AgcCalibrationDialog> m_agcCalibrationDialog;

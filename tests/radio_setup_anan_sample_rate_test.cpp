@@ -18,6 +18,8 @@
 #include <QEvent>
 #include <QRadioButton>
 #include <QDoubleSpinBox>
+#include <QGraphicsView>
+#include <QTest>
 #include <QDir>
 #include <QPixmap>
 #include <QPushButton>
@@ -254,6 +256,23 @@ int main(int argc, char** argv)
         diagram->findChild<QPushButton*>(QStringLiteral("ananAdcReset"))->click();
         check(rx1->text().contains(QStringLiteral("ADC0")) && rx2->text().contains(adcs == 2 ? QStringLiteral("ADC1") : QStringLiteral("ADC0")),
             "Thetis reset restores model-specific RX1/RX2 ADC defaults");
+        if (red && protocol == 1) {
+            std::unique_ptr<QWidget> phasing(createAnanDiversityPage(&receiverModel, nullptr));
+            phasing->resize(440, 720); phasing->show();
+            auto* gain = phasing->findChild<QDoubleSpinBox*>(QStringLiteral("ananDiversityGain"));
+            auto* phase = phasing->findChild<QDoubleSpinBox*>(QStringLiteral("ananDiversityPhase"));
+            auto* polar = phasing->findChild<QGraphicsView*>(QStringLiteral("ananDiversityPolar"));
+            pending.restart();
+            while (gain && !gain->isEnabled() && pending.elapsed() < 2500) { app.processEvents(); QThread::msleep(5); }
+            check(gain && gain->isEnabled(), "Red Pitaya P1 admits graphical phasing controls");
+            app.processEvents();
+            const QPoint point = polar->mapFromScene(QPointF(0, -40));
+            QTest::mouseClick(polar->viewport(), Qt::LeftButton, Qt::NoModifier, point);
+            check(std::abs(gain->value() - 2.0) < 0.1 && std::abs(phase->value() - 90.0) < 1.0,
+                "polar gesture updates numeric amplitude and positive phase with the DSP sign convention");
+            const QString shot = qEnvironmentVariable("AETHER_PHASING_SCREENSHOT");
+            if (!shot.isEmpty()) { check(phasing->grab().save(shot), "save actual phasing widget for visual review"); }
+        }
         const QString shots = qEnvironmentVariable("AETHER_ADC_SCREENSHOT_DIR");
         if (!shots.isEmpty() && ((red && protocol == 1) || (modelId == anan::AnanModel::AnvelinaPro3 && protocol == 2))) {
             check(QDir().mkpath(shots),"ADC screenshot directory exists");

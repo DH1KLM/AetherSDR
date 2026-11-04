@@ -25,6 +25,7 @@
 #include "PanadapterApplet.h"
 #include "PanadapterStack.h"
 #include "RadioSetupDialog.h"
+#include "AnanTransmitPowerPage.h"
 #include "TciApplet.h"
 #include "ClientChainApplet.h"
 #include "CwxPanel.h"
@@ -1582,6 +1583,37 @@ void MainWindow::buildMenuBar()
     // status-bar +PAN affordance so PanadapterLayout is written and applied on
     // both routes instead of only one.
     auto* addPanAction = toolsMenu->addAction("Add Panadapter...");
+    auto* phasingAction = toolsMenu->addAction(QStringLiteral("Phasing Control..."));
+    phasingAction->setStatusTip(QStringLiteral("Connect an Extended OpenHPSDR receiver to adjust coherent IQ diversity."));
+    auto* phasingAvailability = new ControlAvailabilityRegistry(m_radioModel, this);
+    phasingAvailability->registerAction(phasingAction, QStringLiteral("Connect an Extended OpenHPSDR receiver first."),
+        [this](bool connected, const RadioCapabilities&) {
+            return connected && m_radioModel.backendDeclaresExtension(QStringLiteral("anan"));
+        });
+    const auto updatePhasing = [this, phasingAction] {
+        const bool available = m_radioModel.isConnected()
+            && m_radioModel.backendDeclaresExtension(QStringLiteral("anan"));
+        phasingAction->setStatusTip(available ? QStringLiteral("Open coherent IQ diversity phase and amplitude controls.")
+            : QStringLiteral("Connect an Extended OpenHPSDR receiver first."));
+        if (!available && m_ananPhasingWindow) { m_ananPhasingWindow->close(); }
+    };
+    connect(toolsMenu, &QMenu::aboutToShow, this, updatePhasing);
+    connect(&m_radioModel, &RadioModel::connectionStateChanged, this, updatePhasing);
+    updatePhasing();
+    connect(phasingAction, &QAction::triggered, this, [this] {
+        if (!m_ananPhasingWindow) {
+            auto* window = new CanonWindow(QStringLiteral("Phasing Control"), this, CanonWindow::Kind::Workspace);
+            window->setAttribute(Qt::WA_DeleteOnClose);
+            window->setGeometryKey(QStringLiteral("AnanPhasingWindowGeometry"));
+            auto* layout = new QVBoxLayout(window->bodyWidget());
+            layout->addWidget(createAnanDiversityPage(&m_radioModel, window->bodyWidget()));
+            window->resize(440, 720);
+            m_ananPhasingWindow = window;
+        }
+        m_ananPhasingWindow->show();
+        m_ananPhasingWindow->raise();
+        m_ananPhasingWindow->activateWindow();
+    });
     m_addPanAction = addPanAction;
     addPanAction->setEnabled(false);
     connect(addPanAction, &QAction::triggered,

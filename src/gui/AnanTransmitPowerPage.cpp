@@ -4,9 +4,21 @@
 #include "core/ThemeManager.h"
 
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QGraphicsView>
+#include <QGraphicsScene>
+#include <QGraphicsLineItem>
+#include <QGraphicsEllipseItem>
+#include <QMouseEvent>
+#include <QResizeEvent>
+#include <QPen>
+#include <QPainter>
+#include <cmath>
+#include <algorithm>
+#include <numbers>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QRadioButton>
@@ -26,6 +38,198 @@
 #include <functional>
 
 namespace AetherSDR {
+namespace {
+// Numeric controls provide the keyboard and screen-reader equivalent of dragging.
+class DiversityPolarView final : public QGraphicsView {
+public:
+    DiversityPolarView(QDoubleSpinBox* gain, QDoubleSpinBox* phase, QWidget* parent)
+        : QGraphicsView(parent), m_gain(gain), m_phase(phase)
+    {
+        setObjectName(QStringLiteral("ananDiversityPolar"));
+        setAccessibleName(QStringLiteral("Diversity phase and amplitude diagram"));
+        setAccessibleDescription(QStringLiteral("Drag to set phase and amplitude. Equivalent keyboard controls: Amplitude multiplier and Phase."));
+        setMinimumSize(270, 270);
+        setScene(new QGraphicsScene(this));
+        scene()->setSceneRect(-112, -112, 224, 224);
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        setRenderHint(QPainter::Antialiasing);
+        const auto redraw = [this] { refresh(); };
+        QObject::connect(gain, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, redraw);
+        QObject::connect(phase, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, redraw);
+        QObject::connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, redraw);
+        refresh();
+    }
+protected:
+    void resizeEvent(QResizeEvent* event) override {
+        QGraphicsView::resizeEvent(event); fitInView(sceneRect(), Qt::KeepAspectRatio);
+    }
+    void mousePressEvent(QMouseEvent* event) override {
+        if (event->button() == Qt::LeftButton) { adjust(event->position()); event->accept(); }
+        else { QGraphicsView::mousePressEvent(event); }
+    }
+    void mouseMoveEvent(QMouseEvent* event) override {
+        if (event->buttons() & Qt::LeftButton) { adjust(event->position()); event->accept(); }
+        else { QGraphicsView::mouseMoveEvent(event); }
+    }
+private:
+    void adjust(const QPointF& position) {
+        const QPointF point = mapToScene(position.toPoint());
+        const double radius = std::hypot(point.x(), point.y());
+        m_gain->setValue(std::min(5.0, radius / 20.0));
+        if (radius > 0.01) {
+            m_phase->setValue(std::atan2(-point.y(), point.x()) * 180.0 / std::numbers::pi);
+        }
+    }
+    void refresh() {
+        scene()->clear();
+        ThemeManager& theme = ThemeManager::instance();
+        const QPen grid(theme.color(this, QStringLiteral("color.canon.lineHi")));
+        const QPen accent(theme.color(this, QStringLiteral("color.canon.cyan")), 2);
+        setBackgroundBrush(theme.color(this, QStringLiteral("color.canon.ground")));
+        for (int ring = 1; ring <= 5; ++ring) {
+            const double radius = ring * 20.0;
+            scene()->addEllipse(-radius, -radius, radius * 2, radius * 2, grid);
+        }
+        scene()->addLine(-100, 0, 100, 0, grid);
+        scene()->addLine(0, -100, 0, 100, grid);
+        const double angle = m_phase->value() * std::numbers::pi / 180.0;
+        const double x = 20.0 * m_gain->value() * std::cos(angle);
+        const double y = -20.0 * m_gain->value() * std::sin(angle);
+        scene()->addLine(0, 0, x, y, accent);
+        scene()->addEllipse(x - 3, y - 3, 6, 6, accent, accent.color());
+        setAccessibleDescription(QStringLiteral("Amplitude %1, phase %2 degrees. Drag or use the numeric controls. Rings represent gain 1 to 5.")
+            .arg(m_gain->value(), 0, 'f', 3).arg(m_phase->value(), 0, 'f', 2));
+    }
+    QDoubleSpinBox* m_gain;
+    QDoubleSpinBox* m_phase;
+};
+} // namespace
+QWidget* createAnanDiversityPage(RadioModel* model, QWidget* parent)
+{
+    auto* page = new QWidget(parent);
+    auto* layout = new QVBoxLayout(page);
+    auto* introduction = new QLabel(QStringLiteral("Combine phase-coherent ADC0 and ADC1 IQ before RX1 demodulation. Connect two antennas to the independent ADC inputs. Other receivers remain independent. Diversity starts disabled after a new connection."), page);
+    introduction->setWordWrap(true);
+    layout->addWidget(introduction);
+    auto* form = new QFormLayout;
+    layout->addLayout(form);
+    auto* enabled = new QCheckBox(QStringLiteral("Enable coherent IQ diversity"), page);
+    enabled->setObjectName(QStringLiteral("ananDiversityEnabled"));
+    enabled->setAccessibleName(QStringLiteral("Enable coherent IQ diversity"));
+    form->addRow(enabled);
+    auto* gain = new QDoubleSpinBox(page);
+    gain->setObjectName(QStringLiteral("ananDiversityGain"));
+    gain->setAccessibleName(QStringLiteral("Diversity amplitude multiplier"));
+    gain->setRange(0.0, 5.0); gain->setDecimals(3); gain->setSingleStep(0.001);
+    gain->setValue(1.0); gain->setKeyboardTracking(false);
+    form->addRow(QStringLiteral("Amplitude multiplier:"), gain);
+    auto* phase = new QDoubleSpinBox(page);
+    phase->setObjectName(QStringLiteral("ananDiversityPhase"));
+    phase->setAccessibleName(QStringLiteral("Diversity phase in degrees"));
+    phase->setRange(-180.0, 180.0); phase->setDecimals(2); phase->setSingleStep(0.1);
+    phase->setSuffix(QStringLiteral(" °")); phase->setKeyboardTracking(false);
+    form->addRow(QStringLiteral("Phase:"), phase);
+    auto* reference = new QComboBox(page);
+    reference->setObjectName(QStringLiteral("ananDiversityReference"));
+    reference->setAccessibleName(QStringLiteral("Diversity reference input"));
+    reference->addItem(QStringLiteral("ADC0"), 0); reference->addItem(QStringLiteral("ADC1"), 1);
+    form->addRow(QStringLiteral("Reference input:"), reference);
+    auto* output = new QComboBox(page);
+    output->setObjectName(QStringLiteral("ananDiversityOutput"));
+    output->setAccessibleName(QStringLiteral("Diversity output"));
+    output->addItem(QStringLiteral("ADC0 only"), 0);
+    output->addItem(QStringLiteral("ADC1 only"), 1);
+    output->addItem(QStringLiteral("Combined IQ"), 2); output->setCurrentIndex(2);
+    form->addRow(QStringLiteral("Output:"), output);
+    auto* polar = new DiversityPolarView(gain, phase, page);
+    layout->addWidget(polar, 1);
+    auto* diagramHint = new QLabel(QStringLiteral("Drag the vector to adjust phase and amplitude. Rings: gain 1–5; right = 0°, top = +90°."), page);
+    diagramHint->setWordWrap(true);
+    layout->addWidget(diagramHint);
+    auto* status = new QLabel(page);
+    status->setObjectName(QStringLiteral("ananDiversityStatus"));
+    status->setAccessibleName(QStringLiteral("Diversity status"));
+    status->setWordWrap(true); layout->addWidget(status); layout->addStretch();
+    const QList<QWidget*> controls{enabled, gain, phase, reference, output, polar};
+    const auto availability = [=](bool available, const QString& reason) {
+        for (QWidget* control : controls) {
+            control->setEnabled(available);
+            control->setAccessibleDescription(available
+                ? QStringLiteral("Changes apply during reception. Phase and amplitude affect the non-reference input; output can audition either ADC or their IQ sum.") : reason);
+        }
+        status->setText(available ? QStringLiteral("Changes apply automatically. Adjustment values are saved per radio, model and protocol.") : reason);
+    };
+    availability(false, QStringLiteral("Connect a supported two-ADC Extended ANAN receiver."));
+    struct State { QString identity; bool pending = false; bool filling = false; bool dirty = false; };
+    const auto state = std::make_shared<State>();
+    auto* edits = new QTimer(page); edits->setSingleShot(true); edits->setInterval(80);
+    const auto request = [=](bool write) {
+        if (state->pending || !model || !model->isConnected()
+            || !model->backendDeclaresExtension(QStringLiteral("anan"))) { return; }
+        if (!write && (state->dirty || gain->hasFocus() || phase->hasFocus())) { return; }
+        const QPointer<IRadioBackend> backend = model->backend();
+        if (!backend) { return; }
+        static quint64 next = 0x444956000000ULL;
+        const quint64 id = ++next;
+        QVariantMap fields;
+        if (write) {
+            fields = {{QStringLiteral("identity"), state->identity}, {QStringLiteral("enabled"), enabled->isChecked()},
+                {QStringLiteral("gain"), gain->value()}, {QStringLiteral("phaseDegrees"), phase->value()},
+                {QStringLiteral("reference"), reference->currentData()}, {QStringLiteral("output"), output->currentData()}};
+        }
+        state->pending = true; state->dirty = false;
+        auto* guard = new QTimer(page); guard->setSingleShot(true); guard->start(1500);
+        const auto finish = [=] {
+            state->pending = false; guard->stop(); guard->deleteLater();
+            if (state->dirty) { edits->start(); }
+        };
+        QObject::connect(guard, &QTimer::timeout, page, [=] {
+            state->dirty = false; edits->stop(); finish();
+            availability(false, QStringLiteral("No diversity reply; reconnect or reopen Radio Setup."));
+        });
+        QObject::connect(backend, &IRadioBackend::extensionError, guard, [=](quint64 reply, const QString& error) {
+            if (reply != id || !guard->isActive()) { return; }
+            finish();
+            if (backend == model->backend()) { status->setText(error); }
+        });
+        QObject::connect(backend, &IRadioBackend::extensionResult, guard, [=](quint64 reply, const QVariant& value) {
+            if (reply != id || !guard->isActive()) { return; }
+            finish();
+            if (!backend || backend != model->backend() || !model->isConnected()) { return; }
+            const QVariantMap data = value.toMap();
+            state->identity = data.value(QStringLiteral("identity")).toString();
+            availability(data.value(QStringLiteral("available")).toBool(), data.value(QStringLiteral("reason")).toString());
+            if (state->dirty) { return; }
+            state->filling = true;
+            enabled->setChecked(data.value(QStringLiteral("enabled")).toBool());
+            gain->setValue(data.value(QStringLiteral("gain"), 1.0).toDouble());
+            phase->setValue(data.value(QStringLiteral("phaseDegrees")).toDouble());
+            reference->setCurrentIndex(reference->findData(data.value(QStringLiteral("reference"))));
+            output->setCurrentIndex(output->findData(data.value(QStringLiteral("output"))));
+            state->filling = false;
+        });
+        model->invokeBackendExtension(QStringLiteral("anan"), write ? QStringLiteral("diversity.set")
+            : QStringLiteral("diversity.get"), id, fields);
+    };
+    const auto changed = [=] { if (!state->filling) { state->dirty = true; edits->start(); } };
+    QObject::connect(enabled, &QCheckBox::toggled, page, changed);
+    QObject::connect(gain, QOverload<double>::of(&QDoubleSpinBox::valueChanged), page, changed);
+    QObject::connect(phase, QOverload<double>::of(&QDoubleSpinBox::valueChanged), page, changed);
+    QObject::connect(reference, QOverload<int>::of(&QComboBox::currentIndexChanged), page, changed);
+    QObject::connect(output, QOverload<int>::of(&QComboBox::currentIndexChanged), page, changed);
+    QObject::connect(edits, &QTimer::timeout, page, [=] { request(true); });
+    auto* refresh = new QTimer(page); refresh->setInterval(1000);
+    QObject::connect(refresh, &QTimer::timeout, page, [=] {
+        if (!model || !model->isConnected()) {
+            state->dirty = false;
+            availability(false, QStringLiteral("Connect a supported two-ADC Extended ANAN receiver."));
+        } else { request(false); }
+    });
+    refresh->start(); request(false);
+    return page;
+}
+
 QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
 {
     auto* page = new QWidget(parent);
@@ -102,12 +306,14 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
             heading->setText(QStringLiteral("%1 • Protocol %2 • RX → physical DDC → ADC input")
                 .arg(data.value(QStringLiteral("model")).toString()).arg(data.value(QStringLiteral("protocol")).toInt()));
             const bool busy = data.value(QStringLiteral("busy")).toBool();
+            const bool diversity = data.value(QStringLiteral("diversityEnabled")).toBool();
             state->filling = true;
             for (int ddc = 0; ddc < 7; ++ddc) {
                 const int logical = state->ddcMap.indexOf(ddc);
                 const bool supported = logical >= 0 && logical < data.value(QStringLiteral("streams")).toInt();
                 groups[ddc]->setEnabled(supported && !busy);
                 groups[ddc]->setAccessibleDescription(!supported ? QStringLiteral("This session does not provide this DDC.")
+                    : diversity ? QStringLiteral("Disable diversity before changing ADC routing.")
                     : busy ? QStringLiteral("Finish TX or receive configuration before changing ADC routing.") : QStringLiteral("Changes apply immediately during reception."));
                 for (int adc = 0; adc < 2; ++adc) {
                     QRadioButton* button = buttons[ddc*2+adc];
@@ -133,6 +339,9 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
                 routes.append(text);
                 receiverCards[physical].append(text.toHtmlEscaped().replace(QLatin1Char('\n'),QStringLiteral("<br>")));
             }
+            if (diversity) {
+                receiverCards[1].append(QStringLiteral("Diversity input<br>ADC1 → RX1 IQ combiner"));
+            }
             for (int physical = 0; physical < 7; ++physical) {
                 const bool active = !receiverCards[physical].isEmpty();
                 cards[physical]->setEnabled(active);
@@ -140,7 +349,9 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
                 cards[physical]->setAccessibleDescription(active ? cards[physical]->text()
                     : QStringLiteral("No active RX slice uses this DDC. Reserved and unsupported DDCs are not enabled."));
             }
-            status->setText(QStringLiteral("%1 active RX slice(s). Shared DDCs share their ADC input. Grey cards have no active RX; diversity and PureSignal routing are not enabled.")
+            status->setText((diversity
+                ? QStringLiteral("%1 active RX slice(s). DDC0/1 form the coherent diversity pair for RX1. Other DDCs remain independent; PureSignal routing is not enabled.")
+                : QStringLiteral("%1 active RX slice(s). Shared DDCs share their ADC input. Grey cards have no active RX; diversity and PureSignal routing are not enabled."))
                 .arg(routes.size()));
         });
         model->invokeBackendExtension(QStringLiteral("anan"),write ? QStringLiteral("adc.set") : QStringLiteral("adc.get"),id,

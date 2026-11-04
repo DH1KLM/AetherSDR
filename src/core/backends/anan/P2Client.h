@@ -1,5 +1,6 @@
 #pragma once
 #include "AnanCarrier.h"
+#include "AnanDiversity.h"
 #include <QVariantMap>
 
 #include "core/backends/anan/P2Protocol.h"
@@ -121,6 +122,7 @@ public:
     void setMicOptions(const MicOptions& options);
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
+    bool setDiversity(const DiversitySettings& settings);
 
     // Set one ADC's receive step attenuator (0 = ADC0, 1 = ADC1), clamped to
     // 0-31 dB by the encoder. Sent at once when running, and carried by every
@@ -342,6 +344,14 @@ private:
     bool m_overrideDetection = false;
     // Stream indices stay logical; packet rows/ports use this RX offset.
     int m_firstDdcIndex = 0;
+    DiversitySettings m_diversity;
+    int m_availableDdcs = 0;
+    std::vector<std::complex<float>> m_diversityFirst;
+    std::vector<std::complex<float>> m_diversitySecond;
+    std::vector<std::complex<float>> m_diversityOutput;
+    [[nodiscard]] int receiveDdcOffset() const { return m_diversity.enabled ? 2 : m_firstDdcIndex; }
+    [[nodiscard]] std::array<std::uint8_t, 1444> receiveDdcPacket(
+        std::span<const DdcConfig> streams) const;
     double m_frequencyCorrection = 1.0;
     bool m_selectReceiveLpf = false;
     std::optional<FilterConfig> m_filters;

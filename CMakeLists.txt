@@ -960,6 +960,7 @@ set(CORE_SOURCES
     src/core/backends/anan/AnanBackend_AutoAgc.cpp
     src/core/backends/anan/AnanBackend_Transmit.cpp
     src/core/backends/anan/AnanBackend_MultiRx.cpp
+    src/core/backends/anan/AnanBackend_Diversity.cpp
     src/core/backends/anan/AnanBackend.cpp   # aetherd ANAN P2 Phase 1b (IRadioBackend impl)
     src/core/backends/anan_original/AnanBackend.cpp
     src/core/backends/anan_original/AnanDroopCalibrator.cpp

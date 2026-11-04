@@ -19,10 +19,15 @@ bool P2Client::sendControl(std::span<const std::uint8_t> packet, quint16 port)
 
 HighPriorityPacket P2Client::receiveHighPriority() const
 {
-    return buildHighPriority(true, sharedFreqWords(), m_bypassAdc0Filters, m_bypassAdc1Filters,
-        m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna, m_firstDdcIndex,
+    HighPriorityPacket packet = buildHighPriority(true, sharedFreqWords(), m_bypassAdc0Filters, m_bypassAdc1Filters,
+        m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna, receiveDdcOffset(),
         m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr,
         m_alexAttenuationDb, &m_receiveFilterPlan, m_frequencyCorrection, m_speakerAmpMuted);
+    if (m_diversity.enabled) {
+        std::copy_n(packet.begin() + 17, 4, packet.begin() + 9);
+        std::copy_n(packet.begin() + 17, 4, packet.begin() + 13);
+    }
+    return packet;
 }
 
 bool P2Client::writeTransmitKey(bool key)

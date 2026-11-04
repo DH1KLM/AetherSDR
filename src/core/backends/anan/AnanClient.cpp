@@ -71,6 +71,10 @@ bool AnanClient::start(const Params& params, int timeoutMs)
     return m_protocol == 1 ? m_p1->start(params, timeoutMs) : m_p2->start(params, timeoutMs);
 }
 AnanClient::~AnanClient() { stop(); }
+bool AnanClient::setDiversity(const DiversitySettings& settings)
+{
+    return transmitTransport([&settings](auto* client) { return client->setDiversity(settings); });
+}
 void AnanClient::stop()
 {
     m_transmitConfigured = false;

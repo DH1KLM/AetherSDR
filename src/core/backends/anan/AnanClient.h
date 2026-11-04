@@ -49,6 +49,7 @@ public:
     void setMicOptions(const MicOptions& options);
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
+    bool setDiversity(const DiversitySettings& settings);
     Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     Q_INVOKABLE void setStepAttenuationDb(int adc, int db);
     Q_INVOKABLE void setRxAntenna(int antenna);

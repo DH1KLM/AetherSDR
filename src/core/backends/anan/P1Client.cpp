@@ -89,6 +89,9 @@ bool P1Client::prepare(const Params& params)
             return false;
     }
     m_params = params;
+    m_diversity = {};
+    m_receiveStreams.clear();
+    m_receiveCenters.clear();
     m_micAvailable = false;
     m_config.mic = {};
     m_receiveFilterPlan = {};
@@ -226,6 +229,8 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
         for (int slot = 0; slot < m_profile->frameSlotCount; ++slot)
             m_addresses.push_back(static_cast<std::uint8_t>(4 + 2 * slot));
         m_validated = true;
+        m_receiveStreams = {{m_config.rateKsps, m_config.adcIndex}};
+        m_receiveCenters = {double(m_config.frequencyHz)};
         qCInfo(lcAnanP1) << "ANAN P1: validated board" << *boardId << "wire ID" << reply->boardId
             << "model" << QString::fromLatin1(descriptor ? descriptor->name.data() : "Unknown") << "override" << m_params.overrideDetection
             << "ADC" << m_config.adcIndex << "rate ksps" << m_config.rateKsps
@@ -286,11 +291,23 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
         qCInfo(lcAnanP1) << "ANAN P1: RX IQ started; slot 0, ADC" << m_config.adcIndex;
         m_linkUp = true; m_timeoutTimer->stop(); emit linkUp();
     }
-    emit ddcIqReady(0, m_iq);
-    emit ddc0IqReady(m_iq);
+    if (m_diversity.enabled) {
+        m_diversitySecond.clear();
+        if (!p1::decodeIq(*frame, 1, m_diversitySecond)
+            || !combineDiversity(m_iq, m_diversitySecond, m_diversity, m_diversityOutput)) {
+            return;
+        }
+        emit ddcIqReady(0, m_diversityOutput);
+        emit ddc0IqReady(m_diversityOutput);
+    } else {
+        emit ddcIqReady(0, m_iq);
+        emit ddc0IqReady(m_iq);
+    }
     for (int i = 1; i < m_config.receivers; ++i) {
         m_iq.clear();
-        if (p1::decodeIq(*frame, p1::receiveDdcForStream(i,m_config.numAdcs), m_iq))
+        const int physical = p1::receiveDdcForStream(i, m_config.numAdcs, m_diversity.enabled);
+        if (physical >= m_config.receivers) { break; }
+        if (p1::decodeIq(*frame, physical, m_iq))
             emit ddcIqReady(i, m_iq);
     }
 }
@@ -480,8 +497,12 @@ void P1Client::setDdc0FrequencyHz(double hz)
     if (!std::isfinite(hz) || hz < 0 || hz > 61'440'000)
         return;
     m_config.frequencyHz = static_cast<std::uint32_t>(hz + 0.5);
+    if (!m_receiveCenters.empty()) { m_receiveCenters[0] = hz; }
     if (m_config.independentFrequencies)
         m_config.receiveFrequencies[0] = m_config.frequencyHz;
+    if (m_diversity.enabled) {
+        m_config.receiveFrequencies[1] = m_config.frequencyHz;
+    }
     updateFilters();
 }
 void P1Client::setFrequencyCorrection(double factor)
@@ -582,17 +603,63 @@ bool P1Client::setReceiveStreams(const std::vector<DdcConfig>& streams,
         if (streams[i].adcIndex < 0 || streams[i].adcIndex >= m_config.numAdcs || streams[i].rateKsps != m_config.rateKsps ||
             !std::isfinite(centers[i]) || centers[i] < 0 || centers[i] > 61'440'000)
             return false;
+    if (m_diversity.enabled && (streams.front().adcIndex != 0
+        || p1::receiveDdcForStream(int(streams.size() - 1), m_config.numAdcs, true) >= m_config.receivers)) {
+        return false;
+    }
     m_config.independentFrequencies = true;
     m_config.independentAdcs = true;
     m_config.receiveAdcs.fill(m_config.adcIndex);
     for (std::size_t i = 0; i < streams.size(); ++i) {
-        m_config.receiveAdcs[p1::receiveDdcForStream(int(i),m_config.numAdcs)] = streams[i].adcIndex;
+        m_config.receiveAdcs[p1::receiveDdcForStream(int(i),m_config.numAdcs,m_diversity.enabled)] = streams[i].adcIndex;
     }
     m_config.frequencyHz = std::uint32_t(centers[0] + 0.5);
     m_config.receiveFrequencies.fill(m_config.frequencyHz);
     for (std::size_t i = 0; i < centers.size(); ++i)
-        m_config.receiveFrequencies[p1::receiveDdcForStream(int(i),m_config.numAdcs)] = std::uint32_t(centers[i] + 0.5);
+        m_config.receiveFrequencies[p1::receiveDdcForStream(int(i),m_config.numAdcs,m_diversity.enabled)] = std::uint32_t(centers[i] + 0.5);
+    if (m_diversity.enabled) {
+        m_config.receiveAdcs[1] = 1;
+        m_config.receiveFrequencies[1] = m_config.frequencyHz;
+    }
+    m_receiveStreams = streams;
+    m_receiveCenters = centers;
     updateFilters();
+    return true;
+}
+
+bool P1Client::setDiversity(const DiversitySettings& settings)
+{
+    if (settings.valid() && m_running && m_validated && settings == m_diversity) { return true; }
+    if (!settings.valid() || !m_running || !m_validated || transmitActive()
+        || (settings.enabled && (m_config.numAdcs != 2 || m_config.receivers < 3
+            || m_receiveStreams.empty() || m_receiveStreams.front().adcIndex != 0
+            || p1::receiveDdcForStream(int(m_receiveStreams.size() - 1), 2, true) >= m_config.receivers))) {
+        return false;
+    }
+    const bool routingChanged = settings.enabled != m_diversity.enabled;
+    const DiversitySettings previous = m_diversity;
+    const p1::ReceiveConfig previousConfig = m_config;
+    m_diversity = settings;
+    m_config.diversity = settings.enabled;
+    if (!m_receiveStreams.empty() && !setReceiveStreams(m_receiveStreams, m_receiveCenters)) {
+        m_diversity = previous;
+        m_config = previousConfig;
+        return false;
+    }
+    if (routingChanged) {
+        // Thetis networkproto1.c: bank 0 C4[7] locks the diversity VFOs.
+        // Prime the complete ADC/frequency map before consuming paired samples.
+        const auto packet = p1::speakerAndControl(m_txSequence, 0, 0x1c, m_config);
+        if (!packet || !send(*packet)) {
+            m_diversity = previous;
+            m_config = previousConfig;
+            return false;
+        }
+        ++m_txSequence;
+        for (int i = 0; i < m_config.receivers; ++i) {
+            emit ddcSequenceGap(i);
+        }
+    }
     return true;
 }
 } // namespace AetherSDR::anan

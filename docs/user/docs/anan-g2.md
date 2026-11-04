@@ -118,6 +118,40 @@ board and protocol. TX, calibration and receive reconfiguration lock routing.
 New profiles use those choices; an existing first-receiver ADC preference and
 explicit saved receiver ADC assignments are retained.
 
+## Coherent IQ diversity
+
+On a supported **two-ADC Extended** OpenHPSDR profile, open **Tools → Phasing
+Control...**. This independent window is available while an Extended OpenHPSDR
+receiver is connected and closes on disconnect. Both Protocol 1 and Protocol 2 use the hardware's
+synchronized ADC0/ADC1 IQ pair. The Original implementation is unchanged.
+Connect separate antenna signals to the two physical ADC inputs and select
+ADC0 for RX1 before enabling diversity. Controls remain dimmed with a reason
+when the connected hardware or current operation cannot provide the pair.
+
+Enable **Enable coherent IQ diversity**, choose **Combined IQ**, then adjust
+**Amplitude multiplier** and **Phase** to reinforce the wanted signal or null
+an unwanted signal. Changes apply automatically during reception. The multiplier
+runs radially in the graphical diagram: drag the vector to change amplitude and
+phase together, or use the equivalent numeric controls. Rings represent gain
+1 through 5; right is 0° and top is +90°. The multiplier
+ranges from 0 to 5; phase ranges from −180° to +180°. **Reference input** chooses
+the unmodified ADC; the multiplier and phase affect the other ADC. **ADC0 only**
+and **ADC1 only** audition either input without the multiplier or phase rotation.
+Combining happens before RX1 demodulation, so its spectrum, waterfall and audio
+use the same combined IQ.
+
+The adjustment values are saved separately for each radio, model and protocol.
+A new connection starts with diversity disabled. Disable diversity before
+changing ADC assignments; changes are also refused during TX, calibration or
+receive configuration. Independent receivers retain separate frequency and DSP
+paths, within the session's remaining DDC resources. A refused transport or
+settings write is reported in Phasing Control. On Red Pitaya P1, DDC0/ADC0
+and DDC1/ADC1 form the synchronized RX1 pair; DDC2 remains the independent RX2.
+
+The operator reports diversity working in Thetis on Anvelina Pro III P2 firmware
+v2.2.15 and Red Pitaya P1 firmware v3.2 (20251012). Those observations establish
+the reference firmware path, not hardware qualification of this AetherSDR feature.
+
 ## Multiple receive views
 
 **B** toggles the band view of the addressed panadapter, also with additional

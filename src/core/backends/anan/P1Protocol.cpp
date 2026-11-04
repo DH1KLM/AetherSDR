@@ -34,6 +34,7 @@ bool validConfig(const ReceiveConfig& c) noexcept
                     [](auto hz) { return hz > 61'440'000; }))
         return false;
     return rate && validFrequencyFactor(c.frequencyCorrection) && validReceiverCount(c.receivers)
+        && (!c.diversity || (c.numAdcs == 2 && c.receivers >= 3))
         && (c.numAdcs == 1 || c.numAdcs == 2)
         && c.adcIndex >= 0 && c.adcIndex < c.numAdcs
         && c.rxOcMask <= 127
@@ -83,7 +84,7 @@ std::optional<Control> receiveControl(std::uint8_t address,
             bytes[3] |= c.mkIIBpf && c.rxOnlyInput != 1 ? 0x01 : 0x80;
         }
         bytes[4] = static_cast<std::uint8_t>((c.antenna - 1) | 0x04
-            | ((c.receivers - 1) << 3));
+            | ((c.receivers - 1) << 3) | (c.diversity ? 0x80 : 0));
         break;
     case 0x12:
         // Manual receive filters, zero drive, and Disable HF PA.

@@ -424,6 +424,11 @@ private:
     // actually exists.
     [[nodiscard]] int nearestSessionRateKsps(int requestedKsps) const noexcept;
     AnanClient::Params m_pendingParams;
+    DiversitySettings m_diversity;
+    bool m_diversityPending = false;
+    [[nodiscard]] QVariantMap diversityState() const;
+    void requestDiversity(quint64 requestId, const QVariantMap& fields);
+    void loadDiversitySettings();
     // Retain ANT1/2/3 across P2 session restarts.
     int m_rxAntenna = 1;
     AnanRxDsp::Config m_pendingDspConfig;

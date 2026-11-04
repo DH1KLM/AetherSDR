@@ -303,6 +303,7 @@ AnanBackend::AnanBackend(QObject* parent)
             m_bandViewRestoreReady = true;
         }
         applyTuneToRadioAndPan();
+        if (m_diversity.enabled) { updateReceiveStreams(); }
         emitSliceState();
         // A rate change suppresses connected(), but a page opened during
         // its brief link restart still needs the fresh calibration status.
@@ -419,6 +420,7 @@ AnanBackend::AnanBackend(QObject* parent)
         m_discoveredFirmwareVer = firmwareVer;
         m_discoveredReceiverCount = reportedReceivers;
         m_discoveryInfoReceived = true;
+        loadDiversitySettings();
         loadHardwareFilters(boardId);
         if (!hasClassicAlexAttenuator(m_pendingParams.model, boardId)
             && m_pendingParams.alexAttenuationDb != 0) {
@@ -1008,6 +1010,8 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     // a prior radio's discovered identity until its own reply lands -- see
     // capabilities()'s own comment.
     m_discoveryInfoReceived = false;
+    m_diversity = {};
+    m_diversityPending = false;
     m_discoveredBoardId = 0;
     m_discoveredFirmwareVer = 0;
     m_discoveredReceiverCount = 0;
@@ -2353,7 +2357,9 @@ void AnanBackend::loadHardwareFilters(int boardId)
     const auto profile = receiveProfile(boardId, m_pendingParams.model, m_pendingParams.overrideDetection);
     if (!profile) { return; }
     for (int stream = 0; stream < 7; ++stream) {
-        const int physical = m_pendingParams.protocol == 1 ? p1::receiveDdcForStream(stream,profile->numAdcs) : profile->firstDdcIndex+stream;
+        const int physical = m_pendingParams.protocol == 1
+            ? p1::receiveDdcForStream(stream,profile->numAdcs,m_diversity.enabled)
+            : m_diversity.enabled ? (stream == 0 ? 0 : 2 + stream) : profile->firstDdcIndex+stream;
         m_receiveAdcs[stream] = profile->numAdcs > 1 && (m_pendingParams.protocol == 1
             ? physical == 1 || physical == 2 : physical == 1 || physical == 3) ? 1 : 0;
     }
@@ -2603,6 +2609,15 @@ void AnanBackend::acceptCalibrationSpectrum(const std::vector<float>& bins, qint
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && (verb == QLatin1String("diversity.get")
+        || verb == QLatin1String("diversity.set"))) {
+        if (verb == QLatin1String("diversity.get")) {
+            emit extensionResult(requestId, diversityState());
+        } else {
+            requestDiversity(requestId, arg.toMap());
+        }
+        return;
+    }
     if (ns == QLatin1String("anan") && (verb == QLatin1String("txsession.enable") || verb == QLatin1String("txsession.disable"))) {
         const auto fields = arg.toMap();
         const auto state = transmitPowerState();
@@ -3084,6 +3099,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             const auto fields = arg.toMap();
             const auto assignments = fields.value(QStringLiteral("assignments")).toList();
             if (fields.value(QStringLiteral("identity")).toString() != identity || fields.size() != 2
+                || m_diversity.enabled || m_diversityPending
                 || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun || m_droopCalibrator.isRunning()
                 || m_transmitOperation.permitsCleanup() || m_txSessionArming
                 || !AnanSettings::setAdcAssignments(m_radioSerial,static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol,assignments)) {
@@ -3101,9 +3117,11 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         for (int adc : m_receiveAdcs) { assignments.append(adc); }
         QVariantList defaults;
         QVariantList ddcMap;
-        const int first = m_pendingParams.protocol == 1 ? 0 : profile->firstDdcIndex;
+        const int first = m_pendingParams.protocol == 1 ? 0 : m_diversity.enabled ? 2 : profile->firstDdcIndex;
         for (int ddc = 0; ddc < 7; ++ddc) {
-            const int physical = m_pendingParams.protocol == 1 ? p1::receiveDdcForStream(ddc,profile->numAdcs) : first+ddc;
+            const int physical = m_pendingParams.protocol == 1
+                ? p1::receiveDdcForStream(ddc,profile->numAdcs,m_diversity.enabled)
+                : m_diversity.enabled && ddc == 0 ? 0 : first+ddc;
             ddcMap.append(physical);
             defaults.append(profile->numAdcs > 1 && (m_pendingParams.protocol == 1
                 ? physical == 1 || physical == 2 : physical == 1 || physical == 3) ? 1 : 0);
@@ -3127,7 +3145,8 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             {QStringLiteral("streams"),receiveStreamCeiling()},{QStringLiteral("protocol"),m_pendingParams.protocol},
             {QStringLiteral("firstDdc"),m_pendingParams.protocol == 1 ? 0 : profile->firstDdcIndex},
             {QStringLiteral("windows"),windows},
-            {QStringLiteral("busy"),m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun.has_value()
+            {QStringLiteral("diversityEnabled"),m_diversity.enabled},
+            {QStringLiteral("busy"),m_diversity.enabled || m_diversityPending || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun.has_value()
                 || m_droopCalibrator.isRunning() || m_transmitOperation.permitsCleanup() || m_txSessionArming}});
         return;
     }

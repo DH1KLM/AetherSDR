@@ -10688,6 +10688,13 @@ target_link_libraries(asio_output_test PRIVATE aethercore Qt6::Core)
 add_test(NAME asio_output_test COMMAND asio_output_test)
 set_tests_properties(asio_output_test PROPERTIES TIMEOUT 20)
 
+# Coherent IQ mixing and P1/P2 production routing through injected writers; no sockets.
+add_executable(anan_diversity_test tests/anan_diversity_test.cpp)
+target_include_directories(anan_diversity_test PRIVATE src tests)
+target_link_libraries(anan_diversity_test PRIVATE aethercore Qt6::Core)
+add_test(NAME anan_diversity_test COMMAND anan_diversity_test)
+set_tests_properties(anan_diversity_test PROPERTIES TIMEOUT 30)
+
 # Queued host-audio settings dispatch and engine retirement; no driver is opened.
 add_executable(asio_settings_model_test tests/asio_settings_model_test.cpp)
 target_include_directories(asio_settings_model_test PRIVATE src tests)
@@ -10716,6 +10723,7 @@ if(TARGET Qt6::WebSockets)
 endif()
 
 set(AETHER_SETTINGS_CONSUMERS
+    anan_diversity_test
     asio_settings_model_test
     asio_output_test
     two_tone_tune_gate_test

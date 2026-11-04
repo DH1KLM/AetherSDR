@@ -13,8 +13,11 @@
 // No MOX, transmit frequency, transmit IQ, drive or CW encoder is exposed.
 namespace AetherSDR::anan::p1 {
 // Thetis GetDDC: two-ADC P1 radios use DDC0 for RX1 and DDC2 for RX2.
-[[nodiscard]] constexpr int receiveDdcForStream(int stream, int numAdcs) noexcept
+[[nodiscard]] constexpr int receiveDdcForStream(int stream, int numAdcs, bool diversity = false) noexcept
 {
+    if (diversity && numAdcs == 2 && stream >= 2) {
+        return stream + 1;
+    }
     return numAdcs > 1 && stream == 1 ? 2 : numAdcs > 1 && stream == 2 ? 1 : stream;
 }
 
@@ -24,6 +27,7 @@ using Control = std::array<std::uint8_t, 5>;
 using Packet = std::array<std::uint8_t, kPacketBytes>;
 
 struct ReceiveConfig {
+    bool diversity = false;
     bool anvelinaExtraOc = false;
     int rateKsps = 48;
     int receivers = 1;

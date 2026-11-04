@@ -5,6 +5,7 @@
 #include "AnanCarrier.h"
 #include "AnanTxGate.h"
 #include "AnanP1TxControl.h"
+#include "AnanDiversity.h"
 
 #include <QElapsedTimer>
 #include <functional>
@@ -33,6 +34,7 @@ public:
     void setFrequencyCorrection(double factor);
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
+    bool setDiversity(const DiversitySettings& settings);
     Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     void setStepAttenuationDb(int adc, int db);
     void setRxAntenna(int antenna);
@@ -106,6 +108,11 @@ private:
     std::size_t m_addressIndex = 0;
     std::vector<std::int16_t> m_audio;
     std::vector<std::complex<float>> m_iq;
+    DiversitySettings m_diversity;
+    std::vector<std::complex<float>> m_diversitySecond;
+    std::vector<std::complex<float>> m_diversityOutput;
+    std::vector<DdcConfig> m_receiveStreams;
+    std::vector<double> m_receiveCenters;
     std::optional<std::uint32_t> m_expectedSequence;
     std::optional<int> m_forwardPowerCounts;
     qint64 m_lastRfPowerMs = -1;

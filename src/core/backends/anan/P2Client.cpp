@@ -84,6 +84,8 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     if (!validFrequencyFactor(params.frequencyCorrection)) { return false; }
     if (m_running)
         stop();
+    m_diversity = {};
+    m_availableDdcs = 0;
 
     m_host = QHostAddress(params.host);
     if (m_host.isNull())
@@ -521,8 +523,7 @@ std::optional<std::array<std::uint8_t, 1444>> P2Client::prepareDdcRateChange(int
     ddcs[static_cast<std::size_t>(ddcIndex)].rateKsps = rateKsps;
     // Preserve every other enabled DDC, ADC route and linearisation
     // flag when replacing one rate. Disabled physical rows remain disabled.
-    return buildDdcSpecific(ddcs, m_numAdcs,
-        m_ditherEnabled, m_randomEnabled, m_firstDdcIndex);
+    return receiveDdcPacket(ddcs);
 }
 
 std::optional<std::array<std::uint8_t, 60>> P2Client::takeGeneralRefresh(qint64 nowMs)
@@ -545,8 +546,7 @@ void P2Client::onKeepaliveTick()
     if (m_generalClock.isValid()) {
         if (const auto general = takeGeneralRefresh(m_generalClock.elapsed())) {
             if (m_independentTuning)
-                sendControl(buildDdcSpecific(m_activeDdcs, m_numAdcs, m_ditherEnabled, m_randomEnabled,
-                                        m_firstDdcIndex), kDdcSpecificPort);
+                sendControl(receiveDdcPacket(m_activeDdcs), kDdcSpecificPort);
             if (!sendControl(*general, kRadioPort) && m_transmitGate.enabled()) {
                 abortTransmit(QStringLiteral("TX general refresh failed"));
                 return;
@@ -676,6 +676,13 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                     return;
                 }
                 m_firstDdcIndex = profile.firstDdcIndex;
+                m_availableDdcs = profile.physicalDdcLimit;
+                if (const auto physical = receiveProfile(reply->boardId)) {
+                    m_availableDdcs = std::min(m_availableDdcs, physical->physicalDdcLimit);
+                }
+                if (reply->reportedReceivers > 0) {
+                    m_availableDdcs = std::min(m_availableDdcs, int(reply->reportedReceivers));
+                }
                 m_selectReceiveLpf = profile.selectReceiveLpf;
                 m_receiveFilterKind = profile.filterKind;
                 if (m_receiveFilterKind == ReceiveFilterKind::MkIIBpf && m_alexAttenuationDb != 0) {
@@ -713,8 +720,7 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                     sendTo(*m_socket, *m_generalPacket, m_host, kRadioPort, m_txBytes);
                     sendMicOptions();
                     sendTo(*m_socket,
-                          buildDdcSpecific(m_activeDdcs, m_numAdcs,
-                                           m_ditherEnabled, m_randomEnabled, m_firstDdcIndex),
+                          receiveDdcPacket(m_activeDdcs),
                           m_host, kDdcSpecificPort, m_txBytes);
                     sendHighPriority();
                     m_keepaliveTimer->start();
@@ -749,9 +755,11 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
     if (m_running && !m_discoveryValidated) {
         return;
     }
-    const auto ddcIndex = ddcIndexForSenderPort(
+    const bool paired = m_diversity.enabled && senderPort == kDdc0DefaultPort;
+    if (m_diversity.enabled && senderPort == kDdc0DefaultPort + 2) { return; }
+    const std::optional<int> ddcIndex = paired ? std::optional<int>(0) : ddcIndexForSenderPort(
         static_cast<std::uint16_t>(senderPort), m_activeDdcCount,
-        static_cast<std::uint16_t>(kDdc0DefaultPort + m_firstDdcIndex));
+        static_cast<std::uint16_t>(kDdc0DefaultPort + receiveDdcOffset()));
     if (!ddcIndex) {
         // DDC-shaped but from a port this session did not enable (another client, or a
         // DDC left running): drop it without counting a drop. Warn once per port, since
@@ -767,6 +775,10 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
                 << " for " << m_activeDdcCount
                 << " active DDC(s)) -- not counted as a drop";
         }
+        return;
+    }
+    if (paired && (frame->samples == 0 || frame->samples % 2 != 0 || frame->samples > 238)) {
+        emit ddcSequenceGap(0);
         return;
     }
     const std::size_t slot = static_cast<std::size_t>(*ddcIndex);
@@ -800,6 +812,19 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
 
     m_decodeScratch.clear();
     decodeIq(*frame, m_decodeScratch);
+    if (paired) {
+        m_diversityFirst.clear();
+        m_diversitySecond.clear();
+        for (std::size_t i = 0; i < m_decodeScratch.size(); i += 2) {
+            m_diversityFirst.push_back(m_decodeScratch[i]);
+            m_diversitySecond.push_back(m_decodeScratch[i + 1]);
+        }
+        if (combineDiversity(m_diversityFirst, m_diversitySecond, m_diversity, m_diversityOutput)) {
+            emit ddcIqReady(0, m_diversityOutput);
+            emit ddc0IqReady(m_diversityOutput);
+        }
+        return;
+    }
     emit ddcIqReady(*ddcIndex, m_decodeScratch);
     if (*ddcIndex == 0)
         emit ddc0IqReady(m_decodeScratch);
@@ -821,14 +846,17 @@ bool P2Client::setReceiveStreams(const std::vector<DdcConfig>& streams,
                 kDdc0RatesKsps.end() ||
             !std::isfinite(centers[i]) || centers[i] < 0 || centers[i] > 61'440'000)
             return false;
+    if (m_diversity.enabled && (streams.front().adcIndex != 0
+        || (streams.size() == 1 ? 2 : int(streams.size()) + 2) > m_availableDdcs)) {
+        return false;
+    }
     const bool changed =
         streams.size() != m_activeDdcs.size() ||
         !std::equal(streams.begin(), streams.end(), m_activeDdcs.begin(), [](auto a, auto b) {
             return a.rateKsps == b.rateKsps && a.adcIndex == b.adcIndex;
         });
     if (changed) {
-        const auto packet =
-            buildDdcSpecific(streams, m_numAdcs, m_ditherEnabled, m_randomEnabled, m_firstDdcIndex);
+        const auto packet = receiveDdcPacket(streams);
         const auto sent = m_ddcRateSendOverride
                               ? m_ddcRateSendOverride(packet)
                               : sendTo(*m_socket, packet, m_host, kDdcSpecificPort, m_txBytes);
@@ -862,6 +890,60 @@ bool P2Client::sendMicOptions()
             packet[59] = 31;
         }
         return sendControl(packet, kMicControlPort);
+    }
+    return true;
+}
+
+std::array<std::uint8_t, 1444> P2Client::receiveDdcPacket(std::span<const DdcConfig> streams) const
+{
+    std::array<std::uint8_t, 1444> packet = buildDdcSpecific(streams, m_numAdcs,
+        m_ditherEnabled, m_randomEnabled, receiveDdcOffset());
+    if (m_diversity.enabled && !streams.empty()) {
+        const std::array<DdcConfig, 2> pair{{{streams.front().rateKsps, 0},
+                                            {streams.front().rateKsps, 1}}};
+        const std::array<std::uint8_t, 1444> paired = buildDdcSpecific(pair, 2,
+            m_ditherEnabled, m_randomEnabled, 0);
+        std::copy_n(paired.begin() + 17, 12, packet.begin() + 17);
+        // Thetis CmdRx: enable DDC0, synchronize DDC1 into DDC0's packet;
+        // the ordinary primary DDC2 is replaced, not mixed in a second time.
+        packet[7] = static_cast<std::uint8_t>((packet[7] & ~0x04u) | 0x01u);
+        packet[1363] = 0x02;
+    }
+    return packet;
+}
+
+bool P2Client::setDiversity(const DiversitySettings& settings)
+{
+    if (settings.valid() && m_running && m_discoveryValidated && m_linkUp && settings == m_diversity) {
+        return true;
+    }
+    if (!settings.valid() || !m_running || !m_discoveryValidated || !m_linkUp
+        || transmitActive() || (!m_socket && !m_ddcRateSendOverride)
+        || (settings.enabled && (m_numAdcs != 2 || m_activeDdcs.empty()
+            || m_activeDdcs.front().adcIndex != 0
+            || (m_activeDdcCount == 1 ? 2 : m_activeDdcCount + 2) > m_availableDdcs))) {
+        return false;
+    }
+    const bool changed = settings.enabled != m_diversity.enabled;
+    const DiversitySettings previous = m_diversity;
+    m_diversity = settings;
+    if (changed) {
+        const std::array<std::uint8_t, 1444> packet = receiveDdcPacket(m_activeDdcs);
+        const qint64 sent = m_ddcRateSendOverride ? m_ddcRateSendOverride(packet)
+            : sendTo(*m_socket, packet, m_host, kDdcSpecificPort, m_txBytes);
+        if (sent != qint64(packet.size())) {
+            m_diversity = previous;
+            return false;
+        }
+        if (!sendHighPriority()) {
+            emit connectionError(QStringLiteral("ANAN: diversity tuning configuration failed; reconnect required."));
+            stop();
+            return false;
+        }
+        for (int i = 0; i < m_activeDdcCount; ++i) {
+            m_expectedSeq[std::size_t(i)].reset();
+            emit ddcSequenceGap(i);
+        }
     }
     return true;
 }

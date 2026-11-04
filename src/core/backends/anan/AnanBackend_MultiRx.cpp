@@ -135,6 +135,12 @@ std::vector<ReceiveFilterDemand> AnanBackend::receiveFilterDemands() const
         demands.push_back({m_receiveAdcs[slice.stream], slice.frequencyHz,
                            m_receiveLayout.streams()[slice.stream].centerHz});
     }
+    if (m_diversity.enabled) {
+        if (const auto* primary = m_receiveLayout.slice(0)) {
+            demands.push_back({1, primary->frequencyHz,
+                               m_receiveLayout.streams()[primary->stream].centerHz});
+        }
+    }
     return demands;
 }
 ReceiveFilterPlan AnanBackend::receiveFilterPlan() const
@@ -182,14 +188,16 @@ void AnanBackend::updateReceiveStreams()
     const auto writer = m_streamApplyOverride;
     const auto filterPlan = receiveFilterPlan();
     const double correction = m_receiveCalibration.frequencyFactor;
+    const DiversitySettings diversity = m_diversity;
     QMetaObject::invokeMethod(
         m_client,
-        [this, configs, centers, routes, first, primary, epoch, writer, filterPlan, correction] {
+        [this, configs, centers, routes, first, primary, epoch, writer, filterPlan, correction, diversity] {
             if (m_receiveIoEpoch->load() != epoch)
                 return;
             m_client->setReceiveFilterPlan(filterPlan);
             m_client->setFrequencyCorrection(correction);
-            if (writer ? writer(configs, centers) : m_client->setReceiveStreams(configs, centers)) {
+            if ((writer ? writer(configs, centers) : m_client->setReceiveStreams(configs, centers))
+                && (!diversity.enabled || m_client->setDiversity(diversity))) {
                 primary->store(first);
                 for (const auto& [r, st] : routes)
                     if (r->route->exchange(st) != st && st >= 0) {
