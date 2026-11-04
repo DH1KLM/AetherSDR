@@ -105,7 +105,7 @@ Inspection of the remaining GUI touchpoints identifies three separate scopes:
 | --- | --- | --- |
 | ConnectionPanel manual profile picker | Backend facade supplies the operating-profile choice table; GUI retains saved/original wrapper entries | Choice-table extraction implemented under fork #4, preserving captions, order, IDs and omissions. |
 | ConnectionPanel::probeAnan | GUI retains discovery transport and presentation; backend helpers normalize replies and resolve selection | Selection and identity extractions are implemented under fork #3/#5. Any transport migration remains a separate design scope. |
-| RadioSetupDialog_Saturn | GUI directly calls implementation preference and original-option helpers | A later model-facing extraction must preserve disconnected selection, per-radio/family fallback, original-option routing and active-session identity guards. |
+| RadioSetupDialog_Saturn | SaturnSettingsModel mediates implementation preferences and original-option settings | Extracted under fork #6, retaining disconnected selection, scope fallback and existing live-session guards. |
 
 RadioSetupDialog_Anan already uses RadioModel and the extension route rather
 than including AnanSettings or AnanImplementation. It is not evidence of the
@@ -155,7 +155,7 @@ The complete Windows desktop target and the expanded implementation-test target
 built successfully; CTest passed anan_implementation_test. No live directed
 probe, audio driver or radio session was started for this validation.
 
-The Saturn setup facade remains a separate follow-up scope. This cleanup does not
+The Saturn setup extraction is recorded below. These cleanups do not
 complete the entire connector migration or establish firmware qualification.
 
 ## Manual profile choice cleanup
@@ -207,6 +207,41 @@ pass after that generated update.
 The Windows desktop and both affected test targets built successfully, and
 connection_panel_size_test also passed after the build. No live discovery
 traffic or radio/audio-driver session was used for validation.
+
+## Saturn settings model cleanup
+
+[DH1KLM/AetherSDR #6](https://github.com/DH1KLM/AetherSDR/issues/6) was created
+and assigned before this change. RadioSetupDialog_Saturn consumes neutral
+implementation-choice descriptors and a pull-based snapshot from
+SaturnSettingsModel. The model owns preference selection, original-option writes
+and the existing RadioModel frontend-extension dispatch. The page retains its
+existing controls, labels, signal blockers and reseed lifecycle.
+
+Connected sessions refuse implementation changes at the model boundary. Original
+band-filter and speaker-mute edits retain their live route only for the current
+original implementation; next-connect fields and non-original/disconnected
+sessions do not dispatch those live edits. Persistence still delegates to the
+existing backend settings facade with its per-radio/family preference scope.
+QPointer handles retirement of the owning RadioModel without a stale dereference.
+There is no new worker, signal-routing architecture or wire/daemon interface.
+
+The generated manifest adds one ui-support model header (one GUI consumer),
+replaces the Saturn page's AnanImplementation include (3 to 2 GUI consumers),
+and removes its direct RadioModel include (63 to 62). Total headers are now
+284, with 229 core and 55 model headers. This model boundary is the reason for
+the new manifest row; it is not a conversion to a daemon protocol. Frozen
+baselines and vendor classifications were not relaxed.
+
+The implementation test now exercises family/per-radio scope isolation,
+connected selection refusal, both allowed live options, next-connect-only
+options, disconnected/non-original refusal and RadioModel retirement through an
+injected backend without a peer. Existing setup tests cover the actual widget
+selection and original/extended configuration separation. The four conformance
+checks and QSettings ratchet pass; Saturn accessibility findings are unchanged.
+The full Windows desktop and both affected test targets built successfully.
+CTest passed the expanded anan_implementation_test and the existing
+radio_setup_anan_sample_rate_test. All 767 Log Analyzer checks pass without
+another citation update. No live radio, audio driver or network peer was used.
 
 ## Outstanding validation
 

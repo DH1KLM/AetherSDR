@@ -1,28 +1,32 @@
 #include "RadioSetupDialog.h"
 #include "GuardedSlider.h"
-#include "models/RadioModel.h"
-#include "core/backends/anan/AnanImplementation.h"
+#include "models/SaturnSettingsModel.h"
 #include <QCheckBox>
 #include <QFormLayout>
 #include <QLabel>
 #include <QSignalBlocker>
 #include <QStackedWidget>
-#include <QTimer>
+#include <QList>
+#include <QMap>
+#include <QPair>
+#include <QVariant>
 #include <QVBoxLayout>
+#include <functional>
 
 namespace AetherSDR {
 QWidget* RadioSetupDialog::buildAnanHardwareTab()
 {
-    using anan::AnanImplementation;
     auto* page = new QWidget;
+    auto* settings = new SaturnSettingsModel(m_model, page);
     auto* layout = new QVBoxLayout(page);
     auto* form = new QFormLayout;
     auto* implementation = new GuardedComboBox(page);
     implementation->setObjectName(QStringLiteral("ananImplementation"));
     implementation->setAccessibleName(QStringLiteral("Saturn implementation"));
     implementation->setAccessibleDescription(QStringLiteral("Choose the independent original or extended Saturn receiver. Disconnect before switching implementation."));
-    implementation->addItem(AnanImplementation::label(false), QString());
-    implementation->addItem(AnanImplementation::label(true), AnanImplementation::originalId());
+    for (const SaturnSettingsModel::ImplementationChoice& choice : settings->implementationChoices()) {
+        implementation->addItem(choice.caption, choice.id);
+    }
     form->addRow(QStringLiteral("Saturn implementation:"), implementation);
     layout->addLayout(form);
     auto* hint = new QLabel(page);
@@ -48,14 +52,8 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     adc->addItem(QStringLiteral("ADC0 — ANT1/2/3"), 0);
     adc->addItem(QStringLiteral("ADC1 — RX2"), 1);
     options->addRow(QStringLiteral("ADC (next connect):"), adc);
-    const auto save = [this](const QString& key, const QVariant& value) {
-        AnanImplementation::setOriginalOption(key, value);
-        if (m_model && m_model->isConnected()
-            && m_model->lastRadioInfo().implementation == AnanImplementation::originalId()
-            && (key == QLatin1String("bandFiltersEnabled") || key == QLatin1String("speakerAmpMuted"))) {
-            m_model->invokeBackendExtension(QStringLiteral("anan"), QStringLiteral("frontend.set"), 0,
-                QVariantMap{{key, value}});
-        }
+    const auto save = [settings](const QString& key, const QVariant& value) {
+        settings->setOriginalOption(key, value);
     };
     connect(rate, QOverload<int>::of(&QComboBox::currentIndexChanged), original, [=](int i) {
         if (i >= 0) { save(QStringLiteral("ddc0RateKsps"), rate->itemData(i)); }
@@ -82,13 +80,11 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
     }
     stack->addWidget(original);
     const auto reseed = [=] {
-        const bool connected = m_model && m_model->isConnected();
-        const RadioInfo radio = m_model ? m_model->lastRadioInfo() : RadioInfo{};
-        const bool applicable = !connected || AnanImplementation::isSaturn(radio);
-        const QString selected = connected ? radio.implementation
-            : AnanImplementation::preferred(AnanImplementation::isSaturn(radio) ? radio.serial : QString());
+        const SaturnSettingsModel::Snapshot state = settings->snapshot();
+        const bool connected = state.connected;
+        const bool applicable = state.applicable;
         const QSignalBlocker blocker(implementation);
-        implementation->setCurrentIndex(selected == AnanImplementation::originalId() ? 1 : 0);
+        implementation->setCurrentIndex(state.originalSelected ? 1 : 0);
         implementation->setEnabled(!connected);
         implementation->setAccessibleDescription(connected
             ? QStringLiteral("Disconnect before selecting another Saturn implementation")
@@ -96,8 +92,8 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         hint->setText(!applicable ? QStringLiteral("This radio uses the DH1KLM model implementation; the original path requires Saturn/P2.")
             : connected ? QStringLiteral("Active: %1. Disconnect before switching implementation.").arg(implementation->currentText())
                         : QStringLiteral("Choose an implementation for the next Saturn connection. Both are also listed in Discovery and Connect by IP."));
-        stack->setCurrentIndex(applicable && selected == AnanImplementation::originalId() ? 1 : 0);
-        const QVariantMap values = AnanImplementation::originalOptions();
+        stack->setCurrentIndex(applicable && state.originalSelected ? 1 : 0);
+        const QVariantMap values = state.originalOptions;
         const QSignalBlocker br(rate), ba(adc);
         rate->setCurrentIndex(rate->findData(values.value(QStringLiteral("ddc0RateKsps"))));
         adc->setCurrentIndex(adc->findData(values.value(QStringLiteral("ddc0AdcIndex"))));
@@ -108,10 +104,8 @@ QWidget* RadioSetupDialog::buildAnanHardwareTab()
         if (stack->currentIndex() == 0 && reseedExtended) { reseedExtended(); }
     };
     connect(implementation, QOverload<int>::of(&QComboBox::currentIndexChanged), page, [=](int i) {
-        if (i < 0 || (m_model && m_model->isConnected())) { return; }
-        const RadioInfo radio = m_model ? m_model->lastRadioInfo() : RadioInfo{};
-        const QString serial = AnanImplementation::isSaturn(radio) ? radio.serial : QString();
-        if (!AnanImplementation::setPreferred(serial, implementation->currentData().toString())) {
+        if (i < 0 || settings->isConnected()) { return; }
+        if (!settings->setImplementation(implementation->currentData().toString())) {
             hint->setText(QStringLiteral("Could not save the selected Saturn implementation."));
             return;
         }

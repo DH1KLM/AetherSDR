@@ -5,13 +5,114 @@
 #include "core/RadioSettingsScope.h"
 #include "core/AppSettings.h"
 #include "models/RadioModel.h"
+#include "models/SaturnSettingsModel.h"
+#include "core/backends/IRadioBackend.h"
 #include <QCoreApplication>
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <cstdio>
 #include <optional>
+#include <memory>
 
 using namespace AetherSDR;
+
+// Injected seam only: no transport or firmware peer.
+class SaturnSettingsProbe final : public IRadioBackend {
+public:
+    bool connected = true;
+    int frontendWrites = 0;
+    QVariantMap lastOptions;
+    RadioCapabilities capabilities() const override {
+        RadioCapabilities caps;
+        caps.canTransmit = false;
+        caps.extensionNamespaces = {QStringLiteral("anan")};
+        return caps;
+    }
+    void connectRadio(const RadioConnectRequest&) override {}
+    void disconnectRadio() override { connected = false; }
+    bool isConnected() const override { return connected; }
+    void setSliceFrequency(int, double) override {}
+    void setSliceMode(int, const QString&) override {}
+    void setSliceFilter(int, int, int) override {}
+    void setSliceAgc(int, const QString&, int) override {}
+    void setPanCenter(const QString&, double, PanCenterIntent) override {}
+    void setKeying(bool, const TxCoordinator::Operation&, const TxCoordinator::Completion&) override {}
+    void invokeExtension(const QString& ns, const QString& verb, quint64, const QVariant& arg) override {
+        if (ns == QLatin1String("anan") && verb == QLatin1String("frontend.set")) {
+            ++frontendWrites;
+            lastOptions = arg.toMap();
+        }
+    }
+};
+
+static int saturnSettingsTests()
+{
+    using anan::AnanImplementation;
+    int failures = 0;
+    const auto check = [&](bool ok, const char* message) {
+        std::printf("%s %s\n", ok ? "PASS" : "FAIL", message);
+        if (!ok) { ++failures; }
+    };
+    const QString previousFamilyChoice = AnanImplementation::preferred({});
+    SaturnSettingsModel defaults(nullptr);
+    check(defaults.setImplementation(AnanImplementation::originalId())
+        && defaults.snapshot().originalSelected && defaults.snapshot().applicable,
+          "disconnected Saturn model retains family-wide implementation selection");
+    RadioModel model;
+    RadioInfo radio;
+    radio.family = QStringLiteral("anan");
+    radio.serial = QStringLiteral("00:11:22:33:44:B0");
+    radio.boardId = 10;
+    radio.hpsdrProtocol = 2;
+    radio.implementation = AnanImplementation::originalId();
+    // Empty host is refused before the original backend opens its transport.
+    QSignalSpy errors(&model, &RadioModel::connectionError);
+    model.connectToRadio(radio);
+    check(!errors.isEmpty() && !model.isConnected(), "invalid host seeds selected identity without a radio connection");
+    SaturnSettingsModel settings(&model);
+    check(settings.setImplementation(QString()) && !settings.snapshot().originalSelected
+        && AnanImplementation::preferred({}) == AnanImplementation::originalId(),
+          "per-radio implementation choice does not overwrite the family preference");
+    check(settings.setImplementation(AnanImplementation::originalId()), "seed original radio preference");
+    auto owned = std::make_unique<SaturnSettingsProbe>();
+    SaturnSettingsProbe* probe = owned.get();
+    model.setBackendForTest(std::move(owned), QStringLiteral("anan"));
+    check(settings.snapshot().connected && settings.snapshot().applicable && settings.snapshot().originalSelected
+        && !settings.setImplementation(QString())
+        && AnanImplementation::preferred(radio.serial) == AnanImplementation::originalId(),
+          "connected implementation selection is guarded in the model");
+    settings.setOriginalOption(QStringLiteral("bandFiltersEnabled"), true);
+    check(probe->frontendWrites == 1 && probe->lastOptions.value(QStringLiteral("bandFiltersEnabled")).toBool(),
+          "original band-filter edit uses the existing live extension route");
+    settings.setOriginalOption(QStringLiteral("speakerAmpMuted"), true);
+    check(probe->frontendWrites == 2 && probe->lastOptions.value(QStringLiteral("speakerAmpMuted")).toBool(),
+          "original speaker mute uses the existing live extension route");
+    const int extendedRate = anan::AnanSettings::ddc0RateKsps();
+    settings.setOriginalOption(QStringLiteral("ddc0RateKsps"), 96);
+    check(probe->frontendWrites == 2
+        && settings.snapshot().originalOptions.value(QStringLiteral("ddc0RateKsps")).toInt() == 96
+        && anan::AnanSettings::ddc0RateKsps() == extendedRate,
+          "next-connect settings persist only in original configuration without live dispatch");
+    probe->connected = false;
+    settings.setOriginalOption(QStringLiteral("bandFiltersEnabled"), false);
+    check(probe->frontendWrites == 2, "disconnected original edits do not reach the backend");
+    {
+        RadioModel other;
+        auto otherOwned = std::make_unique<SaturnSettingsProbe>();
+        SaturnSettingsProbe* otherProbe = otherOwned.get();
+        other.setBackendForTest(std::move(otherOwned), QStringLiteral("anan"));
+        SaturnSettingsModel otherSettings(&other);
+        otherSettings.setOriginalOption(QStringLiteral("speakerAmpMuted"), false);
+        check(otherProbe->frontendWrites == 0, "an active non-original session receives no original frontend edits");
+    }
+    auto retired = std::make_unique<RadioModel>();
+    SaturnSettingsModel retiredSettings(retired.get());
+    retired.reset();
+    check(!retiredSettings.isConnected() && retiredSettings.snapshot().applicable,
+          "retired radio model leaves a safe disconnected settings presentation");
+    check(defaults.setImplementation(previousFamilyChoice), "restore family implementation preference");
+    return failures;
+}
 
 static int manualSelectionTests()
 {
@@ -237,5 +338,6 @@ int main(int argc, char** argv)
     check(ddc[4] == 2, "original DDC packet still declares its two physical ADCs");
     AnanImplementation::setOriginalOption(QStringLiteral("ddc0RateKsps"), originalBefore.value(QStringLiteral("ddc0RateKsps")));
     failures += manualSelectionTests();
+    failures += saturnSettingsTests();
     return failures == 0 ? 0 : 1;
 }
