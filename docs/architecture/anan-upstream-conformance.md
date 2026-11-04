@@ -103,7 +103,7 @@ Inspection of the remaining GUI touchpoints identifies three separate scopes:
 
 | Surface | Current ownership | Next action |
 | --- | --- | --- |
-| ConnectionPanel manual profile picker | GUI embeds the AnanModel choice table and numeric sentinel choices | Expose the same ordered choices and opaque IDs from the existing backend-local selection facade; preserve labels, order and omissions. |
+| ConnectionPanel manual profile picker | Backend facade supplies the operating-profile choice table; GUI retains saved/original wrapper entries | Choice-table extraction implemented under fork #4, preserving captions, order, IDs and omissions. |
 | ConnectionPanel::probeAnan | GUI sends/parses discovery, constructs physical RadioInfo, resolves saved/explicit model and protocol, validates receive profiles and writes preferences | First isolate selection resolution through the existing AnanImplementation facade. Keep unsupported-board refusal, protocol-mismatch retry and persistence failure distinct. Do not combine this with transport migration. |
 | RadioSetupDialog_Saturn | GUI directly calls implementation preference and original-option helpers | A later model-facing extraction must preserve disconnected selection, per-radio/family fallback, original-option routing and active-session identity guards. |
 
@@ -155,9 +155,29 @@ The complete Windows desktop target and the expanded implementation-test target
 built successfully; CTest passed anan_implementation_test. No live directed
 probe, audio driver or radio session was started for this validation.
 
-The GUI profile-choice table, physical discovery-to-RadioInfo construction and
-Saturn setup facade remain separate follow-up scopes. This cleanup does not
+Physical discovery-to-RadioInfo construction and the Saturn setup facade
+remain separate follow-up scopes. This cleanup does not
 complete the entire connector migration or establish firmware qualification.
+
+## Manual profile choice cleanup
+
+[DH1KLM/AetherSDR #4](https://github.com/DH1KLM/AetherSDR/issues/4) was created
+and assigned before this change. AnanImplementation now supplies the existing
+14 ordered operating-profile choices as caption/opaque-ID descriptors. The
+saved-model and original-Saturn wrapper entries keep their existing positions.
+ConnectionPanel no longer references AnanModel enumerators. The unreachable
+disabled-item branch for the absent Atlas/Metis and HL2 entries and its unused
+QStandardItemModel include were removed; internal board recognition is unchanged.
+
+The existing connection_panel_size_test already checks captions/order, stable
+G2/original routing IDs and retained internal board identities. Its pre-change
+baseline passes; no duplicate table test was added. Engine-boundary, capability,
+command-plane and manifest checks pass after extraction, with no manifest
+changes or additional accessibility findings.
+The complete Windows desktop and both affected test targets built successfully.
+CTest passed connection_panel_size_test and anan_implementation_test (2/2)
+after extraction. The existing GUI test confirms unchanged captions/order and
+G2/original routing IDs. No live radio or audio-driver validation was performed.
 
 ## Outstanding validation
 

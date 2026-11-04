@@ -44,7 +44,6 @@
 #include <QSizePolicy>
 #include <QSet>
 #include <QSpinBox>
-#include <QStandardItemModel>
 #include <QTcpSocket>
 #include <QHostInfo>
 #include <QUdpSocket>
@@ -950,42 +949,10 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_manualAnanProfileCombo->setToolTip(tr("Saved per radio. Automatic keeps the physical-board profile."));
     AetherSDR::applyComboStyle(m_manualAnanProfileCombo, comboExtraRules);
     m_manualAnanProfileCombo->addItem(tr("Use saved model"), -100);
-    // Picker order and captions are independent of stable model IDs and board detection.
-    const std::pair<anan::AnanModel, const char*> receiveProfiles[]{
-        {anan::AnanModel::Automatic, "Automatic physical-board profile"},
-        // {anan::AnanModel::Hpsdr, "OpenHPSDR / Atlas / Metis"}, omitted from this picker; board recognition remains.
-        {anan::AnanModel::Hermes, "HERMES"},
-        // {anan::AnanModel::HermesLite2, "HERMES-LITE 2"}, use the dedicated radio type; board recognition remains.
-        {anan::AnanModel::Anan10, "ANAN-10"},
-        {anan::AnanModel::Anan10E, "ANAN-10E"},
-        {anan::AnanModel::Anan100, "ANAN-100"},
-        {anan::AnanModel::Anan100B, "ANAN-100B"},
-        {anan::AnanModel::Anan100D, "ANAN-100D"},
-        {anan::AnanModel::Anan200D, "ANAN-200D"},
-        // {anan::AnanModel::OrionMkII, "Orion MkII"}, board designation, not a transceiver.
-        {anan::AnanModel::Anan7000, "ANAN-7000DLE"},
-        {anan::AnanModel::Anan8000, "ANAN-8000DLE"},
-        {anan::AnanModel::AnanG2E, "ANAN-G2E"},
-        {anan::AnanModel::AnanG2, "ANAN-G2"},
-        // {anan::AnanModel::AnanG21K, "ANAN-G2 1K"}, omitted from this picker by request.
-        {anan::AnanModel::AnvelinaPro3, "ANVELINA-Pro III"},
-        {anan::AnanModel::RedPitaya, "RED-PITAYA"}
-    };
-    for (const auto& [model, caption] : receiveProfiles) {
-        m_manualAnanProfileCombo->addItem(QString::fromLatin1(caption), static_cast<int>(model));
-        if (model == anan::AnanModel::Hpsdr || model == anan::AnanModel::HermesLite2) {
-            const QString reason = model == anan::AnanModel::HermesLite2
-                ? tr("Use the dedicated Hermes-Lite 2 connection type (P1).")
-                : tr("Atlas/Metis receive control initialization is not yet qualified.");
-            auto* items = qobject_cast<QStandardItemModel*>(m_manualAnanProfileCombo->model());
-            if (items) {
-                auto* item = items->item(m_manualAnanProfileCombo->count() - 1);
-                // Item accessibility is supplied through model roles.
-                item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-                item->setToolTip(reason);
-                item->setData(reason, Qt::AccessibleDescriptionRole);
-            }
-        }
+    const QList<anan::AnanImplementation::ManualProfileChoice> receiveProfiles =
+        anan::AnanImplementation::manualProfileChoices();
+    for (const anan::AnanImplementation::ManualProfileChoice& profile : receiveProfiles) {
+        m_manualAnanProfileCombo->addItem(profile.caption, profile.profileId);
     }
     m_manualAnanProfileCombo->addItem(anan::AnanImplementation::label(true), -200);
     m_manualAnanProfileRow = addManualRow(QStringLiteral("Receive profile:"), m_manualAnanProfileCombo);

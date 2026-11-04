@@ -19,6 +19,28 @@ QString AnanImplementation::label(bool original)
                     : QStringLiteral("Saturn (ANAN G2) — DH1KLM");
 }
 
+QList<AnanImplementation::ManualProfileChoice> AnanImplementation::manualProfileChoices()
+{
+    // This operating-model picker excludes Atlas/Metis, the separately handled
+    // HL2, the Orion board designation and G2 1K. Wire recognition is independent.
+    return {
+        {static_cast<int>(AnanModel::Automatic), QStringLiteral("Automatic physical-board profile")},
+        {static_cast<int>(AnanModel::Hermes), QStringLiteral("HERMES")},
+        {static_cast<int>(AnanModel::Anan10), QStringLiteral("ANAN-10")},
+        {static_cast<int>(AnanModel::Anan10E), QStringLiteral("ANAN-10E")},
+        {static_cast<int>(AnanModel::Anan100), QStringLiteral("ANAN-100")},
+        {static_cast<int>(AnanModel::Anan100B), QStringLiteral("ANAN-100B")},
+        {static_cast<int>(AnanModel::Anan100D), QStringLiteral("ANAN-100D")},
+        {static_cast<int>(AnanModel::Anan200D), QStringLiteral("ANAN-200D")},
+        {static_cast<int>(AnanModel::Anan7000), QStringLiteral("ANAN-7000DLE")},
+        {static_cast<int>(AnanModel::Anan8000), QStringLiteral("ANAN-8000DLE")},
+        {static_cast<int>(AnanModel::AnanG2E), QStringLiteral("ANAN-G2E")},
+        {static_cast<int>(AnanModel::AnanG2), QStringLiteral("ANAN-G2")},
+        {static_cast<int>(AnanModel::AnvelinaPro3), QStringLiteral("ANVELINA-Pro III")},
+        {static_cast<int>(AnanModel::RedPitaya), QStringLiteral("RED-PITAYA")}
+    };
+}
+
 bool AnanImplementation::isSaturn(const RadioInfo& radio)
 {
     return radio.family == QLatin1String("anan") && radio.boardId == 10 && radio.hpsdrProtocol == 2;
