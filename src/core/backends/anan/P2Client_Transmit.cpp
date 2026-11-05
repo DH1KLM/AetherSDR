@@ -23,7 +23,12 @@ HighPriorityPacket P2Client::receiveHighPriority() const
         m_adc0AttenuationDb, m_adc1AttenuationDb, m_rxAntenna, receiveDdcOffset(),
         m_selectReceiveLpf, m_receiveFilterKind, m_numAdcs, m_filters ? &*m_filters : nullptr,
         m_alexAttenuationDb, &m_receiveFilterPlan, m_frequencyCorrection, m_speakerAmpMuted);
-    if (m_diversity.enabled) {
+    if (m_pureSignalEnabled && m_transmitControl) {
+        const std::uint32_t word = phaseWord(m_transmitControl->frequencyHz * m_frequencyCorrection);
+        for (int i = 0; i < 4; ++i) {
+            packet[9+i] = packet[13+i] = static_cast<std::uint8_t>(word >> (24 - 8*i));
+        }
+    } else if (m_diversity.enabled) {
         std::copy_n(packet.begin() + 17, 4, packet.begin() + 9);
         std::copy_n(packet.begin() + 17, 4, packet.begin() + 13);
     }

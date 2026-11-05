@@ -206,6 +206,8 @@ QVariantMap AnanBackend::transmitSessionState()
 
 void AnanBackend::disableTransmitSession()
 {
+    m_pureSignalEnabled = false;
+    m_pureSignalPending = false;
     m_tuneActive = false; m_cwAutoKeyed = false;
     if (m_cwHangTimer) { m_cwHangTimer->stop(); }
     const bool hadSession = m_txSessionEnabled || m_txSessionArming;
@@ -326,6 +328,7 @@ void AnanBackend::publishTransmitFilter()
 void AnanBackend::setTxFilter(int lowHz, int highHz)
 {
     if (!m_connected || lowHz < 0 || highHz > 10000 || highHz - lowHz < 50) { return; }
+    if (m_pureSignalEnabled || m_pureSignalPending) { publishTransmitFilter(); return; }
     const QString mode = transmitModeName();
     const bool ssb = mode == QStringLiteral("USB") || mode == QStringLiteral("LSB");
     if (ssb && m_transmitDispatchOperation.permitsDispatch(TxCoordinator::monotonicMs())) {
@@ -662,7 +665,7 @@ void AnanBackend::setKeying(bool key, const TxCoordinator::Operation& operation,
         },Qt::QueuedConnection);
         return;
     }
-    if (m_txFilterPending || !transmitSessionCurrent() || !m_txSessionProfile || !m_txSessionControl) {
+    if (m_pureSignalPending || m_txFilterPending || !transmitSessionCurrent() || !m_txSessionProfile || !m_txSessionControl) {
         qCWarning(lcAnanTx) << "ANAN TX key-on refused:" << transmitSessionRefusal();
         completion.finish();
         return;

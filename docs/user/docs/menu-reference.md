@@ -65,6 +65,8 @@ See [Profile Management](./profile-management.md).
 | Item | What it does |
 |------|-------------|
 | **Add Panadapter...** | Opens the layout picker and adds a pan if the radio has capacity. |
+| **Phasing Control...** | Opens coherent OpenHPSDR diversity controls. |
+| **Pure Signal** | Opens the OpenHPSDR calibration and AmpView workspace. See [Pure Signal](./pure-signal.md). |
 | **AetherTX...** | Checkable. Shows the transmit audio chain. See [Aetherial Audio](./aetherial-audio.md). |
 | **CW Keyer** | Checkable. Shows the CW keyer panel. See [CWX Panel](./cwx-panel.md). |
 | **Copy Assist** | Checkable. Speech-to-text panel (builds with speech-to-text only). See [Copy Assist](./copy-assist.md). |

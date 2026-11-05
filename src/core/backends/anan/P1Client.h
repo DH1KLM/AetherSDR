@@ -35,6 +35,7 @@ public:
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
     bool setDiversity(const DiversitySettings& settings);
+    bool setPureSignalEnabled(bool enabled);
     Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     void setStepAttenuationDb(int adc, int db);
     void setRxAntenna(int antenna);
@@ -56,6 +57,8 @@ public:
     [[nodiscard]] std::size_t transmitQueueFreeSamples() const { return m_txIq.size() - m_txCount; }
 
 signals:
+    void pureSignalFeedback(const std::vector<std::complex<float>>& transmit,
+                            const std::vector<std::complex<float>>& feedback);
     void supplyRailSampled(int counts);
     void paCurrentSampled(int counts);
     void rfPowerSampled(int forward, int reverse);

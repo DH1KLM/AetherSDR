@@ -2142,6 +2142,105 @@ void PSRestoreCorr (int channel, char* filename)
 }
 
 PORT
+int AetherPSCorrectionState(int channel, int* run, int* busy)
+{
+    if (channel < 0 || channel >= MAX_CHANNELS || !run || !busy || !txa[channel].iqc.p) { return 0; }
+    EnterCriticalSection(&ch[channel].csDSP);
+    *run = _InterlockedAnd(&txa[channel].iqc.p->run, 1) != 0;
+    *busy = _InterlockedAnd(&txa[channel].iqc.p->busy, 1) != 0;
+    LeaveCriticalSection(&ch[channel].csDSP);
+    return 1;
+}
+
+int AetherPSCorrectionAvailable(int channel)
+{
+    int available;
+    IQC b;
+    if (channel < 0 || channel >= MAX_CHANNELS || !txa[channel].iqc.p) { return 0; }
+    b = txa[channel].iqc.p;
+    EnterCriticalSection(&ch[channel].csDSP);
+    available = b->m_spline[b->cset] && b->c_spline[b->cset] && b->s_spline[b->cset];
+    LeaveCriticalSection(&ch[channel].csDSP);
+    return available;
+}
+
+int AetherPSSaveCorrection(int channel, const char* filename)
+{
+    NS_Spline *m = NULL, *c = NULL, *s = NULL;
+    CurveEMA me, ce, se;
+    double my, cy, sy;
+    int result;
+    if (!filename || !AetherPSCorrectionAvailable(channel)) { return 0; }
+    GetTXAiqcValues(channel, &m, &me, &my, &c, &ce, &cy, &s, &se, &sy);
+    result = WriteCorrectionFileV2(filename, m, &me, c, &ce, s, &se) == 0;
+    ns_free(m); ns_free(c); ns_free(s);
+    return result;
+}
+
+// AetherSDR: only a fresh, stopped TXA channel may receive retained curves.
+// No compatibility-worker request is queued and no audio-dependent wait occurs.
+static int install_retained_correction(int channel, NS_Spline* m, CurveEMA* me,
+    NS_Spline* c, CurveEMA* ce, NS_Spline* s, CurveEMA* se)
+{
+    CALCC a;
+    double previous = 0.0;
+    int k;
+    if (channel < 0 || channel >= MAX_CHANNELS || !txa[channel].calcc.p || !txa[channel].iqc.p
+        || !m || !c || !s) { return 0; }
+    a = txa[channel].calcc.p;
+    if (a->runcal || _InterlockedAnd(&txa[channel].iqc.p->run, 1)) { return 0; }
+    AetherStartTXAiqcQuiescent(channel, m, me, me->ys[0], c, ce, ce->ys[0], s, se, se->ys[0]);
+    a->ctrl.reset = a->ctrl.automode = a->ctrl.mancal = a->ctrl.turnon = 0;
+    InterlockedBitTestAndSet(&a->ctrl.running, 0);
+    a->ctrl.state = LSTAYON;
+    a->info[14] = 1;
+    a->info[15] = LSTAYON;
+    a->runcal = 1;
+    EnterCriticalSection(&a->disp.cs_disp);
+    a->disp.nsamps = 0;
+    for (k = 0; k < DISP_PTS; ++k) {
+        double x = (double)k / (DISP_PTS - 1);
+        double dummy = 0.0;
+        double raw = atan2(get_phase_correction_ema(se, x, &dummy),
+                           get_phase_correction_ema(ce, x, &dummy)) * 180.0 / PI;
+        double delta = remainder(raw - previous, 360.0);
+        previous += delta;
+        a->disp.xm_cor[k] = a->disp.xa_cor[k] = x;
+        a->disp.ym_cor[k] = get_mag_correction_ema(me, x, &dummy);
+        a->disp.ya_cor[k] = previous;
+    }
+    a->disp.ym_cor[0] = a->disp.ym_cor[1];
+    a->disp.phs_ref_deg = previous;
+    for (k = 0; k < DISP_PTS; ++k) { a->disp.ya_cor[k] -= previous; }
+    LeaveCriticalSection(&a->disp.cs_disp);
+    return 1;
+}
+
+int AetherPSRestoreCorrection(int channel, const char* filename)
+{
+    NS_Spline *m = NULL, *c = NULL, *s = NULL;
+    CurveEMA me, ce, se;
+    int result;
+    if (!filename || ReadCorrectionFileV2(filename, &m, &me, &c, &ce, &s, &se)) { return 0; }
+    result = install_retained_correction(channel, m, &me, c, &ce, s, &se);
+    if (!result) { ns_free(m); ns_free(c); ns_free(s); }
+    return result;
+}
+
+int AetherPSCopyCorrection(int source, int target)
+{
+    NS_Spline *m = NULL, *c = NULL, *s = NULL;
+    CurveEMA me, ce, se;
+    double my, cy, sy;
+    int result;
+    if (!AetherPSCorrectionAvailable(source) || source == target) { return 0; }
+    GetTXAiqcValues(source, &m, &me, &my, &c, &ce, &cy, &s, &se, &sy);
+    result = install_retained_correction(target, m, &me, c, &ce, s, &se);
+    if (!result) { ns_free(m); ns_free(c); ns_free(s); }
+    return result;
+}
+
+PORT
 void SetPSRunCal (int channel, int run)
 {
 	CALCC a;

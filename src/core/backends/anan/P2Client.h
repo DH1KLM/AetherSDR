@@ -123,6 +123,7 @@ public:
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
     bool setDiversity(const DiversitySettings& settings);
+    bool setPureSignalEnabled(bool enabled);
 
     // Set one ADC's receive step attenuator (0 = ADC0, 1 = ADC1), clamped to
     // 0-31 dB by the encoder. Sent at once when running, and carried by every
@@ -198,6 +199,8 @@ public:
     };
 
 signals:
+    void pureSignalFeedback(const std::vector<std::complex<float>>& transmit,
+                            const std::vector<std::complex<float>>& feedback);
     void transmitFault(const QString& reason);
     void linkUp();       // first valid DDC0 frame seen
     void linkDown();     // stop() called, or a link failure once that exists
@@ -345,11 +348,15 @@ private:
     // Stream indices stay logical; packet rows/ports use this RX offset.
     int m_firstDdcIndex = 0;
     DiversitySettings m_diversity;
+    bool m_pureSignalEnabled = false;
+    std::optional<std::uint32_t> m_pureSignalSequence;
+    std::vector<std::complex<float>> m_pureSignalTransmit;
+    std::vector<std::complex<float>> m_pureSignalFeedback;
     int m_availableDdcs = 0;
     std::vector<std::complex<float>> m_diversityFirst;
     std::vector<std::complex<float>> m_diversitySecond;
     std::vector<std::complex<float>> m_diversityOutput;
-    [[nodiscard]] int receiveDdcOffset() const { return m_diversity.enabled ? 2 : m_firstDdcIndex; }
+    [[nodiscard]] int receiveDdcOffset() const { return m_diversity.enabled || m_pureSignalEnabled ? 2 : m_firstDdcIndex; }
     [[nodiscard]] std::array<std::uint8_t, 1444> receiveDdcPacket(
         std::span<const DdcConfig> streams) const;
     double m_frequencyCorrection = 1.0;

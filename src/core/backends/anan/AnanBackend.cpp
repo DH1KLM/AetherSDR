@@ -1023,6 +1023,8 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
     // capabilities()'s own comment.
     m_discoveryInfoReceived = false;
     m_diversity = {};
+    m_pureSignalEnabled = false;
+    m_pureSignalPending = false;
     m_diversityPending = false;
     m_discoveredBoardId = 0;
     m_discoveredFirmwareVer = 0;
@@ -2621,6 +2623,12 @@ void AnanBackend::acceptCalibrationSpectrum(const std::vector<float>& bins, qint
 void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
                                   quint64 requestId, const QVariant& arg)
 {
+    if (ns == QLatin1String("anan") && (verb == QLatin1String("puresignal.get")
+        || verb == QLatin1String("puresignal.set") || verb == QLatin1String("puresignal.save")
+        || verb == QLatin1String("puresignal.restore"))) {
+        requestPureSignal(verb, requestId, arg.toMap());
+        return;
+    }
     if (ns == QLatin1String("anan") && (verb == QLatin1String("diversity.get")
         || verb == QLatin1String("diversity.set"))) {
         if (verb == QLatin1String("diversity.get")) {
@@ -3111,7 +3119,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             const auto fields = arg.toMap();
             const auto assignments = fields.value(QStringLiteral("assignments")).toList();
             if (fields.value(QStringLiteral("identity")).toString() != identity || fields.size() != 2
-                || m_diversity.enabled || m_diversityPending
+                || m_pureSignalEnabled || m_pureSignalPending || m_diversity.enabled || m_diversityPending
                 || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun || m_droopCalibrator.isRunning()
                 || m_transmitOperation.permitsCleanup() || m_txSessionArming
                 || !AnanSettings::setAdcAssignments(m_radioSerial,static_cast<int>(m_pendingParams.model),m_discoveredBoardId,m_pendingParams.protocol,assignments)) {
@@ -3129,7 +3137,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
         for (int adc : m_receiveAdcs) { assignments.append(adc); }
         QVariantList defaults;
         QVariantList ddcMap;
-        const int first = m_pendingParams.protocol == 1 ? 0 : m_diversity.enabled ? 2 : profile->firstDdcIndex;
+        const int first = m_pendingParams.protocol == 1 ? 0 : m_diversity.enabled || m_pureSignalEnabled ? 2 : profile->firstDdcIndex;
         for (int ddc = 0; ddc < 7; ++ddc) {
             const int physical = m_pendingParams.protocol == 1
                 ? p1::receiveDdcForStream(ddc,profile->numAdcs,m_diversity.enabled)
@@ -3158,7 +3166,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             {QStringLiteral("firstDdc"),m_pendingParams.protocol == 1 ? 0 : profile->firstDdcIndex},
             {QStringLiteral("windows"),windows},
             {QStringLiteral("diversityEnabled"),m_diversity.enabled},
-            {QStringLiteral("busy"),m_diversity.enabled || m_diversityPending || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun.has_value()
+            {QStringLiteral("busy"),m_pureSignalEnabled || m_pureSignalPending || m_diversity.enabled || m_diversityPending || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun.has_value()
                 || m_droopCalibrator.isRunning() || m_transmitOperation.permitsCleanup() || m_txSessionArming}});
         return;
     }

@@ -62,6 +62,11 @@ bool AnanClient::disarmTransmit(bool discardDsp)
     const bool stopped = transmitTransport([](auto* transport) { return transport->enableTransmit(false); });
     if (!stopped) { transmitTransport([](auto* transport) { transport->stop(); }); }
     clearTransmitAudio();
+    if (!transmitTransport([](auto* transport) { return transport->setPureSignalEnabled(false); })) {
+        transmitTransport([](auto* transport) { transport->stop(); });
+    }
+    if (m_uncorrectedTransmitDsp) { m_transmitDsp = std::move(m_uncorrectedTransmitDsp); }
+    m_pureSignalMode = PureSignalMode::Off;
     if (discardDsp) { m_transmitDsp.reset(); }
     return stopped;
 }
@@ -85,6 +90,10 @@ bool AnanClient::setTransmitPower(const TransmitPowerProfile& profile, int band,
 
 void AnanClient::clearTransmitAudio()
 {
+    if (m_pureSignalMode != PureSignalMode::Off && m_transmitDsp && m_transmitDsp->pureSignalChannel()) {
+        const std::array<std::complex<float>,1> silence{};
+        m_transmitDsp->pureSignalChannel()->feedPureSignal(silence, silence, false);
+    }
     m_transmitFinishing = false; m_transmitFlushBlocks = 0; m_transmitCarrier = false;
     if (m_transmitAudioTimer) { m_transmitAudioTimer->stop(); }
     m_transmitHead = 0;

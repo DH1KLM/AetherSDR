@@ -9,6 +9,7 @@
 #include <atomic>
 #include <memory>
 #include <optional>
+#include <QVariantMap>
 
 namespace AetherSDR::anan {
 // Backend-private protocol dispatch. Both child clients follow this
@@ -27,7 +28,7 @@ public:
     void setTransmitPlanner(QObject* planner) { m_transmitPlanner = planner; }
     bool stageTransmitDsp(std::shared_ptr<AnanTxDsp> dsp);
     bool trySetTransmitFilter(double lowHz, double highHz)
-    { return m_transmitDsp && m_transmitDsp->trySetFilter(lowHz, highHz); }
+    { return m_pureSignalMode == PureSignalMode::Off && m_transmitDsp && m_transmitDsp->trySetFilter(lowHz, highHz); }
     void discardStagedTransmit();
     bool armStagedTransmit(const P2TxControl& control);
     bool disarmTransmit(bool discardDsp = true);
@@ -50,6 +51,10 @@ public:
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
     bool setDiversity(const DiversitySettings& settings);
+    QVariantMap pureSignalState(bool display);
+    std::shared_ptr<AnanTxDsp> pureSignalDspForControl() const
+    { return m_transmitConfigured && !m_transmitKeyed ? m_transmitDsp : nullptr; }
+    bool configurePureSignal(const PureSignalSettings& settings, PureSignalMode mode, std::shared_ptr<AnanTxDsp> prepared);
     Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     Q_INVOKABLE void setStepAttenuationDb(int adc, int db);
     Q_INVOKABLE void setRxAntenna(int antenna);
@@ -82,6 +87,8 @@ private:
         return function(m_p2);
     }
     bool m_transmitMonitor = false;
+    PureSignalSettings m_pureSignalSettings;
+    PureSignalMode m_pureSignalMode = PureSignalMode::Off;
     qint64 m_transmitMeterMs = -1;
     int m_transmitFlushBlocks = 0;
     bool m_transmitFinishing = false;
@@ -89,6 +96,7 @@ private:
     static constexpr std::size_t kTransmitAudioCapacity = AnanTxDsp::kMaximumQueuedInputSamples;
     std::atomic<std::size_t> m_transmitPendingFrames{0};
     std::shared_ptr<AnanTxDsp> m_transmitDsp;
+    std::shared_ptr<AnanTxDsp> m_uncorrectedTransmitDsp;
     QObject* m_transmitPlanner = nullptr;
     bool m_transmitConfigured = false;
     TxCoordinator::Operation m_transmitOperation;

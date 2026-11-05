@@ -36,6 +36,7 @@ const sidebars = {
         "hermes-lite-2",
         "networked-icom",
         "anan-g2",
+        "pure-signal",
         "rtl-sdr",
         "kiwisdr-and-web-888",
         "demo-mode"

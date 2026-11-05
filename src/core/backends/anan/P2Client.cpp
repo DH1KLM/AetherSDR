@@ -85,6 +85,8 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
     if (m_running)
         stop();
     m_diversity = {};
+    m_pureSignalEnabled = false;
+    m_pureSignalSequence.reset();
     m_availableDdcs = 0;
 
     m_host = QHostAddress(params.host);
@@ -755,6 +757,22 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
     if (m_running && !m_discoveryValidated) {
         return;
     }
+    if (m_pureSignalEnabled && senderPort == kDdc0DefaultPort) {
+        if (!transmitActive() || frame->samples <= 0 || frame->samples % 2 != 0
+            || frame->samples > 238) { m_pureSignalSequence.reset(); return; }
+        const bool continuous = !m_pureSignalSequence || frame->seq == *m_pureSignalSequence;
+        m_pureSignalSequence = frame->seq + 1;
+        if (!continuous) { return; }
+        m_decodeScratch.clear();
+        decodeIq(*frame, m_decodeScratch);
+        m_pureSignalTransmit.clear(); m_pureSignalFeedback.clear();
+        for (std::size_t i = 0; i < m_decodeScratch.size(); i += 2) {
+            m_pureSignalFeedback.push_back(m_decodeScratch[i]);
+            m_pureSignalTransmit.push_back(m_decodeScratch[i+1]);
+        }
+        emit pureSignalFeedback(m_pureSignalTransmit, m_pureSignalFeedback);
+        return;
+    }
     const bool paired = m_diversity.enabled && senderPort == kDdc0DefaultPort;
     if (m_diversity.enabled && senderPort == kDdc0DefaultPort + 2) { return; }
     const std::optional<int> ddcIndex = paired ? std::optional<int>(0) : ddcIndexForSenderPort(
@@ -846,6 +864,7 @@ bool P2Client::setReceiveStreams(const std::vector<DdcConfig>& streams,
                 kDdc0RatesKsps.end() ||
             !std::isfinite(centers[i]) || centers[i] < 0 || centers[i] > 61'440'000)
             return false;
+    if (m_pureSignalEnabled && int(streams.size()) + 2 > m_availableDdcs) { return false; }
     if (m_diversity.enabled && (streams.front().adcIndex != 0
         || (streams.size() == 1 ? 2 : int(streams.size()) + 2) > m_availableDdcs)) {
         return false;
@@ -898,7 +917,16 @@ std::array<std::uint8_t, 1444> P2Client::receiveDdcPacket(std::span<const DdcCon
 {
     std::array<std::uint8_t, 1444> packet = buildDdcSpecific(streams, m_numAdcs,
         m_ditherEnabled, m_randomEnabled, receiveDdcOffset());
-    if (m_diversity.enabled && !streams.empty()) {
+    if (m_pureSignalEnabled && !streams.empty()) {
+        // Thetis UpdateDDCs: DDC0 ADC0 feedback, DDC1 digital TX reference
+        // (ADC selector 2), synchronized into DDC0; ordinary RX stays on DDC2+.
+        const std::array<DdcConfig, 2> pair{{{192, 0}, {192, 1}}};
+        const auto paired = buildDdcSpecific(pair, 2, false, false, 0);
+        std::copy_n(paired.begin() + 17, 12, packet.begin() + 17);
+        packet[23] = 2;
+        packet[7] |= 1;
+        packet[1363] = 2;
+    } else if (m_diversity.enabled && !streams.empty()) {
         const std::array<DdcConfig, 2> pair{{{streams.front().rateKsps, 0},
                                             {streams.front().rateKsps, 1}}};
         const std::array<std::uint8_t, 1444> paired = buildDdcSpecific(pair, 2,
@@ -914,6 +942,7 @@ std::array<std::uint8_t, 1444> P2Client::receiveDdcPacket(std::span<const DdcCon
 
 bool P2Client::setDiversity(const DiversitySettings& settings)
 {
+    if (settings.enabled && m_pureSignalEnabled) { return false; }
     if (settings.valid() && m_running && m_discoveryValidated && m_linkUp && settings == m_diversity) {
         return true;
     }
@@ -944,6 +973,26 @@ bool P2Client::setDiversity(const DiversitySettings& settings)
             m_expectedSeq[std::size_t(i)].reset();
             emit ddcSequenceGap(i);
         }
+    }
+    return true;
+}
+
+bool P2Client::setPureSignalEnabled(bool enabled)
+{
+    if (enabled == m_pureSignalEnabled) { return true; }
+    if (!m_running || !m_discoveryValidated || !m_linkUp || transmitActive()
+        || (enabled && (m_diversity.enabled || !m_transmitProfile || m_numAdcs != 2
+            || m_availableDdcs < m_activeDdcCount + 2))) { return false; }
+    m_pureSignalEnabled = enabled;
+    m_pureSignalSequence.reset();
+    if (!sendControl(receiveDdcPacket(m_activeDdcs), kDdcSpecificPort) || !sendHighPriority()) {
+        emit connectionError(QStringLiteral("Pure Signal routing failed; reconnect required."));
+        stop();
+        return false;
+    }
+    for (int i = 0; i < m_activeDdcCount; ++i) {
+        m_expectedSeq[std::size_t(i)].reset();
+        emit ddcSequenceGap(i);
     }
     return true;
 }

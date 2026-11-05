@@ -42,10 +42,11 @@ int AnanBackend::receiveStreamCeiling() const
         return 1;
     if (m_pendingParams.protocol == 1) {
         const auto p = P1Client::profile(effectiveBoardId(), m_pendingParams.redPitayaP1);
-        return p ? std::min(4, p->frameSlotCount) : 1;
+        return p ? std::min(m_pureSignalEnabled ? 2 : 4, p->frameSlotCount) : 1;
     }
-    int n = std::min({5, physical->physicalDdcLimit - effective->firstDdcIndex,
-                      effective->physicalDdcLimit - effective->firstDdcIndex});
+    const int offset = m_pureSignalEnabled ? 2 : effective->firstDdcIndex;
+    int n = std::min({5, physical->physicalDdcLimit - offset,
+                      effective->physicalDdcLimit - offset});
     if (m_discoveredReceiverCount > 0)
         n = std::min(n, int(m_discoveredReceiverCount));
     return std::max(1, n);

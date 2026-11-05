@@ -954,6 +954,8 @@ set(CORE_SOURCES
     src/core/backends/anan/AnanPanAnalyzer.cpp  # ANAN panadapter via WDSP's display analyzer
     src/core/backends/anan/AnanRxDsp.cpp     # aetherd ANAN P2 Phase 1b (IQ -> WdspChannel demod + spectrum)
     src/core/backends/anan/AnanTxDsp.cpp
+    src/core/backends/anan/AnanClient_PureSignal.cpp
+    src/core/dsp/PureSignalCorrection.cpp
     src/core/backends/anan/AnanDroopCorrection.cpp # ANAN DDC0 droop compensation (pure apply math)
     src/core/backends/anan/AnanDroopCalibrator.cpp # live, in-app DDC0 droop calibration sweep
     src/core/backends/anan/AnanDroopDefaults.cpp   # derived per-gateware droop defaults (generated data)
@@ -961,6 +963,7 @@ set(CORE_SOURCES
     src/core/backends/anan/AnanBackend_Transmit.cpp
     src/core/backends/anan/AnanBackend_MultiRx.cpp
     src/core/backends/anan/AnanBackend_Diversity.cpp
+    src/core/backends/anan/AnanBackend_PureSignal.cpp
     src/core/backends/anan/AnanBackend.cpp   # aetherd ANAN P2 Phase 1b (IRadioBackend impl)
     src/core/backends/anan_original/AnanBackend.cpp
     src/core/backends/anan_original/AnanDroopCalibrator.cpp
@@ -1409,6 +1412,7 @@ set(GUI_SOURCES
     src/gui/AnanControllersPage.cpp
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
+    src/gui/PureSignalWindow.cpp
     src/gui/NtpSourcesPage.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/AsioOutputSettingsWidget.cpp

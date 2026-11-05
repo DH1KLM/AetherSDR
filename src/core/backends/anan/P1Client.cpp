@@ -284,6 +284,12 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
         }
     }
     ++m_counters.rxPackets;
+    if (m_config.pureSignal && transmitActive()) {
+        std::vector<std::complex<float>> feedback, reference;
+        if (p1::decodeIq(*frame, 3, feedback) && p1::decodeIq(*frame, 4, reference)) {
+            emit pureSignalFeedback(reference, feedback);
+        }
+    }
     m_iq.clear();
     if (!p1::decodeIq(*frame, 0, m_iq))
         return;
@@ -603,6 +609,7 @@ bool P1Client::setReceiveStreams(const std::vector<DdcConfig>& streams,
         if (streams[i].adcIndex < 0 || streams[i].adcIndex >= m_config.numAdcs || streams[i].rateKsps != m_config.rateKsps ||
             !std::isfinite(centers[i]) || centers[i] < 0 || centers[i] > 61'440'000)
             return false;
+    if (m_config.pureSignal && streams.size() > 2) { return false; }
     if (m_diversity.enabled && (streams.front().adcIndex != 0
         || p1::receiveDdcForStream(int(streams.size() - 1), m_config.numAdcs, true) >= m_config.receivers)) {
         return false;
@@ -629,6 +636,7 @@ bool P1Client::setReceiveStreams(const std::vector<DdcConfig>& streams,
 
 bool P1Client::setDiversity(const DiversitySettings& settings)
 {
+    if (settings.enabled && m_config.pureSignal) { return false; }
     if (settings.valid() && m_running && m_validated && settings == m_diversity) { return true; }
     if (!settings.valid() || !m_running || !m_validated || transmitActive()
         || (settings.enabled && (m_config.numAdcs != 2 || m_config.receivers < 3
@@ -660,6 +668,19 @@ bool P1Client::setDiversity(const DiversitySettings& settings)
             emit ddcSequenceGap(i);
         }
     }
+    return true;
+}
+
+bool P1Client::setPureSignalEnabled(bool enabled)
+{
+    if (enabled == m_config.pureSignal) { return true; }
+    if (!m_running || !m_validated || !m_linkUp || transmitActive()
+        || (enabled && (m_diversity.enabled || m_config.numAdcs != 2 || m_config.receivers != 5
+            || m_config.rateKsps != 192 || m_receiveStreams.size() > 2))) { return false; }
+    const bool previous = m_config.pureSignal;
+    m_config.pureSignal = enabled;
+    const auto packet = p1::speakerAndControl(m_txSequence++,0x14,0x24,m_config);
+    if (!packet || !send(*packet)) { m_config.pureSignal = previous; return false; }
     return true;
 }
 } // namespace AetherSDR::anan

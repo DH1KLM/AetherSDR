@@ -431,6 +431,9 @@ private:
     [[nodiscard]] QVariantMap diversityState() const;
     void requestDiversity(quint64 requestId, const QVariantMap& fields);
     void loadDiversitySettings();
+    void requestPureSignal(const QString& verb, quint64 requestId, const QVariantMap& fields);
+    bool m_pureSignalEnabled = false;
+    bool m_pureSignalPending = false;
     // Retain ANT1/2/3 across P2 session restarts.
     int m_rxAntenna = 1;
     AnanRxDsp::Config m_pendingDspConfig;

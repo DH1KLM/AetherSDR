@@ -26,6 +26,7 @@
 #include "PanadapterStack.h"
 #include "RadioSetupDialog.h"
 #include "AnanTransmitPowerPage.h"
+#include "PureSignalWindow.h"
 #include "TciApplet.h"
 #include "ClientChainApplet.h"
 #include "CwxPanel.h"
@@ -1613,6 +1614,22 @@ void MainWindow::buildMenuBar()
         m_ananPhasingWindow->show();
         m_ananPhasingWindow->raise();
         m_ananPhasingWindow->activateWindow();
+    });
+    auto* pureSignalAction = toolsMenu->addAction(QStringLiteral("Pure Signal"));
+    pureSignalAction->setObjectName(QStringLiteral("pureSignalAction"));
+    phasingAvailability->registerAction(pureSignalAction, QStringLiteral("Connect an OpenHPSDR device first."),
+        [](bool connected, const RadioCapabilities& caps) {
+            return connected && caps.extensionNamespaces.contains(QStringLiteral("anan"));
+        }, {}, false);
+    connect(&m_radioModel, &RadioModel::capabilitiesChanged, this,
+        [this](bool connected, const RadioCapabilities& caps) {
+            if ((!connected || !caps.extensionNamespaces.contains(QStringLiteral("anan")))
+                && m_pureSignalWindow) { m_pureSignalWindow->retire(); }
+        });
+    connect(pureSignalAction, &QAction::triggered, this, [this] {
+        if (!m_radioModel.isConnected() || !m_radioModel.backendDeclaresExtension(QStringLiteral("anan"))) { return; }
+        if (!m_pureSignalWindow) { m_pureSignalWindow = new PureSignalWindow(m_radioModel, this); }
+        m_pureSignalWindow->show(); m_pureSignalWindow->raise(); m_pureSignalWindow->activateWindow();
     });
     m_addPanAction = addPanAction;
     addPanAction->setEnabled(false);

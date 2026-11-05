@@ -35,6 +35,7 @@ public:
     [[nodiscard]] std::size_t outputSamples() const noexcept { return m_outputSamples; }
     bool begin(const TxCoordinator::Context& context, qint64 now);
     bool end();
+    WdspChannel* pureSignalChannel() const noexcept { return m_channel.get(); }
     [[nodiscard]] std::optional<WdspChannel::Mode> mode() const noexcept { return m_mode; }
     [[nodiscard]] std::optional<double> meter(WdspChannel::TransmitMeter which) const noexcept
     { return m_active && m_channel ? m_channel->transmitMeter(which) : std::nullopt; }

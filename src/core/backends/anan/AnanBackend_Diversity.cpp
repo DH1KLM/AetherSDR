@@ -87,7 +87,7 @@ QVariantMap AnanBackend::diversityState() const
     } else if (m_discoveredReceiverCount > 0 && m_discoveredReceiverCount < 2) {
         reason = QStringLiteral("This P2 firmware does not report two DDCs for the synchronized pair.");
     }
-    const bool busy = m_diversityPending || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun
+    const bool busy = m_pureSignalEnabled || m_pureSignalPending || m_diversityPending || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun
         || m_droopCalibrator.isRunning() || m_transmitOperation.permitsCleanup() || m_txSessionArming;
     if (reason.isEmpty() && busy) {
         reason = QStringLiteral("Finish TX, calibration or receive configuration before editing diversity.");

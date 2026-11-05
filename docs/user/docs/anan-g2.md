@@ -389,7 +389,7 @@ ANAN path and remain unavailable:
 | RIT/XIT adjustment, selection and clearing | Backend offset controls are absent |
 | Split / independent TX receiver | TX currently uses the primary receiver |
 | Diversity gain, phase and enable | No ANAN diversity DSP/control path |
-| PureSignal, its setup and two-tone test | No ANAN predistortion path |
+| PureSignal front-panel actions and two-tone test | Use [Tools → Pure Signal](./pure-signal.md) for experimental calibration and AmpView; front-panel actions and the two-tone generator are unavailable |
 | ATU enable / ready LED | No integrated ANAN ATU control |
 | NB / SNB / ANF | No corresponding extended ANAN processing/control path |
 | Duplex and Thetis Sub RX | No matching ANAN operating controls |
@@ -588,9 +588,9 @@ in that pan. Selecting a band in another panadapter leaves the globally active
 receiver in its original band. Saved CTUN views are not restored while
 multi-receive is active.
 The existing **B** band-view toggle/recall and droop sweep require the original
-receiver to be the only slice. The original receiver retains its CTUN control. TX, diversity,
-PureSignal and simultaneous independent ADC selection are not added by this
-receive extension.
+receiver to be the only slice. The original receiver retains its CTUN control.
+[Pure Signal](./pure-signal.md) has its own workspace and reserves feedback
+resources separately from ordinary receiver windows.
 
 ## Where to go next
 

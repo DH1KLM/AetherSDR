@@ -34,6 +34,7 @@ bool validConfig(const ReceiveConfig& c) noexcept
                     [](auto hz) { return hz > 61'440'000; }))
         return false;
     return rate && validFrequencyFactor(c.frequencyCorrection) && validReceiverCount(c.receivers)
+        && (!c.pureSignal || (c.numAdcs == 2 && c.receivers == 5 && c.rateKsps == 192 && !c.diversity))
         && (!c.diversity || (c.numAdcs == 2 && c.receivers >= 3))
         && (c.numAdcs == 1 || c.numAdcs == 2)
         && c.adcIndex >= 0 && c.adcIndex < c.numAdcs
@@ -93,6 +94,7 @@ std::optional<Control> receiveControl(std::uint8_t address,
         bytes[4] = c.lowPassBits;
         break;
     case 0x14:
+        bytes[2] = c.pureSignal ? 0x40 : 0;
         // Thetis bank 10 C1[4:6]: ring, bias and inverted microphone-PTT permission.
         bytes[1] = (c.mic.ring ? 0x10 : 0) | (c.mic.bias ? 0x20 : 0) | (c.mic.ptt ? 0 : 0x40);
         // Thetis bank 11 C3 carries only the four independent user outputs.
@@ -110,6 +112,7 @@ std::optional<Control> receiveControl(std::uint8_t address,
     case 0x1e:
         break; // CW engine disabled.
     case 0x24:
+        bytes[2] = c.pureSignal ? 0x40 : 0;
         if (c.numAdcs == 2)
             bytes[1] = c.adc1ReceiveFilterBits;
         break;

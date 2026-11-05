@@ -187,6 +187,20 @@ int main(int argc, char** argv)
               "and carries no unavailability reason while it is supported");
     }
 
+    // Session-only actions must stay unavailable through engagement refreshes.
+    {
+        RadioModel disconnected;
+        ControlAvailabilityRegistry sessionRegistry(disconnected);
+        QAction action(QStringLiteral("Pure Signal"));
+        sessionRegistry.registerAction(&action, reason,
+            [](bool connected, const RadioCapabilities&) { return connected; }, {}, false);
+        check(!action.isEnabled() && action.statusTip() == reason,
+              "a session-only action is unavailable at construction while disconnected");
+        sessionRegistry.refreshEngaged();
+        check(!action.isEnabled() && sessionRegistry.stateOf(&action) == ControlAvailability::Unavailable,
+              "engagement refresh cannot re-enable a disconnected session-only action");
+    }
+
     // ---- dead widgets do not accumulate ----
     {
         const int before = registry.registrationCount();

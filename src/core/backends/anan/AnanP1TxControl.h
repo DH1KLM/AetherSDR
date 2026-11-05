@@ -20,6 +20,18 @@ inline std::optional<p1::Packet> buildP1Transmit(const p1::ReceiveConfig& receiv
     for (int frame = 0; frame < 2; ++frame) {
         const int base = 8 + 512 * frame;
         const int address = frame ? second : first;
+        if (keyed && config.pureSignal) {
+            // Thetis networkproto1.c / UpdateDDCs: five-slot P1 uses
+            // slots 3/4 for synchronized feedback/reference during TX.
+            if (address == 0x0a || address == 0x0c) {
+                const auto hz = static_cast<std::uint32_t>(tx.frequencyHz * tx.frequencyCorrection);
+                for (int byte = 0; byte < 4; ++byte) { (*packet)[base+4+byte] = static_cast<std::uint8_t>(hz >> (24-8*byte)); }
+            } else if (address == 0x1c) {
+                (*packet)[base+4] = static_cast<std::uint8_t>(((*packet)[base+4] & 0xf0) | 0x08);
+            } else if (address == 0x14) {
+                (*packet)[base+7] = 0x3f;
+            }
+        }
         if (address == 2) {
             (*packet)[base+3] = 2;
             const auto hz = static_cast<std::uint32_t>(tx.frequencyHz * tx.frequencyCorrection);

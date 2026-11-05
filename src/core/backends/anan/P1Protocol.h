@@ -27,6 +27,7 @@ using Control = std::array<std::uint8_t, 5>;
 using Packet = std::array<std::uint8_t, kPacketBytes>;
 
 struct ReceiveConfig {
+    bool pureSignal = false;
     bool diversity = false;
     bool anvelinaExtraOc = false;
     int rateKsps = 48;

@@ -1,5 +1,9 @@
 #include "core/dsp/WdspChannel.h"
 #include "core/dsp/FftwPlannerLock.h"
+#include "core/dsp/PureSignalCorrection.h"
+
+#include <QFile>
+#include <QTemporaryFile>
 
 #include <aether_wdsp.h>
 #include <fftw3.h>
@@ -1353,6 +1357,125 @@ void WdspChannel::restorePureSignalCorrectionForTest(const char* path) const noe
 {
     // PSRestoreCorr only copies the name; WDSP's signature is just not const.
     PSRestoreCorr(m_channelId, const_cast<char*>(path));
+}
+
+bool WdspChannel::configurePureSignal(const PureSignalSettings& settings, PureSignalMode mode,
+                                      int feedbackRate) noexcept
+{
+    if (m_config.direction != Direction::Transmit || m_pureSignalConfigured || !settings.valid()
+        || (feedbackRate != 48000 && feedbackRate != 96000 && feedbackRate != 192000)
+        || (mode != PureSignalMode::Off && mode != PureSignalMode::Automatic
+            && mode != PureSignalMode::Single && mode != PureSignalMode::Current)
+        || !beginControlOperation()) {
+        return false;
+    }
+    SetPSRunCal(m_channelId, 0);
+    SetPSMox(m_channelId, 0);
+    SetPSFeedbackRate(m_channelId, feedbackRate);
+    SetPSHWPeak(m_channelId, settings.hardwarePeak);
+    SetPSMoxDelay(m_channelId, settings.moxWaitSeconds);
+    SetPSLoopDelay(m_channelId, settings.calibrationWaitSeconds);
+    SetPSTXDelay(m_channelId, settings.amplifierDelayNs * 1e-9);
+    SetPSControl(m_channelId, 1, mode == PureSignalMode::Single,
+                 mode == PureSignalMode::Automatic, 0);
+    SetPSRunCal(m_channelId, mode == PureSignalMode::Automatic || mode == PureSignalMode::Single);
+    m_pureSignalConfigured = true;
+    endControlOperation();
+    return true;
+}
+
+bool WdspChannel::feedPureSignal(std::span<const std::complex<float>> transmit,
+                                std::span<const std::complex<float>> feedback, bool keyed) noexcept
+{
+    if (m_config.direction != Direction::Transmit || transmit.empty() || transmit.size() > 4096
+        || transmit.size() != feedback.size()) {
+        return false;
+    }
+    std::array<double, 8192> tx{};
+    std::array<double, 8192> rx{};
+    for (std::size_t i = 0; i < transmit.size(); ++i) {
+        if (!std::isfinite(transmit[i].real()) || !std::isfinite(transmit[i].imag())
+            || !std::isfinite(feedback[i].real()) || !std::isfinite(feedback[i].imag())) {
+            return false;
+        }
+        tx[2*i] = transmit[i].real(); tx[2*i+1] = transmit[i].imag();
+        rx[2*i] = feedback[i].real(); rx[2*i+1] = feedback[i].imag();
+    }
+    if (!beginControlOperation()) { return false; }
+    SetPSMox(m_channelId, keyed);
+    pscc(m_channelId, static_cast<int>(transmit.size()), tx.data(), rx.data());
+    endControlOperation();
+    return true;
+}
+
+std::optional<AetherSDR::PureSignalSnapshot> WdspChannel::pureSignalSnapshot(bool display)
+{
+    if (m_config.direction != Direction::Transmit || !beginControlOperation()) { return std::nullopt; }
+    PureSignalSnapshot snapshot;
+    GetPSInfo(m_channelId, snapshot.information.data());
+    GetPSMaxTX(m_channelId, &snapshot.maximumTransmit);
+    GetPSHWPeak(m_channelId, &snapshot.hardwarePeak);
+    int running = 0, busy = 0;
+    AetherPSCorrectionState(m_channelId, &running, &busy);
+    snapshot.correctionRunning = running != 0;
+    snapshot.correctionBusy = busy != 0;
+    snapshot.correctionAvailable = AetherPSCorrectionAvailable(m_channelId) != 0;
+    if (display) {
+        for (std::vector<double>& values : snapshot.measurements) { values.resize(PureSignalSnapshot::kSamples); }
+        for (std::vector<double>& values : snapshot.correction) { values.resize(PureSignalSnapshot::kCurvePoints); }
+        int samples = 0, points = 0;
+        GetPSDisp(m_channelId, snapshot.measurements[0].data(), snapshot.measurements[1].data(),
+            snapshot.measurements[2].data(), snapshot.measurements[3].data(),
+            snapshot.correction[0].data(), snapshot.correction[1].data(),
+            snapshot.correction[2].data(), snapshot.correction[3].data(),
+            &samples, &points, &snapshot.phaseReferenceDegrees);
+        for (std::vector<double>& values : snapshot.measurements) { values.resize(std::clamp(samples, 0, PureSignalSnapshot::kSamples)); }
+        for (std::vector<double>& values : snapshot.correction) { values.resize(std::clamp(points, 0, PureSignalSnapshot::kCurvePoints)); }
+    }
+    endControlOperation();
+    return snapshot;
+}
+
+std::optional<std::string> WdspChannel::savePureSignalCorrection()
+{
+    if (m_config.direction != Direction::Transmit || m_running.load() || !beginControlOperation()) { return std::nullopt; }
+    QTemporaryFile stage;
+    bool saved = stage.open();
+    const QByteArray name = QFile::encodeName(stage.fileName());
+    stage.close();
+    saved = saved && AetherPSSaveCorrection(m_channelId, name.constData()) != 0;
+    endControlOperation();
+    QFile file(stage.fileName());
+    if (!saved || !file.open(QIODevice::ReadOnly) || file.size() > 1024*1024) { return std::nullopt; }
+    const QByteArray document = file.readAll();
+    if (!AetherSDR::validatePureSignalCorrection(document)) { return std::nullopt; }
+    return document.toStdString();
+}
+
+bool WdspChannel::restorePureSignalCorrection(std::string_view document)
+{
+    if (document.size() > 1024*1024 || m_config.direction != Direction::Transmit || m_running.load()) { return false; }
+    const QByteArray bytes(document.data(), static_cast<qsizetype>(document.size()));
+    if (!AetherSDR::validatePureSignalCorrection(bytes)) { return false; }
+    QTemporaryFile stage;
+    if (!stage.open() || stage.write(bytes) != bytes.size() || !stage.flush()) { return false; }
+    const QByteArray name = QFile::encodeName(stage.fileName());
+    stage.close();
+    if (!beginControlOperation()) { return false; }
+    const bool restored = AetherPSRestoreCorrection(m_channelId, name.constData()) != 0;
+    endControlOperation();
+    return restored;
+}
+
+bool WdspChannel::copyPureSignalCorrectionFrom(WdspChannel& source) noexcept
+{
+    if (&source == this || m_config.direction != Direction::Transmit
+        || source.m_config.direction != Direction::Transmit || m_running.load() || source.m_running.load()
+        || !source.beginControlOperation()) { return false; }
+    if (!beginControlOperation()) { source.endControlOperation(); return false; }
+    const bool copied = AetherPSCopyCorrection(source.m_channelId, m_channelId) != 0;
+    endControlOperation(); source.endControlOperation();
+    return copied;
 }
 
 std::unique_lock<std::mutex> WdspChannel::fftwSetupLock()

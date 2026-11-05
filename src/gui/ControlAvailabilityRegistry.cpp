@@ -193,13 +193,15 @@ void ControlAvailabilityRegistry::registerWidget(QWidget* widget,
 void ControlAvailabilityRegistry::registerAction(QAction* action,
                                                  QString reason,
                                                  AvailabilityPredicate available,
-                                                 EngagedPredicate engaged)
+                                                 EngagedPredicate engaged,
+                                                 bool availableWhenDisconnected)
 {
     if (!action || !available) {
         return;
     }
     Entry entry;
     entry.action = action;
+    entry.availableWhenDisconnected = availableWhenDisconnected;
     entry.reason = std::move(reason);
     entry.available = std::move(available);
     entry.engaged = std::move(engaged);

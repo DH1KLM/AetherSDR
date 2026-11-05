@@ -250,9 +250,9 @@ void SetTXAiqcSwap (int channel, NS_Spline* m_spline, CurveEMA* m_calavg, double
 }
 
 
-void SetTXAiqcStart (int channel, NS_Spline* m_spline, CurveEMA* m_calavg, double m_prev_y,
+static void start_iqc (int channel, NS_Spline* m_spline, CurveEMA* m_calavg, double m_prev_y,
 	                              NS_Spline* c_spline, CurveEMA* c_calavg, double c_prev_y,
-	                              NS_Spline* s_spline, CurveEMA* s_calavg, double s_prev_y)
+	                              NS_Spline* s_spline, CurveEMA* s_calavg, double s_prev_y, int wait)
 {
 	IQC a = txa[channel].iqc.p;
 	EnterCriticalSection (&ch[channel].csDSP);
@@ -277,7 +277,23 @@ void SetTXAiqcStart (int channel, NS_Spline* m_spline, CurveEMA* m_calavg, doubl
 	a->count = 0;
 	LeaveCriticalSection (&ch[channel].csDSP);
 	InterlockedBitTestAndSet   (&txa[channel].iqc.p->run, 0);
-	while (_InterlockedAnd (&a->busy, 1)) Sleep(1);
+	if (wait) {
+		while (_InterlockedAnd (&a->busy, 1)) Sleep(1);
+	}
+}
+
+void SetTXAiqcStart(int channel, NS_Spline* m, CurveEMA* me, double my,
+    NS_Spline* c, CurveEMA* ce, double cy, NS_Spline* s, CurveEMA* se, double sy)
+{
+    start_iqc(channel, m, me, my, c, ce, cy, s, se, sy, 1);
+}
+
+// AetherSDR: the host owns a fresh, stopped TXA channel. Preserve the BEGIN
+// ramp, which will run on its first admitted samples, without waiting for audio.
+void AetherStartTXAiqcQuiescent(int channel, NS_Spline* m, CurveEMA* me, double my,
+    NS_Spline* c, CurveEMA* ce, double cy, NS_Spline* s, CurveEMA* se, double sy)
+{
+    start_iqc(channel, m, me, my, c, ce, cy, s, se, sy, 0);
 }
 
 void SetTXAiqcEnd (int channel)

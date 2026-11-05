@@ -10695,6 +10695,13 @@ target_link_libraries(anan_diversity_test PRIVATE aethercore Qt6::Core)
 add_test(NAME anan_diversity_test COMMAND anan_diversity_test)
 set_tests_properties(anan_diversity_test PROPERTIES TIMEOUT 30)
 
+# Injected P1/P2 writers and real WDSP configuration; no sockets or RF.
+add_executable(anan_pure_signal_test tests/anan_pure_signal_test.cpp)
+target_include_directories(anan_pure_signal_test PRIVATE src tests)
+target_link_libraries(anan_pure_signal_test PRIVATE aethercore Qt6::Core)
+add_test(NAME anan_pure_signal_test COMMAND anan_pure_signal_test)
+set_tests_properties(anan_pure_signal_test PROPERTIES TIMEOUT 30)
+
 # Queued host-audio settings dispatch and engine retirement; no driver is opened.
 add_executable(asio_settings_model_test tests/asio_settings_model_test.cpp)
 target_include_directories(asio_settings_model_test PRIVATE src tests)

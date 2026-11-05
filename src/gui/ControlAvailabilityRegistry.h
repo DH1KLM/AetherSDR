@@ -71,7 +71,8 @@ public:
     void registerAction(QAction* action,
                         QString reason,
                         AvailabilityPredicate available,
-                        EngagedPredicate engaged = {});
+                        EngagedPredicate engaged = {},
+                        bool availableWhenDisconnected = true);
 
     // Re-evaluate the engaged half for everything. Availability follows
     // capabilitiesChanged on its own; engagement is driven by whatever the

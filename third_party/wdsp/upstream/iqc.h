@@ -80,5 +80,7 @@ extern void SetTXAiqcStart(int channel,
 	NS_Spline* s_spline, CurveEMA* s_calavg, double s_prev_y);
 
 extern void SetTXAiqcEnd (int channel);
+extern void AetherStartTXAiqcQuiescent(int channel, NS_Spline* m, CurveEMA* me, double my,
+    NS_Spline* c, CurveEMA* ce, double cy, NS_Spline* s, CurveEMA* se, double sy);
 
 #endif

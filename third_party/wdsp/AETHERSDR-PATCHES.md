@@ -1300,3 +1300,28 @@ stop-and-flush wait". With the patch, all of `wdsp_channel_test` passes.
 
 Drop this if upstream narrows the condition itself, or if `WdspChannel` ever
 clocks a stopping channel's ramp out before handing control to WDSP.
+
+## Patch 24 — retained PureSignal coefficients on a fresh stopped TXA
+
+`calcc.c` exposes narrow `AetherPS*` control functions for querying actual IQC
+run/busy/availability, copying retained coefficients, and reading/writing v2
+corrections. These are host-control operations, never audio callbacks.
+
+`iqc.c` factors the existing `SetTXAiqcStart` body into an internal helper.
+Its compatibility entry point retains the original synchronous wait. The new
+`AetherStartTXAiqcQuiescent` entry point installs into a fresh stopped channel
+and preserves BEGIN for its first admitted samples, without waiting for audio.
+The host never uses it to overwrite an active correction or a running TXA.
+
+The restore boundary is `validatePureSignalCorrection`: a complete, size-capped
+v2 document with bounded branch geometry, finite values, monotonic branch X
+coordinates, ordered keys and a verified checksum. A private temporary copy
+is passed to the compatibility reader. The fresh target remains unpublished
+until restore/copy succeeds and the original connection/TX-session fences are
+rechecked. Saves use the actual IQC snapshot and `QSaveFile` at the destination.
+
+`anan_pure_signal_test` covers malformed documents, native save/restore/copy,
+the initial pending ramp, truthful display geometry, and an actual 0.8-gain
+correction through TXA. No radio, socket or RF transmission is involved.
+
+Upstream compatibility exports and their worker protocol are otherwise retained.

@@ -1,16 +1,20 @@
 #pragma once
 
+#include "PureSignal.h"
+
 #include <QMetaType>
 
 #include <atomic>
 #include "core/WfmReceptionDiagnostics.h"
 #include <array>
 #include <cstddef>
+#include <complex>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Owns one complete WDSP channel and hides WDSP's process-global numeric
@@ -18,6 +22,9 @@
 // thread operations; processIq() is the allocation-free real-time operation.
 class WdspChannel final
 {
+    using PureSignalSettings = AetherSDR::PureSignalSettings;
+    using PureSignalMode = AetherSDR::PureSignalMode;
+    using PureSignalSnapshot = AetherSDR::PureSignalSnapshot;
 public:
     enum class Direction
     {
@@ -568,6 +575,13 @@ public:
     // Test only (#6179, WDSP patch 22): queue PSRestoreCorr(path) on this TX
     // channel's PureSignal correction thread, on the WDSP the core drives.
     void restorePureSignalCorrectionForTest(const char* path) const noexcept;
+    bool configurePureSignal(const PureSignalSettings& settings, PureSignalMode mode, int feedbackRate) noexcept;
+    bool feedPureSignal(std::span<const std::complex<float>> transmit,
+                        std::span<const std::complex<float>> feedback, bool keyed) noexcept;
+    [[nodiscard]] std::optional<PureSignalSnapshot> pureSignalSnapshot(bool display);
+    [[nodiscard]] std::optional<std::string> savePureSignalCorrection();
+    bool restorePureSignalCorrection(std::string_view document);
+    bool copyPureSignalCorrectionFrom(WdspChannel& source) noexcept;
     // Test only: the next `count` control operations on THIS channel are
     // refused exactly as a racing processIq() callback would refuse them, so
     // a caller's refused-then-converges path can be driven deterministically.
@@ -586,6 +600,7 @@ public:
 private:
     bool setFilterImpl(double lowHz, double highHz, bool waitForPlanner) noexcept;
     explicit WdspChannel(int channelId, const Config& config) noexcept;
+    bool m_pureSignalConfigured = false;
 
     static bool validateConfig(const Config& config, std::string* error) noexcept;
     static int wdspMode(Mode mode) noexcept;

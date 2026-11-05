@@ -1,0 +1,223 @@
+#include "core/backends/anan/P1Client.h"
+#include "core/backends/anan/AnanP1TxControl.h"
+#include "core/backends/anan/AnanTxDsp.h"
+#include "core/dsp/PureSignalCorrection.h"
+
+#include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QThread>
+#include <array>
+#include <algorithm>
+#include <complex>
+#include <cmath>
+#include <cstdio>
+#include <limits>
+#include <span>
+#include <utility>
+#include <vector>
+#include <numbers>
+
+namespace AetherSDR::anan {
+struct P1ClientTestAccess {
+    static void seed(P1Client& client, std::vector<p1::Packet>& writes)
+    {
+        client.m_running = client.m_validated = client.m_linkUp = true;
+        client.m_config.numAdcs = 2; client.m_config.receivers = 5; client.m_config.rateKsps = 192;
+        client.m_receiveStreams = {{192,0},{192,1}};
+        client.m_profile = P1Client::Profile{2,5,false,ReceiveFilterKind::LegacyHpf};
+        client.m_sendOverride = [&writes](std::span<const std::uint8_t> bytes) {
+            if (bytes.size() == p1::kPacketBytes) {
+                p1::Packet packet{}; std::copy(bytes.begin(),bytes.end(),packet.begin()); writes.push_back(packet);
+            }
+            return true;
+        };
+    }
+    static void rate(P1Client& client, int rate) { client.m_config.rateKsps = rate; }
+};
+struct P2ClientTestAccess {
+    static void seed(P2Client& client, std::vector<std::pair<quint16,QByteArray>>& writes)
+    {
+        client.m_running = client.m_discoveryValidated = client.m_linkUp = true;
+        client.m_numAdcs = 2; client.m_firstDdcIndex = 2; client.m_availableDdcs = 7;
+        client.m_activeDdcs = {{48,0},{48,1}}; client.m_activeDdcCount = 2;
+        client.m_transmitProfile = receiveProfile(4);
+        client.m_transmitControl = P2TxControl{}; client.m_transmitControl->frequencyHz = 14e6;
+        client.m_controlSendOverride = [&writes](std::span<const std::uint8_t> bytes, quint16 port) {
+            writes.emplace_back(port,QByteArray(reinterpret_cast<const char*>(bytes.data()),qsizetype(bytes.size())));
+            return qint64(bytes.size());
+        };
+    }
+    static void limit(P2Client& client, int count) { client.m_availableDdcs = count; }
+};
+}
+
+namespace {
+int failures = 0;
+void check(bool condition, const char* message)
+{
+    std::printf("%s %s\n",condition?"PASS":"FAIL",message);
+    if (!condition) { ++failures; }
+}
+
+QByteArray correctionFixture()
+{
+    QByteArray result("correction_file_version 2\n");
+    double checksum = 0;
+    for (const char* name : {"MAG","COS","SIN"}) {
+        const double value = name[0] == 'M' ? 0.8 : name[0] == 'C' ? 1 : 0;
+        const double low = name[0] == 'M' ? 0.1 : -1.1;
+        const double high = name[0] == 'M' ? 2 : 1.1;
+        result += "curve " + QByteArray(name) + "\ncurve_ema_alpha 0.2\ncurve_ema_alpha_lo 0.1\ncurve_ema_x_bnd 0.25\ncurve_ema_clip ";
+        result += QByteArray::number(low,'g',17) + ' ' + QByteArray::number(high,'g',17);
+        result += "\ncurve_ema_count 3\ncurve_ema_warmup 4\ncurve_ema_pts 256\n";
+        checksum += 4; checksum += 0.2 + 0.1 + 0.25 + low + high + 3;
+        for (int i = 0; i < 256; ++i) { result += QByteArray::number(value,'g',17) + '\n'; checksum += value; }
+        result += "n_branches 1\nbranch 0 n_pts 4 t_mid 0.5\n";
+        checksum += 1; checksum += 4.5;
+        for (int i = 0; i < 4; ++i) {
+            const double x = i/3.0;
+            result += QByteArray::number(x,'g',17) + ' ' + QByteArray::number(value,'g',17) + '\n';
+            checksum += x + value;
+        }
+    }
+    return result + "checksum " + QByteArray::number(checksum,'g',17) + '\n';
+}
+
+void correctionFiles()
+{
+    using namespace AetherSDR;
+    using AetherSDR::anan::AnanTxDsp;
+    const QByteArray bytes = correctionFixture();
+    check(validatePureSignalCorrection(bytes),"source-format v2 correction and checksum are accepted");
+    for (const auto& change : std::array<std::pair<QByteArray,QByteArray>,6>{{
+        {"correction_file_version 2","correction_file_version 1"},
+        {"curve_ema_pts 256","curve_ema_pts 255"},
+        {"n_branches 1","n_branches 2147483647"},
+        {"n_pts 4","n_pts 2147483647"},
+        {"t_mid 0.5","t_mid nan"},
+        {"curve MAG","curve COS"}}}) {
+        QByteArray invalid = bytes; invalid.replace(change.first,change.second);
+        check(!validatePureSignalCorrection(invalid),"malformed version, geometry, tags or nonfinite values are refused");
+    }
+    check(!validatePureSignalCorrection(bytes + "trailing"),"trailing correction input is refused");
+    QByteArray corrupt = bytes; corrupt.replace("curve_ema_count 3","curve_ema_count 4");
+    check(!validatePureSignalCorrection(corrupt),"modified coefficient document fails its checksum");
+    check(!validatePureSignalCorrection(QByteArray(1024*1024+1,' ')),"oversized document is refused before tokenization");
+
+    AnanTxDsp restored, copied, reference;
+    check(restored.configure(WdspChannel::Mode::Usb) && copied.configure(WdspChannel::Mode::Usb)
+        && reference.configure(WdspChannel::Mode::Usb),"coefficient tests build actual independent TXA channels");
+    WdspChannel* channel = restored.pureSignalChannel();
+    if (!channel || !copied.pureSignalChannel() || !reference.pureSignalChannel()) { return; }
+    check(channel->configurePureSignal({},PureSignalMode::Current,192000),"restore target is prepared without calibration processing");
+    check(channel->restorePureSignalCorrection(bytes.toStdString()),"restore installs real coefficients without waiting for audio");
+    const auto snapshot = channel->pureSignalSnapshot(true);
+    check(snapshot && snapshot->correctionAvailable && snapshot->correctionRunning && snapshot->correctionBusy
+        && snapshot->measurements[0].empty() && snapshot->correction[1].size() == 512
+        && std::abs(snapshot->correction[1][255]-0.8) < 1e-9,
+        "restored correction reports its actual pending ramp and curves without inventing measurements");
+    const auto saved = channel->savePureSignalCorrection();
+    check(saved && validatePureSignalCorrection(QByteArray::fromStdString(*saved)),"actual IQC coefficients save in valid v2 writer format");
+    check(!channel->restorePureSignalCorrection(bytes.toStdString()),"restore cannot overwrite an existing correction channel");
+    check(copied.pureSignalChannel()->configurePureSignal({},PureSignalMode::Current,192000)
+        && copied.pureSignalChannel()->copyPureSignalCorrectionFrom(*channel),
+        "Apply Current snapshots coefficients into another fresh channel");
+
+    TxCoordinator coordinator([](const auto&, auto) {});
+    const auto producer = coordinator.registerProducer(true);
+    const auto context = coordinator.mediaContext(producer);
+    check(restored.begin(context,0) && reference.begin(context,0),"offline DSP exchanges start with a valid media context");
+    double correctedEnergy = 0, referenceEnergy = 0;
+    for (int block = 0; block < 80; ++block) {
+        std::array<float,AnanTxDsp::kInputSamples> audio{};
+        for (std::size_t i = 0; i < audio.size(); ++i) {
+            audio[i] = float(0.1 * std::sin(2*std::numbers::pi*1000*(block*audio.size()+i)/AnanTxDsp::kInputRate));
+        }
+        for (int which = 0; which < 2; ++which) {
+            AnanTxDsp& dsp = which == 0 ? restored : reference;
+            std::array<std::complex<float>,AnanTxDsp::kOutputSamples> output{};
+            QElapsedTimer elapsed; elapsed.start();
+            AnanTxDsp::Result result;
+            do {
+                result = dsp.process(audio,context,0,output);
+                if (result == AnanTxDsp::Result::WouldBlock) { QThread::msleep(1); }
+            } while (result == AnanTxDsp::Result::WouldBlock && elapsed.elapsed() < 1000);
+            if (result != AnanTxDsp::Result::Output) { check(false,"coefficient DSP exchange completes"); return; }
+            if (block > 40) {
+                for (const auto& value : output) {
+                    (which == 0 ? correctedEnergy : referenceEnergy) += std::norm(value);
+                }
+            }
+        }
+    }
+    check(referenceEnergy > 0 && std::abs(std::sqrt(correctedEnergy/referenceEnergy)-0.8) < 0.02,
+        "restored IQC coefficients actually change TXA samples by their specified gain");
+}
+}
+
+int main(int argc,char** argv)
+{
+    QCoreApplication app(argc,argv);
+    correctionFiles();
+    using namespace AetherSDR;
+    using namespace AetherSDR::anan;
+    PureSignalSettings settings;
+    check(settings.valid(),"Pure Signal defaults are valid");
+    settings.hardwarePeak = 0;
+    check(!settings.valid(),"zero peak cannot reach reciprocal WDSP scaling");
+    settings = {}; settings.amplifierDelayNs = std::numeric_limits<double>::quiet_NaN();
+    check(!settings.valid(),"nonfinite delay is refused");
+    settings = {};
+    std::vector<std::pair<quint16,QByteArray>> writes;
+    P2Client modern;
+    P2ClientTestAccess::seed(modern,writes);
+    check(modern.setPureSignalEnabled(true),"P2 reserves feedback pair without keying");
+    check(writes.size() == 2 && writes[0].first == 1025 && writes[0].second[23] == 2
+        && std::uint8_t(writes[0].second[7]) == 0x0d && writes[0].second[1363] == 2,
+        "P2 preserves RX DDC2/3 and synchronizes ADC0 feedback with digital TX reference");
+    check(writes.size() == 2 && writes[1].first == 1027 && (writes[1].second[4] & 2) == 0,
+        "arming Pure Signal never sets PTT");
+    DiversitySettings diversity; diversity.enabled = true;
+    check(!modern.setDiversity(diversity),"diversity cannot consume an active Pure Signal pair");
+    check(modern.setPureSignalEnabled(false) && writes[writes.size()-2].second[1363] == 0,
+        "OFF restores independent receiver routing");
+    P2ClientTestAccess::limit(modern,3);
+    check(!modern.setPureSignalEnabled(true),"insufficient DDCs refuse Pure Signal without losing RX");
+
+    std::vector<p1::Packet> legacyWrites;
+    P1Client legacy;
+    P1ClientTestAccess::seed(legacy,legacyWrites);
+    check(legacy.setPureSignalEnabled(true),"P1 enables a five-slot 192 kHz feedback path");
+    check(!legacyWrites.empty() && legacyWrites.back()[13] == 0x40 && legacyWrites.back()[525] == 0x40
+        && !(legacyWrites.back()[11] & 1) && !(legacyWrites.back()[523] & 1),
+        "P1 primes both Pure Signal flags with MOX clear");
+    check(!legacy.setDiversity(diversity),"P1 diversity cannot overlap reserved feedback");
+    check(legacy.setPureSignalEnabled(false),"P1 clears Pure Signal flags");
+    P1ClientTestAccess::rate(legacy,48);
+    check(!legacy.setPureSignalEnabled(true),"P1 refuses an incompatible feedback rate");
+
+    p1::ReceiveConfig config;
+    config.numAdcs = 2; config.receivers = 5; config.rateKsps = 192; config.pureSignal = true;
+    P2TxControl tx; tx.frequencyHz = 14e6;
+    const auto packet = buildP1Transmit(config,tx,true,0,0x1c,0x0a);
+    check(packet && ((*packet)[12]&15) == 8,
+        "P1 keyed ADC map selects physical feedback and digital reference");
+    check(packet && (*packet)[524] == 0 && (*packet)[525] == 0xd5 && (*packet)[526] == 0x9f && (*packet)[527] == 0x80,
+        "P1 feedback VFO uses the TX frequency (14 MHz)");
+
+    AnanTxDsp dsp;
+    check(dsp.configure(WdspChannel::Mode::Usb),"real TXA channel constructs without RF transport");
+    if (WdspChannel* channel = dsp.pureSignalChannel()) {
+        check(channel->configurePureSignal(settings,PureSignalMode::Automatic,192000),
+            "fresh WDSP channel accepts validated Pure Signal configuration");
+        const auto status = channel->pureSignalSnapshot(true);
+        check(status && std::abs(status->hardwarePeak-settings.hardwarePeak) < 1e-9
+            && status->measurements[0].empty(),"WDSP reports real peak and no fabricated calibration samples");
+        check(!channel->configurePureSignal(settings,PureSignalMode::Off,192000),
+            "live correction channel cannot be reused as an unacknowledged OFF boundary");
+        const std::array<std::complex<float>,2> samples{};
+        check(!channel->feedPureSignal(samples,std::span(samples).first(1),false),
+            "unpaired feedback cannot enter CALCC");
+    }
+    return failures ? 1 : 0;
+}

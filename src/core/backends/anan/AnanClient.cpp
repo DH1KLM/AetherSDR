@@ -45,10 +45,26 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
             });
         connect(client, &Client::discoveryInfoReceived, this,
             [this, protocol](quint8 board, quint8 firmware, quint8 receivers) {
-                if (m_protocol == protocol) emit discoveryInfoReceived(board, firmware, receivers);
+                if (m_protocol == protocol) {
+                    // Thetis clsHardwareSpecific.PSDefaultPeak: protocol-shaped
+                    // reference peaks; Saturn uses a distinct P2 DAC scale.
+                    m_pureSignalSettings = {};
+                    m_pureSignalSettings.hardwarePeak = protocol == 1 ? 0.4072 : board == 10 ? 0.6121 : 0.2899;
+                    emit discoveryInfoReceived(board, firmware, receivers);
+                }
             });
     };
     wire(m_p1, 1); wire(m_p2, 2);
+    const auto feedback =
+        [this](const std::vector<std::complex<float>>& tx, const std::vector<std::complex<float>>& rx) {
+            if (m_pureSignalMode == PureSignalMode::Off || !m_transmitDsp
+                || !m_transmitKeyed || !m_transmitMediaStarted || m_transmitCarrier
+                || !m_transmitOperation.permitsDispatch(TxCoordinator::monotonicMs())) { return; }
+            WdspChannel* channel = m_transmitDsp->pureSignalChannel();
+            if (channel) { channel->feedPureSignal(tx, rx, true); }
+        };
+    connect(m_p2, &P2Client::pureSignalFeedback, this, feedback, Qt::DirectConnection);
+    connect(m_p1, &P1Client::pureSignalFeedback, this, feedback, Qt::DirectConnection);
     connect(m_p2, &P2Client::transmitFault, this, [this](const QString& reason) {
         clearTransmitAudio();
         m_transmitKeyed = false;
@@ -77,10 +93,12 @@ bool AnanClient::setDiversity(const DiversitySettings& settings)
 }
 void AnanClient::stop()
 {
+    m_pureSignalMode = PureSignalMode::Off;
     m_transmitConfigured = false;
     if (m_protocol == 1) m_p1->stop(); else m_p2->stop();
     clearTransmitAudio();
     m_transmitDsp.reset();
+    m_uncorrectedTransmitDsp.reset();
     m_transmitOperation = {};
     m_transmitKeyed = false;
 }

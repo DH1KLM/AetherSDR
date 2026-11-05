@@ -136,6 +136,7 @@ class QSystemTrayIcon;
 class QStackedWidget;
 
 namespace AetherSDR {
+class PureSignalWindow;
 
 enum class RadioSliceSelectionSource;
 
@@ -1769,6 +1770,7 @@ private:
     QString m_lastCwContactCall;
     QPointer<RadioSetupDialog> m_radioSetupDialog;
     QPointer<QDialog> m_ananPhasingWindow;
+    QPointer<PureSignalWindow> m_pureSignalWindow;
     QPointer<NetworkDiagnosticsDialog> m_networkDiagnosticsDialog;
     QPointer<SystemInfoDialog> m_systemInfoDialog;
     QPointer<AgcCalibrationDialog> m_agcCalibrationDialog;
