@@ -7,6 +7,7 @@
 #include <QAccessibleWidget>
 #include <QEvent>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QVariant>
 #include <QWidget>
 
@@ -173,6 +174,11 @@ bool StatusIndicator::eventFilter(QObject* watched, QEvent* event)
         return QObject::eventFilter(watched, event);
     }
     switch (event->type()) {
+    case QEvent::MouseButtonDblClick:
+        if (m_widget->isEnabled() && static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton) {
+            emit doubleClicked();
+        }
+        break;
     case QEvent::KeyPress: {
         const auto* keyEvent = static_cast<QKeyEvent*>(event);
         const int key = keyEvent->key();

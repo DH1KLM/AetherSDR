@@ -1414,6 +1414,7 @@ set(GUI_SOURCES
     src/gui/RadioSetupDialog_Anan.cpp
     src/gui/AnanTransmitPowerPage.cpp
     src/gui/PureSignalWindow.cpp
+    src/gui/PureSignalStatusIndicator.cpp
     src/gui/NtpSourcesPage.cpp
     src/gui/RtlReceiverSettingsWidget.cpp
     src/gui/AsioOutputSettingsWidget.cpp

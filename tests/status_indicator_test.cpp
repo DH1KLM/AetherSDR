@@ -5,6 +5,8 @@
 #include "TestSettingsProfile.h"
 #include "gui/PttHoldKeyStep.h"
 #include "gui/StatusIndicator.h"
+#include "gui/PureSignalStatusIndicator.h"
+#include "models/RadioModel.h"
 
 #include <QAccessible>
 #include <QAccessibleActionInterface>
@@ -12,11 +14,20 @@
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QProgressBar>
+#include <QMouseEvent>
 #include <QVBoxLayout>
 
 #include <cstdio>
 
 using namespace AetherSDR;
+
+namespace AetherSDR {
+struct PureSignalStatusIndicatorTestAccess {
+    static void accept(PureSignalStatusIndicator& widget,const QVariantMap& state) { widget.acceptState(state); }
+    static void poll(PureSignalStatusIndicator& widget) { widget.poll(); }
+};
+}
 
 namespace {
 
@@ -110,6 +121,40 @@ int main(int argc, char** argv)
         return 1;
     }
     QApplication app(argc, argv);
+    {
+        RadioModel model;
+        int opens = 0;
+        PureSignalStatusIndicator ps(model,[&opens] { ++opens; },nullptr);
+        auto* level = ps.findChild<QProgressBar*>(QStringLiteral("pureSignalFooterLevel"));
+        QVariantList info; for (int i = 0; i < 16; ++i) { info.append(0); }
+        QVariantMap state{{QStringLiteral("mode"),1},{QStringLiteral("correcting"),true},
+            {QStringLiteral("feedbackFresh"),true},{QStringLiteral("correctionAvailable"),true}};
+        for (const int value : {0,128,129,168,181,182,300}) {
+            info[4] = value; state[QStringLiteral("information")] = info;
+            PureSignalStatusIndicatorTestAccess::accept(ps,state);
+            const bool good = value > 128 && value <= 181;
+            report("PS feedback threshold and overlaid value agree",ps.property("feedbackTone").toString()
+                == (good ? QStringLiteral("good") : QStringLiteral("bad")) && level->format().contains(QString::number(value)));
+        }
+        state[QStringLiteral("feedbackFresh")] = false;
+        PureSignalStatusIndicatorTestAccess::accept(ps,state);
+        report("no fresh feedback clears the colored level",ps.property("feedbackTone") == QStringLiteral("neutral")
+            && level->format() == QStringLiteral("—"));
+        state[QStringLiteral("feedbackFresh")] = true; state[QStringLiteral("correcting")] = false;
+        info[4] = 168; state[QStringLiteral("information")] = info;
+        PureSignalStatusIndicatorTestAccess::accept(ps,state);
+        report("in-range samples alone do not claim an active correction",ps.property("feedbackTone") == QStringLiteral("neutral"));
+        state[QStringLiteral("mode")] = 0;
+        PureSignalStatusIndicatorTestAccess::accept(ps,state);
+        report("OFF clears the measured overlay",level->format() == QStringLiteral("—"));
+        PureSignalStatusIndicatorTestAccess::poll(ps);
+        report("disconnected PS indicator cannot activate",!ps.isEnabled());
+        ps.setEnabled(true);
+        QMouseEvent dbl(QEvent::MouseButtonDblClick,QPointF(2,2),QPointF(2,2),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(&ps,&dbl);
+        press(&ps,Qt::Key_Return);
+        report("PS double-click and Enter each open the existing window callback",opens == 2);
+    }
 
     QWidget bar;
     auto* layout = new QVBoxLayout(&bar);
@@ -132,6 +177,16 @@ int main(int argc, char** argv)
     int stackActivations = 0;
     QObject::connect(dvkHelper, &StatusIndicator::activated, [&] { ++dvkActivations; });
     QObject::connect(stackHelper, &StatusIndicator::activated, [&] { ++stackActivations; });
+    int doubles = 0;
+    QObject::connect(dvkHelper,&StatusIndicator::doubleClicked,[&] { ++doubles; });
+    const auto doubleClick = [&](Qt::MouseButton button) {
+        QMouseEvent event(QEvent::MouseButtonDblClick,QPointF(2,2),QPointF(2,2),button,button,Qt::NoModifier);
+        QApplication::sendEvent(dvk,&event);
+    };
+    doubleClick(Qt::LeftButton); doubleClick(Qt::RightButton);
+    report("only left double-click activates the new status shortcut",doubles == 1 && dvkActivations == 0);
+    dvk->setEnabled(false); doubleClick(Qt::LeftButton); dvk->setEnabled(true);
+    report("disabled status shortcut ignores double-click",doubles == 1);
 
     report("attach is idempotent and findable", StatusIndicator::attach(dvk) == dvkHelper
                                                     && StatusIndicator::of(dvk) == dvkHelper);

@@ -3987,6 +3987,7 @@ set_tests_properties(dvk_panel_theme_test PROPERTIES
 add_executable(status_indicator_test
     tests/status_indicator_test.cpp
     src/gui/StatusIndicator.cpp
+    src/gui/PureSignalStatusIndicator.cpp
     ${THEME_TEST_RESOURCES}
 )
 target_include_directories(status_indicator_test PRIVATE src tests)

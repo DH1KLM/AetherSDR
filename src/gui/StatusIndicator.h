@@ -35,6 +35,7 @@ public:
 
 signals:
     void activated();
+    void doubleClicked();
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;

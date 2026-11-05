@@ -16,6 +16,15 @@ Open **Tools → Pure Signal**, directly below **Phasing Control...**. The
 command is available only with a connected OpenHPSDR device. Calibration
 controls and **AmpView** share one independent window.
 
+The footer also shows **PS ACTIVE** while correction is applied. Its feedback
+bar overlays the numeric calibration level: **LOW** (0–128) and **HIGH**
+(above 181) are red; **OK** (129–181) is green only with active correction
+and fresh paired feedback. **PS OFF**, **PS ARMED**, **PS READY**, and **PS WAIT**
+are neutral. A dash means there is no fresh level; a retained correction does
+not leave an old green level showing during reception or a data interruption.
+The indication remains available when the Pure Signal window is closed.
+Double-click the PS indicator, or focus it and press Enter, to open that window.
+
 ## Requirements
 
 - A validated two-ADC OpenHPSDR device and a prepared TX session.

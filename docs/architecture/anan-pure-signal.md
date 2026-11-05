@@ -47,6 +47,13 @@ an already prepared TX session. Diversity must be disabled.
 The existing TxCoordinator operation still gates keying and feedback delivery.
 Feedback data never grants TX authority.
 
+The footer polls `puresignal.get` through RadioModel independently of the
+Pure Signal window, without requesting plot samples. Backend identity and
+unique request IDs fence replies; a 1.5-second reply timeout clears the last
+status. The green state also requires the client's fresh-feedback flag and
+an applied native correction. Footer activation only invokes the existing
+Tools action and cannot arm calibration or key the radio.
+
 ## Reference amplitude domain
 
 TXA output is multiplied by `AnanTxDsp::kWireAmplitudeGain` (0.5) before

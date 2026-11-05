@@ -19,6 +19,10 @@ Audio settings live on the **Audio** page of Radio Setup:
 
 See [Radio Setup](./radio-setup.md).
 
+Double-click the footer's **ASIO ACTIVE** / **ASIO OFF** indicator to open
+Radio Setup directly on **Audio**. Keyboard users can focus the indicator
+and press Enter. Opening the page does not apply or change audio settings.
+
 ## Choosing PC audio devices
 
 ### Input and Output

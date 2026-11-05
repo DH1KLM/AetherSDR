@@ -28,6 +28,8 @@
 #include "TitleBar.h"
 #include "ClientChainApplet.h"
 #include "MainWindowHelpers.h"
+#include "PureSignalStatusIndicator.h"
+#include "StatusIndicator.h"
 #include "core/AetherDspModePolicy.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
@@ -44,6 +46,8 @@
 #include <QLabel>
 #include <QFontMetrics>
 #include <QPointer>
+#include <QAction>
+#include <QHBoxLayout>
 
 #include <memory>
 
@@ -62,7 +66,7 @@ QWidget* MainWindow::createAudioOutputStatusIndicator()
         const bool mic = audio && audio->asioInputActive();
         const bool active = rx || mic;
         indicator->setText(active ? QStringLiteral("ASIO\nACTIVE") : QStringLiteral("ASIO\nOFF"));
-        const QString reason = QObject::tr("ASIO receive output: %1; microphone input: %2.")
+        const QString reason = QObject::tr("ASIO receive output: %1; microphone input: %2. Double-click or press Enter to open Audio setup.")
             .arg(rx ? QObject::tr("active") : QObject::tr("off"), mic ? QObject::tr("active") : QObject::tr("off"));
         indicator->setToolTip(reason);
         indicator->setAccessibleDescription(reason);
@@ -76,9 +80,25 @@ QWidget* MainWindow::createAudioOutputStatusIndicator()
     if (m_audio) {
         connect(m_audio,&AudioEngine::asioOutputActiveChanged,indicator,update);
         connect(m_audio,&AudioEngine::asioInputActiveChanged,indicator,update);
-        connect(m_audio,&AudioEngine::asioOutputStatus,indicator,[indicator](const QString& message) { indicator->setToolTip(message); });
+        connect(m_audio,&AudioEngine::asioOutputStatus,indicator,[indicator](const QString& message) {
+            indicator->setToolTip(message + QObject::tr(" Double-click or press Enter to open Audio setup."));
+        });
     }
-    return indicator;
+    indicator->setCursor(Qt::PointingHandCursor);
+    StatusIndicator* activation = StatusIndicator::attach(indicator);
+    const auto openAudio = [this] { openRadioSetupPage(QStringLiteral("Audio")); };
+    connect(activation,&StatusIndicator::activated,this,openAudio);
+    connect(activation,&StatusIndicator::doubleClicked,this,openAudio);
+    auto* container = new QWidget(m_statusBarContainer);
+    auto* layout = new QHBoxLayout(container);
+    layout->setContentsMargins(0,0,0,0); layout->setSpacing(6);
+    layout->addWidget(indicator);
+    layout->addWidget(new PureSignalStatusIndicator(m_radioModel,[this] {
+        if (QAction* action = findChild<QAction*>(QStringLiteral("pureSignalAction")); action && action->isEnabled()) {
+            action->trigger();
+        }
+    },container));
+    return container;
 }
 
 MainWindow::TxAudioPathBlock MainWindow::txAudioPathBlock() const
