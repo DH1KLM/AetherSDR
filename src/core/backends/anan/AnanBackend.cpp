@@ -3171,6 +3171,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
             {QStringLiteral("firstDdc"),m_pendingParams.protocol == 1 ? 0 : profile->firstDdcIndex},
             {QStringLiteral("windows"),windows},
             {QStringLiteral("diversityEnabled"),m_diversity.enabled},
+            {QStringLiteral("pureSignalEnabled"),m_pureSignalEnabled},
             {QStringLiteral("busy"),m_pureSignalEnabled || m_pureSignalPending || m_diversity.enabled || m_diversityPending || m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun.has_value()
                 || m_droopCalibrator.isRunning() || m_transmitOperation.permitsCleanup() || m_txSessionArming}});
         return;

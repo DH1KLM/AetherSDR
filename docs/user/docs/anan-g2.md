@@ -94,7 +94,11 @@ Open **Settings > Radio Setup > ANAN Hardware > ADC**. The heading identifies
 the model and active protocol. Physical **DDC0** through **DDC6** columns have
 **ADC0** / **ADC1** selectors, with receiver cards underneath like Thetis. Each
 card shows the RX number, slice letter, physical DDC, selected ADC, input and
-frequency. Grey cards marked **Not in use** have no active slice.
+frequency. When Pure Signal is armed, cards also identify its PA feedback and
+digital TX reference: DDC0/1 under Protocol 2, slots 3/4 under Protocol 1,
+at 192 kHz. These cards report the client's configured route; they do not
+prove that usable samples arrive. Grey cards marked **Not in use** have no
+active receive or feedback route.
 
 The first two independent receive captures use these model-specific routes.
 Thetis' normal layout applies except for the retained, hardware-tested G2 route:

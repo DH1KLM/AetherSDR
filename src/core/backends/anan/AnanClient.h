@@ -91,6 +91,10 @@ private:
     bool m_transmitMonitor = false;
     PureSignalAttenuator m_pureSignalAttenuator;
     int m_feedbackAttenuationDb = 31;
+    quint64 m_pureSignalFeedbackBlocks = 0;
+    qint64 m_pureSignalFeedbackMs = 0;
+    double m_pureSignalTxPeak = 0;
+    double m_pureSignalRxPeak = 0;
     qint64 m_nextAttenuationPollMs = 0;
     PureSignalSettings m_pureSignalSettings;
     PureSignalMode m_pureSignalMode = PureSignalMode::Off;

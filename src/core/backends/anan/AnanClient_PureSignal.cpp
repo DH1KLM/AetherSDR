@@ -27,6 +27,9 @@ bool AnanClient::configurePureSignal(const PureSignalSettings& settings, PureSig
 
 void AnanClient::beginPureSignalOver()
 {
+    m_pureSignalFeedbackBlocks = 0;
+    m_pureSignalFeedbackMs = 0;
+    m_pureSignalTxPeak = m_pureSignalRxPeak = 0;
     if (!m_transmitDsp || !m_transmitDsp->pureSignalChannel()) { return; }
     const auto state = m_transmitDsp->pureSignalChannel()->pureSignalSnapshot(false);
     if (state) { m_pureSignalAttenuator.beginOver(state->information[5]); }
@@ -80,6 +83,17 @@ QVariantMap AnanClient::pureSignalState(bool display, bool spectra)
     const bool liveMedia = m_transmitKeyed && m_transmitMediaStarted && !m_transmitCarrier
         && m_transmitOperation.permitsDispatch(now) && m_transmitContext.permitsDispatch(now);
     const bool twoTone = liveMedia && m_transmitTwoTone;
+    const bool freshFeedback = liveMedia && m_pureSignalFeedbackBlocks != 0
+        && now >= m_pureSignalFeedbackMs && now-m_pureSignalFeedbackMs <= 500;
+    state.insert(QStringLiteral("feedbackBlocks"),QVariant::fromValue(m_pureSignalFeedbackBlocks));
+    state.insert(QStringLiteral("feedbackFresh"),freshFeedback);
+    if (liveMedia && m_pureSignalMode != PureSignalMode::Off) {
+        state.insert(QStringLiteral("feedbackStatus"),freshFeedback
+            ? QStringLiteral("Receiving paired feedback: %1 blocks this transmission; latest TX peak %2, PA feedback peak %3 (digital full scale = 1).")
+                .arg(m_pureSignalFeedbackBlocks).arg(m_pureSignalTxPeak,0,'g',5).arg(m_pureSignalRxPeak,0,'g',5)
+            : QStringLiteral("Transmission active; no fresh paired feedback reaches calibration (%1 blocks this transmission).")
+                .arg(m_pureSignalFeedbackBlocks));
+    }
     state.insert(QStringLiteral("twoToneRunning"),twoTone);
     state.insert(QStringLiteral("spectraReady"),false);
     state.insert(QStringLiteral("imdValid"),false);

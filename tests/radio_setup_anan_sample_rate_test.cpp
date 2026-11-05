@@ -125,6 +125,7 @@ public:
     }
     static bool planReady(const AnanBackend& backend) { return backend.m_transmitPlanReady; }
     static bool receiveBusy(const AnanBackend& backend) { return backend.m_receiveBuilding; }
+    static void pureSignal(AnanBackend& backend, bool enabled) { backend.m_pureSignalEnabled = enabled; }
     static void forgetViewBand(AnanBackend& backend) { backend.m_currentViewBand.clear(); }
     static double center(const AnanBackend& backend) { return backend.m_ddcCenterHz; }
     static bool ctun(const AnanBackend& backend) { return backend.m_ctun; }
@@ -279,6 +280,21 @@ int main(int argc, char** argv)
             app.processEvents();
             check(diagram->grab().save(QDir(shots).filePath(red ? QStringLiteral("red-pitaya-p1.png") : QStringLiteral("anvelina-p2.png"))),
                 "save actual ADC widget for visual review");
+        }
+        if (adcs == 2) {
+            anan::AnanLinkStatsTestAccess::pureSignal(*backend,true);
+            auto* feedback = diagram->findChild<QLabel*>(QStringLiteral("ananDdc%1Receivers").arg(protocol == 2 ? 0 : 3));
+            auto* reference = diagram->findChild<QLabel*>(QStringLiteral("ananDdc%1Receivers").arg(protocol == 2 ? 1 : 4));
+            pending.restart();
+            while (!feedback->text().contains(QStringLiteral("Pure Signal")) && pending.elapsed() < 2500) { app.processEvents(); QThread::msleep(5); }
+            check(feedback->isEnabled() && feedback->text().contains(QStringLiteral("PA feedback"))
+                && reference->isEnabled() && reference->text().contains(QStringLiteral("Digital TX")),
+                "ADC diagram identifies configured Pure Signal feedback and digital reference without transmission");
+            anan::AnanLinkStatsTestAccess::pureSignal(*backend,false);
+            pending.restart();
+            while (feedback->text().contains(QStringLiteral("Pure Signal")) && pending.elapsed() < 2500) { app.processEvents(); QThread::msleep(5); }
+            check(!feedback->text().contains(QStringLiteral("Pure Signal")) && !reference->text().contains(QStringLiteral("Pure Signal")),
+                "disarming Pure Signal removes its reserved-route cards");
         }
     }
     {

@@ -314,17 +314,23 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
                 .arg(data.value(QStringLiteral("model")).toString()).arg(data.value(QStringLiteral("protocol")).toInt()));
             const bool busy = data.value(QStringLiteral("busy")).toBool();
             const bool diversity = data.value(QStringLiteral("diversityEnabled")).toBool();
+            const bool pureSignal = data.value(QStringLiteral("pureSignalEnabled")).toBool();
+            const bool p2 = data.value(QStringLiteral("protocol")).toInt() == 2;
             state->filling = true;
             for (int ddc = 0; ddc < 7; ++ddc) {
                 const int logical = state->ddcMap.indexOf(ddc);
                 const bool supported = logical >= 0 && logical < data.value(QStringLiteral("streams")).toInt();
+                const bool feedback = pureSignal && ddc == (p2 ? 0 : 3);
+                const bool reference = pureSignal && ddc == (p2 ? 1 : 4);
                 groups[ddc]->setEnabled(supported && !busy);
-                groups[ddc]->setAccessibleDescription(!supported ? QStringLiteral("This session does not provide this DDC.")
+                groups[ddc]->setAccessibleDescription(feedback ? QStringLiteral("Pure Signal reserves this route for ADC0 PA feedback.")
+                    : reference ? QStringLiteral("Pure Signal uses a digital TX reference here, not a selectable ADC input.")
+                    : !supported ? QStringLiteral("This session does not provide this DDC.")
                     : diversity ? QStringLiteral("Disable diversity before changing ADC routing.")
                     : busy ? QStringLiteral("Finish TX or receive configuration before changing ADC routing.") : QStringLiteral("Changes apply immediately during reception."));
                 for (int adc = 0; adc < 2; ++adc) {
                     QRadioButton* button = buttons[ddc*2+adc];
-                    button->setChecked(supported && assignments[logical].toInt() == adc);
+                    button->setChecked(feedback ? adc == 0 : !reference && supported && assignments[logical].toInt() == adc);
                     button->setEnabled(adc < data.value(QStringLiteral("numAdcs")).toInt());
                     button->setAccessibleDescription(adc < data.value(QStringLiteral("numAdcs")).toInt()
                         ? QStringLiteral("Select the input for this hardware DDC.") : QStringLiteral("This model has no ADC1."));
@@ -349,16 +355,23 @@ QWidget* createAnanAdcPage(RadioModel* model, QWidget* parent)
             if (diversity) {
                 receiverCards[1].append(QStringLiteral("Diversity input<br>ADC1 → RX1 IQ combiner"));
             }
+            if (pureSignal) {
+                receiverCards[p2 ? 0 : 3].append(QStringLiteral("Pure Signal PA feedback<br>ADC0 → PSCC<br>192 kHz"));
+                receiverCards[p2 ? 1 : 4].append(QStringLiteral("Pure Signal TX reference<br>Digital TX → PSCC<br>192 kHz"));
+            }
             for (int physical = 0; physical < 7; ++physical) {
                 const bool active = !receiverCards[physical].isEmpty();
                 cards[physical]->setEnabled(active);
                 cards[physical]->setText(active ? receiverCards[physical].join(QStringLiteral("<br><br>")) : QStringLiteral("Not in use"));
                 cards[physical]->setAccessibleDescription(active ? cards[physical]->text()
-                    : QStringLiteral("No active RX slice uses this DDC. Reserved and unsupported DDCs are not enabled."));
+                    : QStringLiteral("No active RX or feedback route uses this DDC."));
             }
-            status->setText((diversity
-                ? QStringLiteral("%1 active RX slice(s). DDC0/1 form the coherent diversity pair for RX1. Other DDCs remain independent; PureSignal routing is not enabled.")
-                : QStringLiteral("%1 active RX slice(s). Shared DDCs share their ADC input. Grey cards have no active RX; diversity and PureSignal routing are not enabled."))
+            status->setText((pureSignal
+                ? p2 ? QStringLiteral("%1 active RX slice(s). Pure Signal reserves DDC0/1 for synchronized PA feedback and digital TX reference at 192 kHz. Routing shows client configuration, not proof of received samples.")
+                     : QStringLiteral("%1 active RX slice(s). Pure Signal uses slots 3/4 for PA feedback and digital TX reference at 192 kHz. Routing shows client configuration, not proof of received samples.")
+                : diversity
+                ? QStringLiteral("%1 active RX slice(s). DDC0/1 form the coherent diversity pair for RX1. Other DDCs remain independent; Pure Signal routing is not enabled.")
+                : QStringLiteral("%1 active RX slice(s). Shared DDCs share their ADC input. Grey cards have no active RX or feedback route."))
                 .arg(routes.size()));
         });
         model->invokeBackendExtension(QStringLiteral("anan"),write ? QStringLiteral("adc.set") : QStringLiteral("adc.get"),id,

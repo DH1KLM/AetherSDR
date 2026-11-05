@@ -1,4 +1,6 @@
 #include "core/backends/anan/AnanClient.h"
+#include <algorithm>
+#include <complex>
 
 namespace AetherSDR::anan {
 AnanClient::AnanClient(QObject* parent) : QObject(parent),
@@ -64,7 +66,16 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
             m_transmitDsp->feedPureSignalSpectrum(tx,rx,m_transmitTwoTone && !m_pureSignalAttenuator.pending(),
                 TxCoordinator::monotonicMs());
             WdspChannel* channel = m_transmitDsp->pureSignalChannel();
-            if (channel && channel->feedPureSignal(tx, rx, true)) { updatePureSignalAttenuation(); }
+            if (channel && channel->feedPureSignal(tx, rx, true)) {
+                ++m_pureSignalFeedbackBlocks;
+                m_pureSignalFeedbackMs = TxCoordinator::monotonicMs();
+                m_pureSignalTxPeak = m_pureSignalRxPeak = 0;
+                for (std::size_t i = 0; i < tx.size(); ++i) {
+                    m_pureSignalTxPeak = std::max(m_pureSignalTxPeak,double(std::abs(tx[i])));
+                    m_pureSignalRxPeak = std::max(m_pureSignalRxPeak,double(std::abs(rx[i])));
+                }
+                updatePureSignalAttenuation();
+            }
         };
     const auto gap = [this] { if (m_transmitDsp) { m_transmitDsp->resetPureSignalSpectrum(); } };
     connect(m_p1,&P1Client::pureSignalFeedbackGap,this,gap,Qt::DirectConnection);

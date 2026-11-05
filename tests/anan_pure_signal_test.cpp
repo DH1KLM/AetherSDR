@@ -314,6 +314,15 @@ void correctionFiles()
         "pause acknowledges only after the real retained IQC correction and END ramp drain");
     check(channel->resumePureSignalCalibration(PureSignalMode::Automatic),
         "acknowledged native pause resumes the selected calibration mode without keying");
+    bool fed = true;
+    for (int block = 0; block < 400; ++block) {
+        fed = channel->feedPureSignal(feedback,feedback,true) && fed;
+    }
+    check(fed,"zero-valued paired samples still reach native calibration");
+    const auto collecting = channel->pureSignalSnapshot(false);
+    check(collecting && collecting->information[15] == 4 && collecting->information[4] == 0
+        && !collecting->correctionRunning,
+        "native collecting state and zero feedback level do not establish a usable calibration signal");
 
 }
 }

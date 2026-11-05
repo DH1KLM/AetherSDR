@@ -378,6 +378,7 @@ void PureSignalWindow::acceptState(const QVariantMap& state)
         : level > 128 ? QStringLiteral("Correction applied • feedback in range")
                       : QStringLiteral("Correction applied • feedback low"));
     m_status->setText(!available ? reason : mode == 0 ? QStringLiteral("Pure Signal OFF. Opening this window does not transmit.")
+        : !state.value(QStringLiteral("feedbackStatus")).toString().isEmpty() ? state.value(QStringLiteral("feedbackStatus")).toString()
         : mode == 1 ? QStringLiteral("Automatic calibration armed; waiting for operator transmission and feedback.")
         : mode == 3 ? QStringLiteral("Retained correction selected; waiting for operator transmission.")
                     : QStringLiteral("Single calibration armed; waiting for operator transmission and feedback."));

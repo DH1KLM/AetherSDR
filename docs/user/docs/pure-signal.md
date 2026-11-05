@@ -87,6 +87,12 @@ Other OpenHPSDR hardware shapes also show a reason when calibration is unavailab
 The feedback level, calibration attempts, successful calibration count, and
 correction state represent different facts. An applied correction does not
 by itself establish adequate feedback or a measured IMD improvement.
+During transmission the status reports paired blocks received by calibration
+and the latest TX-reference and PA-feedback sample peaks (digital full scale
+is 1). A zero **Feedback Level** does not prove that no packets arrive: it is
+a calibration result, not a packet counter. Native **state** 4 means collecting
+samples; a usable calibration can still be missing. A stale or missing stream
+is reported explicitly. The ADC page shows configured feedback routes separately.
 
 ## Making a change
 
