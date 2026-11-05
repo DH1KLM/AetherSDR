@@ -12,6 +12,7 @@
 #include <cmath>
 #include <complex>
 #include <cstdio>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -119,6 +120,57 @@ struct Fixture {
         return keyed() && AnanClientTestAccess::pending(client) < AnanTxDsp::kInputSamples;
     }
 };
+void twoTone(WdspChannel::Mode mode)
+{
+    Fixture f;
+    check(!f.client.startTransmitTwoTone(f.operation, f.context), "two-tone cannot key an idle transmitter");
+    if (!f.prepare(mode)) { check(false, "two-tone prepares actual TXA"); return; }
+    check(f.client.setTransmitKeying(true, f.operation), "two-tone uses explicitly admitted keying");
+    check(f.client.startTransmitTwoTone(f.operation, f.context), "two-tone starts with original media authority");
+    check(!f.client.submitTransmitAudio(pcm(128), 24000, TxAudioSource::Microphone, f.operation, f.context)
+        && f.keyed(), "microphone cannot mix into or interrupt the generated test signal");
+    for (int i = 0; i < 220; ++i) {
+        AnanClientTestAccess::pump(f.client); f.drain(); QThread::msleep(1);
+    }
+    check(f.packets.size() > 100, "two-tone pumps bounded TXA blocks into the captured wire transport");
+    const auto decode = [](const std::uint8_t* bytes) {
+        std::int32_t value = (std::uint32_t(bytes[0]) << 16) | (std::uint32_t(bytes[1]) << 8) | bytes[2];
+        if (value & 0x800000) { value -= 0x1000000; }
+        return double(value) / 8388608.0;
+    };
+    std::array<std::complex<double>,5> bins{};
+    const double sign = mode == WdspChannel::Mode::Usb ? -1 : 1;
+    const std::array<double,5> frequencies{sign*700, sign*1900, -sign*700, -sign*1900, sign*1000};
+    std::size_t samples = 0;
+    double peak = 0;
+    for (std::size_t p = f.packets.size()/2; p < f.packets.size(); ++p) {
+        for (std::size_t j = 4; j+5 < f.packets[p].size(); j += 6) {
+            const std::complex<double> value(decode(&f.packets[p][j]), decode(&f.packets[p][j+3]));
+            peak = std::max(peak, std::abs(value));
+            for (std::size_t k = 0; k < bins.size(); ++k) {
+                bins[k] += value * std::polar(1.0, -2*std::numbers::pi*frequencies[k]*samples/192000);
+            }
+            ++samples;
+        }
+    }
+    const double wanted = std::min(std::abs(bins[0]),std::abs(bins[1]));
+    const double rejected = std::max({std::abs(bins[2]),std::abs(bins[3]),std::abs(bins[4])});
+    std::printf("two-tone mode=%s samples=%zu peak=%.6f wanted=%.3f rejected=%.3f\n",
+        mode == WdspChannel::Mode::Usb ? "USB" : "LSB", samples, peak, wanted, rejected);
+    check(samples > 0 && wanted > samples*0.001 && wanted > 30*rejected
+        && peak > 0.35 && peak <= 0.5, "wire IQ contains both requested tones on the selected sideband with digital headroom");
+    check(std::abs(bins[0]) < 1.5*std::abs(bins[1]) && std::abs(bins[1]) < 1.5*std::abs(bins[0]),
+        "both calibration tones have comparable amplitudes after actual TXA");
+    check(f.client.setTransmitKeying(false,f.operation), "two-tone stops via the normal key-off fence");
+    const std::size_t count = f.packets.size();
+    AnanClientTestAccess::pump(f.client); f.drain();
+    check(f.packets.size() == count, "late timer work cannot emit released two-tone samples");
+    check(f.client.setTransmitKeying(true,f.operation), "stale-context test explicitly admits a fresh over");
+    f.producer.invalidate();
+    check(!f.client.startTransmitTwoTone(f.operation,f.context) && !f.keyed(),
+        "retired producer refuses the generator and stops local keying");
+}
+
 void pcmToWire()
 {
     Fixture f;
@@ -342,6 +394,8 @@ int main(int argc, char** argv)
     plannedRetirement();
     stagedDoesNotKey();
     powerUpdates();
+    twoTone(WdspChannel::Mode::Usb);
+    twoTone(WdspChannel::Mode::Lsb);
     pcmToWire();
     refusalPaths();
     finiteModemAudio();

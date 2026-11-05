@@ -4,6 +4,8 @@
 #include <QTimer>
 
 #include <cstring>
+#include <cmath>
+#include <numbers>
 #include <utility>
 
 namespace AetherSDR::anan {
@@ -95,6 +97,7 @@ void AnanClient::clearTransmitAudio()
         m_transmitDsp->pureSignalChannel()->feedPureSignal(silence, silence, false);
     }
     m_transmitFinishing = false; m_transmitFlushBlocks = 0; m_transmitCarrier = false;
+    m_transmitTwoTone = false; m_transmitToneSample = 0;
     if (m_transmitAudioTimer) { m_transmitAudioTimer->stop(); }
     m_transmitHead = 0;
     m_transmitCount = 0;
@@ -139,6 +142,7 @@ bool AnanClient::submitTransmitAudio(const QByteArray& pcm, int rate, TxAudioSou
     if ((m_protocol != 1 && m_protocol != 2) || m_transmitCarrier || m_transmitFinishing || !m_transmitKeyed || !transmitTransport([](auto* transport) { return transport->transmitActive(); }) || !m_transmitDsp
         || !operation.sameAuthority(m_transmitOperation) || !operation.permitsDispatch(now)
         || !context.permitsDispatch(now)) { return false; }
+    if (m_transmitTwoTone) { return false; }
     const std::size_t frames = static_cast<std::size_t>(pcm.size()) / 4;
     if (rate != AnanTxDsp::kInputRate || pcm.isEmpty() || pcm.size() % 4 != 0
         || (source != TxAudioSource::Microphone && source != TxAudioSource::ClientLeveled
@@ -199,6 +203,14 @@ void AnanClient::pumpTransmitAudio()
     }
     for (int block = 0; block < 4; ++block) {
         if (!m_transmitKeyed || !m_transmitDsp) { return; }
+        if (m_transmitTwoTone && m_transmitCount < AnanTxDsp::kInputSamples) {
+            while (m_transmitCount < AnanTxDsp::kInputSamples) {
+                const double phase = 2 * std::numbers::pi * m_transmitToneSample / AnanTxDsp::kInputRate;
+                m_transmitAudio[(m_transmitHead + m_transmitCount++) % kTransmitAudioCapacity]
+                    = static_cast<float>(0.49999 * (std::sin(700 * phase) + std::sin(1900 * phase)));
+                m_transmitToneSample = (m_transmitToneSample + 1) % AnanTxDsp::kInputRate;
+            }
+        }
         if (m_transmitFinishing && m_transmitCount < AnanTxDsp::kInputSamples
             && (m_transmitCount > 0 || m_transmitFlushBlocks > 0)) {
             if (m_transmitCount == 0) { --m_transmitFlushBlocks; }
@@ -242,6 +254,28 @@ void AnanClient::pumpTransmitAudio()
             return;
         }
     }
+}
+
+bool AnanClient::startTransmitTwoTone(const TxCoordinator::Operation& operation,
+    const TxCoordinator::Context& context)
+{
+    const qint64 now = TxCoordinator::monotonicMs();
+    if (!m_transmitKeyed || !operation.sameAuthority(m_transmitOperation)) { return false; }
+    if (!operation.permitsDispatch(now) || !context.permitsDispatch(now) || !m_transmitDsp
+        || (m_transmitDsp->mode() != WdspChannel::Mode::Usb && m_transmitDsp->mode() != WdspChannel::Mode::Lsb)
+        || m_transmitMediaStarted || !m_transmitDsp->begin(context, now)) {
+        failTransmit(QStringLiteral("Two-tone TXA start refused")); return false;
+    }
+    m_transmitContext = context; m_transmitSource = TxAudioSource::EngineGenerated;
+    m_transmitMediaStarted = true; m_transmitTwoTone = true; m_transmitToneSample = 0;
+    if (!m_transmitAudioTimer) {
+        m_transmitAudioTimer = new QTimer(this);
+        m_transmitAudioTimer->setTimerType(Qt::PreciseTimer);
+        m_transmitAudioTimer->setInterval(1);
+        connect(m_transmitAudioTimer, &QTimer::timeout, this, &AnanClient::pumpTransmitAudio);
+    }
+    m_transmitAudioTimer->start(); pumpTransmitAudio();
+    return true;
 }
 
 void AnanClient::setTransmitCarrier(bool enabled, bool down)

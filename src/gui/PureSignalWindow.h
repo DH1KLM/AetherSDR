@@ -1,12 +1,14 @@
 #pragma once
 
 #include "CanonWindow.h"
+#include "models/TxController.h"
 
 #include <QPointer>
 #include <QVariantMap>
 #include <QString>
 #include <array>
 
+class QCloseEvent;
 class QCheckBox;
 class QDoubleSpinBox;
 class QGraphicsScene;
@@ -23,16 +25,21 @@ class PureSignalWindow final : public CanonWindow {
 public:
     explicit PureSignalWindow(RadioModel& model, QWidget* parent = nullptr);
     void retire();
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     void request(bool write = false, int mode = 0, const QString& operation = {}, const QString& path = {});
     void chooseCorrectionFile(bool save);
+    void toggleTwoTone(const TxController::Input& input);
+    void stopTwoTone();
     void acceptState(const QVariantMap& state);
     void showAmpView();
     void renderAmpView();
     void setAvailability(bool available, const QString& reason);
 
     RadioModel& m_model;
+    TxController::Input m_twoToneInput;
     QTimer* m_poll;
     QLabel* m_status;
     QLabel* m_actionStatus;

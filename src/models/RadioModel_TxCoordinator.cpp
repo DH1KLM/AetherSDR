@@ -435,6 +435,9 @@ bool RadioModel::requestProducerTune(const TxCoordinator::Request& request, bool
     if (QThread::currentThread() != thread()) {
         return false;
     }
+    if (on && twoTone && (!m_backend || !m_backend->capabilities().twoToneGenerator)) {
+        return false;
+    }
     bool dispatched = false;
     const TransmitModel::KeyingRoute route = producerKeyingRoute(request, TxActivity::Tune, dispatched);
     if (on) {
@@ -487,6 +490,8 @@ bool RadioModel::requestProducerAtuBypass(const TxCoordinator::Request& request)
 
 bool RadioModel::dispatchTuneIntent(bool on, const TxCoordinator::Request* request)
 {
+    if (on && m_transmitModel.tuneMode() == QLatin1String("two_tone")
+        && (!m_backend || !m_backend->capabilities().twoToneGenerator)) { return false; }
     const quint64 commandEpoch = ++m_tuneCommandEpoch;
     const TxCoordinator::Operation operation = request ? m_txCoordinator.requestOperation(*request) : m_txOperation;
     const TxCoordinator::Intent intent = request ? m_txCoordinator.requestIntent(*request)
@@ -530,8 +535,19 @@ bool RadioModel::dispatchTuneIntent(bool on, const TxCoordinator::Request* reque
         }) : std::function<void()>{};
         releaseQueued = request && !on;
         dispatched = true;
-        m_backend->setTune(on, m_transmitModel.tunePower(), on ? operation : cleanup,
-                           trackTxQueue(operation, finished));
+        const auto generator = m_backend->capabilities().twoToneGenerator;
+        const bool hostTwoTone = on && m_transmitModel.tuneMode() == QLatin1String("two_tone")
+            && generator && generator->source == RadioCapabilities::TwoToneGenerator::Source::Host;
+        if (hostTwoTone) {
+            const TxCoordinator::Context context = request ? m_txCoordinator.mediaContext(*request)
+                : TxCoordinator::Context{};
+            if (!context.permitsDispatch(txMonotonicMs())) { return false; }
+            m_backend->setTwoToneTune(true, m_transmitModel.tunePower(), context, operation,
+                                     trackTxQueue(operation, finished));
+        } else {
+            m_backend->setTune(on, m_transmitModel.tunePower(), on ? operation : cleanup,
+                               trackTxQueue(operation, finished));
+        }
         if (commandEpoch == m_tuneCommandEpoch) {
             publishCommandedBackendTransmitEdge(on);
         }

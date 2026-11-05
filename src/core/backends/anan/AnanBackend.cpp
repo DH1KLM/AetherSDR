@@ -530,8 +530,13 @@ RadioCapabilities AnanBackend::capabilities() const
         PanDisplayField::SpectrumPoints}, {PanGeometryComponent::Center, PanGeometryComponent::Bandwidth}};
     c.panLifecycleControl = PanLifecycleControl{PanLifecycleControl::Creation::Native,
         {PanLifecycleAction::Create, PanLifecycleAction::Remove}};
-    // A single shaped carrier is generated on the owning transport thread.
     c.twoToneGenerator = std::nullopt;
+    const QString txMode = transmitModeName();
+    if (transmitSessionCurrent() && (txMode == QLatin1String("USB") || txMode == QLatin1String("LSB"))
+        && m_txFilterLowHz < 700 && m_txFilterHighHz > 1900) {
+        c.twoToneGenerator = RadioCapabilities::TwoToneGenerator{
+            QStringLiteral("host TXA 700/1900 Hz"), RadioCapabilities::TwoToneGenerator::Source::Host};
+    }
     c.tuneCarrierControl = TuneCarrierControl{transmitSessionCurrent() ? TuneCarrierControl::Modes::All : TuneCarrierControl::Modes::None};
     c.hasCwTune = true;
     c.receiveOnlyModes = {QStringLiteral("SPEC"),QStringLiteral("WFM"),QStringLiteral("WBFM"),QStringLiteral("DRM")};

@@ -46,13 +46,17 @@ public:
     QStringList commands;
     bool connected{false};
     bool withGenerator{false};
+    bool hostGenerator{false};
+    TxCoordinator::Context toneContext;
+    TxCoordinator::Operation toneOperation;
     RadioCapabilities capabilities() const override
     {
         RadioCapabilities caps;
         caps.canTransmit = true;
         caps.hasTuner = true;
         if (withGenerator) {
-            caps.twoToneGenerator = RadioCapabilities::TwoToneGenerator{QStringLiteral("test")};
+            caps.twoToneGenerator = RadioCapabilities::TwoToneGenerator{QStringLiteral("test"), hostGenerator
+                ? RadioCapabilities::TwoToneGenerator::Source::Host : RadioCapabilities::TwoToneGenerator::Source::Radio};
         } else {
             caps.twoToneGenerator = std::nullopt;
         }
@@ -72,6 +76,21 @@ public:
     { commands << (on ? "atu:on" : "atu:off"); }
     void setTune(bool on, int, const TxCoordinator::Operation&, const TxCoordinator::Completion&) override
     { commands << (on ? "tune:on" : "tune:off"); }
+    void setTwoToneTune(bool on, int, const TxCoordinator::Context& context,
+        const TxCoordinator::Operation& operation, const TxCoordinator::Completion& completion) override
+    {
+        toneContext = context; toneOperation = operation;
+        commands << (on ? "host:on" : "host:off"); completion.finish();
+    }
+    ReceiveDispatch requestTransmitControl(const TransmitControlRequest& request, TunePowerContext) override
+    {
+        if (hostGenerator && request.field == TransmitControlRequest::Field::TuneMode) {
+            TransmitDelta delta; delta.tuneMode = std::get<QString>(request.value);
+            emit transmitChanged(delta);
+            return ReceiveDispatch::Dispatched;
+        }
+        return ReceiveDispatch::Unsupported;
+    }
     void invokeExtension(const QString&, const QString&, quint64, const QVariant&) override {}
 };
 
@@ -84,6 +103,9 @@ struct Fixture {
         backend = b.get();
         backend->withGenerator = withGenerator;
         radio.setBackendForTest(std::move(b), QStringLiteral("test"));
+        // Mirror the production transmit observation relay in this socket-free fixture.
+        QObject::connect(backend, &IRadioBackend::transmitChanged, &radio.transmitModel(),
+            [this](const TransmitDelta& delta) { radio.transmitModel().applyChanges(delta); });
         check(radio.automationApplySliceFixture(0, QStringLiteral("A")), "slice fixture");
         SliceDelta slice;
         slice.txSlice = true;
@@ -199,6 +221,32 @@ static void midiCases()
     }
 }
 
+static void hostContextCase()
+{
+    {
+        Fixture unsupported(false, true);
+        const auto input = unsupported.radio.localTxController()->capture(TxController::Activity::Tune);
+        check(!input.start(true) && unsupported.backend->commands.isEmpty(),
+            "typed two-tone intent cannot fall back to a single carrier without a generator");
+    }
+    Fixture f(true, true); f.backend->hostGenerator = true;
+    const auto controller = f.radio.localTxController();
+    const auto input = controller->capture(TxController::Activity::Tune);
+    check(input.start(true) && f.backend->commands == QStringList{"host:on"},
+        "host two-tone dispatches the typed media verb instead of a plain carrier");
+    check(f.backend->toneContext.sameContext(input.media())
+        && f.backend->toneContext.permitsDispatch(TxCoordinator::monotonicMs())
+        && f.backend->toneOperation.permitsDispatch(TxCoordinator::monotonicMs()),
+        "host generator receives the original admitted input context and operation");
+    input.stop();
+    check(f.backend->commands.last() == QLatin1String("tune:off") && !f.radio.transmitModel().isTuning(),
+        "host two-tone releases through the existing TUNE cleanup route");
+    controller->invalidate();
+    const int count = f.backend->commands.size();
+    check(!input.start(true) && f.backend->commands.size() == count,
+        "retired input cannot recreate a host test transmission");
+}
+
 int main(int argc, char** argv)
 {
     TestSettingsProfile profile(QStringLiteral("two-tone-tune-gate-test"));
@@ -207,6 +255,7 @@ int main(int argc, char** argv)
     }
     QApplication app(argc, argv);
 
+    hostContextCase();
     menuCases();
     predicateCases();
     midiCases();

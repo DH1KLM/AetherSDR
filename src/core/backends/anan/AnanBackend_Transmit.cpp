@@ -289,6 +289,15 @@ ReceiveDispatch AnanBackend::requestTransmitControl(const TransmitControlRequest
         setTxMonitor(setting.enabled,setting.level);
         return ReceiveDispatch::Dispatched;
     }
+    if (request.field == Field::TuneMode) {
+        const QString mode = std::get<QString>(request.value);
+        if (mode != QLatin1String("single_tone")
+            && (mode != QLatin1String("two_tone") || !capabilities().twoToneGenerator)) {
+            return ReceiveDispatch::Unsupported;
+        }
+        TransmitDelta delta; delta.tuneMode = mode; emit transmitChanged(delta);
+        return ReceiveDispatch::Dispatched;
+    }
     if (request.field == Field::TunePower) { setTunePower(std::get<int>(request.value)); return ReceiveDispatch::Dispatched; }
     if (request.field == Field::RfPower && m_connected) {
         setTxPower(std::get<int>(request.value)); return ReceiveDispatch::Dispatched;
@@ -454,6 +463,28 @@ void AnanBackend::setTune(bool on, int percent, const TxCoordinator::Operation& 
             if (permit->load() && dispatch.permitsDispatch(TxCoordinator::monotonicMs())) { client->setTransmitCarrier(true,true); }
         },Qt::QueuedConnection);
     }
+}
+
+void AnanBackend::setTwoToneTune(bool on, int percent, const TxCoordinator::Context& context,
+    const TxCoordinator::Operation& operation, const TxCoordinator::Completion& completion)
+{
+    if (!on) { setTune(false, percent, operation, completion); return; }
+    const qint64 now = TxCoordinator::monotonicMs();
+    if (!operation.permitsDispatch(now) || !context.permitsDispatch(now)
+        || !capabilities().twoToneGenerator || percent < 0 || percent > 100
+        || m_pureSignalPending || m_txFilterPending || m_transmitOperation.permitsCleanup()) {
+        completion.finish(); return;
+    }
+    m_tuneActive = true; m_tunePowerPercent = percent;
+    setKeying(true, operation, completion);
+    if (!m_transmitOperation.sameOperation(operation)) { return; }
+    const auto permit = m_txSessionPermit;
+    const auto dispatch = m_transmitDispatchOperation;
+    QMetaObject::invokeMethod(m_client, [client = m_client, permit, dispatch, context] {
+        if (permit->load() && dispatch.permitsDispatch(TxCoordinator::monotonicMs())) {
+            client->startTransmitTwoTone(dispatch, context);
+        }
+    }, Qt::QueuedConnection);
 }
 
 void AnanBackend::setTunePower(int percent)

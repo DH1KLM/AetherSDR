@@ -5,7 +5,8 @@
 The operational and display references inspected for this implementation are:
 
 - Thetis-Ramdor `852bf0ef0b4f3886a13fc2846489aee16f361872`:
-  `PSForm.cs`, `AmpView.cs`, `console.cs` (`UpdateDDCs`, `GetDDC`),
+  `PSForm.cs`, `AmpView.cs`, `setup.cs` / `setup.Designer.cs` (two-tone settings),
+  `console.cs` (`UpdateDDCs`, `GetDDC`),
   ChannelMaster `network.c`, `networkproto1.c`, and `sync.c`.
 - NereusSDR `4ce7ec89efcc36adc0723eabcd3465fdce5e1e37`:
   `PureSignal`, `PsForm`, `AmpViewChart`, `Ps3DisplayAdapter`,
@@ -72,8 +73,13 @@ does not produce illustrative calibration curves.
 
 ## Remaining functional work
 
-Two-tone generation through TXA, automatic attenuation and measured
-feedback-spectrum integration remain unavailable with accessible reasons.
+Two-tone generation uses the existing TUNE admission and original request
+media context. The existing I/O audio pump supplies bounded 700/1900 Hz PCM
+blocks through TXA, at 0.49999 amplitude per tone, and retains the captured
+operation/context through the terminal transport write. It does not use the
+raw transport carrier. Two-tone support is declared only for prepared USB/LSB
+sessions whose TX passband contains both tones. Automatic attenuation and
+measured feedback-spectrum integration remain unavailable with accessible reasons.
 
 Save captures actual IQC coefficients; Restore validates a bounded v2 document
 before native parsing and installs into an unpublished fresh channel. Apply

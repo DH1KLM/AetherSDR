@@ -7,6 +7,7 @@
 #include "models/TransmitModel.h"
 
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -26,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <memory>
 
 namespace AetherSDR {
 namespace {
@@ -67,7 +69,7 @@ PureSignalWindow::PureSignalWindow(RadioModel& model, QWidget* parent)
     };
     m_twoTone = button(QStringLiteral("Two-Tone"), QStringLiteral("pureSignalTwoTone"));
     markTxKeying(m_twoTone);
-    unavailable(m_twoTone, QStringLiteral("The OpenHPSDR backend does not expose a two-tone generator."));
+    unavailable(m_twoTone, QStringLiteral("Prepare an SSB TX session with both 700 and 1900 Hz inside the TX filter."));
     m_single = button(QStringLiteral("Single Cal"), QStringLiteral("pureSignalSingleCal"));
     m_auto = button(QStringLiteral("Start Auto"), QStringLiteral("pureSignalStartAuto"));
     m_apply = button(QStringLiteral("Apply Current"), QStringLiteral("pureSignalApplyCurrent"));
@@ -157,7 +159,15 @@ PureSignalWindow::PureSignalWindow(RadioModel& model, QWidget* parent)
     connect(m_apply, &QPushButton::clicked, this, [this] { request(true,3); });
     connect(m_save, &QPushButton::clicked, this, [this] { chooseCorrectionFile(true); });
     connect(m_restore, &QPushButton::clicked, this, [this] { chooseCorrectionFile(false); });
-    connect(m_twoTone, &QPushButton::clicked, this, [this] { m_model.transmitModel().toggleTwoToneTune(); });
+    connect(m_twoTone, &QPushButton::clicked, this, [this] {
+        toggleTwoTone(m_model.localTxController()->capture(TxController::Activity::Tune));
+    });
+    registerTxKeyingAction(m_twoTone, [this](const std::shared_ptr<TxController>& controller,
+        const QString& action, const QString&) -> TxKeyingAction::Prepared {
+        if (!controller || !controller->belongsTo(&m_model) || action != QLatin1String("click")) { return {}; }
+        const TxController::Input input = controller->capture(TxController::Activity::Tune);
+        return [this, input] { toggleTwoTone(input); };
+    });
     m_poll = new QTimer(this); m_poll->setInterval(250);
     connect(m_poll, &QTimer::timeout, this, [this] { if (isVisible() || (m_ampView && m_ampView->isVisible())) { request(); } });
     m_poll->start();
@@ -165,8 +175,33 @@ PureSignalWindow::PureSignalWindow(RadioModel& model, QWidget* parent)
     resize(1120, 740); request();
 }
 
+void PureSignalWindow::toggleTwoTone(const TxController::Input& input)
+{
+    if (m_twoToneInput.active()) { stopTwoTone(); return; }
+    if (!input.belongsTo(&m_model) || m_model.transmitModel().isTuning()
+        || m_model.transmitModel().isTransmitting()) { return; }
+    if (input.start(true)) { m_twoToneInput = input; }
+}
+
+void PureSignalWindow::stopTwoTone()
+{
+    if (m_twoToneInput.active()) {
+        m_twoToneInput.stop();
+        m_model.transmitModel().setTuneMode(QStringLiteral("single_tone"));
+    }
+    m_twoToneInput = {};
+}
+
+void PureSignalWindow::closeEvent(QCloseEvent* event)
+{
+    stopTwoTone();
+    CanonWindow::closeEvent(event);
+}
+
 void PureSignalWindow::retire()
 {
+    stopTwoTone();
+    m_twoTone->setEnabled(false);
     m_identity.clear(); m_state.clear(); m_dirty = false;
     m_actionStatus->setText(QStringLiteral("No Pure Signal action pending."));
     for (QLabel* value : m_information) { value->setText(QStringLiteral("—")); }
@@ -261,6 +296,15 @@ void PureSignalWindow::acceptState(const QVariantMap& state)
     const bool available = state.value(QStringLiteral("available")).toBool();
     const QString reason = state.value(QStringLiteral("reason")).toString();
     const bool keyed = state.value(QStringLiteral("keyed")).toBool();
+    const bool ownTone = m_twoToneInput.active();
+    const bool toneReady = available && !keyed && m_model.backendCapabilities().twoToneGenerator.has_value();
+    m_twoTone->setEnabled(ownTone || toneReady);
+    m_twoTone->setText(ownTone ? QStringLiteral("Stop Two-Tone") : QStringLiteral("Two-Tone"));
+    m_twoTone->setAccessibleName(m_twoTone->text());
+    const QString toneReason = ownTone ? QStringLiteral("Stop this window's two-tone transmission.")
+        : toneReady ? QStringLiteral("Transmit 700/1900 Hz through TXA at the configured TUNE power.")
+        : !available ? reason : QStringLiteral("Prepare an SSB TX session with both 700 and 1900 Hz inside the TX filter.");
+    m_twoTone->setToolTip(toneReason); m_twoTone->setAccessibleDescription(toneReason);
     setAvailability(available && !keyed, keyed
         ? QStringLiteral("Finish transmission before changing Pure Signal.") : reason);
     if (available && !keyed && !state.value(QStringLiteral("correctionAvailable")).toBool()) {

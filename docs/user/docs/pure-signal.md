@@ -55,9 +55,15 @@ calibration. **Save** writes the actual current coefficients atomically.
 processing path. Neither action starts transmission. Finish transmission
 before using correction files. Older version 1 files require recalibration.
 
-**Two-Tone**, automatic attenuation, and feedback-spectrum measurements are
-unavailable. Their disabled controls explain the missing path. Other
-OpenHPSDR hardware shapes also show a reason when calibration is unavailable.
+**Two-Tone** starts a 700/1900 Hz test signal through the TX DSP using the
+configured TUNE power. It requires a prepared USB or LSB TX session with
+both tones inside the TX filter. Press **Stop Two-Tone** or close the window
+to end this window's test transmission. Microphone audio is excluded while
+the generator runs. The normal transmit interlocks and authorization limits
+apply.
+
+Automatic attenuation and feedback-spectrum measurements are unavailable.
+Their disabled controls explain the missing path. Other OpenHPSDR hardware shapes also show a reason when calibration is unavailable.
 
 The feedback level, calibration attempts, successful calibration count, and
 correction state represent different facts. An applied correction does not

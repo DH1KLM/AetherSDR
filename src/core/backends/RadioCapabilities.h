@@ -582,6 +582,8 @@ struct RadioCapabilities {
         // not the act of keying — is what separates a real two-tone from a tune
         // carrier. Diagnostic: nothing branches on the string.
         QString selectionCommand;
+        enum class Source { Radio, Host };
+        Source source = Source::Radio;
     };
     std::optional<TwoToneGenerator> twoToneGenerator;
     FmTonePresentation fmTonePresentation = FmTonePresentation::Hidden;

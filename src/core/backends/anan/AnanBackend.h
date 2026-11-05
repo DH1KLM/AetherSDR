@@ -118,6 +118,9 @@ public:
     void setTxFilter(int lowHz, int highHz) override;
     void setTune(bool on, int percent, const TxCoordinator::Operation& operation,
                  const TxCoordinator::Completion& completion = {}) override;
+    void setTwoToneTune(bool on, int percent, const TxCoordinator::Context& context,
+                        const TxCoordinator::Operation& operation,
+                        const TxCoordinator::Completion& completion = {}) override;
     void setTunePower(int percent) override;
     void setCwKeying(bool down, bool breakIn, int delayMs, const TxCoordinator::Operation& operation,
                     const TxCoordinator::Completion& completion = {}) override;

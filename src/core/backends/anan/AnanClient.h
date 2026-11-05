@@ -33,6 +33,7 @@ public:
     bool armStagedTransmit(const P2TxControl& control);
     bool disarmTransmit(bool discardDsp = true);
     void setTransmitCarrier(bool enabled, bool down);
+    bool startTransmitTwoTone(const TxCoordinator::Operation& operation, const TxCoordinator::Context& context);
     void setTransmitMonitor(bool enabled) { m_transmitMonitor = enabled; }
     void finishTransmitAudio(const TxCoordinator::Context& context);
     [[nodiscard]] std::size_t queuedTransmitFrames() const noexcept
@@ -93,6 +94,8 @@ private:
     int m_transmitFlushBlocks = 0;
     bool m_transmitFinishing = false;
     bool m_transmitCarrier = false;
+    bool m_transmitTwoTone = false;
+    std::size_t m_transmitToneSample = 0;
     static constexpr std::size_t kTransmitAudioCapacity = AnanTxDsp::kMaximumQueuedInputSamples;
     std::atomic<std::size_t> m_transmitPendingFrames{0};
     std::shared_ptr<AnanTxDsp> m_transmitDsp;

@@ -795,6 +795,16 @@ public:
     Q_UNUSED(completion);
     }
 
+    // Host-generated two-tone media retains the initiating input context.
+    // Admission and cleanup use the same TX coordinator path as ordinary TUNE.
+    virtual void setTwoToneTune(bool on, int percent, const TxCoordinator::Context& context,
+                                const TxCoordinator::Operation& operation,
+                                const TxCoordinator::Completion& completion = {})
+    {
+        Q_UNUSED(on); Q_UNUSED(percent); Q_UNUSED(context); Q_UNUSED(operation);
+        completion.finish();
+    }
+
     // Transmit power as a percentage, 0..100.
     //
     // Flex takes this as a text command from TransmitModel, so FlexBackend has
