@@ -69,8 +69,20 @@ Calibration pauses until CALCC and the IQC correction have drained, and resumes
 after 100 ms of settling. Ending transmission cancels uncommitted attenuation
 changes. The displayed attenuation is the client's request, not hardware readback.
 
-**Quick Attenuate Response** and feedback-spectrum measurements remain unavailable.
-Their disabled controls explain the missing path. Other OpenHPSDR hardware shapes also show a reason when calibration is unavailable.
+**Display PS-RX and PS-TX spectra** opens **Feedback spectra** inside the same
+window. It plots the paired TX reference and PA feedback in digital dBFS over
+±10 kHz. Arm Pure Signal and transmit deliberately to supply these samples.
+The levels are digital sample levels, not calibrated RF power.
+
+**Show 2Tone measurements** displays windowed IMD3, IMD5, IMD7, and IMD9 plus
+noise during the built-in **Two-Tone** transmission. Each value uses the
+stronger of the lower/upper products relative to the mean power of one
+feedback carrier, in dBc per tone. Missing carriers, possible sample clipping,
+and stale feedback make the measurements unavailable. Gaps restart acquisition;
+a complete fresh window is required before values appear again.
+
+**Quick Attenuate Response** remains unavailable with an explanatory tooltip.
+Other OpenHPSDR hardware shapes also show a reason when calibration is unavailable.
 
 The feedback level, calibration attempts, successful calibration count, and
 correction state represent different facts. An applied correction does not

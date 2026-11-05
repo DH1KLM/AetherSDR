@@ -1,5 +1,6 @@
 #include "AnanTxDsp.h"
 #include "AnanTxMode.h"
+#include "core/LogManager.h"
 
 #include <algorithm>
 #include <cmath>
@@ -71,6 +72,42 @@ QByteArray AnanTxDsp::monitorAudio(std::span<const std::complex<float>> iq)
     return m_monitorResampler->processMonoToStereo(m_monitorMono.data(), static_cast<int>(iq.size()));
 }
 
+bool AnanTxDsp::preparePureSignalSpectrum()
+{
+    m_spectrum = std::make_unique<PureSignalSpectrum>();
+    if (!m_spectrum->valid()) {
+        qCWarning(lcDsp) << "Pure Signal spectrum FFT initialization failed";
+        m_spectrum.reset(); return false;
+    }
+    return true;
+}
+void AnanTxDsp::requestPureSignalSpectrum(bool wanted, qint64 nowMs)
+{
+    if (wanted && m_spectrum) {
+        if (m_spectrumWantedUntilMs <= nowMs) { m_spectrum->reset(); }
+        m_spectrumWantedUntilMs = nowMs+1000;
+    }
+}
+void AnanTxDsp::resetPureSignalSpectrum()
+{
+    if (m_spectrum) { m_spectrum->reset(); }
+}
+void AnanTxDsp::feedPureSignalSpectrum(std::span<const std::complex<float>> tx,
+    std::span<const std::complex<float>> rx, bool twoTone, qint64 nowMs)
+{
+    if (!m_spectrum || !m_active || !m_context.permitsDispatch(nowMs)) { return; }
+    if (m_spectrumWantedUntilMs <= nowMs) {
+        if (m_spectrumWantedUntilMs != 0) { m_spectrum->reset(); m_spectrumWantedUntilMs = 0; }
+        return;
+    }
+    m_spectrum->feed(tx,rx,twoTone,nowMs);
+}
+const PureSignalSpectrumSnapshot* AnanTxDsp::pureSignalSpectrum(qint64 nowMs) const noexcept
+{
+    return m_active && m_context.permitsDispatch(nowMs) && m_spectrum && m_spectrum->fresh(nowMs)
+        ? &m_spectrum->snapshot() : nullptr;
+}
+
 bool AnanTxDsp::trySetFilter(double lowHz, double highHz)
 {
     return m_channel && std::isfinite(lowHz) && std::isfinite(highHz) && lowHz >= -10000
@@ -94,6 +131,7 @@ bool AnanTxDsp::begin(const TxCoordinator::Context& context, qint64 now)
 
 bool AnanTxDsp::end()
 {
+    resetPureSignalSpectrum();
     m_active = false;
     m_context = {};
     return !m_channel || m_channel->discardTransmitData();

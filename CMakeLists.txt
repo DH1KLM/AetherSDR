@@ -956,6 +956,7 @@ set(CORE_SOURCES
     src/core/backends/anan/AnanTxDsp.cpp
     src/core/backends/anan/AnanClient_PureSignal.cpp
     src/core/dsp/PureSignalCorrection.cpp
+    src/core/dsp/PureSignalSpectrum.cpp
     src/core/backends/anan/AnanDroopCorrection.cpp # ANAN DDC0 droop compensation (pure apply math)
     src/core/backends/anan/AnanDroopCalibrator.cpp # live, in-app DDC0 droop calibration sweep
     src/core/backends/anan/AnanDroopDefaults.cpp   # derived per-gateware droop defaults (generated data)

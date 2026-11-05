@@ -17,6 +17,10 @@ void AnanBackend::requestPureSignal(const QString& verb, quint64 requestId, cons
     const bool restore = verb == QLatin1String("puresignal.restore");
     const bool write = verb != QLatin1String("puresignal.get");
     const QString path = fields.value(QStringLiteral("path")).toString();
+    if (!write && fields.contains(QStringLiteral("spectra"))
+        && fields.value(QStringLiteral("spectra")).metaType().id() != QMetaType::Bool) {
+        emit extensionError(requestId,QStringLiteral("Invalid Pure Signal spectrum request.")); return;
+    }
     QString reason;
     const auto profile = receiveProfile(m_discoveredBoardId);
     if (!m_connected || !m_discoveryInfoReceived) {
@@ -83,17 +87,18 @@ void AnanBackend::requestPureSignal(const QString& verb, quint64 requestId, cons
     const quint64 epoch = m_receiveEpoch;
     const QString identity = transmitPreparationIdentity();
     const bool display = fields.value(QStringLiteral("display")).toBool();
+    const bool spectra = fields.value(QStringLiteral("spectra")).toBool();
     const auto permit = m_txSessionPermit;
     const auto revision = m_txFilterRevision;
     const quint64 filterRevision = revision->load();
     const auto dispatch = [this, epoch, requestId, write, mode, settings, display, identity, reason,
-                           permit, revision, filterRevision, save](std::shared_ptr<AnanTxDsp> prepared, bool saved = false) {
+                           permit, revision, filterRevision, save, spectra](std::shared_ptr<AnanTxDsp> prepared, bool saved = false) {
       QMetaObject::invokeMethod(m_client, [this, epoch, requestId, write, mode, settings, display, identity, reason,
-                                          permit, revision, filterRevision, save, saved, prepared = std::move(prepared)] {
+                                          permit, revision, filterRevision, save, saved, spectra, prepared = std::move(prepared)] {
         if (m_receiveIoEpoch->load() != epoch) { return; }
         const bool accepted = !write || (permit && permit->load() && revision->load() == filterRevision
             && (save ? saved : m_client->configurePureSignal(settings, mode, prepared)));
-        QVariantMap state = m_client->pureSignalState(display);
+        QVariantMap state = m_client->pureSignalState(display,spectra);
         QMetaObject::invokeMethod(this, [this, epoch, requestId, write, mode, accepted, identity, reason, state]() mutable {
             if (m_receiveEpoch != epoch || !m_connected) { return; }
             if (write) { m_pureSignalPending = false; }
@@ -146,6 +151,7 @@ void AnanBackend::requestPureSignal(const QString& verb, quint64 requestId, cons
         auto dsp = std::make_unique<AnanTxDsp>();
         bool ready = current() && dsp->configure(txMode, nullptr, outputRate, passband)
             && dsp->pureSignalChannel()->configurePureSignal(settings, mode, 192000);
+        if (ready && mode != PureSignalMode::Off) { dsp->preparePureSignalSpectrum(); }
         if (ready && mode == PureSignalMode::Current) {
             if (restore) {
                 QFile input(path);

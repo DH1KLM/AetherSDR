@@ -759,11 +759,13 @@ void P2Client::handleDatagram(std::span<const std::uint8_t> bytes, quint16 sende
         return;
     }
     if (m_pureSignalEnabled && senderPort == kDdc0DefaultPort) {
-        if (!transmitActive() || frame->samples <= 0 || frame->samples % 2 != 0
-            || frame->samples > 238) { m_pureSignalSequence.reset(); return; }
+        if (!transmitActive()) { m_pureSignalSequence.reset(); return; }
+        if (frame->samples <= 0 || frame->samples % 2 != 0 || frame->samples > 238) {
+            m_pureSignalSequence.reset(); emit pureSignalFeedbackGap(); return;
+        }
         const bool continuous = !m_pureSignalSequence || frame->seq == *m_pureSignalSequence;
         m_pureSignalSequence = frame->seq + 1;
-        if (!continuous) { return; }
+        if (!continuous) { emit pureSignalFeedbackGap(); return; }
         m_decodeScratch.clear();
         decodeIq(*frame, m_decodeScratch);
         m_pureSignalTransmit.clear(); m_pureSignalFeedback.clear();

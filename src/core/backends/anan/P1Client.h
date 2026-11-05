@@ -58,6 +58,7 @@ public:
     [[nodiscard]] std::size_t transmitQueueFreeSamples() const { return m_txIq.size() - m_txCount; }
 
 signals:
+    void pureSignalFeedbackGap();
     void pureSignalFeedback(const std::vector<std::complex<float>>& transmit,
                             const std::vector<std::complex<float>>& feedback);
     void supplyRailSampled(int counts);

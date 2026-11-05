@@ -200,6 +200,7 @@ public:
     };
 
 signals:
+    void pureSignalFeedbackGap();
     void pureSignalFeedback(const std::vector<std::complex<float>>& transmit,
                             const std::vector<std::complex<float>>& feedback);
     void transmitFault(const QString& reason);

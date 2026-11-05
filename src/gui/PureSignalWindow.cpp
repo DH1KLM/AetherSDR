@@ -18,6 +18,8 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QStringList>
+#include <QPen>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPushButton>
@@ -94,9 +96,16 @@ PureSignalWindow::PureSignalWindow(RadioModel& model, QWidget* parent)
     m_correcting = new QLabel(QStringLiteral("Correction: OFF"), bodyWidget());
     m_correcting->setObjectName(QStringLiteral("pureSignalCorrecting"));
     indicators->addWidget(m_feedback); indicators->addWidget(m_correcting); indicators->addStretch();
-    auto* measurements = new QCheckBox(QStringLiteral("Show 2Tone measurements"), bodyWidget());
-    unavailable(measurements, QStringLiteral("A measured PA-feedback spectrum is not available to the spectrum display."));
-    indicators->addWidget(measurements); layout->addLayout(indicators);
+    m_showMeasurements = new QCheckBox(QStringLiteral("Show 2Tone measurements"), bodyWidget());
+    m_showMeasurements->setObjectName(QStringLiteral("pureSignalShowMeasurements"));
+    m_showMeasurements->setAccessibleName(m_showMeasurements->text());
+    m_showMeasurements->setToolTip(QStringLiteral("Windowed IMD plus noise from paired feedback during the generated Two-Tone signal."));
+    connect(m_showMeasurements,&QCheckBox::toggled,this,[this](bool checked) {
+        m_measurements->setVisible(checked);
+        if (m_spectraMeasurements) { m_spectraMeasurements->setVisible(checked); }
+        request();
+    });
+    indicators->addWidget(m_showMeasurements); layout->addLayout(indicators);
     m_actionStatus = new QLabel(QStringLiteral("No Pure Signal action pending."),calibration);
     m_actionStatus->setObjectName(QStringLiteral("pureSignalActionStatus"));
     m_actionStatus->setWordWrap(true); layout->addWidget(m_actionStatus);
@@ -105,6 +114,10 @@ PureSignalWindow::PureSignalWindow(RadioModel& model, QWidget* parent)
     layout->addWidget(m_status);
     m_routing = new QLabel(bodyWidget()); m_routing->setWordWrap(true);
     m_routing->setObjectName(QStringLiteral("pureSignalRouting")); layout->addWidget(m_routing);
+    m_measurements = new QLabel(QStringLiteral("Waiting for generated Two-Tone and paired feedback."),calibration);
+    m_measurements->setObjectName(QStringLiteral("pureSignalMeasurements"));
+    m_measurements->setAccessibleName(QStringLiteral("Two-tone distortion and noise estimates"));
+    m_measurements->setWordWrap(true); m_measurements->hide(); layout->addWidget(m_measurements);
     auto* settings = new QHBoxLayout;
     auto* form = new QFormLayout; settings->addLayout(form);
     const std::array<QString,4> labels{QStringLiteral("MOX Wait (sec)"), QStringLiteral("CAL Wait (sec)"),
@@ -127,13 +140,26 @@ PureSignalWindow::PureSignalWindow(RadioModel& model, QWidget* parent)
     m_autoAttenuate->setToolTip(QStringLiteral("Adjust feedback attenuation after each valid calibration; pause and settle before collecting again."));
     connect(m_autoAttenuate,&QCheckBox::toggled,this,[this] { if (!m_filling) { m_dirty = true; } });
     options->addWidget(m_autoAttenuate);
-    for (const QString& name : {QStringLiteral("Quick Attenuate Response"),
-                               QStringLiteral("Display PS-RX and PS-TX spectra")}) {
+    for (const QString& name : {QStringLiteral("Quick Attenuate Response")}) {
         auto* control = new QCheckBox(name, bodyWidget());
         control->setAccessibleName(name);
         unavailable(control, QStringLiteral("This feedback-control path is not available in this build."));
         options->addWidget(control);
     }
+    m_showSpectra = new QCheckBox(QStringLiteral("Display PS-RX and PS-TX spectra"),bodyWidget());
+    m_showSpectra->setObjectName(QStringLiteral("pureSignalShowSpectra"));
+    m_showSpectra->setAccessibleName(m_showSpectra->text());
+    m_showSpectra->setToolTip(QStringLiteral("Show paired measured digital spectra inside this window; this does not transmit."));
+    connect(m_showSpectra,&QCheckBox::toggled,this,[this](bool checked) {
+        if (checked) { showSpectra(); }
+        else if (m_spectraView) {
+            const int index = m_views->indexOf(m_spectraView);
+            if (m_views->currentIndex() == index) { m_views->setCurrentIndex(0); }
+            m_views->setTabVisible(index,false);
+        }
+        request();
+    });
+    options->addWidget(m_showSpectra);
     auto* top = new QCheckBox(QStringLiteral("Always On Top"), bodyWidget());
     top->setAccessibleName(top->text()); options->addWidget(top);
     connect(top, &QCheckBox::toggled, this, [this](bool enabled) { onTop(this, enabled); });
@@ -218,6 +244,10 @@ void PureSignalWindow::retire()
     m_routing->clear();
     setAvailability(false, QStringLiteral("Connect an OpenHPSDR device first."));
     if (m_scene) { m_scene->clear(); }
+    if (m_spectraScene) { m_spectraScene->clear(); }
+    m_measurements->setText(QStringLiteral("Connect an OpenHPSDR device first."));
+    if (m_spectraMeasurements) { m_spectraMeasurements->setText(m_measurements->text()); }
+    if (m_spectraStatus) { m_spectraStatus->setText(m_measurements->text()); }
     close();
 }
 
@@ -295,7 +325,10 @@ void PureSignalWindow::request(bool write, int mode, const QString& operation, c
         if (!path.isEmpty()) { fields.insert(QStringLiteral("path"), path); }
         m_actionStatus->setText(QStringLiteral("Pure Signal operation pending…"));
         setAvailability(false, QStringLiteral("Applying Pure Signal configuration."));
-    } else { fields.insert(QStringLiteral("display"), m_ampView && m_ampView->isVisible()); }
+    } else {
+        fields.insert(QStringLiteral("display"), m_ampView && m_ampView->isVisible());
+        fields.insert(QStringLiteral("spectra"),m_showSpectra->isChecked() || m_showMeasurements->isChecked());
+    }
     m_model.invokeBackendExtension(QStringLiteral("anan"), !operation.isEmpty() ? operation
         : write ? QStringLiteral("puresignal.set") : QStringLiteral("puresignal.get"), id, fields);
 }
@@ -355,7 +388,108 @@ void PureSignalWindow::acceptState(const QVariantMap& state)
                 ? QStringLiteral("; waiting for pause/settling") : QString()));
     if (m_dirty) { m_status->setText(QStringLiteral("Configuration changes pending. Press Single Cal or Start Auto to apply.")); }
     m_peak->setText(QStringLiteral("GetPk: %1").arg(state.value(QStringLiteral("maximumTransmit")).toDouble(),0,'f',4));
+    m_measurements->setText(measurementText());
+    if (m_spectraMeasurements) { m_spectraMeasurements->setText(measurementText()); }
+    if (m_spectraView && m_spectraView->isVisible()) { renderSpectra(); }
     if (m_ampView && m_ampView->isVisible()) { renderAmpView(); }
+}
+
+QString PureSignalWindow::measurementText() const
+{
+    if (!m_state.value(QStringLiteral("spectraReady")).toBool()) {
+        return m_state.value(QStringLiteral("spectraStatus"),QStringLiteral("Waiting for fresh paired feedback samples.")).toString();
+    }
+    if (m_state.value(QStringLiteral("spectraClipping")).toBool()) {
+        return QStringLiteral("Possible sample clipping; IMD measurements unavailable.");
+    }
+    const QVariantList values = m_state.value(QStringLiteral("imdDbc")).toList();
+    if (!m_state.value(QStringLiteral("imdValid")).toBool() || values.size() != 4) {
+        return m_state.value(QStringLiteral("twoToneRunning")).toBool()
+            ? QStringLiteral("Waiting for valid paired carrier levels and a fresh measurement window.")
+            : QStringLiteral("Waiting for generated Two-Tone and both feedback carriers.");
+    }
+    QStringList parts;
+    for (int i = 0; i < 4; ++i) {
+        const double value = values[i].toDouble();
+        if (!std::isfinite(value)) { return QStringLiteral("Distortion measurement unavailable."); }
+        parts.append(QStringLiteral("IMD%1 %2").arg(2*i+3).arg(value < -120
+            ? QStringLiteral("< -120") : QString::number(value,'f',1)));
+    }
+    return QStringLiteral("IMD + noise (dBc per tone): ")+parts.join(QStringLiteral("   "));
+}
+
+void PureSignalWindow::showSpectra()
+{
+    if (!m_spectraView) {
+        auto* page = new QWidget(m_views);
+        page->setObjectName(QStringLiteral("pureSignalSpectraView"));
+        auto* layout = new QVBoxLayout(page);
+        m_spectraStatus = new QLabel(page); m_spectraStatus->setWordWrap(true);
+        m_spectraStatus->setObjectName(QStringLiteral("pureSignalSpectraStatus")); layout->addWidget(m_spectraStatus);
+        m_spectraMeasurements = new QLabel(measurementText(),page); m_spectraMeasurements->setWordWrap(true);
+        m_spectraMeasurements->setObjectName(QStringLiteral("pureSignalSpectraMeasurements"));
+        m_spectraMeasurements->setAccessibleName(QStringLiteral("Two-tone distortion and noise estimates"));
+        m_spectraMeasurements->setVisible(m_showMeasurements->isChecked()); layout->addWidget(m_spectraMeasurements);
+        auto* view = new QGraphicsView(page);
+        view->setObjectName(QStringLiteral("pureSignalSpectraPlot"));
+        view->setAccessibleName(QStringLiteral("Measured TX reference and PA feedback spectra"));
+        view->setAccessibleDescription(QStringLiteral("Digital dBFS versus frequency offset from the TX carrier; solid TX reference and dashed PA feedback."));
+        m_spectraScene = new QGraphicsScene(view); view->setScene(m_spectraScene);
+        view->setRenderHint(QPainter::Antialiasing); layout->addWidget(view);
+        m_spectraView = page; m_views->addTab(page,QStringLiteral("Feedback spectra"));
+    }
+    m_views->setTabVisible(m_views->indexOf(m_spectraView),true);
+    m_views->setCurrentWidget(m_spectraView); renderSpectra();
+}
+
+void PureSignalWindow::renderSpectra()
+{
+    if (!m_spectraScene) { return; }
+    m_spectraScene->clear(); m_spectraScene->setSceneRect(0,0,800,480);
+    ThemeManager& theme = ThemeManager::instance();
+    const QColor ink = theme.color(this,QStringLiteral("color.text.primary"));
+    const QColor grid = theme.color(this,QStringLiteral("color.border.subtle"));
+    const std::array<QColor,2> colors{theme.color(this,QStringLiteral("color.accent")),
+        theme.color(this,QStringLiteral("color.accent.warning"))};
+    m_spectraScene->setBackgroundBrush(theme.brush(QStringLiteral("color.background.spectrum"),QRect(0,0,800,480)));
+    const QRectF plot(55,25,680,360);
+    const auto point = [plot](double hz,double db) {
+        return QPointF(plot.left()+(hz+10000)/20000*plot.width(),plot.bottom()-(db+120)/120*plot.height());
+    };
+    const auto text = [this,ink](double x,double y,const QString& value) {
+        auto* item = m_spectraScene->addText(value); item->setDefaultTextColor(ink); item->setPos(x,y);
+    };
+    for (int i = 0; i <= 4; ++i) {
+        const double hz = -10000+i*5000;
+        m_spectraScene->addLine(QLineF(point(hz,-120),point(hz,0)),QPen(grid));
+        text(42+i*170,390,QString::number(hz/1000,'f',0));
+    }
+    for (int i = 0; i <= 6; ++i) {
+        const double db = -120+i*20;
+        m_spectraScene->addLine(QLineF(point(-10000,db),point(10000,db)),QPen(grid));
+        text(5,375-i*60,QString::number(db,'f',0));
+    }
+    text(55,0,QStringLiteral("Level (dBFS)")); text(260,425,QStringLiteral("Offset from TX carrier (kHz)"));
+    m_spectraStatus->setText(m_state.value(QStringLiteral("spectraStatus"),QStringLiteral("Waiting for paired feedback samples.")).toString());
+    const QVariantList frequency = m_state.value(QStringLiteral("spectraFrequencyHz")).toList();
+    const std::array<QVariantList,2> series{m_state.value(QStringLiteral("spectraTransmitDbfs")).toList(),
+        m_state.value(QStringLiteral("spectraFeedbackDbfs")).toList()};
+    if (m_state.value(QStringLiteral("spectraReady")).toBool() && !frequency.isEmpty() && frequency.size() <= 8192) {
+        for (int s = 0; s < 2; ++s) {
+            QPainterPath path; bool started = false;
+            for (qsizetype i = 0; i < std::min(frequency.size(),series[s].size()); ++i) {
+                const double hz = frequency[i].toDouble(), db = series[s][i].toDouble();
+                if (!std::isfinite(hz) || !std::isfinite(db) || std::abs(hz) > 10000) { started = false; continue; }
+                const QPointF p = point(hz,std::clamp(db,-120.0,0.0));
+                if (!started) { path.moveTo(p); started = true; } else { path.lineTo(p); }
+            }
+            m_spectraScene->addPath(path,QPen(colors[s],1.3,s == 0 ? Qt::SolidLine : Qt::DashLine));
+        }
+    } else { text(200,170,QStringLiteral("Waiting for fresh paired TX/PA feedback samples")); }
+    for (int i = 0; i < 2; ++i) {
+        auto* legend = m_spectraScene->addText(i == 0 ? QStringLiteral("TX reference —") : QStringLiteral("PA feedback - -"));
+        legend->setDefaultTextColor(colors[i]); legend->setPos(180+i*250,450);
+    }
 }
 
 void PureSignalWindow::showAmpView()

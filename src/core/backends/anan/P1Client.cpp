@@ -257,6 +257,7 @@ void P1Client::handleDatagram(const QHostAddress& sender, quint16 port,
         if (gap >= 0x80000000u)
             return;
         m_counters.drops += gap;
+        if (m_config.pureSignal && transmitActive()) { emit pureSignalFeedbackGap(); }
         for (int i = 0; i < m_config.receivers; ++i)
             emit ddcSequenceGap(i);
     }

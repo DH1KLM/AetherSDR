@@ -85,7 +85,28 @@ and restores the selected calibration mode. Key-off cancels the pending write;
 a later over drains and resumes the paused calibration without applying it.
 P1 carries the changed value on its existing IQ/control cycle; P2 sends its
 mic-control byte 59 under the captured operation fence. Neither route keys TX.
-Quick-response and measured feedback-spectrum integration remain unavailable.
+Quick-response remains unavailable.
+
+## Paired spectra and windowed distortion estimates
+
+The optional analyser uses an 8192-point Hann-windowed complex FFT at the
+paired stream's 192 kHz rate. I/Q is swapped like WDSP Spectrum0 for RF-oriented
+frequency axes. Plans are created and destroyed on the existing DSP planner
+under the double-precision FFTW planner lock; bounded execution runs on the
+owning I/O thread at at most 10 frames per second. No new thread or dependency
+is introduced. A failed optional FFT initialization does not block calibration.
+A viewer request leases collection for one second; display data expires after
+500 ms. Key-off, transport sequence gaps, invalid samples, and input gaps over
+100 ms clear the window. An entirely new window must fill before publication.
+
+IMD estimates require the locally admitted generated two-tone context, both
+700/1900 Hz reference and feedback carriers, compatible sideband orientation,
+and no possible sample clipping. Power is integrated across five bins per
+carrier/product; the stronger lower/upper product is compared with the mean
+power of one feedback carrier for IMD3/5/7/9. These are IMD-plus-noise estimates,
+not a claim of RF power calibration or established PA correction performance.
+Tests inject known -40/-50/-60/-70 dBc products on both RF sidebands and check
+normalization, freshness, clipping rejection, and the original source context.
 
 Save captures actual IQC coefficients; Restore validates a bounded v2 document
 before native parsing and installs into an unpublished fresh channel. Apply

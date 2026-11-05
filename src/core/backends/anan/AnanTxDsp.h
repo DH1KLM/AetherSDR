@@ -3,6 +3,7 @@
 #include "core/TxCoordinator.h"
 #include "core/dsp/WdspChannel.h"
 #include "core/Resampler.h"
+#include "core/dsp/PureSignalSpectrum.h"
 #include <QByteArray>
 
 #include <array>
@@ -31,6 +32,13 @@ public:
     bool configure(WdspChannel::Mode mode, std::string* error = nullptr, int outputRate = kOutputRate,
                    std::optional<std::pair<double,double>> passband = std::nullopt);
     bool trySetFilter(double lowHz, double highHz);
+    bool preparePureSignalSpectrum();
+    void requestPureSignalSpectrum(bool wanted, qint64 nowMs);
+    void resetPureSignalSpectrum();
+    void feedPureSignalSpectrum(std::span<const std::complex<float>> tx,
+        std::span<const std::complex<float>> rx, bool twoTone, qint64 nowMs);
+    [[nodiscard]] bool hasPureSignalSpectrum() const noexcept { return m_spectrum && m_spectrum->valid(); }
+    [[nodiscard]] const PureSignalSpectrumSnapshot* pureSignalSpectrum(qint64 nowMs) const noexcept;
     QByteArray monitorAudio(std::span<const std::complex<float>> iq);
     [[nodiscard]] std::size_t outputSamples() const noexcept { return m_outputSamples; }
     bool begin(const TxCoordinator::Context& context, qint64 now);
@@ -44,6 +52,8 @@ public:
 
 private:
     std::unique_ptr<WdspChannel> m_channel;
+    std::unique_ptr<PureSignalSpectrum> m_spectrum;
+    qint64 m_spectrumWantedUntilMs = 0;
     TxCoordinator::Context m_context;
     bool m_active = false;
     std::optional<WdspChannel::Mode> m_mode;

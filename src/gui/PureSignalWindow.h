@@ -36,6 +36,9 @@ private:
     void acceptState(const QVariantMap& state);
     void showAmpView();
     void renderAmpView();
+    void showSpectra();
+    void renderSpectra();
+    QString measurementText() const;
     void setAvailability(bool available, const QString& reason);
 
     RadioModel& m_model;
@@ -58,6 +61,13 @@ private:
     QPushButton* m_restore;
     QTabWidget* m_views;
     QPointer<QWidget> m_ampView;
+    QPointer<QWidget> m_spectraView;
+    QGraphicsScene* m_spectraScene = nullptr;
+    QCheckBox* m_showSpectra = nullptr;
+    QCheckBox* m_showMeasurements = nullptr;
+    QLabel* m_measurements = nullptr;
+    QLabel* m_spectraStatus = nullptr;
+    QLabel* m_spectraMeasurements = nullptr;
     QGraphicsScene* m_scene = nullptr;
     QCheckBox* m_autoAttenuate = nullptr;
     QCheckBox* m_gain = nullptr;

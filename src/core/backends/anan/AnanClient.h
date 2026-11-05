@@ -53,7 +53,7 @@ public:
     bool setReceiveStreams(const std::vector<DdcConfig>& streams,
                            const std::vector<double>& centers);
     bool setDiversity(const DiversitySettings& settings);
-    QVariantMap pureSignalState(bool display);
+    QVariantMap pureSignalState(bool display, bool spectra = false);
     std::shared_ptr<AnanTxDsp> pureSignalDspForControl() const
     { return m_transmitConfigured && !m_transmitKeyed ? m_transmitDsp : nullptr; }
     bool configurePureSignal(const PureSignalSettings& settings, PureSignalMode mode, std::shared_ptr<AnanTxDsp> prepared);

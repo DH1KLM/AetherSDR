@@ -3,6 +3,7 @@
 #include "core/backends/anan/AnanTxDsp.h"
 #include "core/dsp/PureSignalCorrection.h"
 #include "core/dsp/PureSignalAttenuator.h"
+#include "core/dsp/PureSignalSpectrum.h"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -58,6 +59,105 @@ void check(bool condition, const char* message)
 {
     std::printf("%s %s\n",condition?"PASS":"FAIL",message);
     if (!condition) { ++failures; }
+}
+
+void pairedSpectra()
+{
+    using namespace AetherSDR;
+    for (const double side : {-1.0,1.0}) {
+        PureSignalSpectrum analyser;
+        check(analyser.valid(), "paired spectrum creates a bounded FFT plan without a radio");
+        std::array<std::complex<float>,512> tx{}, rx{};
+        std::array<std::complex<float>,PureSignalSpectrum::kSamples> fullTx{}, fullRx{};
+        const std::array<double,4> levels{-40,-50,-60,-70};
+        for (int block = 0; block < 16; ++block) {
+            for (std::size_t i = 0; i < tx.size(); ++i) {
+                const double phase = -side*2*std::numbers::pi*(block*tx.size()+i)/PureSignalSpectrum::kSampleRate;
+                const std::complex<double> reference = std::polar(0.2,phase*700)+std::polar(0.2,phase*1900);
+                std::complex<double> observed = reference*0.5;
+                for (int k = 0; k < 4; ++k) {
+                    const double hz = (k+2)*700-(k+1)*1900;
+                    observed += std::polar(0.1*std::pow(10.0,levels[k]/20),phase*hz);
+                }
+                tx[i] = {float(reference.real()),float(reference.imag())};
+                rx[i] = {float(observed.real()),float(observed.imag())};
+                fullTx[block*tx.size()+i] = tx[i]; fullRx[block*tx.size()+i] = rx[i];
+            }
+            check(analyser.feed(tx,rx,true,0), "finite paired spectra accept bounded synchronized samples");
+            if (block < 15) { check(!analyser.snapshot().ready, "partial FFT windows cannot invent measured curves"); }
+        }
+        const auto& result = analyser.snapshot();
+        check(result.ready && result.imdValid && !result.possibleClipping
+            && result.frequencyHz.size() == result.transmitDbfs.size()
+            && result.feedbackDbfs.size() == result.frequencyHz.size(),
+            "complete paired data publishes actual spectra and validated two-tone estimates");
+        for (int k = 0; k < 4; ++k) {
+            std::printf("spectral IMD%d side=%+.0f measured=%.3f expected=%.1f dBc\n",2*k+3,side,result.imdDbc[k],levels[k]);
+            check(std::abs(result.imdDbc[k]-levels[k]) < 0.25, "injected IMD products retain their known per-tone ratios");
+        }
+        double plottedTx = -160, plottedRx = -160;
+        for (std::size_t i = 0; i < result.frequencyHz.size(); ++i) {
+            if (std::abs(result.frequencyHz[i]-side*700) < 30) {
+                plottedTx = std::max(plottedTx,result.transmitDbfs[i]);
+                plottedRx = std::max(plottedRx,result.feedbackDbfs[i]);
+            }
+        }
+        check(std::abs(plottedTx-20*std::log10(0.2)) < 0.3 && std::abs(plottedRx+20) < 0.3
+            && std::is_sorted(result.frequencyHz.begin(),result.frequencyHz.end()),
+            "plotted Hann-window levels preserve digital full scale and RF-side frequency orientation");
+        check(analyser.fresh(500) && !analyser.fresh(501), "missing feedback expires the displayed measurement after 500 ms");
+        check(analyser.feed(tx,rx,true,600) && !analyser.snapshot().ready,
+            "a feedback outage requires an entirely fresh window before publishing again");
+        check(analyser.feed(tx,rx,false,700) && !analyser.snapshot().ready && !analyser.snapshot().imdValid,
+            "ending the generated two-tone context discards its old measurement window");
+        analyser.reset();
+        for (int block = 0; block < 16; ++block) {
+            std::copy_n(fullTx.begin()+block*tx.size(),tx.size(),tx.begin());
+            std::copy_n(fullRx.begin()+block*rx.size(),rx.size(),rx.begin());
+            analyser.feed(tx,rx,false,800);
+        }
+        check(analyser.snapshot().ready && !analyser.snapshot().imdValid,
+            "even valid carrier-shaped spectra cannot publish IMD without the generated two-tone context");
+        analyser.reset();
+        for (int block = 0; block < 16; ++block) {
+            std::copy_n(fullTx.begin()+block*tx.size(),tx.size(),tx.begin());
+            std::copy_n(fullRx.begin()+block*rx.size(),rx.size(),rx.begin());
+            if (block == 0) { rx[0] = {1,0}; }
+            analyser.feed(tx,rx,true,900);
+        }
+        check(analyser.snapshot().ready && analyser.snapshot().possibleClipping && !analyser.snapshot().imdValid,
+            "possible sample clipping invalidates otherwise measurable carrier data");
+        tx[0] = {std::numeric_limits<float>::quiet_NaN(),0};
+        check(!analyser.feed(tx,rx,true,1000) && !analyser.snapshot().ready,
+            "nonfinite feedback input clears the spectrum and its measurements");
+        tx[0] = fullTx[0];
+        check(!analyser.feed(tx,std::span(rx).first(rx.size()-1),true,1100) && !analyser.snapshot().ready,
+            "unpaired spectrum input cannot form a measurement window");
+    }
+}
+
+void spectrumContext()
+{
+    using namespace AetherSDR;
+    anan::AnanTxDsp dsp;
+    TxCoordinator coordinator([](const auto&,auto) {});
+    const auto producer = coordinator.registerProducer(true);
+    const auto context = coordinator.mediaContext(producer);
+    check(dsp.configure(WdspChannel::Mode::Usb) && dsp.preparePureSignalSpectrum() && dsp.begin(context,0),
+        "spectrum owner prepares on the DSP planning path and starts with valid original media context");
+    const std::array<std::complex<float>,512> samples{};
+    for (int block = 0; block < 16; ++block) { dsp.feedPureSignalSpectrum(samples,samples,false,0); }
+    check(!dsp.pureSignalSpectrum(0), "unrequested spectrum collection stays inactive");
+    dsp.requestPureSignalSpectrum(true,0);
+    for (int block = 0; block < 16; ++block) { dsp.feedPureSignalSpectrum(samples,samples,false,0); }
+    check(dsp.pureSignalSpectrum(0), "requested paired samples publish through their active DSP owner");
+    check(dsp.end() && !dsp.pureSignalSpectrum(0), "ending an over clears its displayed spectrum immediately");
+    check(dsp.begin(context,0), "spectrum owner can start a separately admitted over");
+    dsp.requestPureSignalSpectrum(true,0);
+    for (int block = 0; block < 16; ++block) { dsp.feedPureSignalSpectrum(samples,samples,false,0); }
+    check(dsp.pureSignalSpectrum(0), "new over fills its own fresh sample window");
+    producer.invalidate();
+    check(!dsp.pureSignalSpectrum(0), "retired producer context cannot publish a cached measurement");
 }
 
 void attenuationPolicy()
@@ -221,6 +321,8 @@ void correctionFiles()
 int main(int argc,char** argv)
 {
     QCoreApplication app(argc,argv);
+    pairedSpectra();
+    spectrumContext();
     attenuationPolicy();
     correctionFiles();
     using namespace AetherSDR;

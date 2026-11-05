@@ -59,10 +59,16 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
         [this](const std::vector<std::complex<float>>& tx, const std::vector<std::complex<float>>& rx) {
             if (m_pureSignalMode == PureSignalMode::Off || !m_transmitDsp
                 || !m_transmitKeyed || !m_transmitMediaStarted || m_transmitCarrier
-                || !m_transmitOperation.permitsDispatch(TxCoordinator::monotonicMs())) { return; }
+                || !m_transmitOperation.permitsDispatch(TxCoordinator::monotonicMs())
+                || !m_transmitContext.permitsDispatch(TxCoordinator::monotonicMs())) { return; }
+            m_transmitDsp->feedPureSignalSpectrum(tx,rx,m_transmitTwoTone && !m_pureSignalAttenuator.pending(),
+                TxCoordinator::monotonicMs());
             WdspChannel* channel = m_transmitDsp->pureSignalChannel();
             if (channel && channel->feedPureSignal(tx, rx, true)) { updatePureSignalAttenuation(); }
         };
+    const auto gap = [this] { if (m_transmitDsp) { m_transmitDsp->resetPureSignalSpectrum(); } };
+    connect(m_p1,&P1Client::pureSignalFeedbackGap,this,gap,Qt::DirectConnection);
+    connect(m_p2,&P2Client::pureSignalFeedbackGap,this,gap,Qt::DirectConnection);
     connect(m_p2, &P2Client::pureSignalFeedback, this, feedback, Qt::DirectConnection);
     connect(m_p1, &P1Client::pureSignalFeedback, this, feedback, Qt::DirectConnection);
     connect(m_p2, &P2Client::transmitFault, this, [this](const QString& reason) {
