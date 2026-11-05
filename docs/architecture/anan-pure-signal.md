@@ -47,6 +47,23 @@ an already prepared TX session. Diversity must be disabled.
 The existing TxCoordinator operation still gates keying and feedback delivery.
 Feedback data never grants TX authority.
 
+## Reference amplitude domain
+
+TXA output is multiplied by `AnanTxDsp::kWireAmplitudeGain` (0.5) before
+serialization, retaining the existing 6 dB digital headroom. The digital
+hardware monitor therefore also contains that gain. Before passing its TX
+reference to CALCC, `feedPureSignalFeedback` divides it by the same constant;
+the measured PA feedback is not scaled. This restores the full-TXA reference
+domain expected by the hardware-specific SetPk and by IQC's input envelope.
+It changes neither emitted TX samples nor operator drive, attenuation or SetPk.
+
+CALCC divides the TX envelope by SetPk and needs all sixteen amplitude buckets,
+including 0.9375–1.0. An uncompensated half-scale reference cannot fill the upper
+buckets even while valid paired packets arrive. The native regression compares
+both paths using identical sample fixtures: the raw path remains collecting;
+the compensated path completes calculation and installs a real correction.
+Raw spectra and sample-peak diagnostics retain the received digital levels.
+
 ## Correction lifetime
 
 Changing calibration mode or pressing OFF prepares a fresh TXA channel on

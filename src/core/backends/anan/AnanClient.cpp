@@ -65,8 +65,7 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
                 || !m_transmitContext.permitsDispatch(TxCoordinator::monotonicMs())) { return; }
             m_transmitDsp->feedPureSignalSpectrum(tx,rx,m_transmitTwoTone && !m_pureSignalAttenuator.pending(),
                 TxCoordinator::monotonicMs());
-            WdspChannel* channel = m_transmitDsp->pureSignalChannel();
-            if (channel && channel->feedPureSignal(tx, rx, true)) {
+            if (m_transmitDsp->feedPureSignalFeedback(tx,rx,TxCoordinator::monotonicMs())) {
                 ++m_pureSignalFeedbackBlocks;
                 m_pureSignalFeedbackMs = TxCoordinator::monotonicMs();
                 m_pureSignalTxPeak = m_pureSignalRxPeak = 0;

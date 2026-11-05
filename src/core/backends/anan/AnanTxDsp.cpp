@@ -81,6 +81,18 @@ bool AnanTxDsp::preparePureSignalSpectrum()
     }
     return true;
 }
+bool AnanTxDsp::feedPureSignalFeedback(std::span<const std::complex<float>> tx,
+    std::span<const std::complex<float>> rx, qint64 nowMs)
+{
+    if (!m_active || !m_context.permitsDispatch(nowMs) || !m_channel
+        || tx.empty() || tx.size() > 4096 || tx.size() != rx.size()) { return false; }
+    // CALCC's hardware peak describes a full TXA signal. Undo our post-TXA
+    // headroom in the digital reference only, so its amplitude buckets still
+    // span the IQC input domain. RF samples and raw spectrum levels stay as sent.
+    std::array<std::complex<float>,4096> reference{};
+    for (std::size_t i = 0; i < tx.size(); ++i) { reference[i] = tx[i] / kWireAmplitudeGain; }
+    return m_channel->feedPureSignal(std::span(reference).first(tx.size()),rx,true);
+}
 void AnanTxDsp::requestPureSignalSpectrum(bool wanted, qint64 nowMs)
 {
     if (wanted && m_spectrum) {
@@ -173,7 +185,7 @@ AnanTxDsp::Result AnanTxDsp::process(std::span<const float> mono,
     }
     for (std::size_t i = 0; i < m_outputSamples; ++i) {
         // TXA already has HPSDR wire handedness. Reserve 6 dB of digital headroom.
-        output[i] = {0.5f * m_i[i], 0.5f * m_q[i]};
+        output[i] = {kWireAmplitudeGain * m_i[i], kWireAmplitudeGain * m_q[i]};
     }
     return Result::Output;
 }

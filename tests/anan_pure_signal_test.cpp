@@ -325,6 +325,62 @@ void correctionFiles()
         "native collecting state and zero feedback level do not establish a usable calibration signal");
 
 }
+
+void feedbackHeadroom()
+{
+    using namespace AetherSDR;
+    using anan::AnanTxDsp;
+    AnanTxDsp raw, compensated;
+    PureSignalSettings settings;
+    settings.hardwarePeak = 0.2899; settings.moxWaitSeconds = 0; settings.amplifierDelayNs = 0;
+    check(raw.configure(WdspChannel::Mode::Usb) && compensated.configure(WdspChannel::Mode::Usb),
+        "headroom regression uses real independent TXA channels");
+    if (!raw.pureSignalChannel() || !compensated.pureSignalChannel()) { return; }
+    check(raw.pureSignalChannel()->configurePureSignal(settings,PureSignalMode::Single,192000)
+        && compensated.pureSignalChannel()->configurePureSignal(settings,PureSignalMode::Single,192000),
+        "native calibration keeps the published P2 hardware peak");
+    TxCoordinator coordinator([](const auto&,auto) {});
+    const auto producer = coordinator.registerProducer(true);
+    const auto context = coordinator.mediaContext(producer);
+    check(raw.begin(context,0) && compensated.begin(context,0),"offline feedback retains admitted media context");
+    std::array<std::complex<float>,128> tx{}, rx{};
+    std::array<std::complex<float>,AnanTxDsp::kOutputSamples> output{};
+    const std::array<float,AnanTxDsp::kInputSamples> silence{};
+    QElapsedTimer timer; timer.start();
+    int block = 0;
+    bool completed = false;
+    bool accepted = true;
+    while (timer.elapsed() < 5000 && !completed) {
+        for (std::size_t i = 0; i < tx.size(); ++i) {
+            const double envelope = ((block*tx.size()+i)%4096+0.5)/4096.0;
+            tx[i] = {static_cast<float>(0.5*settings.hardwarePeak*envelope),0};
+            rx[i] = {static_cast<float>(0.01*envelope),0};
+        }
+        accepted = raw.pureSignalChannel()->feedPureSignal(tx,rx,true)
+            && compensated.feedPureSignalFeedback(tx,rx,0) && accepted;
+        raw.process(silence,context,0,output);
+        compensated.process(silence,context,0,output);
+        const auto state = compensated.pureSignalChannel()->pureSignalSnapshot(false);
+        completed = state && state->information[7] > 0 && state->correctionAvailable;
+        ++block; QThread::msleep(1);
+    }
+    const auto before = raw.pureSignalChannel()->pureSignalSnapshot(false);
+    const auto after = compensated.pureSignalChannel()->pureSignalSnapshot(false);
+    if (before && after) {
+        std::printf("Reference proof: raw state=%d attempts=%d; compensated state=%d attempts=%d calibrations=%d peak=%.6f\n",
+            before->information[15],before->information[7],after->information[15],after->information[7],
+            after->information[5],after->maximumTransmit);
+    }
+    check(accepted && before && before->information[7] == 0 && before->information[15] == 4,
+        "uncompensated half-scale reference cannot fill native upper amplitude buckets");
+    check(completed && after && after->information[5] > 0 && after->correctionAvailable,
+        "headroom compensation produces a completed native calibration and actual correction");
+    check(after && std::abs(after->hardwarePeak-settings.hardwarePeak) < 1e-9
+        && after->maximumTransmit > 0.99*settings.hardwarePeak,
+        "reference normalization reaches the native peak without changing SetPk");
+    check(compensated.end() && !compensated.feedPureSignalFeedback(tx,rx,0),
+        "feedback normalization cannot process a retired transmission");
+}
 }
 
 int main(int argc,char** argv)
@@ -334,6 +390,7 @@ int main(int argc,char** argv)
     spectrumContext();
     attenuationPolicy();
     correctionFiles();
+    feedbackHeadroom();
     using namespace AetherSDR;
     using namespace AetherSDR::anan;
     PureSignalSettings settings;

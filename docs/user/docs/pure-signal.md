@@ -93,6 +93,10 @@ is 1). A zero **Feedback Level** does not prove that no packets arrive: it is
 a calibration result, not a packet counter. Native **state** 4 means collecting
 samples; a usable calibration can still be missing. A stale or missing stream
 is reported explicitly. The ADC page shows configured feedback routes separately.
+The TX-reference sample peak and spectra show raw received levels. Calibration
+internally compensates the TX path's 6 dB digital headroom, so these raw levels
+are not directly comparable with **SetPk**. This compensation does not change
+transmit power, the feedback attenuator or the hardware-specific **SetPk**.
 
 ## Making a change
 

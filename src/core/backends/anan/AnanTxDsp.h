@@ -23,6 +23,7 @@ public:
     static constexpr int kInputRate = 24000;
     static constexpr int kDspRate = 96000;
     static constexpr int kOutputRate = 192000;
+    static constexpr float kWireAmplitudeGain = 0.5f;
     static constexpr std::size_t kInputSamples = 128;
     static constexpr std::size_t kOutputSamples = 1024;
     static constexpr std::size_t kMaximumQueuedInputSamples = 2 * kInputRate;
@@ -33,6 +34,8 @@ public:
                    std::optional<std::pair<double,double>> passband = std::nullopt);
     bool trySetFilter(double lowHz, double highHz);
     bool preparePureSignalSpectrum();
+    bool feedPureSignalFeedback(std::span<const std::complex<float>> tx,
+        std::span<const std::complex<float>> rx, qint64 nowMs);
     void requestPureSignalSpectrum(bool wanted, qint64 nowMs);
     void resetPureSignalSpectrum();
     void feedPureSignalSpectrum(std::span<const std::complex<float>> tx,
