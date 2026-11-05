@@ -59,6 +59,7 @@ private:
     QTabWidget* m_views;
     QPointer<QWidget> m_ampView;
     QGraphicsScene* m_scene = nullptr;
+    QCheckBox* m_autoAttenuate = nullptr;
     QCheckBox* m_gain = nullptr;
     QCheckBox* m_phaseZoom = nullptr;
     QCheckBox* m_lowRes = nullptr;

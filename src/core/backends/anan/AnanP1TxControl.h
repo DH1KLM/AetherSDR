@@ -29,7 +29,7 @@ inline std::optional<p1::Packet> buildP1Transmit(const p1::ReceiveConfig& receiv
             } else if (address == 0x1c) {
                 (*packet)[base+4] = static_cast<std::uint8_t>(((*packet)[base+4] & 0xf0) | 0x08);
             } else if (address == 0x14) {
-                (*packet)[base+7] = 0x3f;
+                (*packet)[base+7] = static_cast<std::uint8_t>(0x20 | config.pureSignalAttenuationDb);
             }
         }
         if (address == 2) {

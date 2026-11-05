@@ -2,6 +2,7 @@
 #include "core/backends/anan/AnanP1TxControl.h"
 #include "core/backends/anan/AnanTxDsp.h"
 #include "core/dsp/PureSignalCorrection.h"
+#include "core/dsp/PureSignalAttenuator.h"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -57,6 +58,47 @@ void check(bool condition, const char* message)
 {
     std::printf("%s %s\n",condition?"PASS":"FAIL",message);
     if (!condition) { ++failures; }
+}
+
+void attenuationPolicy()
+{
+    using namespace AetherSDR;
+    using Action = PureSignalAttenuator::Action;
+    PureSignalSnapshot state;
+    PureSignalAttenuator policy;
+    policy.beginOver(1); state.information[5] = 1; state.information[4] = 220;
+    check(policy.observe(state,true,false,10,0) == Action::None, "old calibration result cannot adjust a new over");
+    state.information[5] = 2;
+    check(policy.observe(state,true,false,10,0) == Action::Pause && policy.targetDb() == 13,
+        "excess feedback requests a bounded attenuation increase and a native pause first");
+    policy.accepted(Action::Pause,0,2);
+    check(policy.observe(state,true,false,10,20) == Action::None,
+        "attenuation cannot change before CALCC and IQC acknowledge the pause");
+    check(policy.observe(state,true,true,10,30) == Action::Attenuate, "acknowledged pause permits its pending hardware change");
+    policy.cancelOver(); policy.beginOver(2);
+    check(policy.observe(state,true,true,10,50) == Action::Resume,
+        "unkey cancels the old attenuation write even if the next over receives its acknowledgement");
+    policy.accepted(Action::Resume,50,2);
+    state.information[5] = 3; state.information[4] = 75;
+    check(policy.observe(state,true,false,20,60) == Action::Pause && policy.targetDb() == 14,
+        "weak valid feedback lowers attenuation using the logarithmic level ratio");
+    policy.accepted(Action::Pause,60,3);
+    check(policy.observe(state,true,true,20,70) == Action::Attenuate, "native acknowledgement precedes every update");
+    policy.accepted(Action::Attenuate,70,3);
+    check(policy.observe(state,true,true,14,169) == Action::None
+        && policy.observe(state,true,true,14,170) == Action::Resume,
+        "changed attenuation settles for 100 ms before calibration resumes");
+    policy.accepted(Action::Resume,170,3);
+    check(policy.observe(state,true,true,14,180) == Action::None, "one attempt causes at most one attenuation adjustment");
+    state.information[5] = 4; state.information[4] = 300; state.information[0] = 1;
+    check(policy.observe(state,true,false,14,200) == Action::None, "failed RX-builder results cannot actuate the attenuator");
+    state.information[5] = 5; state.information[0] = 0;
+    check(policy.observe(state,true,false,14,210) == Action::Pause && policy.targetDb() == 31,
+        "overload requests maximum supported attenuation without exceeding the hardware range");
+    policy.accepted(Action::Pause,210,5);
+    check(policy.observe(state,false,false,14,220) == Action::None
+        && policy.observe(state,false,true,14,230) == Action::Resume,
+        "disabling automatic attenuation drains its pause without issuing the pending hardware write");
 }
 
 QByteArray correctionFixture()
@@ -152,12 +194,34 @@ void correctionFiles()
     }
     check(referenceEnergy > 0 && std::abs(std::sqrt(correctedEnergy/referenceEnergy)-0.8) < 0.02,
         "restored IQC coefficients actually change TXA samples by their specified gain");
+    check(channel->pausePureSignalCalibration(), "native calibration pause accepts an explicit control request");
+    check(channel->pureSignalCalibrationPaused() == false, "a newly requested reset is not an acknowledgement");
+    QElapsedTimer pauseTimer; pauseTimer.start();
+    const std::array<std::complex<float>,128> feedback{};
+    const std::array<float,AnanTxDsp::kInputSamples> silence{};
+    while (channel->pureSignalCalibrationPaused() != true && pauseTimer.elapsed() < 2000) {
+        channel->feedPureSignal(feedback,feedback,true);
+        std::array<std::complex<float>,AnanTxDsp::kOutputSamples> output{};
+        const auto result = restored.process(silence,context,0,output);
+        if (result != AnanTxDsp::Result::Output && result != AnanTxDsp::Result::WouldBlock) {
+            check(false,"native pause continues admitted DSP exchanges"); break;
+        }
+        QThread::msleep(1);
+    }
+    const auto stopped = channel->pureSignalSnapshot(false);
+    check(channel->pureSignalCalibrationPaused() == true && stopped
+        && !stopped->correctionRunning && !stopped->correctionBusy,
+        "pause acknowledges only after the real retained IQC correction and END ramp drain");
+    check(channel->resumePureSignalCalibration(PureSignalMode::Automatic),
+        "acknowledged native pause resumes the selected calibration mode without keying");
+
 }
 }
 
 int main(int argc,char** argv)
 {
     QCoreApplication app(argc,argv);
+    attenuationPolicy();
     correctionFiles();
     using namespace AetherSDR;
     using namespace AetherSDR::anan;
@@ -204,6 +268,14 @@ int main(int argc,char** argv)
         "P1 keyed ADC map selects physical feedback and digital reference");
     check(packet && (*packet)[524] == 0 && (*packet)[525] == 0xd5 && (*packet)[526] == 0x9f && (*packet)[527] == 0x80,
         "P1 feedback VFO uses the TX frequency (14 MHz)");
+    config.pureSignalAttenuationDb = 17;
+    const auto attenuated = buildP1Transmit(config,tx,true,0,0x14,0x24);
+    check(attenuated && (*attenuated)[15] == 0x31,
+        "P1 keyed feedback attenuation retains enable bit and requested 17 dB");
+    config.pureSignalAttenuationDb = 32;
+    check(!buildP1Transmit(config,tx,true,0,0x14,0x24),
+        "out-of-range P1 feedback attenuation cannot reach a wire packet");
+
 
     AnanTxDsp dsp;
     check(dsp.configure(WdspChannel::Mode::Usb),"real TXA channel constructs without RF transport");

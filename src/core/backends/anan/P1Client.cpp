@@ -671,6 +671,17 @@ bool P1Client::setDiversity(const DiversitySettings& settings)
     return true;
 }
 
+bool P1Client::setPureSignalAttenuation(int db, const TxCoordinator::Operation& operation)
+{
+    if (db < 0 || db > 31 || !m_running || !m_linkUp || !m_validated
+        || !m_config.pureSignal || !transmitActive() || !operation.sameAuthority(m_txOperation)
+        || !operation.permitsDispatch(TxCoordinator::monotonicMs())) { return false; }
+    // The existing keyed IQ/control cycle carries this value without inserting
+    // a separate zero-IQ packet into the continuous transmission.
+    m_config.pureSignalAttenuationDb = db;
+    return true;
+}
+
 bool P1Client::setPureSignalEnabled(bool enabled)
 {
     if (enabled == m_config.pureSignal) { return true; }
@@ -678,9 +689,15 @@ bool P1Client::setPureSignalEnabled(bool enabled)
         || (enabled && (m_diversity.enabled || m_config.numAdcs != 2 || m_config.receivers != 5
             || m_config.rateKsps != 192 || m_receiveStreams.size() > 2))) { return false; }
     const bool previous = m_config.pureSignal;
+    const int previousAttenuation = m_config.pureSignalAttenuationDb;
     m_config.pureSignal = enabled;
+    if (!enabled) { m_config.pureSignalAttenuationDb = 31; }
     const auto packet = p1::speakerAndControl(m_txSequence++,0x14,0x24,m_config);
-    if (!packet || !send(*packet)) { m_config.pureSignal = previous; return false; }
+    if (!packet || !send(*packet)) {
+        m_config.pureSignal = previous;
+        m_config.pureSignalAttenuationDb = previousAttenuation;
+        return false;
+    }
     return true;
 }
 } // namespace AetherSDR::anan

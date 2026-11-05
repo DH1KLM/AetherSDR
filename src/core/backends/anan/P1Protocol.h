@@ -55,6 +55,7 @@ struct ReceiveConfig {
     std::uint8_t receiveFilterBits = 0x20;
     std::uint8_t adc1ReceiveFilterBits = 0x20;
     std::uint8_t lowPassBits = 0x10;
+    int pureSignalAttenuationDb = 31;
 };
 
 [[nodiscard]] bool validConfig(const ReceiveConfig& config) noexcept;

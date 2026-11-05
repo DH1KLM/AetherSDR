@@ -1436,6 +1436,32 @@ std::optional<AetherSDR::PureSignalSnapshot> WdspChannel::pureSignalSnapshot(boo
     return snapshot;
 }
 
+bool WdspChannel::pausePureSignalCalibration() noexcept
+{
+    if (m_config.direction != Direction::Transmit || !m_pureSignalConfigured || !beginControlOperation()) { return false; }
+    SetPSControl(m_channelId, 1, 0, 0, 0);
+    endControlOperation();
+    return true;
+}
+
+std::optional<bool> WdspChannel::pureSignalCalibrationPaused() noexcept
+{
+    if (m_config.direction != Direction::Transmit || !m_pureSignalConfigured || !beginControlOperation()) { return std::nullopt; }
+    const bool paused = AetherPSCalibrationPaused(m_channelId) != 0;
+    endControlOperation();
+    return paused;
+}
+
+bool WdspChannel::resumePureSignalCalibration(PureSignalMode mode) noexcept
+{
+    if ((mode != PureSignalMode::Automatic && mode != PureSignalMode::Single)
+        || m_config.direction != Direction::Transmit || !m_pureSignalConfigured || !beginControlOperation()) { return false; }
+    const bool paused = AetherPSCalibrationPaused(m_channelId) != 0;
+    if (paused) { SetPSControl(m_channelId, 0, mode == PureSignalMode::Single, mode == PureSignalMode::Automatic, 0); }
+    endControlOperation();
+    return paused;
+}
+
 std::optional<std::string> WdspChannel::savePureSignalCorrection()
 {
     if (m_config.direction != Direction::Transmit || m_running.load() || !beginControlOperation()) { return std::nullopt; }

@@ -61,7 +61,7 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
                 || !m_transmitKeyed || !m_transmitMediaStarted || m_transmitCarrier
                 || !m_transmitOperation.permitsDispatch(TxCoordinator::monotonicMs())) { return; }
             WdspChannel* channel = m_transmitDsp->pureSignalChannel();
-            if (channel) { channel->feedPureSignal(tx, rx, true); }
+            if (channel && channel->feedPureSignal(tx, rx, true)) { updatePureSignalAttenuation(); }
         };
     connect(m_p2, &P2Client::pureSignalFeedback, this, feedback, Qt::DirectConnection);
     connect(m_p1, &P1Client::pureSignalFeedback, this, feedback, Qt::DirectConnection);
@@ -94,6 +94,8 @@ bool AnanClient::setDiversity(const DiversitySettings& settings)
 void AnanClient::stop()
 {
     m_pureSignalMode = PureSignalMode::Off;
+    m_pureSignalAttenuator = {};
+    m_feedbackAttenuationDb = 31;
     m_transmitConfigured = false;
     if (m_protocol == 1) m_p1->stop(); else m_p2->stop();
     clearTransmitAudio();

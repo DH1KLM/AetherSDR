@@ -1325,3 +1325,12 @@ the initial pending ramp, truthful display geometry, and an actual 0.8-gain
 correction through TXA. No radio, socket or RF transmission is involved.
 
 Upstream compatibility exports and their worker protocol are otherwise retained.
+
+### Patch 25: CALCC/IQC pause acknowledgement for feedback attenuation
+
+`AetherPSCalibrationPaused` reports a consumed reset in LRESET only after the
+calculation has completed and the IQC END worker and ramp have drained. The
+host requests reset through the existing SetPSControl path, keeps supplying
+admitted DSP and feedback blocks, and polls this acknowledgement without
+blocking the I/O thread. Resume is accepted only from that paused state.
+No new worker, transmit admission or compatibility-worker file request is added.

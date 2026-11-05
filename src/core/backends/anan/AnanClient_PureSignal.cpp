@@ -20,12 +20,52 @@ bool AnanClient::configurePureSignal(const PureSignalSettings& settings, PureSig
     if (mode == PureSignalMode::Off) { m_uncorrectedTransmitDsp.reset(); }
     m_pureSignalMode = mode;
     m_pureSignalSettings = settings;
+    m_pureSignalAttenuator = {};
+    if (mode == PureSignalMode::Off) { m_feedbackAttenuationDb = 31; }
     return true;
+}
+
+void AnanClient::beginPureSignalOver()
+{
+    if (!m_transmitDsp || !m_transmitDsp->pureSignalChannel()) { return; }
+    const auto state = m_transmitDsp->pureSignalChannel()->pureSignalSnapshot(false);
+    if (state) { m_pureSignalAttenuator.beginOver(state->information[5]); }
+}
+
+void AnanClient::updatePureSignalAttenuation()
+{
+    if ((m_pureSignalMode != PureSignalMode::Automatic && m_pureSignalMode != PureSignalMode::Single)
+        || (!m_pureSignalSettings.autoAttenuate && !m_pureSignalAttenuator.pending())
+        || !m_transmitDsp || !m_transmitKeyed || !m_transmitMediaStarted || m_transmitCarrier) { return; }
+    const qint64 now = TxCoordinator::monotonicMs();
+    if (now < m_nextAttenuationPollMs || !m_transmitOperation.permitsDispatch(now)
+        || !m_transmitContext.permitsDispatch(now)) { return; }
+    m_nextAttenuationPollMs = now + 100;
+    WdspChannel* channel = m_transmitDsp->pureSignalChannel();
+    if (!channel) { return; }
+    const auto state = channel->pureSignalSnapshot(false);
+    const auto paused = channel->pureSignalCalibrationPaused();
+    if (!state || !paused) { return; }
+    using Action = PureSignalAttenuator::Action;
+    const Action action = m_pureSignalAttenuator.observe(*state,m_pureSignalSettings.autoAttenuate,
+        *paused,m_feedbackAttenuationDb,now);
+    bool accepted = false;
+    if (action == Action::Pause) { accepted = channel->pausePureSignalCalibration(); }
+    else if (action == Action::Attenuate) {
+        const int db = m_pureSignalAttenuator.targetDb();
+        accepted = transmitTransport([&](auto* transport) { return transport->setPureSignalAttenuation(db,m_transmitOperation); });
+        if (!accepted) { failTransmit(QStringLiteral("Pure Signal feedback attenuation write refused")); return; }
+        m_feedbackAttenuationDb = db;
+    } else if (action == Action::Resume) { accepted = channel->resumePureSignalCalibration(m_pureSignalMode); }
+    if (accepted) { m_pureSignalAttenuator.accepted(action,now,state->information[5]); }
 }
 
 QVariantMap AnanClient::pureSignalState(bool display)
 {
-    QVariantMap state{{QStringLiteral("mode"), static_cast<int>(m_pureSignalMode)},
+    QVariantMap state{{QStringLiteral("autoAttenuate"),m_pureSignalSettings.autoAttenuate},
+        {QStringLiteral("feedbackAttenuationDb"),m_feedbackAttenuationDb},
+        {QStringLiteral("autoAttenuationPending"),m_pureSignalAttenuator.pending()},
+        {QStringLiteral("mode"), static_cast<int>(m_pureSignalMode)},
         {QStringLiteral("moxWaitSeconds"), m_pureSignalSettings.moxWaitSeconds},
         {QStringLiteral("calibrationWaitSeconds"), m_pureSignalSettings.calibrationWaitSeconds},
         {QStringLiteral("amplifierDelayNs"), m_pureSignalSettings.amplifierDelayNs},

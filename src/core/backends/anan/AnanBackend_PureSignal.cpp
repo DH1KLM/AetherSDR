@@ -49,7 +49,12 @@ void AnanBackend::requestPureSignal(const QString& verb, quint64 requestId, cons
             valid = valid && fields.value(QStringLiteral("path")).metaType().id() == QMetaType::QString
                 && path.size() <= 32767 && !path.contains(QChar::Null) && QFileInfo(path).isAbsolute();
         }
-        valid = valid && fields.size() == (save ? 2 : restore ? 7 : 6);
+        const bool hasAutoAttenuate = !save && fields.contains(QStringLiteral("autoAttenuate"));
+        valid = valid && fields.size() == (save ? 2 : restore ? 7 : 6) + (hasAutoAttenuate ? 1 : 0);
+        if (hasAutoAttenuate) {
+            valid = valid && fields.value(QStringLiteral("autoAttenuate")).metaType().id() == QMetaType::Bool;
+            settings.autoAttenuate = fields.value(QStringLiteral("autoAttenuate")).toBool();
+        }
         if (save) {
             if (!valid) { emit extensionError(requestId,QStringLiteral("Invalid correction export or retired connection.")); return; }
             m_pureSignalPending = true;

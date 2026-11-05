@@ -69,6 +69,8 @@ bool AnanClient::disarmTransmit(bool discardDsp)
     }
     if (m_uncorrectedTransmitDsp) { m_transmitDsp = std::move(m_uncorrectedTransmitDsp); }
     m_pureSignalMode = PureSignalMode::Off;
+    m_pureSignalAttenuator = {};
+    m_feedbackAttenuationDb = 31;
     if (discardDsp) { m_transmitDsp.reset(); }
     return stopped;
 }
@@ -92,6 +94,8 @@ bool AnanClient::setTransmitPower(const TransmitPowerProfile& profile, int band,
 
 void AnanClient::clearTransmitAudio()
 {
+    m_pureSignalAttenuator.cancelOver();
+    m_nextAttenuationPollMs = 0;
     if (m_pureSignalMode != PureSignalMode::Off && m_transmitDsp && m_transmitDsp->pureSignalChannel()) {
         const std::array<std::complex<float>,1> silence{};
         m_transmitDsp->pureSignalChannel()->feedPureSignal(silence, silence, false);
@@ -169,6 +173,7 @@ bool AnanClient::submitTransmitAudio(const QByteArray& pcm, int rate, TxAudioSou
         m_transmitContext = context;
         m_transmitSource = source;
         m_transmitMediaStarted = true;
+        beginPureSignalOver();
     }
     for (std::size_t i = 0; i < frames; ++i) {
         qint16 left = 0, right = 0;
@@ -267,6 +272,7 @@ bool AnanClient::startTransmitTwoTone(const TxCoordinator::Operation& operation,
         failTransmit(QStringLiteral("Two-tone TXA start refused")); return false;
     }
     m_transmitContext = context; m_transmitSource = TxAudioSource::EngineGenerated;
+    beginPureSignalOver();
     m_transmitMediaStarted = true; m_transmitTwoTone = true; m_transmitToneSample = 0;
     if (!m_transmitAudioTimer) {
         m_transmitAudioTimer = new QTimer(this);

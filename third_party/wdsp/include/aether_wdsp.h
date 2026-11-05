@@ -573,6 +573,7 @@ void GetPSDisp(int channel, double* x, double* magnitude, double* cosine, double
 // restore input has passed the host's bounded WDSP v2 validator.
 int AetherPSCorrectionState(int channel, int* run, int* busy);
 int AetherPSCorrectionAvailable(int channel);
+int AetherPSCalibrationPaused(int channel);
 int AetherPSSaveCorrection(int channel, const char* filename);
 int AetherPSRestoreCorrection(int channel, const char* filename);
 int AetherPSCopyCorrection(int source, int target);

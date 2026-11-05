@@ -7,6 +7,7 @@
 namespace AetherSDR {
 
 struct PureSignalSettings {
+    bool autoAttenuate = false;
     double moxWaitSeconds = 0.2;
     double calibrationWaitSeconds = 0.0;
     double amplifierDelayNs = 150.0;

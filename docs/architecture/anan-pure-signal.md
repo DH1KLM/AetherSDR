@@ -78,8 +78,14 @@ media context. The existing I/O audio pump supplies bounded 700/1900 Hz PCM
 blocks through TXA, at 0.49999 amplitude per tone, and retains the captured
 operation/context through the terminal transport write. It does not use the
 raw transport carrier. Two-tone support is declared only for prepared USB/LSB
-sessions whose TX passband contains both tones. Automatic attenuation and
-measured feedback-spectrum integration remain unavailable with accessible reasons.
+sessions whose TX passband contains both tones. Auto-attenuation is opt-in. Each new valid RX-builder/calibration result can
+request a 0–31 dB step towards the Thetis target level 152.293 (adjust at or below 128, or above 181). The host requests reset, waits for CALCC reset consumption and the
+IQC END worker/ramp to drain, updates the TX-only ADC0 attenuator, waits 100 ms,
+and restores the selected calibration mode. Key-off cancels the pending write;
+a later over drains and resumes the paused calibration without applying it.
+P1 carries the changed value on its existing IQ/control cycle; P2 sends its
+mic-control byte 59 under the captured operation fence. Neither route keys TX.
+Quick-response and measured feedback-spectrum integration remain unavailable.
 
 Save captures actual IQC coefficients; Restore validates a bounded v2 document
 before native parsing and installs into an unpublished fresh channel. Apply

@@ -86,6 +86,7 @@ bool P2Client::start(const Params& params, int connectTimeoutMs)
         stop();
     m_diversity = {};
     m_pureSignalEnabled = false;
+    m_pureSignalAttenuationDb = 31;
     m_pureSignalSequence.reset();
     m_availableDdcs = 0;
 
@@ -906,7 +907,7 @@ bool P2Client::sendMicOptions()
         if (m_transmitGate.enabled()) {
             // Thetis netInterface.c initialization: TX step attenuation starts at 31 dB.
             packet[58] = m_numAdcs > 1 ? 31 : 0;
-            packet[59] = 31;
+            packet[59] = static_cast<std::uint8_t>(m_pureSignalEnabled ? m_pureSignalAttenuationDb : 31);
         }
         return sendControl(packet, kMicControlPort);
     }
@@ -977,6 +978,16 @@ bool P2Client::setDiversity(const DiversitySettings& settings)
     return true;
 }
 
+bool P2Client::setPureSignalAttenuation(int db, const TxCoordinator::Operation& operation)
+{
+    if (db < 0 || db > 31 || !m_running || !m_linkUp || !m_discoveryValidated || !hasControlTransport()
+        || !m_pureSignalEnabled || !transmitActive() || !operation.sameAuthority(m_transmitOperation)) { return false; }
+    const auto dispatch = operation.beginDispatch(TxCoordinator::monotonicMs());
+    if (!dispatch) { return false; }
+    m_pureSignalAttenuationDb = db;
+    return sendMicOptions();
+}
+
 bool P2Client::setPureSignalEnabled(bool enabled)
 {
     if (enabled == m_pureSignalEnabled) { return true; }
@@ -984,6 +995,7 @@ bool P2Client::setPureSignalEnabled(bool enabled)
         || (enabled && (m_diversity.enabled || !m_transmitProfile || m_numAdcs != 2
             || m_availableDdcs < m_activeDdcCount + 2))) { return false; }
     m_pureSignalEnabled = enabled;
+    if (!enabled) { m_pureSignalAttenuationDb = 31; }
     m_pureSignalSequence.reset();
     if (!sendControl(receiveDdcPacket(m_activeDdcs), kDdcSpecificPort) || !sendHighPriority()) {
         emit connectionError(QStringLiteral("Pure Signal routing failed; reconnect required."));

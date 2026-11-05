@@ -124,6 +124,7 @@ public:
                            const std::vector<double>& centers);
     bool setDiversity(const DiversitySettings& settings);
     bool setPureSignalEnabled(bool enabled);
+    bool setPureSignalAttenuation(int db, const TxCoordinator::Operation& operation);
 
     // Set one ADC's receive step attenuator (0 = ADC0, 1 = ADC1), clamped to
     // 0-31 dB by the encoder. Sent at once when running, and carried by every
@@ -349,6 +350,7 @@ private:
     int m_firstDdcIndex = 0;
     DiversitySettings m_diversity;
     bool m_pureSignalEnabled = false;
+    int m_pureSignalAttenuationDb = 31;
     std::optional<std::uint32_t> m_pureSignalSequence;
     std::vector<std::complex<float>> m_pureSignalTransmit;
     std::vector<std::complex<float>> m_pureSignalFeedback;

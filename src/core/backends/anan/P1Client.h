@@ -36,6 +36,7 @@ public:
                            const std::vector<double>& centers);
     bool setDiversity(const DiversitySettings& settings);
     bool setPureSignalEnabled(bool enabled);
+    bool setPureSignalAttenuation(int db, const TxCoordinator::Operation& operation);
     Q_INVOKABLE void setFrontEndAttenuation(int adc, int db, int alexDb);
     void setStepAttenuationDb(int adc, int db);
     void setRxAntenna(int antenna);

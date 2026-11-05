@@ -121,7 +121,13 @@ PureSignalWindow::PureSignalWindow(RadioModel& model, QWidget* parent)
         connect(spin, &QDoubleSpinBox::valueChanged, this, [this] { if (!m_filling) { m_dirty = true; } });
     }
     auto* options = new QVBoxLayout; settings->addLayout(options);
-    for (const QString& name : {QStringLiteral("Auto-Attenuate"), QStringLiteral("Quick Attenuate Response"),
+    m_autoAttenuate = new QCheckBox(QStringLiteral("Auto-Attenuate"),bodyWidget());
+    m_autoAttenuate->setObjectName(QStringLiteral("pureSignalAutoAttenuate"));
+    m_autoAttenuate->setAccessibleName(m_autoAttenuate->text());
+    m_autoAttenuate->setToolTip(QStringLiteral("Adjust feedback attenuation after each valid calibration; pause and settle before collecting again."));
+    connect(m_autoAttenuate,&QCheckBox::toggled,this,[this] { if (!m_filling) { m_dirty = true; } });
+    options->addWidget(m_autoAttenuate);
+    for (const QString& name : {QStringLiteral("Quick Attenuate Response"),
                                QStringLiteral("Display PS-RX and PS-TX spectra")}) {
         auto* control = new QCheckBox(name, bodyWidget());
         control->setAccessibleName(name);
@@ -220,6 +226,11 @@ void PureSignalWindow::setAvailability(bool available, const QString& reason)
     for (QWidget* widget : std::array<QWidget*,6>{m_single, m_auto, m_off, m_apply, m_save, m_restore}) {
         widget->setEnabled(available); widget->setAccessibleDescription(reason); widget->setToolTip(reason);
     }
+    m_autoAttenuate->setEnabled(available);
+    m_autoAttenuate->setAccessibleDescription(reason);
+    m_autoAttenuate->setToolTip(available
+        ? QStringLiteral("Adjust feedback attenuation after each valid calibration; pause and settle before collecting again.")
+        : reason);
     for (QDoubleSpinBox* spin : m_settings) {
         spin->setEnabled(available); spin->setAccessibleDescription(reason);
     }
@@ -278,6 +289,7 @@ void PureSignalWindow::request(bool write, int mode, const QString& operation, c
         fields.insert(QStringLiteral("identity"), m_identity);
         if (operation != QStringLiteral("puresignal.save")) {
             fields.insert(QStringLiteral("mode"), mode);
+            fields.insert(QStringLiteral("autoAttenuate"),m_autoAttenuate->isChecked());
             for (std::size_t i = 0; i < m_settings.size(); ++i) { fields.insert(kSettingNames[i], m_settings[i]->value()); }
         }
         if (!path.isEmpty()) { fields.insert(QStringLiteral("path"), path); }
@@ -313,6 +325,7 @@ void PureSignalWindow::acceptState(const QVariantMap& state)
     }
     m_filling = true;
     if (changed || !m_dirty) {
+        m_autoAttenuate->setChecked(state.value(QStringLiteral("autoAttenuate")).toBool());
         for (std::size_t i = 0; i < m_settings.size(); ++i) {
             if (!m_settings[i]->hasFocus()) { m_settings[i]->setValue(state.value(kSettingNames[i]).toDouble()); }
         }
@@ -324,14 +337,22 @@ void PureSignalWindow::acceptState(const QVariantMap& state)
     const bool applied = state.value(QStringLiteral("correcting")).toBool();
     const int level = info.size() == 16 ? info[4].toInt() : 0;
     m_feedback->setText(QStringLiteral("Feedback Level: %1").arg(info.size() == 16 ? QString::number(level) : QStringLiteral("—")));
-    m_correcting->setText(!applied ? state.value(QStringLiteral("correctionAvailable")).toBool()
-        ? QStringLiteral("Correction ready • ramp pending") : QStringLiteral("Correction: OFF")
-        : level > 90 ? QStringLiteral("Correction applied • correcting") : QStringLiteral("Correction applied • feedback low"));
+    m_correcting->setText(!applied ? state.value(QStringLiteral("correctionBusy")).toBool()
+        ? QStringLiteral("Correction transition pending")
+        : state.value(QStringLiteral("correctionAvailable")).toBool()
+            ? QStringLiteral("Correction retained • not applied") : QStringLiteral("Correction: OFF")
+        : level > 181 ? QStringLiteral("Correction applied • feedback high")
+        : level > 128 ? QStringLiteral("Correction applied • feedback in range")
+                      : QStringLiteral("Correction applied • feedback low"));
     m_status->setText(!available ? reason : mode == 0 ? QStringLiteral("Pure Signal OFF. Opening this window does not transmit.")
         : mode == 1 ? QStringLiteral("Automatic calibration armed; waiting for operator transmission and feedback.")
         : mode == 3 ? QStringLiteral("Retained correction selected; waiting for operator transmission.")
                     : QStringLiteral("Single calibration armed; waiting for operator transmission and feedback."));
-    m_routing->setText(state.value(QStringLiteral("routing")).toString());
+    m_routing->setText(state.value(QStringLiteral("routing")).toString()
+        + QStringLiteral(" Feedback attenuation request: %1 dB%2.")
+            .arg(state.value(QStringLiteral("feedbackAttenuationDb"),31).toInt())
+            .arg(state.value(QStringLiteral("autoAttenuationPending")).toBool()
+                ? QStringLiteral("; waiting for pause/settling") : QString()));
     if (m_dirty) { m_status->setText(QStringLiteral("Configuration changes pending. Press Single Cal or Start Auto to apply.")); }
     m_peak->setText(QStringLiteral("GetPk: %1").arg(state.value(QStringLiteral("maximumTransmit")).toDouble(),0,'f',4));
     if (m_ampView && m_ampView->isVisible()) { renderAmpView(); }

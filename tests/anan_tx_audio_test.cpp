@@ -41,6 +41,7 @@ struct P2ClientTestAccess {
         client.m_receiveDisablePa = true;
         client.m_numAdcs = 2;
         client.m_activeDdcs = {{48,0}};
+        client.m_availableDdcs = 7;
         client.m_controlSendOverride = std::move(writer);
         client.m_transmitTimeOverride = [&clock] { return clock; };
     }
@@ -69,6 +70,7 @@ QByteArray pcm(std::size_t frames, std::size_t offset = 0)
 struct Fixture {
     qint64 clockNs = 0;
     std::size_t controlWrites = 0;
+    int feedbackAttenuation = -1;
     std::vector<TxIqPacket> packets;
     TxCoordinator coordinator{[](const auto&, auto) {}};
     TxCoordinator::Actor actor = coordinator.registerActor({true,0});
@@ -81,6 +83,7 @@ struct Fixture {
         P2ClientTestAccess::prepare(AnanClientTestAccess::p2(client), clockNs,
             [this](auto bytes, quint16 port) {
                 ++controlWrites;
+                if (port == kMicControlPort && bytes.size() > 59) { feedbackAttenuation = bytes[59]; }
                 if (port == kTxIqPort) {
                     check(coordinator.hasInFlightDispatches(), "PCM-to-IQ terminal write retains its grant");
                     TxIqPacket packet{};
@@ -120,6 +123,25 @@ struct Fixture {
         return keyed() && AnanClientTestAccess::pending(client) < AnanTxDsp::kInputSamples;
     }
 };
+void feedbackAttenuationWire()
+{
+    Fixture f;
+    auto& transport = AnanClientTestAccess::p2(f.client);
+    check(f.prepare() && transport.setPureSignalEnabled(true), "feedback attenuation reserves a supported paired route without keying");
+    check(!transport.setPureSignalAttenuation(17,f.operation), "unkeyed feedback attenuation cannot actuate from a stale calibration");
+    check(f.client.setTransmitKeying(true,f.operation), "feedback attenuation fixture explicitly keys through the TX gate");
+    check(transport.setPureSignalAttenuation(17,f.operation) && f.feedbackAttenuation == 17,
+        "P2 feedback attenuation sends the requested ADC0 TX value in mic-control byte 59");
+    const auto writes = f.controlWrites;
+    check(!transport.setPureSignalAttenuation(32,f.operation)
+        && !transport.setPureSignalAttenuation(18,TxCoordinator::Operation{}) && f.controlWrites == writes,
+        "invalid attenuation and foreign authority emit no control packet");
+    check(f.client.setTransmitKeying(false,f.operation), "feedback attenuation fixture releases normally");
+    const auto stoppedWrites = f.controlWrites;
+    check(!transport.setPureSignalAttenuation(18,f.operation) && f.controlWrites == stoppedWrites,
+        "late attenuation work cannot write after key-off");
+}
+
 void twoTone(WdspChannel::Mode mode)
 {
     Fixture f;
@@ -394,6 +416,7 @@ int main(int argc, char** argv)
     plannedRetirement();
     stagedDoesNotKey();
     powerUpdates();
+    feedbackAttenuationWire();
     twoTone(WdspChannel::Mode::Usb);
     twoTone(WdspChannel::Mode::Lsb);
     pcmToWire();

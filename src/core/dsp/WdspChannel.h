@@ -582,6 +582,9 @@ public:
     [[nodiscard]] std::optional<std::string> savePureSignalCorrection();
     bool restorePureSignalCorrection(std::string_view document);
     bool copyPureSignalCorrectionFrom(WdspChannel& source) noexcept;
+    bool pausePureSignalCalibration() noexcept;
+    [[nodiscard]] std::optional<bool> pureSignalCalibrationPaused() noexcept;
+    bool resumePureSignalCalibration(PureSignalMode mode) noexcept;
     // Test only: the next `count` control operations on THIS channel are
     // refused exactly as a racing processIq() callback would refuse them, so
     // a caller's refused-then-converges path can be driven deterministically.

@@ -2164,6 +2164,20 @@ int AetherPSCorrectionAvailable(int channel)
     return available;
 }
 
+int AetherPSCalibrationPaused(int channel)
+{
+    CALCC a;
+    int ready, run = 0, busy = 0;
+    if (channel < 0 || channel >= MAX_CHANNELS || !txa[channel].calcc.p) { return 0; }
+    a = txa[channel].calcc.p;
+    EnterCriticalSection(&txa[channel].calcc.cs_update);
+    ready = a->ctrl.state == LRESET && !a->ctrl.reset && !a->ctrl.calcinprogress
+        && !_InterlockedAnd(&a->ctrl.running, 1);
+    LeaveCriticalSection(&txa[channel].calcc.cs_update);
+    // The reset may have queued IQC's END worker. Its ramp must also drain.
+    return ready && AetherPSCorrectionState(channel, &run, &busy) && !run && !busy;
+}
+
 int AetherPSSaveCorrection(int channel, const char* filename)
 {
     NS_Spline *m = NULL, *c = NULL, *s = NULL;

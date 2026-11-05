@@ -4,6 +4,7 @@
 #include "core/backends/anan/AnanTxDsp.h"
 #include "core/backends/anan/AnanTransmitPower.h"
 #include "core/backends/TxAudioSource.h"
+#include "core/dsp/PureSignalAttenuator.h"
 
 #include <array>
 #include <atomic>
@@ -88,6 +89,9 @@ private:
         return function(m_p2);
     }
     bool m_transmitMonitor = false;
+    PureSignalAttenuator m_pureSignalAttenuator;
+    int m_feedbackAttenuationDb = 31;
+    qint64 m_nextAttenuationPollMs = 0;
     PureSignalSettings m_pureSignalSettings;
     PureSignalMode m_pureSignalMode = PureSignalMode::Off;
     qint64 m_transmitMeterMs = -1;
@@ -112,6 +116,8 @@ private:
     bool m_transmitKeyed = false;
     bool m_transmitMediaStarted = false;
     void clearTransmitAudio();
+    void beginPureSignalOver();
+    void updatePureSignalAttenuation();
     void failTransmit(const QString& reason);
     void pumpTransmitAudio();
     friend struct AnanClientTestAccess;

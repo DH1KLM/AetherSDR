@@ -33,7 +33,8 @@ bool validConfig(const ReceiveConfig& c) noexcept
         std::any_of(c.receiveFrequencies.begin(), c.receiveFrequencies.end(),
                     [](auto hz) { return hz > 61'440'000; }))
         return false;
-    return rate && validFrequencyFactor(c.frequencyCorrection) && validReceiverCount(c.receivers)
+    return c.pureSignalAttenuationDb >= 0 && c.pureSignalAttenuationDb <= 31
+        && rate && validFrequencyFactor(c.frequencyCorrection) && validReceiverCount(c.receivers)
         && (!c.pureSignal || (c.numAdcs == 2 && c.receivers == 5 && c.rateKsps == 192 && !c.diversity))
         && (!c.diversity || (c.numAdcs == 2 && c.receivers >= 3))
         && (c.numAdcs == 1 || c.numAdcs == 2)

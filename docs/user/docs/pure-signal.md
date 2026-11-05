@@ -62,7 +62,14 @@ to end this window's test transmission. Microphone audio is excluded while
 the generator runs. The normal transmit interlocks and authorization limits
 apply.
 
-Automatic attenuation and feedback-spectrum measurements are unavailable.
+**Auto-Attenuate** adjusts the feedback step attenuator during single or
+automatic calibration. Enable it before pressing **Single Cal** or **Start Auto**.
+Each valid new calibration result can request one adjustment within 0–31 dB.
+Calibration pauses until CALCC and the IQC correction have drained, and resumes
+after 100 ms of settling. Ending transmission cancels uncommitted attenuation
+changes. The displayed attenuation is the client's request, not hardware readback.
+
+**Quick Attenuate Response** and feedback-spectrum measurements remain unavailable.
 Their disabled controls explain the missing path. Other OpenHPSDR hardware shapes also show a reason when calibration is unavailable.
 
 The feedback level, calibration attempts, successful calibration count, and
