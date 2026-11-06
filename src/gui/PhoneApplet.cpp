@@ -672,8 +672,8 @@ void PhoneApplet::syncFromModel()
     {
         const QSignalBlocker low(m_lowCutSlider);
         const QSignalBlocker high(m_highCutSlider);
-        m_lowCutSlider->setRange(m_model->txFilterMinHz(), m_model->txFilterHigh() - m_model->txFilterMinWidthHz());
-        m_highCutSlider->setRange(m_model->txFilterLow() + m_model->txFilterMinWidthHz(), m_model->txFilterMaxHz());
+        m_lowCutSlider->setRange(m_model->txFilterMinHz(), m_model->txFilterMaxHz() - m_model->txFilterMinWidthHz());
+        m_highCutSlider->setRange(m_model->txFilterMinHz() + m_model->txFilterMinWidthHz(), m_model->txFilterMaxHz());
         m_lowCutSlider->setValue(m_model->txFilterLow());
         m_highCutSlider->setValue(m_model->txFilterHigh());
     }

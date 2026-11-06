@@ -5,6 +5,7 @@
 #include "core/backends/anan/AnanTransmitPower.h"
 #include "core/backends/TxAudioSource.h"
 #include "core/dsp/PureSignalAttenuator.h"
+#include "AnanFeedbackActivity.h"
 
 #include <array>
 #include <atomic>
@@ -28,8 +29,7 @@ public:
     bool prepareTransmit(std::unique_ptr<AnanTxDsp> dsp, const P2TxControl& control);
     void setTransmitPlanner(QObject* planner) { m_transmitPlanner = planner; }
     bool stageTransmitDsp(std::shared_ptr<AnanTxDsp> dsp);
-    bool trySetTransmitFilter(double lowHz, double highHz)
-    { return m_pureSignalMode == PureSignalMode::Off && m_transmitDsp && m_transmitDsp->trySetFilter(lowHz, highHz); }
+    bool trySetTransmitFilter(double lowHz, double highHz);
     void discardStagedTransmit();
     bool armStagedTransmit(const P2TxControl& control);
     bool disarmTransmit(bool discardDsp = true);
@@ -95,6 +95,7 @@ private:
     qint64 m_pureSignalFeedbackMs = 0;
     double m_pureSignalTxPeak = 0;
     double m_pureSignalRxPeak = 0;
+    AnanFeedbackActivity m_feedbackActivity;
     qint64 m_nextAttenuationPollMs = 0;
     PureSignalSettings m_pureSignalSettings;
     PureSignalMode m_pureSignalMode = PureSignalMode::Off;

@@ -26,6 +26,7 @@ namespace AetherSDR {
 struct PureSignalStatusIndicatorTestAccess {
     static void accept(PureSignalStatusIndicator& widget,const QVariantMap& state) { widget.acceptState(state); }
     static void poll(PureSignalStatusIndicator& widget) { widget.poll(); }
+    static QVariantMap fields(const PureSignalStatusIndicator& widget) { return widget.activationFields(); }
 };
 }
 
@@ -121,14 +122,21 @@ int main(int argc, char** argv)
         return 1;
     }
     QApplication app(argc, argv);
+    AetherSDR::RadioCapabilities mic;
+    report("undeclared mic gain retains legacy backend ownership", !mic.clientAudioAppliesMicGain());
+    mic.microphoneGainControl = AetherSDR::RadioCapabilities::MicrophoneGainControl{
+        AetherSDR::RadioCapabilities::MicrophoneGainControl::Source::Backend};
+    report("backend-owned gain must not be applied twice by client audio", !mic.clientAudioAppliesMicGain());
+    mic.microphoneGainControl->source = AetherSDR::RadioCapabilities::MicrophoneGainControl::Source::ClientAudio;
+    report("client-owned microphone slider reaches the voice chain", mic.clientAudioAppliesMicGain());
+
     {
         RadioModel model;
-        int opens = 0;
-        PureSignalStatusIndicator ps(model,[&opens] { ++opens; },nullptr);
+        PureSignalStatusIndicator ps(model,nullptr);
         auto* level = ps.findChild<QProgressBar*>(QStringLiteral("pureSignalFooterLevel"));
         QVariantList info; for (int i = 0; i < 16; ++i) { info.append(0); }
         QVariantMap state{{QStringLiteral("mode"),1},{QStringLiteral("correcting"),true},
-            {QStringLiteral("feedbackFresh"),true},{QStringLiteral("correctionAvailable"),true}};
+            {QStringLiteral("feedbackFresh"),true},{QStringLiteral("feedbackModulating"),true},{QStringLiteral("correctionAvailable"),true}};
         for (const int value : {0,128,129,168,181,182,300}) {
             info[4] = value; state[QStringLiteral("information")] = info;
             PureSignalStatusIndicatorTestAccess::accept(ps,state);
@@ -140,6 +148,11 @@ int main(int argc, char** argv)
         PureSignalStatusIndicatorTestAccess::accept(ps,state);
         report("no fresh feedback clears the colored level",ps.property("feedbackTone") == QStringLiteral("neutral")
             && level->format() == QStringLiteral("—"));
+        state[QStringLiteral("feedbackFresh")] = true; state[QStringLiteral("feedbackModulating")] = false;
+        PureSignalStatusIndicatorTestAccess::accept(ps,state);
+        report("PTT without modulation clears stale green but retains PS enable",ps.property("feedbackTone") == QStringLiteral("neutral")
+            && ps.findChild<QLabel*>(QStringLiteral("pureSignalFooterState"))->text() == QStringLiteral("PS QUIET"));
+        state[QStringLiteral("feedbackModulating")] = true;
         state[QStringLiteral("feedbackFresh")] = true; state[QStringLiteral("correcting")] = false;
         info[4] = 168; state[QStringLiteral("information")] = info;
         PureSignalStatusIndicatorTestAccess::accept(ps,state);
@@ -149,11 +162,22 @@ int main(int argc, char** argv)
         report("OFF clears the measured overlay",level->format() == QStringLiteral("—"));
         PureSignalStatusIndicatorTestAccess::poll(ps);
         report("disconnected PS indicator cannot activate",!ps.isEnabled());
-        ps.setEnabled(true);
-        QMouseEvent dbl(QEvent::MouseButtonDblClick,QPointF(2,2),QPointF(2,2),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
-        QApplication::sendEvent(&ps,&dbl);
-        press(&ps,Qt::Key_Return);
-        report("PS double-click and Enter each open the existing window callback",opens == 2);
+        state.insert(QStringLiteral("available"),true); state.insert(QStringLiteral("identity"),QStringLiteral("session-A"));
+        state.insert(QStringLiteral("moxWaitSeconds"),0.2); state.insert(QStringLiteral("calibrationWaitSeconds"),0.0);
+        state.insert(QStringLiteral("amplifierDelayNs"),150.0); state.insert(QStringLiteral("hardwarePeak"),0.2899);
+        state.insert(QStringLiteral("autoAttenuate"),false); state.insert(QStringLiteral("preferredAutoAttenuate"),true);
+        PureSignalStatusIndicatorTestAccess::accept(ps,state);
+        const auto fields = PureSignalStatusIndicatorTestAccess::fields(ps);
+        report("direct PS activation selects automatic mode and the saved attenuation preference",
+            fields.size() == 7 && fields.value(QStringLiteral("mode")).toInt() == 1
+            && fields.value(QStringLiteral("autoAttenuate")).toBool()
+            && fields.value(QStringLiteral("identity")).toString() == QStringLiteral("session-A"));
+        state.insert(QStringLiteral("mode"),1);
+        PureSignalStatusIndicatorTestAccess::accept(ps,state);
+        report("second PS activation requests OFF",PureSignalStatusIndicatorTestAccess::fields(ps).value(QStringLiteral("mode")).toInt() == 0);
+        state.insert(QStringLiteral("keyed"),true);
+        PureSignalStatusIndicatorTestAccess::accept(ps,state);
+        report("direct PS configuration refuses an active transmission",PureSignalStatusIndicatorTestAccess::fields(ps).isEmpty());
     }
 
     QWidget bar;
@@ -178,6 +202,12 @@ int main(int argc, char** argv)
     QObject::connect(dvkHelper, &StatusIndicator::activated, [&] { ++dvkActivations; });
     QObject::connect(stackHelper, &StatusIndicator::activated, [&] { ++stackActivations; });
     int doubles = 0;
+    int singles = 0;
+    QObject::connect(dvkHelper,&StatusIndicator::clicked,[&] { ++singles; });
+    QMouseEvent down(QEvent::MouseButtonPress,QPointF(2,2),QPointF(2,2),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent up(QEvent::MouseButtonRelease,QPointF(2,2),QPointF(2,2),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(dvk,&down); QApplication::sendEvent(dvk,&up); QApplication::sendEvent(dvk,&up);
+    report("one click activates once; unmatched release cannot toggle",singles == 1);
     QObject::connect(dvkHelper,&StatusIndicator::doubleClicked,[&] { ++doubles; });
     const auto doubleClick = [&](Qt::MouseButton button) {
         QMouseEvent event(QEvent::MouseButtonDblClick,QPointF(2,2),QPointF(2,2),button,button,Qt::NoModifier);

@@ -52,7 +52,11 @@ Pure Signal window, without requesting plot samples. Backend identity and
 unique request IDs fence replies; a 1.5-second reply timeout clears the last
 status. The green state also requires the client's fresh-feedback flag and
 an applied native correction. Footer activation only invokes the existing
-Tools action and cannot arm calibration or key the radio.
+identity-fenced `puresignal.set` automatic-calibration request while idle.
+It does not create the configuration window or key the radio. Auto-Attenuate's
+preference is stored in the versioned per-radio `PureSignal` feature document;
+the checkbox persists it separately from live calibration settings. A read
+reports both the saved preference and the applied calibration setting.
 
 ## Reference amplitude domain
 
@@ -87,6 +91,24 @@ thread. Restoring an operational mode or enabled flag from settings is not
 part of this implementation.
 
 ## Display data
+
+TX passband edits acquire both active and retained uncorrected channels' control
+leases and the planner lease before updating either native filter. Contention
+leaves both filters unchanged for a bounded retry. Calibration mode and IQC
+coefficients remain installed; paired spectra restart acquisition. A pending PS
+configuration fences filter edits, and pending filter edits fence PS configuration.
+Live edits retain the backend's occupied-band check and original media authority.
+
+The footer separates retained CALCC levels from modulation activity. Paired
+feedback must be fresh, with TX-reference magnitude at least 1% of the hardware
+reference after wire-amplitude scaling and nonzero PA feedback. After 250 ms
+without that activity, the footer is neutral with no retained numeric level.
+This affects presentation only; all accepted blocks still reach calibration.
+
+P2 PCM output discards queued IQ after a missed 20 ms scheduling window and
+resumes with silence under the original operation/context. A gap exceeding
+100 ms still stops TX, as do revoked authority, clock rollback and write failure.
+Recovery never renews an intent or rekeys TX.
 
 WDSP owns sixteen 256-sample measurement buckets and 512 correction points.
 Snapshots copy these under the existing WDSP locks. Measurement input is

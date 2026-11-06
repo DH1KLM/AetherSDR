@@ -1137,6 +1137,11 @@ void MainWindow::wireRadioModel()
     // set its visibility.
     connect(&m_radioModel, &RadioModel::capabilitiesChanged,
             this, &MainWindow::applyCapabilitiesToUi);
+    connect(&m_radioModel,&RadioModel::capabilitiesChanged,this,[this](bool connected,const RadioCapabilities& caps) {
+        if (connected && caps.hostModulates) {
+            m_audio->setPcMicGain(caps.clientAudioAppliesMicGain() ? m_radioModel.transmitModel().micLevel() : 100);
+        }
+    });
     // Icom's connected edge precedes its verified CI-V model identity. Re-run
     // only when the canonical capability picture changes so the family-wide
     // experimental treatment can settle model-specifically without exposing a
@@ -1453,7 +1458,8 @@ void MainWindow::wireRadioModel()
         if (m_radioModel.transmitModel().micSelection() == "PC") {
             // Restore PC mic gain from client-side settings (radio has no
             // hardware gain stage for PC input — client-authoritative)
-            int gain = AppSettings::instance().value("PcMicGain", 100).toInt();
+            int gain = m_radioModel.backendCapabilities().clientAudioAppliesMicGain()
+                ? m_radioModel.transmitModel().micLevel() : AppSettings::instance().value("PcMicGain", 100).toInt();
             m_audio->setPcMicGain(gain);
             if (!m_audio->isTxStreaming()) {
                 audioStartTx(m_radioModel.radioAddress(), 4991);
@@ -1475,7 +1481,8 @@ void MainWindow::wireRadioModel()
 #endif
         if (m_radioModel.transmitModel().micSelection() == "PC") {
             // Restore PC mic gain from client-side settings
-            int gain = AppSettings::instance().value("PcMicGain", 100).toInt();
+            int gain = m_radioModel.backendCapabilities().clientAudioAppliesMicGain()
+                ? m_radioModel.transmitModel().micLevel() : AppSettings::instance().value("PcMicGain", 100).toInt();
             m_audio->setPcMicGain(gain);
             // Only start if a TX stream is already assigned (avoid streamId=0).
             // Voice TX (USB/LSB/AM/FM) flows over remote_audio_tx, NOT dax_tx —
@@ -1525,16 +1532,14 @@ void MainWindow::wireRadioModel()
         m_audio->setAllowBluetoothTelephonyOutput(allowBluetoothTelephonyOutput);
     }, Qt::QueuedConnection);
 #endif
-    // PC mic gain from the slider (in RADE mode the radio's mic input is
-    // unused). Not on a host-modulating backend: the same slider already reaches
-    // the modulator's pre-ALC gain (up to +40 dB, see Hl2Backend::setMicGain)
-    // via TransmitModel::setMicLevel, and applying both would double it. Uses
-    // hostModulatesTxAudio() (`hostModulates && canTransmit`), the canonical
-    // form (QsoRecordStartPolicy.h).
+    // Host modulators declare where microphone gain is applied so the slider
+    // reaches exactly one gain stage. PC/RADE capture otherwise uses PC gain.
     connect(m_appletPanel->phoneCwApplet(), &PhoneCwApplet::micLevelChanged,
             this, [this](int level) {
-        if (hostModulatesTxAudio())
+        if (hostModulatesTxAudio()) {
+            if (m_radioModel.backendCapabilities().clientAudioAppliesMicGain()) { m_audio->setPcMicGain(level); }
             return;
+        }
         if (m_radioModel.transmitModel().micSelection() == "PC" || m_audio->isRadeMode()) {
             m_audio->setPcMicGain(level);
             auto& s = AppSettings::instance();

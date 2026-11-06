@@ -19,6 +19,8 @@ namespace AetherSDR::anan {
 // value() calls ConnectionPanel/RadioModel used before this existed.
 class AnanSettings {
 public:
+    static bool pureSignalAutoAttenuate(const QString& serial);
+    static bool setPureSignalAutoAttenuate(const QString& serial, bool enabled);
     struct RadioProfile {
         AnanModel model = AnanModel::Automatic;
         int protocol = 0; // 0: prefer P2, with the existing discovery fallback.

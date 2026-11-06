@@ -610,6 +610,7 @@ RadioCapabilities IcomCivBackend::capabilities() const
     c.hasCwTune = profile.hasCwTune;
     // setTune() drives the ordinary TUNE producer: one sine wave. There is no
     // CI-V route for a two-tone selection on any profiled model.
+    c.microphoneGainControl = std::nullopt;
     c.twoToneGenerator = std::nullopt;
     c.firmwareUpdateSource = std::nullopt;  // reports no firmware version to compare.
     c.hasAmCarrierLevel = false; // RF power is separate; no AM carrier setter.

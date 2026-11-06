@@ -19,11 +19,27 @@ controls and **AmpView** share one independent window.
 The footer also shows **PS ACTIVE** while correction is applied. Its feedback
 bar overlays the numeric calibration level: **LOW** (0–128) and **HIGH**
 (above 181) are red; **OK** (129–181) is green only with active correction
-and fresh paired feedback. **PS OFF**, **PS ARMED**, **PS READY**, and **PS WAIT**
+and fresh paired feedback with modulation. **PS OFF**, **PS ARMED**, **PS READY**, **PS QUIET**, and **PS WAIT**
 are neutral. A dash means there is no fresh level; a retained correction does
 not leave an old green level showing during reception or a data interruption.
 The indication remains available when the Pure Signal window is closed.
-Double-click the PS indicator, or focus it and press Enter, to open that window.
+Click the PS indicator, or focus it and press Enter, to toggle automatic
+Pure Signal with the current settings and saved Auto-Attenuate choice.
+This does not open the configuration window or start transmission. Finish
+transmission before changing calibration. Open **Tools → Pure Signal** to configure it.
+
+During a speech pause, **PS QUIET** and a dash replace the retained calibration
+level after 250 ms without signal activity. Correction remains enabled; a pause
+does not discard its coefficients. Automatic calibration continues within the
+same transmission when enough suitable samples arrive again.
+
+**Low Cut** and **High Cut** in the **Phone** applet can change while Pure Signal
+is enabled, including during a transmission within the selected band plan.
+The active corrected path and its uncorrected fallback receive the same filter
+limits. The selected PS mode and retained correction remain enabled. Feedback
+spectra acquire a fresh window after an edit. Wait for a pending PS configuration
+change to finish before editing filters. During **Two-Tone**, both test tones
+must remain inside the passband.
 
 ## Requirements
 
@@ -73,6 +89,10 @@ apply.
 
 **Auto-Attenuate** adjusts the feedback step attenuator during single or
 automatic calibration. Enable it before pressing **Single Cal** or **Start Auto**.
+The checkbox choice is saved immediately for this radio and survives window
+closure, reconnection and application restart. Start Auto (including the footer
+shortcut) applies that choice to calibration. Remembering the choice does not
+automatically enable Pure Signal or start transmission after reconnecting.
 Each valid new calibration result can request one adjustment within 0–31 dB.
 Calibration pauses until CALCC and the IQC correction have drained, and resumes
 after 100 ms of settling. Ending transmission cancels uncommitted attenuation

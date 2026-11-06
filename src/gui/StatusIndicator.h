@@ -35,6 +35,7 @@ public:
 
 signals:
     void activated();
+    void clicked();
     void doubleClicked();
 
 protected:
@@ -48,6 +49,7 @@ private:
     QWidget* m_focusBar;
     bool m_checkable{false};
     bool m_checked{false};
+    bool m_mousePressed{false};
 };
 
 }  // namespace AetherSDR

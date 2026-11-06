@@ -572,6 +572,16 @@ struct RadioCapabilities {
     // Absent preserves the legacy hasCwTune policy; engaged describes setTune coverage.
     std::optional<TuneCarrierControl> tuneCarrierControl;
 
+    // Selects the consumer of the existing microphone gain control. Absent
+    // preserves backend ownership for established host modulators.
+    struct MicrophoneGainControl {
+        enum class Source { Backend, ClientAudio };
+        Source source = Source::Backend;
+    };
+    std::optional<MicrophoneGainControl> microphoneGainControl;
+    [[nodiscard]] bool clientAudioAppliesMicGain() const
+    { return microphoneGainControl && microphoneGainControl->source == MicrophoneGainControl::Source::ClientAudio; }
+
     // The radio generates a genuine two-tone test signal, not a tune carrier (Flex
     // `transmit set tune_mode=two_tone`; other backends key a single carrier).
     // Absent makes `txtest twotone` refuse, so no IMD/ALC report cites a waveform

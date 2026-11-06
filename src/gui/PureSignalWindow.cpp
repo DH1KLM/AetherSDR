@@ -138,7 +138,9 @@ PureSignalWindow::PureSignalWindow(RadioModel& model, QWidget* parent)
     m_autoAttenuate->setObjectName(QStringLiteral("pureSignalAutoAttenuate"));
     m_autoAttenuate->setAccessibleName(m_autoAttenuate->text());
     m_autoAttenuate->setToolTip(QStringLiteral("Adjust feedback attenuation after each valid calibration; pause and settle before collecting again."));
-    connect(m_autoAttenuate,&QCheckBox::toggled,this,[this] { if (!m_filling) { m_dirty = true; } });
+    connect(m_autoAttenuate,&QCheckBox::toggled,this,[this] {
+        if (!m_filling) { m_dirty = true; request(true,-1,QStringLiteral("puresignal.preferences")); }
+    });
     options->addWidget(m_autoAttenuate);
     for (const QString& name : {QStringLiteral("Quick Attenuate Response")}) {
         auto* control = new QCheckBox(name, bodyWidget());
@@ -283,6 +285,15 @@ void PureSignalWindow::chooseCorrectionFile(bool save)
 
 void PureSignalWindow::request(bool write, int mode, const QString& operation, const QString& path)
 {
+    if (m_pending && operation == QStringLiteral("puresignal.preferences")) {
+        const QString identity = m_identity;
+        QTimer::singleShot(50,this,[this,identity] {
+            if (m_model.isConnected() && !identity.isEmpty() && identity == m_identity) {
+                request(true,-1,QStringLiteral("puresignal.preferences"));
+            }
+        });
+        return;
+    }
     if (m_pending || !m_model.isConnected() || !m_model.backendDeclaresExtension(QStringLiteral("anan"))) { return; }
     QPointer<IRadioBackend> backend = m_model.backend();
     if (!backend) { return; }
@@ -306,8 +317,9 @@ void PureSignalWindow::request(bool write, int mode, const QString& operation, c
             finish();
             if (!backend || backend != m_model.backend() || !m_model.isConnected()) { return; }
             if (write) {
-                if (operation != QStringLiteral("puresignal.save")) { m_dirty = false; }
-                m_actionStatus->setText(operation == QStringLiteral("puresignal.save") ? QStringLiteral("Correction saved.")
+                if (operation != QStringLiteral("puresignal.save") && operation != QStringLiteral("puresignal.preferences")) { m_dirty = false; }
+                m_actionStatus->setText(operation == QStringLiteral("puresignal.preferences") ? QStringLiteral("Auto-Attenuate preference saved; Start Auto applies it to calibration.")
+                    : operation == QStringLiteral("puresignal.save") ? QStringLiteral("Correction saved.")
                     : operation == QStringLiteral("puresignal.restore") ? QStringLiteral("Correction restored; no transmission started.")
                     : mode == 3 ? QStringLiteral("Current correction selected; no transmission started.")
                     : QStringLiteral("Pure Signal configuration applied."));
@@ -317,7 +329,9 @@ void PureSignalWindow::request(bool write, int mode, const QString& operation, c
     QVariantMap fields;
     if (write) {
         fields.insert(QStringLiteral("identity"), m_identity);
-        if (operation != QStringLiteral("puresignal.save")) {
+        if (operation == QStringLiteral("puresignal.preferences")) {
+            fields.insert(QStringLiteral("autoAttenuate"),m_autoAttenuate->isChecked());
+        } else if (operation != QStringLiteral("puresignal.save")) {
             fields.insert(QStringLiteral("mode"), mode);
             fields.insert(QStringLiteral("autoAttenuate"),m_autoAttenuate->isChecked());
             for (std::size_t i = 0; i < m_settings.size(); ++i) { fields.insert(kSettingNames[i], m_settings[i]->value()); }
@@ -358,7 +372,7 @@ void PureSignalWindow::acceptState(const QVariantMap& state)
     }
     m_filling = true;
     if (changed || !m_dirty) {
-        m_autoAttenuate->setChecked(state.value(QStringLiteral("autoAttenuate")).toBool());
+        m_autoAttenuate->setChecked(state.value(QStringLiteral("preferredAutoAttenuate"),state.value(QStringLiteral("autoAttenuate"))).toBool());
         for (std::size_t i = 0; i < m_settings.size(); ++i) {
             if (!m_settings[i]->hasFocus()) { m_settings[i]->setValue(state.value(kSettingNames[i]).toDouble()); }
         }
@@ -387,7 +401,9 @@ void PureSignalWindow::acceptState(const QVariantMap& state)
             .arg(state.value(QStringLiteral("feedbackAttenuationDb"),31).toInt())
             .arg(state.value(QStringLiteral("autoAttenuationPending")).toBool()
                 ? QStringLiteral("; waiting for pause/settling") : QString()));
-    if (m_dirty) { m_status->setText(QStringLiteral("Configuration changes pending. Press Single Cal or Start Auto to apply.")); }
+    const bool preferencePending = mode != 0 && state.value(QStringLiteral("preferredAutoAttenuate"),state.value(QStringLiteral("autoAttenuate"))).toBool()
+        != state.value(QStringLiteral("autoAttenuate")).toBool();
+    if (m_dirty || preferencePending) { m_status->setText(QStringLiteral("Configuration changes pending. Press Single Cal or Start Auto to apply.")); }
     m_peak->setText(QStringLiteral("GetPk: %1").arg(state.value(QStringLiteral("maximumTransmit")).toDouble(),0,'f',4));
     m_measurements->setText(measurementText());
     if (m_spectraMeasurements) { m_spectraMeasurements->setText(measurementText()); }

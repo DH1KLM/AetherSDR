@@ -120,10 +120,12 @@ const PureSignalSpectrumSnapshot* AnanTxDsp::pureSignalSpectrum(qint64 nowMs) co
         ? &m_spectrum->snapshot() : nullptr;
 }
 
-bool AnanTxDsp::trySetFilter(double lowHz, double highHz)
+bool AnanTxDsp::trySetFilter(double lowHz, double highHz, AnanTxDsp* companion)
 {
     return m_channel && std::isfinite(lowHz) && std::isfinite(highHz) && lowHz >= -10000
-        && highHz <= 10000 && highHz-lowHz >= 50 && m_channel->trySetFilter(lowHz,highHz);
+        && highHz <= 10000 && highHz-lowHz >= 50
+        && (!companion || companion->m_channel)
+        && m_channel->trySetFilter(lowHz,highHz,companion ? companion->m_channel.get() : nullptr);
 }
 
 bool AnanTxDsp::begin(const TxCoordinator::Context& context, qint64 now)

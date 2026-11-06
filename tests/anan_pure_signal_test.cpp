@@ -4,6 +4,7 @@
 #include "core/dsp/PureSignalCorrection.h"
 #include "core/dsp/PureSignalAttenuator.h"
 #include "core/dsp/PureSignalSpectrum.h"
+#include "core/backends/anan/AnanFeedbackActivity.h"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -258,6 +259,13 @@ void correctionFiles()
         && snapshot->measurements[0].empty() && snapshot->correction[1].size() == 512
         && std::abs(snapshot->correction[1][255]-0.8) < 1e-9,
         "restored correction reports its actual pending ramp and curves without inventing measurements");
+    check(channel->trySetFilter(400,2900,reference.pureSignalChannel()),
+          "corrected and uncorrected native channels accept one paired passband update");
+    const auto filtered = channel->pureSignalSnapshot(true);
+    check(filtered && snapshot && filtered->correctionAvailable
+          && filtered->correctionRunning == snapshot->correctionRunning
+          && filtered->correction[1] == snapshot->correction[1],
+          "changing TX filters preserves actual installed IQC coefficients and correction state");
     const auto saved = channel->savePureSignalCorrection();
     check(saved && validatePureSignalCorrection(QByteArray::fromStdString(*saved)),"actual IQC coefficients save in valid v2 writer format");
     check(!channel->restorePureSignalCorrection(bytes.toStdString()),"restore cannot overwrite an existing correction channel");
@@ -386,6 +394,17 @@ void feedbackHeadroom()
 int main(int argc,char** argv)
 {
     QCoreApplication app(argc,argv);
+    {
+        AetherSDR::anan::AnanFeedbackActivity activity;
+        activity.observe(0.15,0.1,0.14495,0);
+        check(activity.active(0),"modulated reference activates feedback indication");
+        activity.observe(0,0,0.14495,200);
+        check(!activity.active(251),"silent feedback blocks cannot keep a previous green level active");
+        activity.observe(0.00001,0.00001,0.14495,300);
+        check(!activity.active(300),"low reference noise is not treated as current modulation");
+        activity.observe(0.1,0.1,0.14495,400); activity.reset();
+        check(!activity.active(400),"new transmission retires prior feedback activity");
+    }
     pairedSpectra();
     spectrumContext();
     attenuationPolicy();

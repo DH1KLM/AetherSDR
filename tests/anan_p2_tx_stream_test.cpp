@@ -82,8 +82,16 @@ int main(int argc, char** argv)
     check(stream.begin(operation, replacement, 0, 0), "fresh stream before prolonged stall");
     check(stream.enqueue(block, replacement, 0), "queue before prolonged stall");
     check(stream.pump(16 * AnanP2TxStream::kPacketNs, 0, gate, writer)
-          == AnanP2TxStream::Result::Refused && stream.queuedSamples() == 0,
-          "stall beyond queue duration drops historical IQ");
+          == AnanP2TxStream::Result::Silence && stream.queuedSamples() == 0 && gate.keyCommandAccepted(),
+          "short scheduler stall drops historical IQ and retains the original held key");
+    bool recoverySilent = true;
+    for (std::size_t i = 4; i < writes.back().size(); ++i) { recoverySilent &= writes.back()[i] == 0; }
+    check(recoverySilent,"scheduler recovery emits current silence, never delayed modulation");
+    check(stream.enqueue(block,replacement,0)
+        && stream.pump(17 * AnanP2TxStream::kPacketNs,0,gate,writer) == AnanP2TxStream::Result::Sent,
+        "fresh modulation resumes on the sample clock without acquiring another operation");
+    check(stream.pump(AnanP2TxStream::kMaximumRecoveryNs + 30'000'000,0,gate,writer)
+        == AnanP2TxStream::Result::DeadlineMissed,"prolonged scheduler stall still fails closed");
     stream.transportClosed();
     check(stream.begin(operation, replacement, 0, 0), "fresh sample clock");
     std::array<std::complex<float>, kTxIqSamplesPerPacket> packetSamples{};

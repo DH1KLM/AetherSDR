@@ -66,6 +66,10 @@ bool AnanRxDsp::configure(const Config& config, std::string* error)
         return false;
     }
 
+    if (config.inputSettleMs < 0 || config.inputSettleMs > 1000) {
+        if (error) { *error = "AnanRxDsp: input settle interval must be between 0 and 1000 ms"; }
+        return false;
+    }
     m_config = config;
     RebuildResult result = buildChannel(config);
     if (!result.channel || !result.analyzer) {
@@ -91,6 +95,10 @@ AnanRxDsp::RebuildResult AnanRxDsp::buildChannel(const Config& config)
         return result;
     }
 
+    if (config.inputSettleMs < 0 || config.inputSettleMs > 1000) {
+        result.error = "AnanRxDsp: input settle interval must be between 0 and 1000 ms";
+        return result;
+    }
     WdspChannel::Config wc;
     wc.direction = WdspChannel::Direction::Receive;
     wc.inputBlockSize = static_cast<std::size_t>(config.dspBlockSize);
@@ -198,6 +206,9 @@ void AnanRxDsp::installChannel(RebuildResult result)
     m_autoAgcClock.start();
     m_lastAutoAgcFrameMs = 0;
     m_config.inputSampleRateHz = result.inputSampleRateHz;
+    m_inputSettling = m_config.inputSettleMs > 0;
+    m_inputSettleClock.invalidate();
+    m_inputSettleSamples = 0;
 
     m_iqBuffer.clear();
     m_i.assign(static_cast<std::size_t>(m_config.dspBlockSize), 0.0f);
@@ -516,6 +527,24 @@ void AnanRxDsp::processIqBlock(const std::vector<std::complex<float>>& iq)
             const double i = value.real(), q = value.imag();
             trace->data.iq.add(i * i + q * q, now);
         }
+    }
+
+    if (m_inputSettling) {
+        if (!iq.empty() && !m_inputSettleClock.isValid()) { m_inputSettleClock.start(); }
+        if (!m_inputSettleClock.isValid() || m_inputSettleClock.elapsed() < m_config.inputSettleMs || m_audioMuted) {
+            // FPGA/DDC transition samples must not enter either filter history
+            // or the FFT average. Raw IQ diagnostics above remain observable.
+            m_inputSettleSamples += iq.size();
+            if (trace) { trace->finish(PerfTelemetry::nowNs()); }
+            return;
+        }
+        m_inputSettling = false;
+        m_spectrumClock.invalidate();
+        m_autoAgcClock.start();
+        m_lastAutoAgcFrameMs = 0;
+        qCInfo(lcAnanRxDsp) << "RX input settled:" << m_config.inputSettleMs
+            << "ms; discarded" << m_inputSettleSamples << "transition samples at"
+            << m_config.inputSampleRateHz << "Hz";
     }
 
     // Handedness: read docs/HERMES.md §16 before touching this. WDSP's RXA as

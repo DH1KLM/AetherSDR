@@ -25,6 +25,9 @@
 #include <QSignalSpy>
 #include <QCoreApplication>
 #include <QTest>
+#include <QStyleOptionSlider>
+#include <QStyle>
+#include <QMouseEvent>
 
 #include <cstdio>
 
@@ -103,12 +106,17 @@ int main(int argc, char** argv)
     check(lowSlider && highSlider, "both TX filter sliders are present");
     if (lowSlider && highSlider) {
         model.setTxFilter(300, 3000);
+        const int highMinimum = highSlider->minimum();
+        const int lowMaximum = lowSlider->maximum();
         lowSlider->setValue(450);
+        check(model.txFilterHigh() == 3000 && highSlider->value() == 3000 && highSlider->minimum() == highMinimum,
+            "moving low cut preserves high cut value and thumb scale");
         highSlider->setValue(2800);
         check(model.txFilterLow() == 450 && model.txFilterHigh() == 2800,
               "TX cutoff sliders dispatch separate low and high changes");
-        check(lowSlider->maximum() <= highSlider->value() - model.txFilterMinWidthHz(),
-              "sliders preserve the minimum TX passband width");
+        check(lowSlider->maximum() == lowMaximum,"moving high cut preserves low cut thumb scale");
+        lowSlider->setValue(2900);
+        check(model.txFilterLow() == 450 && model.txFilterHigh() == 2800,"crossing low cut is rejected without moving high cut");
     }
     model.setTxFilter(50, 3300);
 
@@ -121,6 +129,46 @@ int main(int argc, char** argv)
 
     check(low->isEditable(),  "low cut readout is editable (#3627)");
     check(high->isEditable(), "high cut readout is editable (#3627)");
+
+    applet.resize(340, applet.sizeHint().height());
+    applet.show();
+    QApplication::processEvents();
+    model.setTxFilter(101, 2638);
+    const auto dragCut = [](QSlider* slider) {
+        QStyleOptionSlider option;
+        option.initFrom(slider);
+        option.orientation = slider->orientation();
+        option.minimum = slider->minimum();
+        option.maximum = slider->maximum();
+        option.sliderPosition = slider->sliderPosition();
+        option.sliderValue = slider->value();
+        const QPoint from = slider->style()->subControlRect(
+            QStyle::CC_Slider, &option, QStyle::SC_SliderHandle, slider).center();
+        const QPoint to = from + QPoint(10, 0);
+        QTest::mousePress(slider, Qt::LeftButton, Qt::NoModifier, from);
+        QMouseEvent move(QEvent::MouseMove, QPointF(to), QPointF(slider->mapToGlobal(to)),
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(slider, &move);
+        QTest::mouseRelease(slider, Qt::LeftButton, Qt::NoModifier, to);
+    };
+    dragCut(lowSlider);
+    check(model.txFilterLow() > 101 && model.txFilterHigh() == 2638,
+          "mouse drag changes low cut without moving high cut");
+    const int draggedLow = model.txFilterLow();
+    dragCut(highSlider);
+    check(model.txFilterHigh() > 2638 && model.txFilterLow() == draggedLow,
+          "mouse drag changes high cut without moving low cut");
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QTest::mouseDClick(low, Qt::LeftButton);
+    check(low->isEditing(), "mouse double-click opens the cutoff editor");
+    if (QLineEdit* editor = low->findChild<QLineEdit*>()) {
+        QTest::keyClick(editor, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClicks(editor, "175");
+        QTest::keyClick(editor, Qt::Key_Return);
+        check(model.txFilterLow() == 175, "typed keys commit the cutoff through the open editor");
+    }
+    applet.hide();
+    model.setTxFilter(50, 3300);
 
     QWidget* txFilterControls = applet.findChild<QWidget*>(QStringLiteral("txFilterControls"));
     check(txFilterControls != nullptr, "TX filter controls have one capability-gated container");

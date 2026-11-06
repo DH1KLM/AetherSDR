@@ -73,6 +73,8 @@ AnanClient::AnanClient(QObject* parent) : QObject(parent),
                     m_pureSignalTxPeak = std::max(m_pureSignalTxPeak,double(std::abs(tx[i])));
                     m_pureSignalRxPeak = std::max(m_pureSignalRxPeak,double(std::abs(rx[i])));
                 }
+                m_feedbackActivity.observe(m_pureSignalTxPeak,m_pureSignalRxPeak,
+                    m_pureSignalSettings.hardwarePeak * AnanTxDsp::kWireAmplitudeGain,m_pureSignalFeedbackMs);
                 updatePureSignalAttenuation();
             }
         };

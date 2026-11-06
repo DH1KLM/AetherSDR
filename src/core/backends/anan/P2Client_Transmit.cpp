@@ -223,8 +223,11 @@ void P2Client::onTransmitTick()
         ? m_transmitStream.pumpCarrier(transmitElapsedNs(),now,m_transmitGate,
             [this] { return m_carrier.sample(192000); },writer)
         : m_transmitStream.pump(transmitElapsedNs(),now,m_transmitGate,writer);
-    if (result == AnanP2TxStream::Result::Refused || result == AnanP2TxStream::Result::WriteFailed) {
-        abortTransmit(QStringLiteral("TX IQ transport stopped"));
+    if (result == AnanP2TxStream::Result::Refused || result == AnanP2TxStream::Result::WriteFailed
+        || result == AnanP2TxStream::Result::DeadlineMissed) {
+        abortTransmit(result == AnanP2TxStream::Result::WriteFailed ? QStringLiteral("TX IQ packet write failed")
+            : result == AnanP2TxStream::Result::DeadlineMissed ? QStringLiteral("TX IQ scheduling gap exceeded 100 ms")
+            : QStringLiteral("TX IQ authority or sample clock refused"));
     }
 }
 } // namespace AetherSDR::anan

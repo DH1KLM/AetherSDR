@@ -1904,6 +1904,7 @@ RadioCapabilities Hl2Backend::capabilities() const
         {PanLifecycleAction::Create, PanLifecycleAction::Remove}};
     // setTune() is the built-in test tone at ZERO offset — a single carrier
     // exactly on the TX NCO. Nothing here can produce a second tone.
+    c.microphoneGainControl = std::nullopt;
     c.twoToneGenerator = std::nullopt;
     c.firmwareUpdateSource = std::nullopt;  // gateware number; no published list covers it.
     c.manufacturer = QStringLiteral("Hermes-Lite");

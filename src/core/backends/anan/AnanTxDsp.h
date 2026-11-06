@@ -32,7 +32,7 @@ public:
     ~AnanTxDsp();
     bool configure(WdspChannel::Mode mode, std::string* error = nullptr, int outputRate = kOutputRate,
                    std::optional<std::pair<double,double>> passband = std::nullopt);
-    bool trySetFilter(double lowHz, double highHz);
+    bool trySetFilter(double lowHz, double highHz, AnanTxDsp* companion = nullptr);
     bool preparePureSignalSpectrum();
     bool feedPureSignalFeedback(std::span<const std::complex<float>> tx,
         std::span<const std::complex<float>> rx, qint64 nowMs);

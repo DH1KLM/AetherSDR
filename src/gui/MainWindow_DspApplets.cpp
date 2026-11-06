@@ -93,11 +93,7 @@ QWidget* MainWindow::createAudioOutputStatusIndicator()
     auto* layout = new QHBoxLayout(container);
     layout->setContentsMargins(0,0,0,0); layout->setSpacing(6);
     layout->addWidget(indicator);
-    layout->addWidget(new PureSignalStatusIndicator(m_radioModel,[this] {
-        if (QAction* action = findChild<QAction*>(QStringLiteral("pureSignalAction")); action && action->isEnabled()) {
-            action->trigger();
-        }
-    },container));
+    layout->addWidget(new PureSignalStatusIndicator(m_radioModel,container));
     return container;
 }
 

@@ -307,6 +307,81 @@ int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
     {
+        AnanRxDsp dsp;
+        AnanRxDsp::Config config;
+        config.inputSampleRateHz = 384000;
+        config.inputSettleMs = 40;
+        config.panPoints = 1252;
+        config.agcMode = 0;
+        config.agcFixedGainDb = 0;
+        std::string error;
+        check(dsp.configure(config,&error),"RX input transition fixture configures");
+        int audioFrames = 0, spectra = 0;
+        double peakAudio = 0;
+        QObject::connect(&dsp,&AnanRxDsp::audioReady,[&](const std::vector<float>& audio) {
+            ++audioFrames;
+            for (const float sample : audio) { peakAudio = std::max(peakAudio,std::abs(double(sample))); }
+        });
+        QObject::connect(&dsp,&AnanRxDsp::spectrumReady,[&](const std::vector<float>&) { ++spectra; });
+        for (const int rate : {384000,768000}) {
+            if (rate != config.inputSampleRateHz) {
+                config.inputSampleRateHz = rate;
+                dsp.beginRebuild();
+                dsp.setAudioMuted(true);
+                check(dsp.installRebuiltChannel(AnanRxDsp::buildChannel(config)),
+                      "a live rate rebuild installs a fresh input transition guard");
+            }
+            audioFrames = spectra = 0; peakAudio = 0;
+            const std::vector<std::complex<float>> transition(1024,{-1.0f,-1.0f});
+            dsp.processIqBlock(transition);
+            dsp.processIqBlock(transition);
+            check(audioFrames == 0 && spectra == 0,
+                  "connect/rate transition samples reach neither audio nor FFT history");
+            QThread::msleep(60);
+            if (rate == 768000) {
+                dsp.processIqBlock(transition);
+                check(audioFrames == 0 && spectra == 0,
+                      "a delayed hardware-rate completion cannot reopen input after only the timer expires");
+                dsp.setAudioMuted(false);
+            }
+            const std::vector<std::complex<float>> quiet(3*kOneFft);
+            const auto frame = firstFrame(dsp,quiet);
+            const float peak = frame.empty() ? 0.0f : *std::max_element(frame.begin(),frame.end());
+            check(!frame.empty() && peak < -200 && audioFrames > 0 && peakAudio < 1e-6,
+                  "RX resumes after settling without an impulse tail in audio or averaged spectrum");
+        }
+        config.inputSettleMs = -1;
+        check(!AnanRxDsp::buildChannel(config).channel,"negative transition intervals are refused");
+        config.inputSettleMs = 1001;
+        check(!dsp.configure(config,&error),"unbounded transition intervals are refused");
+    }
+    for (const bool logAverage : {false,true}) {
+        for (const int averageMs : {0,500}) {
+            AnanPanAnalyzer::Settings settings;
+            settings.sampleRateHz = 384000;
+            settings.numPoints = 1024;
+            settings.averageTimeMs = averageMs;
+            settings.logAverage = logAverage;
+            std::string error;
+            auto analyzer = AnanPanAnalyzer::create(60,settings,&error);
+            check(analyzer != nullptr,"startup analyzer is available");
+            if (!analyzer) { continue; }
+            // Connection first creates a default-sized analyzer; the first
+            // visible pan then supplies its actual pixel width.
+            analyzer->setNumPoints(1252);
+            const std::vector<std::complex<float>> zeros(2*kOneFft);
+            analyzer->feed(zeros);
+            std::vector<float> first;
+            QElapsedTimer wait; wait.start();
+            while (!analyzer->takeFrame(first) && wait.elapsed() < 5000) { QThread::msleep(2); }
+            const float peak = first.empty() ? 0.0f : *std::max_element(first.begin(),first.end());
+            std::printf("startup zero IQ: average=%d log=%d points=%zu peak=%g dBFS\n",
+                        averageMs,int(logAverage),first.size(),double(peak));
+            check(first.size() == 1252 && peak < -200,
+                  "first zero-IQ FFT after connection-size handoff cannot manufacture a spectrum burst");
+        }
+    }
+    {
         for (const int rate : {48000, 192000, 384000, 1536000}) {
             AnanRxDsp dsp;
             AnanRxDsp::Config config;

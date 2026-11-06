@@ -1030,7 +1030,8 @@ public:
     // Microphone gain, 0..100 (Phone applet MIC). Flex takes `transmit set miclevel=`
     // from TransmitModel. A host-modulating backend that takes this owns the gain:
     // nothing else scales the mic on its behalf. A backend with no command plane
-    // that declares canTransmit must implement it: RadioModel then withholds the
+    // that declares canTransmit must implement it or declare ClientAudio gain
+    // ownership in MicrophoneGainControl: RadioModel then withholds the
     // miclevel drop notice.
     virtual void setMicGain(int level)
     {

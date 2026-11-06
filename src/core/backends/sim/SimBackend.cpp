@@ -281,6 +281,7 @@ RadioCapabilities SimBackend::capabilities() const
     caps.panLifecycleControl = PanLifecycleControl{PanLifecycleControl::Creation::Answered,
         {PanLifecycleAction::Create, PanLifecycleAction::Remove}};
     // The demo cannot key at all (Principle VI), let alone synthesise tones.
+    caps.microphoneGainControl = std::nullopt;
     caps.twoToneGenerator = std::nullopt;
     caps.firmwareUpdateSource = std::nullopt;  // synthetic radio; nothing to compare.
     caps.manufacturer = QStringLiteral("AetherSDR");

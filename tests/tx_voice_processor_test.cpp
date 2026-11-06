@@ -1175,6 +1175,16 @@ void testRnnoisePublicationCycle()
 
 int main()
 {
+    for (const float gain : {0.0f,0.5f,1.0f}) {
+        TxVoiceProcessor processor;
+        QByteArray audio = makeCanonicalTone(48000,48000,1000);
+        const bool prepared = processor.prepare(48000,48000);
+        processor.setMicGain(gain);
+        const bool processed = prepared && processor.processCapturedInt16(audio);
+        const double rms = processed ? leftChannelRms(processor.transportFloat32Stereo(),12000) : -1;
+        report("microphone level applies once with all TX DSP disabled",
+            processed && std::abs(rms-0.25*gain/std::sqrt(2.0)) < 0.001);
+    }
     testFixedRateContract();
     testVoiceSrcBandwidthAndAliasRejection();
     testCapturedRateSrcBandwidthAndAliasRejection();

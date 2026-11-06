@@ -1133,3 +1133,13 @@ keeps moves, widths, removals and global bypass at accepted state until
 optimistic sessions retain their existing behavior. Notch capability limits
 remain the existing `maxNotchFilters`, width bounds and `notchHasDepth` fields;
 a single relative MN control does not imply a tracking-notch bank.
+
+## Microphone gain ownership
+
+`microphoneGainControl` identifies the consumer of the existing microphone
+level command. ANAN declares `ClientAudio`: MainWindow forwards the model level
+to AudioEngine's atomic PC microphone gain before native TX processing.
+Flex, HL2, Icom, simulator, RTL and the original ANAN implementation explicitly
+leave the record absent and preserve their established gain ownership.
+The record adds neither a gain command nor a persisted setting. In particular,
+HL2 retains backend gain and must not receive an additional client gain stage.

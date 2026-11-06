@@ -174,6 +174,19 @@ bool StatusIndicator::eventFilter(QObject* watched, QEvent* event)
         return QObject::eventFilter(watched, event);
     }
     switch (event->type()) {
+    case QEvent::MouseButtonPress:
+        m_mousePressed = m_widget->isEnabled() && static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton;
+        break;
+    case QEvent::MouseButtonRelease: {
+        const bool clickedHere = m_mousePressed && m_widget->isEnabled()
+            && static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton
+            && m_widget->rect().contains(static_cast<QMouseEvent*>(event)->position().toPoint());
+        m_mousePressed = false;
+        if (clickedHere) {
+            emit clicked();
+        }
+        break;
+    }
     case QEvent::MouseButtonDblClick:
         if (m_widget->isEnabled() && static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton) {
             emit doubleClicked();

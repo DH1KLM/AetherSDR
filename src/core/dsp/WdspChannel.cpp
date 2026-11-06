@@ -725,9 +725,25 @@ bool WdspChannel::setFilter(double lowHz, double highHz) noexcept
 {
     return setFilterImpl(lowHz,highHz,true);
 }
-bool WdspChannel::trySetFilter(double lowHz, double highHz) noexcept
+bool WdspChannel::trySetFilter(double lowHz, double highHz, WdspChannel* companion) noexcept
 {
-    return setFilterImpl(lowHz,highHz,false);
+    if (!companion || companion == this) { return setFilterImpl(lowHz,highHz,false); }
+    if (m_config.direction != Direction::Transmit || companion->m_config.direction != Direction::Transmit
+        || !std::isfinite(lowHz) || !std::isfinite(highHz) || lowHz < -10000
+        || highHz > 10000 || highHz-lowHz < 50 || !beginControlOperation()) { return false; }
+    if (!companion->beginControlOperation()) { endControlOperation(); return false; }
+    std::unique_lock setupLock(g_setupMutex,std::try_to_lock);
+    if (!setupLock.owns_lock()) {
+        companion->endControlOperation(); endControlOperation(); return false;
+    }
+    // Neither channel can exchange PCM or accept another control operation
+    // until both native filters and their published configurations agree.
+    SetTXABandpassFreqs(m_channelId,lowHz,highHz);
+    SetTXABandpassFreqs(companion->m_channelId,lowHz,highHz);
+    m_config.filterLowHz = companion->m_config.filterLowHz = lowHz;
+    m_config.filterHighHz = companion->m_config.filterHighHz = highHz;
+    companion->endControlOperation(); endControlOperation();
+    return true;
 }
 bool WdspChannel::setFilterImpl(double lowHz, double highHz, bool waitForPlanner) noexcept
 {

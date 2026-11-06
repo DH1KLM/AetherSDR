@@ -34,6 +34,14 @@ LPFs. The slice and independent-window limits depend on the selected profile and
 Hermes/Hermes-II radio-speaker channels follow Thetis' stereo swap.
 Supply voltage for these additional profiles is not reported until qualified.
 
+On the extended Protocol 2 path, connection and receive-channel rebuilds include
+a short input settling interval, at least 250 ms from the first arriving IQ block
+and until the rate-change transaction completes.
+Transition samples enter neither audio processing nor spectrum averaging. This
+also covers automatic samplerate changes when switching bands. Automatic
+bandwidth selection continues to follow the selected band plan and region;
+normal tuning within an already running channel does not restart this interval.
+
 ## Saturn implementation selection
 
 A Saturn radio discovered on Protocol 2 has two choices:
@@ -268,10 +276,20 @@ The PA table uses its row height; **Use Thetis defaults**, **Save PA profile**,
 
 In the **Phone** applet, **Low Cut** and **High Cut** sliders set the USB/LSB transmit voice
 passband. Values are positive audio frequencies; LSB is mirrored automatically.
+Each slider has a fixed frequency scale. Moving one edge leaves the other edge
+unchanged; a move that would cross the minimum passband width is refused.
 Changes apply during an ongoing transmission without rekeying. A live change
 outside the selected band plan is refused and the previous values are restored.
+Pure Signal can remain enabled: both the corrected path and its uncorrected
+fallback receive the same filter limits. A pending PS configuration must finish
+first. An active two-tone test must retain both carriers inside the passband.
 The voice filter is remembered per radio. Other modes retain their mode-specific
 filters; changing these controls in another mode prepares the next USB/LSB use.
+
+The microphone level slider controls client voice gain before ANAN TX processing.
+If the waveform reports clipping, reduce the input level and microphone gain.
+Its TX trace is measured before Pure Signal correction. Waterfall colours alone
+do not measure PA clipping or establish correction performance.
 
 The footer shows **ASIO ACTIVE** while ASIO receive output or microphone input is running;
 **ASIO OFF** means it is not running, regardless of the saved checkbox setting.

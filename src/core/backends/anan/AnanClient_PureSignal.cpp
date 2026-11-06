@@ -4,6 +4,18 @@
 #include <QVariantMap>
 
 namespace AetherSDR::anan {
+bool AnanClient::trySetTransmitFilter(double lowHz, double highHz)
+{
+    if (!m_transmitDsp || (m_pureSignalMode != PureSignalMode::Off && !m_uncorrectedTransmitDsp)) { return false; }
+    if (m_transmitTwoTone && !(lowHz <= 700 && highHz >= 1900)
+        && !(lowHz <= -1900 && highHz >= -700)) { return false; }
+    if (!m_transmitDsp->trySetFilter(lowHz,highHz,m_uncorrectedTransmitDsp.get())) { return false; }
+    m_transmitDsp->resetPureSignalSpectrum();
+    m_feedbackActivity.reset();
+    m_pureSignalFeedbackMs = 0;
+    return true;
+}
+
 bool AnanClient::configurePureSignal(const PureSignalSettings& settings, PureSignalMode mode, std::shared_ptr<AnanTxDsp> prepared)
 {
     if (!settings.valid() || m_transmitKeyed || !m_transmitDsp
@@ -27,6 +39,7 @@ bool AnanClient::configurePureSignal(const PureSignalSettings& settings, PureSig
 
 void AnanClient::beginPureSignalOver()
 {
+    m_feedbackActivity.reset();
     m_pureSignalFeedbackBlocks = 0;
     m_pureSignalFeedbackMs = 0;
     m_pureSignalTxPeak = m_pureSignalRxPeak = 0;
@@ -87,6 +100,7 @@ QVariantMap AnanClient::pureSignalState(bool display, bool spectra)
         && now >= m_pureSignalFeedbackMs && now-m_pureSignalFeedbackMs <= 500;
     state.insert(QStringLiteral("feedbackBlocks"),QVariant::fromValue(m_pureSignalFeedbackBlocks));
     state.insert(QStringLiteral("feedbackFresh"),freshFeedback);
+    state.insert(QStringLiteral("feedbackModulating"),freshFeedback && m_feedbackActivity.active(now));
     if (liveMedia && m_pureSignalMode != PureSignalMode::Off) {
         state.insert(QStringLiteral("feedbackStatus"),freshFeedback
             ? QStringLiteral("Receiving paired feedback: %1 blocks this transmission; latest TX peak %2, PA feedback peak %3 (digital full scale = 1).")

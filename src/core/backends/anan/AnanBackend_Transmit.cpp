@@ -337,7 +337,7 @@ void AnanBackend::publishTransmitFilter()
 void AnanBackend::setTxFilter(int lowHz, int highHz)
 {
     if (!m_connected || lowHz < 0 || highHz > 10000 || highHz - lowHz < 50) { return; }
-    if (m_pureSignalEnabled || m_pureSignalPending) { publishTransmitFilter(); return; }
+    if (m_pureSignalPending) { publishTransmitFilter(); return; }
     const QString mode = transmitModeName();
     const bool ssb = mode == QStringLiteral("USB") || mode == QStringLiteral("LSB");
     if (ssb && m_transmitDispatchOperation.permitsDispatch(TxCoordinator::monotonicMs())) {

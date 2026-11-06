@@ -1,5 +1,6 @@
 #include "AnanBackend.h"
 #include "AnanPlannedResource.h"
+#include "AnanSettings.h"
 
 #include <QMetaObject>
 #include <QFile>
@@ -13,6 +14,19 @@
 namespace AetherSDR::anan {
 void AnanBackend::requestPureSignal(const QString& verb, quint64 requestId, const QVariantMap& fields)
 {
+    if (verb == QLatin1String("puresignal.preferences")) {
+        if (!m_connected || m_radioSerial.isEmpty() || fields.size() != 2
+            || fields.value(QStringLiteral("identity")).metaType().id() != QMetaType::QString
+            || fields.value(QStringLiteral("identity")).toString() != transmitPreparationIdentity()
+            || fields.value(QStringLiteral("autoAttenuate")).metaType().id() != QMetaType::Bool) {
+            emit extensionError(requestId,QStringLiteral("Invalid Pure Signal preference or retired connection.")); return;
+        }
+        if (!AnanSettings::setPureSignalAutoAttenuate(m_radioSerial,fields.value(QStringLiteral("autoAttenuate")).toBool())) {
+            emit extensionError(requestId,QStringLiteral("Pure Signal Auto-Attenuate preference could not be saved.")); return;
+        }
+        requestPureSignal(QStringLiteral("puresignal.get"),requestId,{});
+        return;
+    }
     const bool save = verb == QLatin1String("puresignal.save");
     const bool restore = verb == QLatin1String("puresignal.restore");
     const bool write = verb != QLatin1String("puresignal.get");
@@ -34,10 +48,11 @@ void AnanBackend::requestPureSignal(const QString& verb, quint64 requestId, cons
     } else if (m_diversity.enabled || m_diversityPending) {
         reason = QStringLiteral("Disable diversity before reserving the Pure Signal feedback DDCs.");
     } else if (m_receiveBuilding || m_rateChanging || m_receiveCalibrationRun || m_droopCalibrator.isRunning()
-        || m_pureSignalPending || m_txSessionArming) {
+        || m_pureSignalPending || m_txFilterPending || m_txSessionArming) {
         reason = QStringLiteral("Wait for the current radio configuration to finish.");
     }
     PureSignalSettings settings;
+    settings.autoAttenuate = AnanSettings::pureSignalAutoAttenuate(m_radioSerial);
     PureSignalMode mode = PureSignalMode::Off;
     if (write) {
         if (!reason.isEmpty() || m_transmitOperation.permitsCleanup()) {
@@ -99,7 +114,7 @@ void AnanBackend::requestPureSignal(const QString& verb, quint64 requestId, cons
         const bool accepted = !write || (permit && permit->load() && revision->load() == filterRevision
             && (save ? saved : m_client->configurePureSignal(settings, mode, prepared)));
         QVariantMap state = m_client->pureSignalState(display,spectra);
-        QMetaObject::invokeMethod(this, [this, epoch, requestId, write, mode, accepted, identity, reason, state]() mutable {
+        QMetaObject::invokeMethod(this, [this, epoch, requestId, write, mode, accepted, identity, reason, state, save]() mutable {
             if (m_receiveEpoch != epoch || !m_connected) { return; }
             if (write) { m_pureSignalPending = false; }
             if (identity != transmitPreparationIdentity()) {
@@ -115,7 +130,13 @@ void AnanBackend::requestPureSignal(const QString& verb, quint64 requestId, cons
                 m_pureSignalEnabled = enabled;
                 updateReceiveStreams();
             }
+            if (write && !save && !AnanSettings::setPureSignalAutoAttenuate(m_radioSerial,state.value(QStringLiteral("autoAttenuate")).toBool())) {
+                emit extensionError(requestId,QStringLiteral("Pure Signal applied, but Auto-Attenuate preference could not be saved.")); return;
+            }
             state.insert(QStringLiteral("identity"), identity);
+            const bool preferred = AnanSettings::pureSignalAutoAttenuate(m_radioSerial);
+            state.insert(QStringLiteral("preferredAutoAttenuate"),preferred);
+            if (!enabled) { state.insert(QStringLiteral("autoAttenuate"),preferred); }
             state.insert(QStringLiteral("available"), reason.isEmpty());
             state.insert(QStringLiteral("reason"), reason);
             emit extensionResult(requestId, state);

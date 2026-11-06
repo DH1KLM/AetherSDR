@@ -17,8 +17,10 @@ class AnanP2TxStream final {
 public:
     static constexpr qint64 kPacketNs = 1'250'000; // 240 / 192000 seconds
     static constexpr int kMaximumPacketsPerTick = 16;
+    // One existing high-priority keepalive interval. Longer stalls still stop TX.
+    static constexpr qint64 kMaximumRecoveryNs = 100'000'000;
     static constexpr std::size_t kCapacity = kMaximumPacketsPerTick * kTxIqSamplesPerPacket;
-    enum class Result { NotDue, Sent, Silence, Refused, WriteFailed };
+    enum class Result { NotDue, Sent, Silence, Refused, WriteFailed, DeadlineMissed };
 
     bool begin(const TxCoordinator::Operation& operation,
                const TxCoordinator::Context& context, qint64 nowNs, qint64 nowMs)
@@ -90,10 +92,16 @@ public:
     Result pump(qint64 nowNs, qint64 nowMs, AnanTxGate& gate, Writer&& writer)
     {
         if (!m_active || nowNs < m_lastNs || nowNs > std::numeric_limits<qint64>::max() - kPacketNs
-            || (nowNs >= m_nextNs && nowNs - m_nextNs >= kMaximumPacketsPerTick * kPacketNs)
             || !m_operation.permitsDispatch(nowMs) || !m_context.permitsDispatch(nowMs)) {
             clear();
             return Result::Refused;
+        }
+        if (nowNs >= m_nextNs && nowNs-m_nextNs >= kMaximumPacketsPerTick*kPacketNs) {
+            if (nowNs-m_lastNs > kMaximumRecoveryNs) { clear(); return Result::DeadlineMissed; }
+            // Never replay the delayed queue or burst beyond its time budget.
+            // Resume with current silence under the same operation and producer.
+            m_head = m_count = 0;
+            m_nextNs = nowNs;
         }
         m_lastNs = nowNs;
         if (nowNs < m_nextNs) { return Result::NotDue; }

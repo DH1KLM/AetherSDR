@@ -14,8 +14,7 @@
 #include <utility>
 
 namespace AetherSDR {
-PureSignalStatusIndicator::PureSignalStatusIndicator(RadioModel& model,
-    std::function<void()> openWindow, QWidget* parent)
+PureSignalStatusIndicator::PureSignalStatusIndicator(RadioModel& model, QWidget* parent)
     : QWidget(parent), m_model(model), m_title(new QLabel(this)),
       m_level(new QProgressBar(this)), m_timer(new QTimer(this))
 {
@@ -35,8 +34,9 @@ PureSignalStatusIndicator::PureSignalStatusIndicator(RadioModel& model,
     m_level->setAttribute(Qt::WA_TransparentForMouseEvents);
     layout->addWidget(m_title); layout->addWidget(m_level);
     StatusIndicator* activation = StatusIndicator::attach(this);
-    connect(activation,&StatusIndicator::activated,this,openWindow);
-    connect(activation,&StatusIndicator::doubleClicked,this,std::move(openWindow));
+    activation->setCheckable(true);
+    connect(activation,&StatusIndicator::activated,this,[this] { activate(); });
+    connect(activation,&StatusIndicator::clicked,this,[this] { activate(); });
     connect(m_timer,&QTimer::timeout,this,[this] { poll(); });
     connect(&model,&RadioModel::connectionStateChanged,this,[this](bool) { poll(); });
     connect(&model,&RadioModel::capabilitiesChanged,this,[this] { poll(); });
@@ -46,7 +46,8 @@ PureSignalStatusIndicator::PureSignalStatusIndicator(RadioModel& model,
 void PureSignalStatusIndicator::showState(const QString& title, const QString& overlay, int level,
     const QString& description, const QString& tone)
 {
-    const QString help = description + tr(" Double-click or press Enter to open Pure Signal.");
+    const QString help = description + tr(" Click or press Enter to switch Pure Signal on or off. This does not transmit.")
+        + (m_activationError.isEmpty() ? QString() : QStringLiteral(" ") + m_activationError);
     const bool changed = accessibleDescription() != help;
     m_title->setText(title); m_level->setFormat(overlay);
     m_level->setValue(std::clamp(level,0,256));
@@ -70,16 +71,21 @@ void PureSignalStatusIndicator::showState(const QString& title, const QString& o
 
 void PureSignalStatusIndicator::acceptState(const QVariantMap& state)
 {
+    m_state = state;
     const int mode = state.value(QStringLiteral("mode")).toInt();
+    StatusIndicator::setCheckedFor(this,mode != 0);
     if (mode == 0) {
         showState(tr("PS OFF"),QStringLiteral("—"),0,tr("Pure Signal is off."),QStringLiteral("neutral")); return;
     }
     const bool correcting = state.value(QStringLiteral("correcting")).toBool();
-    const bool fresh = state.value(QStringLiteral("feedbackFresh")).toBool();
+    const bool packetsFresh = state.value(QStringLiteral("feedbackFresh")).toBool();
+    const bool quiet = packetsFresh && !state.value(QStringLiteral("feedbackModulating")).toBool();
+    const bool fresh = packetsFresh && !quiet;
     const QVariantList information = state.value(QStringLiteral("information")).toList();
     if (!fresh || information.size() != 16) {
-        showState(state.value(QStringLiteral("correctionAvailable")).toBool() ? tr("PS READY") : tr("PS ARMED"),
-            QStringLiteral("—"),0,tr("Pure Signal is armed; no fresh feedback level is available. A retained correction may apply on the next transmission."),
+        showState(quiet ? tr("PS QUIET") : state.value(QStringLiteral("correctionAvailable")).toBool() ? tr("PS READY") : tr("PS ARMED"),
+            QStringLiteral("—"),0,quiet ? tr("No current modulation; Pure Signal remains enabled. The last calibration level is not a live audio meter.")
+                : tr("Pure Signal is armed; no fresh feedback level is available. A retained correction may apply on the next transmission."),
             QStringLiteral("neutral")); return;
     }
     const int level = information[4].toInt();
@@ -91,6 +97,40 @@ void PureSignalStatusIndicator::acceptState(const QVariantMap& state)
         detail,inRange ? correcting ? QStringLiteral("good") : QStringLiteral("neutral") : QStringLiteral("bad"));
 }
 
+QVariantMap PureSignalStatusIndicator::activationFields() const
+{
+    QVariantMap fields;
+    const QString identity = m_state.value(QStringLiteral("identity")).toString();
+    if (!m_state.value(QStringLiteral("available")).toBool() || identity.isEmpty()
+        || m_state.value(QStringLiteral("keyed")).toBool()) { return fields; }
+    fields.insert(QStringLiteral("identity"),identity);
+    fields.insert(QStringLiteral("mode"),m_state.value(QStringLiteral("mode")).toInt() == 0 ? 1 : 0);
+    fields.insert(QStringLiteral("autoAttenuate"),m_state.value(QStringLiteral("preferredAutoAttenuate"),m_state.value(QStringLiteral("autoAttenuate"))).toBool());
+    for (const QString& name : {QStringLiteral("moxWaitSeconds"),QStringLiteral("calibrationWaitSeconds"),
+            QStringLiteral("amplifierDelayNs"),QStringLiteral("hardwarePeak")}) {
+        if (!m_state.contains(name)) { return {}; }
+        fields.insert(name,m_state.value(name));
+    }
+    return fields;
+}
+
+void PureSignalStatusIndicator::activate()
+{
+    if (!m_model.isConnected() || m_backend != m_model.backend() || m_activation) { return; }
+    const QVariantMap fields = activationFields();
+    if (!m_replyAge.isValid() || m_replyAge.elapsed() > 1500 || fields.isEmpty()) {
+        m_activationError = m_state.value(QStringLiteral("keyed")).toBool() ? tr("Finish transmission before switching Pure Signal on or off.")
+            : m_state.value(QStringLiteral("reason"),tr("Wait for a prepared TX session and fresh status.")).toString();
+        if (m_activationError.isEmpty()) { m_activationError = tr("Wait for a prepared TX session and fresh status."); }
+        showState(tr("PS WAIT"),QStringLiteral("—"),0,m_activationError,QStringLiteral("neutral")); return;
+    }
+    m_activationError.clear();
+    static quint64 next = 0x505341000000ULL;
+    m_pending = 0; m_activation = ++next; m_activationAge.start();
+    showState(tr("PS WAIT"),QStringLiteral("—"),0,tr("Applying Pure Signal on/off selection; no transmission started."),QStringLiteral("neutral"));
+    m_model.invokeBackendExtension(QStringLiteral("anan"),QStringLiteral("puresignal.set"),m_activation,fields);
+}
+
 void PureSignalStatusIndicator::poll()
 {
     IRadioBackend* current = m_model.backend();
@@ -98,21 +138,32 @@ void PureSignalStatusIndicator::poll()
     setEnabled(supported);
     if (!supported || current != m_backend) {
         disconnect(m_resultConnection); disconnect(m_errorConnection);
-        m_backend = nullptr; m_pending = 0; m_replyAge.invalidate();
+        m_backend = nullptr; m_pending = m_activation = 0; m_replyAge.invalidate(); m_state.clear(); m_activationError.clear();
+        StatusIndicator::setCheckedFor(this,false);
         showState(supported ? tr("PS WAIT") : tr("PS N/A"),QStringLiteral("—"),0,
             supported ? tr("Waiting for the current radio's Pure Signal status.") : tr("Connect an OpenHPSDR device to use Pure Signal."),
             QStringLiteral("neutral"));
         if (!supported || !current) { return; }
         m_backend = current;
         m_resultConnection = connect(current,&IRadioBackend::extensionResult,this,[this,current](quint64 id,const QVariant& value) {
-            if (id != m_pending || current != m_model.backend() || !m_model.isConnected()) { return; }
+            if (current != m_model.backend() || !m_model.isConnected()) { return; }
+            if (id == m_activation && m_activation) { m_activation = 0; m_replyAge.start(); acceptState(value.toMap()); return; }
+            if (id != m_pending || m_activation) { return; }
             m_pending = 0; m_replyAge.start(); acceptState(value.toMap());
         });
-        m_errorConnection = connect(current,&IRadioBackend::extensionError,this,[this,current](quint64 id,const QString&) {
+        m_errorConnection = connect(current,&IRadioBackend::extensionError,this,[this,current](quint64 id,const QString& error) {
+            if (current == m_model.backend() && m_activation && id == m_activation) {
+                m_activation = 0; m_activationError = error;
+                showState(tr("PS WAIT"),QStringLiteral("—"),0,error,QStringLiteral("neutral")); return;
+            }
             if (id != m_pending || current != m_model.backend()) { return; }
             m_pending = 0; m_replyAge.invalidate();
             showState(tr("PS WAIT"),QStringLiteral("—"),0,tr("Pure Signal status is unavailable."),QStringLiteral("neutral"));
         });
+    }
+    if (m_activation) {
+        if (m_activationAge.elapsed() <= 120000) { return; }
+        m_activation = 0; m_activationError = tr("Pure Signal activation reply timed out; check current status before retrying.");
     }
     if (m_replyAge.isValid() && m_replyAge.elapsed() > 1500) {
         showState(tr("PS WAIT"),QStringLiteral("—"),0,tr("Pure Signal status is stale."),QStringLiteral("neutral"));

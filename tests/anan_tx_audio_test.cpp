@@ -28,6 +28,13 @@ struct AnanClientTestAccess {
     static void pump(AnanClient& client) { client.pumpTransmitAudio(); }
     static std::size_t pending(const AnanClient& client) { return client.m_transmitCount; }
     static void protocol(AnanClient& client, int value) { client.m_protocol = value; }
+    static void signalPaths(AnanClient& client, std::shared_ptr<AnanTxDsp> active,
+                            std::shared_ptr<AnanTxDsp> fallback, PureSignalMode mode) {
+        client.m_transmitDsp = std::move(active);
+        client.m_uncorrectedTransmitDsp = std::move(fallback);
+        client.m_pureSignalMode = mode;
+    }
+    static void twoToneActive(AnanClient& client, bool active) { client.m_transmitTwoTone = active; }
 };
 struct P2ClientTestAccess {
     static void prepare(P2Client& client, qint64& clock,
@@ -410,9 +417,113 @@ void modemLevels()
           "WSPR generated audio preserves the same fixed headroom without source-dependent gain");
 }
 }
+double txFilterToneRms(int highHz, double toneHz, bool pureSignal)
+{
+    AnanClient client;
+    auto active = std::make_shared<AnanTxDsp>();
+    auto fallback = std::make_shared<AnanTxDsp>();
+    if (!active->configure(WdspChannel::Mode::Usb) || !fallback->configure(WdspChannel::Mode::Usb)) {
+        check(false,"TX filter response channels configure"); return 0;
+    }
+    if (pureSignal && !active->pureSignalChannel()->configurePureSignal({},PureSignalMode::Automatic,192000)) {
+        check(false,"TX filter response enables PS"); return 0;
+    }
+    AnanClientTestAccess::signalPaths(client,active,pureSignal ? fallback : nullptr,
+        pureSignal ? PureSignalMode::Automatic : PureSignalMode::Off);
+    TxCoordinator coordinator([](const auto&,auto) {});
+    const auto producer = coordinator.registerProducer(true);
+    const auto context = coordinator.mediaContext(producer);
+    if (!client.trySetTransmitFilter(100,highHz) || !active->begin(context,0)) {
+        check(false,"TX response applies the requested filter and starts offline processing"); return 0;
+    }
+    double power = 0;
+    std::size_t samples = 0;
+    for (int block = 0; block < 120; ++block) {
+        std::array<float,AnanTxDsp::kInputSamples> audio{};
+        for (std::size_t i = 0; i < audio.size(); ++i) {
+            audio[i] = float(0.05*std::sin(2*std::numbers::pi*toneHz*(block*audio.size()+i)/AnanTxDsp::kInputRate));
+        }
+        std::array<std::complex<float>,AnanTxDsp::kOutputSamples> output{};
+        QElapsedTimer wait; wait.start();
+        AnanTxDsp::Result result;
+        do {
+            result = active->process(audio,context,0,output);
+            if (result == AnanTxDsp::Result::WouldBlock) { QThread::msleep(1); }
+        } while (result == AnanTxDsp::Result::WouldBlock && wait.elapsed() < 1000);
+        if (result != AnanTxDsp::Result::Output) { check(false,"offline TX response exchange completes"); return 0; }
+        if (block >= 60) {
+            for (const auto value : output) { power += std::norm(value); ++samples; }
+        }
+    }
+    return samples ? std::sqrt(power/samples) : 0;
+}
+
+void txFilterFrequencyResponse()
+{
+    for (const bool ps : {false,true}) {
+        const double reference = txFilterToneRms(9000,1000,ps);
+        const double wide = txFilterToneRms(9000,8000,ps);
+        const double narrow = txFilterToneRms(3000,8000,ps);
+        const double passDb = 20*std::log10(std::max(wide/std::max(reference,1e-20),1e-15));
+        const double rejectionDb = 20*std::log10(std::max(narrow/std::max(wide,1e-20),1e-15));
+        std::printf("TX filter response PS=%d: 8kHz/1kHz at 9kHz cutoff=%g dB; 8kHz at 3kHz/9kHz cutoff=%g dB\n",
+                    int(ps),passDb,rejectionDb);
+        check(reference > 1e-6 && std::abs(passDb) < 1,
+              "actual TX IQ passes 8 kHz with a 9 kHz filter, with PS off or automatic");
+        check(wide > 1e-6 && rejectionDb < -40,
+              "actual TX IQ suppresses 8 kHz when the filter is narrowed to 3 kHz");
+    }
+}
+
+void pureSignalFilterUpdates()
+{
+    for (const auto mode : {WdspChannel::Mode::Usb,WdspChannel::Mode::Lsb}) {
+        for (const auto ps : {PureSignalMode::Automatic,PureSignalMode::Single,PureSignalMode::Current}) {
+            AnanClient client;
+            auto active = std::make_shared<AnanTxDsp>();
+            auto fallback = std::make_shared<AnanTxDsp>();
+            check(active->configure(mode) && fallback->configure(mode),"paired TX filter fixture configures");
+            check(active->pureSignalChannel()->configurePureSignal({},ps,192000),"fixture keeps Pure Signal enabled");
+            AnanClientTestAccess::signalPaths(client,active,fallback,ps);
+            TxCoordinator coordinator([](const auto&,auto) {});
+            const auto producer = coordinator.registerProducer(true);
+            const auto context = coordinator.mediaContext(producer);
+            const qint64 now = TxCoordinator::monotonicMs();
+            check(active->begin(context,now),"paired-filter test starts the active native TX channel without transport");
+            const double low = mode == WdspChannel::Mode::Lsb ? -2800 : 450;
+            const double high = mode == WdspChannel::Mode::Lsb ? -450 : 2800;
+            const auto agrees = [&] {
+                return active->pureSignalChannel()->config().filterLowHz == low
+                    && active->pureSignalChannel()->config().filterHighHz == high
+                    && fallback->pureSignalChannel()->config().filterLowHz == low
+                    && fallback->pureSignalChannel()->config().filterHighHz == high;
+            };
+            check(client.trySetTransmitFilter(low,high) && agrees(),"PS cutoff change updates both USB/LSB paths");
+            std::array<float,AnanTxDsp::kInputSamples> pcm{};
+            std::array<std::complex<float>,AnanTxDsp::kOutputSamples> iq{};
+            const auto output = active->process(pcm,context,now,iq);
+            check(output != AnanTxDsp::Result::Refused && output != AnanTxDsp::Result::Fault,
+                  "running TX processing retains its original media context after a filter edit");
+            fallback->pureSignalChannel()->refuseControlOperationsForTest(1);
+            check(!client.trySetTransmitFilter(low+100,high-100) && agrees(),"busy fallback leaves BOTH filters unchanged");
+            active->pureSignalChannel()->refuseControlOperationsForTest(1);
+            check(!client.trySetTransmitFilter(low+100,high-100) && agrees(),"busy active channel leaves BOTH filters unchanged");
+            check(!client.trySetTransmitFilter(500,501) && agrees(),"invalid width cannot partially update either path");
+            check(client.pureSignalState(false).value(QStringLiteral("mode")).toInt() == static_cast<int>(ps),
+                "filter change and retries preserve selected calibration mode");
+            AnanClientTestAccess::twoToneActive(client,true);
+            check(!client.trySetTransmitFilter(1000,1500) && agrees(),"generated two-tone cannot lose its carriers to a filter edit");
+            AnanClientTestAccess::twoToneActive(client,false);
+            check(client.trySetTransmitFilter(low+100,high-100),"filter update can retry successfully after contention");
+        }
+    }
+}
+
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc,argv);
+    txFilterFrequencyResponse();
+    pureSignalFilterUpdates();
     plannedRetirement();
     stagedDoesNotKey();
     powerUpdates();

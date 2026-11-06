@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cmath>
 #include <complex>
+#include <cstdint>
 #include <memory>
 #include <numbers>
 #include <vector>
@@ -50,6 +51,9 @@ public:
     static constexpr int kWdspDspSampleRateHz = 48000;
 
     struct Config {
+        // Radio transition input guard, before both WDSP and the analyzer.
+        // Measured from the first nonempty block after installing a channel.
+        int inputSettleMs = 0;
         int inputSampleRateHz = 48000;   // DDC0 IQ sample rate
         // Demodulated-audio rate. 24 kHz because that is AudioEngine's
         // native RX rate; every valid DDC0 rate (48/96/192/384/768/1536 kHz)
@@ -374,6 +378,9 @@ private:
     int m_spectrumIntervalMs = 0;   // 0 = uncapped
     QElapsedTimer m_spectrumClock;
     qint64 m_lastSpectrumMs = 0;
+    QElapsedTimer m_inputSettleClock;
+    bool m_inputSettling = false;
+    std::uint64_t m_inputSettleSamples = 0;
 
     std::vector<std::complex<float>> m_iqBuffer;    // IQ awaiting a full DSP block
     std::vector<float> m_i, m_q;                    // deinterleaved input scratch

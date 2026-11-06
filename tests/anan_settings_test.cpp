@@ -43,6 +43,21 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
     AppSettings::instance().load();
     {
+        check(!AnanSettings::pureSignalAutoAttenuate(QStringLiteral("PS-A")),"missing PS preference defaults off");
+        check(AnanSettings::setPureSignalAutoAttenuate(QStringLiteral("PS-A"),true),"PS Auto-Attenuate saves");
+        AppSettings::instance().load();
+        check(AnanSettings::pureSignalAutoAttenuate(QStringLiteral("PS-A"))
+            && !AnanSettings::pureSignalAutoAttenuate(QStringLiteral("PS-B")),"PS preference survives reload without crossing radios");
+        check(AnanSettings::setPureSignalAutoAttenuate(QStringLiteral("PS-A"),false)
+            && !AnanSettings::pureSignalAutoAttenuate(QStringLiteral("PS-A")),"PS unchecked preference also saves");
+        check(!AnanSettings::setPureSignalAutoAttenuate({},true),"PS preference cannot write a family default");
+        const RadioSettingsScope future(QStringLiteral("anan"),QStringLiteral("PS-FUTURE"));
+        check(future.setFeature(QStringLiteral("PureSignal"),2,QJsonObject{{QStringLiteral("autoAttenuate"),true}}),"future PS fixture saves");
+        check(!AnanSettings::setPureSignalAutoAttenuate(QStringLiteral("PS-FUTURE"),false)
+            && future.featureExact(QStringLiteral("PureSignal")).value(QStringLiteral("autoAttenuate")).toBool(),
+            "PS preference writer preserves newer schemas");
+    }
+    {
         // Calibration belongs to one MAC/model/board/protocol and keeps ADC offsets independent.
         ReceiveCalibration calibration;
         calibration.frequencyFactor = 1.00001;

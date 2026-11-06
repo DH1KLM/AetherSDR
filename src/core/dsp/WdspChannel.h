@@ -346,7 +346,9 @@ public:
     bool reconfigure(const Config& config, std::string* error = nullptr) noexcept;
     bool setMode(Mode mode) noexcept;
     bool setFilter(double lowHz, double highHz) noexcept;
-    bool trySetFilter(double lowHz, double highHz) noexcept;
+    // A companion TX channel is updated under the same control/planner lease.
+    // Contention or invalid input leaves both passbands unchanged.
+    bool trySetFilter(double lowHz, double highHz, WdspChannel* companion = nullptr) noexcept;
     bool setWbfmDeemphasis(WbfmReceive::Deemphasis deemphasis) noexcept;
     // Lock-free latest completed output-mode observation, sampled by processIq().
     // Forced Mono is false independently of reception diagnostics.pilotLocked.

@@ -425,6 +425,7 @@ RadioCapabilities AnanBackend::capabilities() const
         PanDisplayField::SpectrumPoints}, {PanGeometryComponent::Center, PanGeometryComponent::Bandwidth}};
     c.panLifecycleControl = std::nullopt;  // fixed receiver topology: no pan create/remove
     // No setTune() implementation, so no tune generator to select a mode on.
+    c.microphoneGainControl = std::nullopt;
     c.twoToneGenerator = std::nullopt;
     c.firmwareUpdateSource = std::nullopt;  // gateware number; no published list covers it.
     // No VOX, monitor or speech-processor setters. PROC would be the host

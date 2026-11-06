@@ -563,6 +563,7 @@ RadioCapabilities FlexBackend::capabilities() const
          PanLifecycleAction::RefreshInventory, PanLifecycleAction::RfGainInfo}};
     // SmartSDR `transmit set tune_mode=two_tone` is a real on-radio two-tone
     // generator; FlexBackend is the only consumer of that key.
+    caps.microphoneGainControl = std::nullopt;
     caps.twoToneGenerator = RadioCapabilities::TwoToneGenerator{
         QStringLiteral("transmit set tune_mode=two_tone")};
     caps.manufacturer = QStringLiteral("FlexRadio");

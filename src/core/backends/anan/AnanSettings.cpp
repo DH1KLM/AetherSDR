@@ -535,6 +535,26 @@ QVariantMap AnanSettings::microphone(const QString& serial, int model, int board
     if (status != AppSettings::FeatureReadStatus::Present || version != 1) { return {}; }
     return doc.value(QStringLiteral("%1:%2:%3").arg(model).arg(board).arg(protocol)).toObject().toVariantMap();
 }
+bool AnanSettings::pureSignalAutoAttenuate(const QString& serial)
+{
+    if (serial.trimmed().isEmpty()) { return false; }
+    int version = 0;
+    const auto doc = RadioSettingsScope(QStringLiteral("anan"),serial).featureExact(QStringLiteral("PureSignal"),&version);
+    return version == 1 && doc.value(QStringLiteral("autoAttenuate")).isBool()
+        && doc.value(QStringLiteral("autoAttenuate")).toBool();
+}
+bool AnanSettings::setPureSignalAutoAttenuate(const QString& serial, bool enabled)
+{
+    if (serial.trimmed().isEmpty()) { return false; }
+    const RadioSettingsScope scope(QStringLiteral("anan"),serial);
+    int version = 0;
+    AppSettings::FeatureReadStatus status;
+    auto doc = scope.featureExact(QStringLiteral("PureSignal"),&version,&status);
+    if (version > 1 || status == AppSettings::FeatureReadStatus::Corrupt
+        || status == AppSettings::FeatureReadStatus::Unavailable) { return false; }
+    doc.insert(QStringLiteral("autoAttenuate"),enabled);
+    return scope.setFeature(QStringLiteral("PureSignal"),1,doc);
+}
 bool AnanSettings::setMicrophone(const QString& serial, int model, int board, int protocol, const QVariantMap& options)
 {
     const auto parsed = parseMicOptions(options);

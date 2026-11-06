@@ -524,6 +524,8 @@ RadioCapabilities AnanBackend::capabilities() const
     c.cwTextControl = std::nullopt;
     c.broadcastFmReceive = std::nullopt;
     c.family = QStringLiteral("anan");
+    c.microphoneGainControl = RadioCapabilities::MicrophoneGainControl{
+        RadioCapabilities::MicrophoneGainControl::Source::ClientAudio};
     c.cwReceiveControl = std::nullopt;
     c.panDisplayControl = PanDisplayControl{{PanDisplayField::Geometry, PanDisplayField::RfGain,
         PanDisplayField::FrameRate, PanDisplayField::Average, PanDisplayField::WeightedAverage,
@@ -1171,6 +1173,9 @@ void AnanBackend::connectRadio(const RadioConnectRequest& request)
 
     m_speakerAudioEnabled = m_pendingParams.speakerAudioEnabled;
     m_pendingDspConfig = AnanRxDsp::Config{};
+    // Use the existing P2 rate-transition recovery interval at the common IQ
+    // input, including first connect, before audio and spectrum split apart.
+    m_pendingDspConfig.inputSettleMs = m_pendingParams.protocol == 2 ? kRateChangeLiveSettleMs : 0;
     m_pendingDspConfig.inputSampleRateHz = m_pendingParams.ddc0RateKsps * 1000;
     m_pendingDspConfig.audioSampleRateHz = 24000;
     m_pendingDspConfig.dspBlockSize = 1024;
@@ -1888,6 +1893,9 @@ void AnanBackend::beginRateChange(int newRateKsps)
                       .arg(QString::fromStdString(result.error));
 
             QMetaObject::invokeMethod(m_dsp, [this, r = std::move(result)]() mutable {
+                // Close the transition input before the swap. The GUI's later
+                // completion starts the hardware rate change and its settle timer.
+                if (r.channel && r.analyzer) { m_dsp->setAudioMuted(true); }
                 m_dsp->installRebuiltChannel(std::move(r));
             }, Qt::QueuedConnection);
 
@@ -2630,7 +2638,7 @@ void AnanBackend::invokeExtension(const QString& ns, const QString& verb,
 {
     if (ns == QLatin1String("anan") && (verb == QLatin1String("puresignal.get")
         || verb == QLatin1String("puresignal.set") || verb == QLatin1String("puresignal.save")
-        || verb == QLatin1String("puresignal.restore"))) {
+        || verb == QLatin1String("puresignal.restore") || verb == QLatin1String("puresignal.preferences"))) {
         requestPureSignal(verb, requestId, arg.toMap());
         return;
     }
