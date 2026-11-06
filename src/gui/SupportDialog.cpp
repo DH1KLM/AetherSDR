@@ -1,6 +1,10 @@
 #include "SupportDialog.h"
 #include "DocsLinks.h"
 #include "FramelessMessageBox.h"
+#include "CanonIndicators.h"
+#include "CanonScrollBarStyle.h"
+#include "FramelessResizer.h"
+#include "ModemChrome.h"
 #include "ResetSettingsPrompts.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
@@ -23,13 +27,13 @@
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QFrame>
 #include <QLabel>
+#include <QLineEdit>
+#include <QScrollArea>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollBar>
-#include <QScrollArea>
-#include <QFrame>
-#include <QWidget>
 #include <QStringList>
 #include <QUrl>
 #include <QUrlQuery>
@@ -40,13 +44,95 @@
 
 namespace AetherSDR {
 
+namespace {
+
+// What the shared canon dialog sheet (buttons, the canon check boxes) leaves
+// out: the logging group as MQTT Settings has its group boxes; the log pane on
+// a nested card; the path, size and hint lines; selection ink; and the log
+// pane's right-click menu, a child that the sheet's transparent rule would
+// otherwise leave with no panel.
+constexpr const char* kSupportRules = R"(
+QGroupBox {
+    background: {{color.canon.nested}};
+    border: 1px solid {{color.canon.line}};
+    border-radius: 8px;
+    margin-top: 14px;
+    padding-top: 6px;
+    font-weight: 700;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    color: {{color.canon.cyan}};
+}
+QLineEdit {
+    selection-background-color: {{color.canon.cyan}};
+    selection-color: {{color.canon.onAccent}};
+}
+QScrollArea#supportCategoryScroll,
+QScrollArea#supportCategoryScroll > QWidget > QWidget {
+    background: transparent;
+}
+QPlainTextEdit {
+    color: {{color.canon.inkSoft}};
+    background: {{color.canon.nested}};
+    border: 1px solid {{color.canon.line}};
+    border-radius: 8px;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 11px;
+    selection-background-color: {{color.canon.control}};
+    selection-color: {{color.canon.ink}};
+}
+QLabel#supportLogCaption,
+QLabel#supportLogSize,
+QLabel#supportDocsLabel {
+    color: {{color.canon.muted}};
+    font-size: 11px;
+}
+QLabel#supportInstructions {
+    color: {{color.canon.inkSoft}};
+    font-size: 13px;
+}
+QMenu {
+    color: {{color.canon.inkSoft}};
+    background: {{color.canon.raised}};
+    border: 1px solid {{color.canon.lineHi}};
+}
+QMenu::item {
+    padding: 4px 18px;
+}
+QMenu::item:selected {
+    color: {{color.canon.onAccent}};
+    background: {{color.canon.cyan}};
+}
+QMenu::item:disabled {
+    color: {{color.control.unavailable}};
+}
+QMenu::separator {
+    height: 1px;
+    margin: 4px 8px;
+    background: {{color.canon.line}};
+}
+)";
+
+} // namespace
+
 SupportDialog::SupportDialog(QWidget* parent)
-    : PersistentDialog(QStringLiteral("Support & Diagnostics"),
-                       QStringLiteral("SupportDialogGeometry"), parent)
+    : CanonWindow(QStringLiteral("Support & Diagnostics"), parent)
 {
-    theme::setContainer(this, QStringLiteral("dialog/support"));
-    setMinimumSize(900, 600);
-    resize(1100, 740);
+    setObjectName(QStringLiteral("SupportDialog"));
+    theme::setContainer(this, QStringLiteral("canon/support"));
+    // Size and position persist under the key it used as a PersistentDialog,
+    // so saved geometry carries over; it resizes from every edge. Nothing
+    // here is a form, so Return clicks no button.
+    setGeometryKey(QStringLiteral("SupportDialogGeometry"));
+    setReturnClicksDefault(false);
+    FramelessResizer::install(this);
+    applyCanonSheet(bodyWidget(), [] {
+        return ModemChrome::styleSheet(ModemChrome::Scale::Dialog, ModemChrome::Look::Canon)
+             + canonScrollBarRules() + QString::fromLatin1(kSupportRules);
+    });
     buildUI();
     syncCheckboxes();
     refreshLog();
@@ -55,102 +141,108 @@ SupportDialog::SupportDialog(QWidget* parent)
 void SupportDialog::buildUI()
 {
     auto* layout = new QVBoxLayout(bodyWidget());
+    layout->setContentsMargins(14, 12, 14, 14);
     layout->setSpacing(8);
+    layout->addWidget(makeCanonHeader(QStringLiteral("Support & Diagnostics")));
 
     // ── Diagnostic Logging group ──────────────────────────────────────────
+    // The grid is built unparented and installed once, inside groupLayout:
+    // parenting it to the group box and then setting groupLayout on the box
+    // gave the grid two parents and the box two layouts (Qt warned twice).
     auto* logGroup = new QGroupBox("Diagnostic Logging");
-    auto* categoryHost = new QWidget(logGroup);
-    auto* gridLayout = new QGridLayout(categoryHost);
-    gridLayout->setHorizontalSpacing(12);
-    gridLayout->setVerticalSpacing(0);
-    for (int column = 0; column < 4; ++column) { gridLayout->setColumnStretch(column,1); }
+    // The 48-odd categories scroll inside the group: laid out in full they
+    // need some 430 px, which with the rest of the window would not fit a
+    // 768 px screen, and the old fixed floor crushed the rows instead.
+    auto* categoryPage = new QWidget;
+    auto* gridLayout = new QGridLayout(categoryPage);
+    gridLayout->setContentsMargins(0, 0, 0, 0);
+    gridLayout->setSpacing(4);
 
     auto& mgr = LogManager::instance();
     auto cats = mgr.categories();
-    std::stable_partition(cats.begin(),cats.end(),[](const LogManager::Category& category) {
+    std::stable_partition(cats.begin(), cats.end(), [](const LogManager::Category& category) {
         return !category.id.startsWith(QStringLiteral("aether.anan."));
     });
-    constexpr int kColumns = 4;
-    const int rows = (cats.size() + kColumns - 1) / kColumns;
-    int categoryIndex = 0;
+    int col = 0, row = 0;
+    constexpr int COLS = 3;
 
     for (const auto& cat : cats) {
         auto* cb = new QCheckBox(cat.label);
         cb->setObjectName(QStringLiteral("supportLogCategory_") + cat.id);
         cb->setAccessibleName(cat.label);
         cb->setAccessibleDescription(cat.description);
-        cb->setMinimumHeight(20);
         cb->setToolTip(cat.description);
         cb->setChecked(cat.enabled);
-        ThemeManager::instance().applyStyleSheet(cb,
-            QStringLiteral("QCheckBox { color: {{color.text.primary}}; font-size: 12px; spacing: 8px; }"
-                           "QCheckBox:checked { font-weight: 600; }")
-            + ThemeManager::checkBoxIndicatorStyle()
-            + QStringLiteral("QCheckBox::indicator { width: 16px; height: 16px; border-color: {{color.canon.lineHi}}; }"
-                             "QCheckBox::indicator:checked { background: {{color.canon.cyan}}; border-color: {{color.canon.cyan}}; }"));
-        gridLayout->addWidget(cb, categoryIndex % rows, categoryIndex / rows);
+        gridLayout->addWidget(cb, row, col);
 
         connect(cb, &QCheckBox::toggled, this, [id = cat.id](bool on) {
             LogManager::instance().setEnabled(id, on);
         });
 
         m_checkboxes[cat.id] = cb;
-        ++categoryIndex;
+        if (++col >= COLS) { col = 0; ++row; }
     }
 
     auto* btnRow = new QHBoxLayout;
     auto* enableAllBtn = new QPushButton("Enable All");
     auto* disableAllBtn = new QPushButton("Disable All");
-    enableAllBtn->setFixedHeight(28);
-    disableAllBtn->setFixedHeight(28);
     connect(enableAllBtn, &QPushButton::clicked, this, &SupportDialog::enableAll);
     connect(disableAllBtn, &QPushButton::clicked, this, &SupportDialog::disableAll);
     btnRow->addWidget(enableAllBtn);
     btnRow->addWidget(disableAllBtn);
     btnRow->addStretch();
 
-    auto* categories = new QScrollArea(logGroup);
-    categories->setObjectName(QStringLiteral("supportLogCategories"));
-    categories->setAccessibleName(QStringLiteral("Diagnostic logging categories"));
-    categories->setWidgetResizable(true);
-    categories->setFrameShape(QFrame::NoFrame);
-    categories->setMinimumHeight(rows * 20 + 20);
-    categories->setWidget(categoryHost);
+    auto* categoryScroll = new QScrollArea;
+    categoryScroll->setObjectName(QStringLiteral("supportCategoryScroll"));
+    categoryScroll->setAccessibleName(QStringLiteral("Diagnostic logging categories"));
+    categoryScroll->setFrameShape(QFrame::NoFrame);
+    categoryScroll->setWidgetResizable(true);
+    categoryScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    categoryScroll->setWidget(categoryPage);
+    // Every column stays readable; about six rows show at the floor.
+    const int rowHeight = categoryPage->findChild<QCheckBox*>()
+        ? categoryPage->findChild<QCheckBox*>()->sizeHint().height() + gridLayout->verticalSpacing()
+        : 22;
+    categoryScroll->setMinimumWidth(categoryPage->minimumSizeHint().width()
+                                    + categoryScroll->verticalScrollBar()->sizeHint().width());
+    categoryScroll->setMinimumHeight(6 * rowHeight);
+
     auto* groupLayout = new QVBoxLayout(logGroup);
-    groupLayout->addWidget(categories,1);
+    groupLayout->addWidget(categoryScroll, 1);
     groupLayout->addLayout(btnRow);
-    layout->addWidget(logGroup);
+    layout->addWidget(logGroup, 1);
 
     // ── Log file info ─────────────────────────────────────────────────────
     auto* fileRow = new QHBoxLayout;
-    auto* pathLabel = new QLabel(QString("Log: %1").arg(
-        QDir::toNativeSeparators(ExternalFilePath::resolve(LogManager::instance().logFilePath()))));
-    pathLabel->setTextFormat(Qt::PlainText);
-    pathLabel->setAccessibleName(QStringLiteral("Log file path"));
-    pathLabel->setWordWrap(true);
-    pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    ThemeManager::instance().applyStyleSheet(pathLabel,"QLabel { color: {{color.text.primary}}; font-size: 12px; }");
+    // Plain text, so a path is never read as markup, and selectable so it can
+    // be copied into a report.
+    // A read-only field: the whole path can be selected and copied into a
+    // report, and a long one scrolls instead of widening the window.
+    const QString logPath = QDir::toNativeSeparators(
+        ExternalFilePath::resolve(LogManager::instance().logFilePath()));
+    auto* pathCaption = new QLabel(QStringLiteral("Log:"));
+    pathCaption->setObjectName(QStringLiteral("supportLogCaption"));
+    auto* pathField = new QLineEdit(logPath);
+    pathField->setObjectName(QStringLiteral("supportLogPath"));
+    pathField->setAccessibleName(QStringLiteral("Log file path"));
+    pathField->setReadOnly(true);
+    pathField->setToolTip(logPath);
+    pathField->setCursorPosition(0);
+    pathCaption->setBuddy(pathField);
     m_sizeLabel = new QLabel;
-    m_sizeLabel->setAccessibleName(QStringLiteral("Log file size"));
-    ThemeManager::instance().applyStyleSheet(m_sizeLabel,"QLabel { color: {{color.text.secondary}}; font-size: 12px; }");
-    fileRow->addWidget(pathLabel,1);
+    m_sizeLabel->setObjectName(QStringLiteral("supportLogSize"));
+    fileRow->addWidget(pathCaption);
+    fileRow->addWidget(pathField, 1);
     fileRow->addWidget(m_sizeLabel);
     layout->addLayout(fileRow);
 
     // ── Log viewer ────────────────────────────────────────────────────────
     m_logViewer = new QPlainTextEdit;
-    m_logViewer->setObjectName(QStringLiteral("supportLogViewer"));
-    m_logViewer->setAccessibleName(QStringLiteral("Application log"));
     m_logViewer->setReadOnly(true);
     m_logViewer->setMaximumBlockCount(2000);
-    m_logViewer->setMinimumHeight(120);
-    AetherSDR::ThemeManager::instance().applyStyleSheet(m_logViewer, "QPlainTextEdit {"
-        "  background: {{color.background.0}};"
-        "  color: {{color.text.primary}};"
-        "  font-family: monospace;"
-        "  font-size: 12px;"
-        "  border: 1px solid {{color.background.1}};"
-        "}");
+    m_logViewer->setObjectName(QStringLiteral("supportLogViewer"));
+    m_logViewer->setAccessibleName(QStringLiteral("Log file tail"));
+    m_logViewer->setMinimumHeight(90);
     layout->addWidget(m_logViewer, 1);  // stretch
 
     // ── Log action buttons ────────────────────────────────────────────────
@@ -158,9 +250,6 @@ void SupportDialog::buildUI()
     auto* refreshBtn = new QPushButton("Refresh");
     auto* clearBtn = new QPushButton("Clear Log");
     auto* openBtn = new QPushButton("Open Log Folder");
-    refreshBtn->setFixedHeight(26);
-    clearBtn->setFixedHeight(26);
-    openBtn->setFixedHeight(26);
     connect(refreshBtn, &QPushButton::clicked, this, &SupportDialog::refreshLog);
     connect(clearBtn, &QPushButton::clicked, this, &SupportDialog::clearLog);
     connect(openBtn, &QPushButton::clicked, this, &SupportDialog::openLogFolder);
@@ -175,8 +264,7 @@ void SupportDialog::buildUI()
     // Log Analyzer, which checks a log or support bundle in the browser.
     auto* docsRow = new QHBoxLayout;
     auto* docsLabel = new QLabel("Before you report:");
-    AetherSDR::ThemeManager::instance().applyStyleSheet(docsLabel,
-        "QLabel { color: {{color.text.secondary}}; font-size: 11px; }");
+    docsLabel->setObjectName(QStringLiteral("supportDocsLabel"));
     docsRow->addWidget(docsLabel);
     const auto addDocsButton = [this, docsRow](const QString& text,
                                                const QString& objectName,
@@ -186,7 +274,6 @@ void SupportDialog::buildUI()
         btn->setObjectName(objectName);
         btn->setAccessibleName(accessibleName);
         btn->setToolTip(QStringLiteral("Opens %1 in your browser").arg(docsUrl));
-        btn->setFixedHeight(26);
         connect(btn, &QPushButton::clicked, this, [docsUrl] { DocsLinks::open(docsUrl); });
         docsRow->addWidget(btn);
     };
@@ -213,20 +300,14 @@ void SupportDialog::buildUI()
         "2. <b>Restart AetherSDR</b> (logging changes take effect on next launch)<br>"
         "3. Reproduce the problem<br>"
         "4. Choose <b>Help \xE2\x86\x92 File an Issue\xE2\x80\xA6</b> and drag your log file into the GitHub form</p>");
+    instructions->setObjectName(QStringLiteral("supportInstructions"));
     instructions->setTextFormat(Qt::RichText);
-    instructions->setWordWrap(true);
-    ThemeManager::instance().applyStyleSheet(instructions,
-        "QLabel { color: {{color.text.primary}}; font-size: 12px; }");
     layout->addWidget(instructions);
 
-    // ── Close button ──────────────────────────────────────────────────────
-    auto* closeRow = new QHBoxLayout;
-    closeRow->addStretch();
-    auto* closeBtn = new QPushButton("Close");
-    closeBtn->setFixedHeight(28);
-    connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
-    closeRow->addWidget(closeBtn);
-    layout->addLayout(closeRow);
+    // 40 px taller than before for the canon header, and never smaller than
+    // the layout needs.
+    resize(680, 640);
+    setMinimumSize(QSize(600, 560).expandedTo(minimumSizeHint()));
 }
 
 void SupportDialog::syncCheckboxes()

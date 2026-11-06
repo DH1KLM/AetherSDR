@@ -9,7 +9,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7711,
+          "line": 7689,
           "text": "else if (key == \"model\")"
         }
       ]
@@ -21,7 +21,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7720,
+          "line": 7698,
           "text": "else if (key == \"software_ver\")"
         }
       ]
@@ -94,7 +94,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7673,
+          "line": 7651,
           "text": "\"RadioModel: terminal GUI client registration failure\""
         }
       ]
@@ -111,12 +111,12 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7603,
+          "line": 7581,
           "text": "RadioModel: this GUI client was force-disconnected by another client"
         },
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7647,
+          "line": 7625,
           "text": "RadioModel: radio disconnected this session because another GUI client used the same ID"
         }
       ]
@@ -133,7 +133,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7513,
+          "line": 7491,
           "text": "RadioModel: multiFLEX disabled, other clients present"
         }
       ]
@@ -167,7 +167,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 8854,
+          "line": 8832,
           "text": "consecutive pings unanswered — forcing disconnect"
         }
       ]
@@ -193,7 +193,7 @@
         },
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7720,
+          "line": 7698,
           "text": "else if (key == \"software_ver\")"
         }
       ]
@@ -210,7 +210,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7914,
+          "line": 7892,
           "text": "RadioModel: no VITA-49 UDP data received after 10s"
         }
       ]
@@ -227,7 +227,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7892,
+          "line": 7870,
           "text": "RadioModel: UDP stream setup failed"
         },
         {
@@ -237,7 +237,7 @@
         },
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 7968,
+          "line": 7946,
           "text": "RadioModel: client udpport collision"
         }
       ]
@@ -474,7 +474,7 @@
       "source": [
         {
           "file": "src/models/RadioModel.cpp",
-          "line": 13495,
+          "line": 13483,
           "text": "RadioModel: DAX TX create failed"
         }
       ]
@@ -1034,12 +1034,12 @@
       "source": [
         {
           "file": "src/core/AsyncLogWriter.cpp",
-          "line": 688,
+          "line": 723,
           "text": "Logging dropped debug/info lines count="
         },
         {
           "file": "src/core/AsyncLogWriter.cpp",
-          "line": 694,
+          "line": 729,
           "text": "Logging dropped warning/critical/fatal lines count="
         }
       ]
