@@ -1,358 +1,168 @@
-# AetherSDR
+# AetherSDR — DH1KLM Fork Extensions
 
-**This version, which covers all ANAN-SDR models, features enhanced model detection (supporting both protocol 1 and 2) and a "Receive profile and Board override" option for manually integrating DIY-SDRs via "Connection by IP."**
-**Furthermore, the transmit (TX) function is now enabled and operational (though its performance remains to be seen). Other improvements include CTUN, ASIO support, SWR/PWR integration, a functional ANDROMEDA control panel, and more.**
-**Additional work is still required, including hardware testing across the various models. The current implementation has been verified through software testing and practical trials using an "Anvelina Pro III" (an Orion MKII clone)** 
-**equipped with an ANAN-200D PA/LPF assembly (utilizing the DIY option).**
+This unofficial fork extends [AetherSDR](https://github.com/aethersdr/AetherSDR) v26.10.4 into a broader, model-aware OpenHPSDR implementation with multiple receivers, transmit support, additional hardware controls, diversity reception and Pure Signal.
+
+The following list follows implementation order. It covers feature additions and bug fixes developed in this fork, excluding internal refactoring and features inherited from upstream.
+
+Hardware availability depends on the selected model and protocol. Implementation does not imply hardware validation on every supported profile.
+
+## Supported transceivers
+
+The DH1KLM implementation supports the following OpenHPSDR model profiles. Discovery identifies the board family rather than the exact transceiver. Select the appropriate **Receive profile** when connecting; supported DIY combinations can use an explicit **Board override**.
+
+| Board (P2 discovery ID) | Models / profiles | Protocols | First RX DDC¹ | ADCs | RF filters | Pure Signal² | Microphone connector options | Supply telemetry | Hardware verification³ |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **Hermes (1)** | Hermes, ANAN-10, ANAN-100 | P1 / P2 | DDC0 | 1 | ALEX HPF + LPF | — | — | DIY configuration | Pending |
+| **Hermes II (2)** | ANAN-10E, ANAN-100B | P1 / P2 | DDC0 | 1 | ALEX HPF + LPF | — | — | DIY configuration | Pending |
+| **Angelia (3)** | ANAN-100D | P1 / P2 | DDC2 | 2 | ALEX HPF + LPF | Experimental | — | DIY configuration | Pending |
+| **Orion (4)** | ANAN-200D | P1 / P2 | DDC2 | 2 | ALEX HPF + LPF | Experimental | Mic PTT, tip/ring, bias | DIY configuration | DIY override tested; native hardware pending |
+| **Orion MkII (5)** | Orion MkII, ANAN-7000DLE, ANAN-8000DLE, Anvelina Pro III | P1 / P2 | DDC2 | 2 | RX1/RX2 BPF + model-dependent LPF | Experimental | Mic PTT, tip/ring, bias | Voltage + current⁴ | ANAN-7000DLE P2 RX confirmed; Anvelina configurations tested |
+| **Saturn (10)** | ANAN-G2, ANAN-G2 1K | P2 | DDC0 | 2 | RX1/RX2 BPF | Experimental | Mic PTT, tip/ring, bias, 3.5 mm/XLR | Voltage + current | Original single-receiver RX path bench-qualified; extended features require validation |
+| **HermesC10 (20)** | ANAN-G2E | P1 / P2 | DDC0 | 1 | BPF + LPF | — | — | Voltage + current | Pending |
+| **Profile-dependent (1 or 5)** | Red Pitaya | P1 / P2 | DDC2 | 2 | Profile-dependent; native profile uses legacy HPF/LPF control | Experimental | — | DIY configuration | P1 RX, including 384 ksps, confirmed; P2 pending |
+
+¹ **First RX DDC** describes the normal Protocol 2 receive route. Protocol 1 uses a different slot layout; two-ADC profiles normally start RX1 at DDC0. These values do not indicate the number of available receivers.
+
+² **Pure Signal** is implemented experimentally for validated two-ADC profiles. It requires a prepared TX session and suitable attenuated PA feedback. P1 requires 192 kHz reception with no more than two receiver streams; P2 requires two spare physical DDCs. Diversity must be disabled. Hardware correction performance remains to be verified per configuration.
+
+³ **Hardware verification** describes documented checks, not complete qualification of every mode, transmitter, peripheral or model in the row.
+
+⁴ Automatic Orion MkII discovery is ambiguous. Voltage/current telemetry requires an applicable explicit model profile or DIY sensor configuration.
+
+**Not enabled through this implementation:** Atlas/Metis (ID 0), Hermes-Lite 2 P2 (ID 6), and the unverified Saturn MkII identity (ID 11). Hermes-Lite 2 uses AetherSDR’s separate P1 backend.
+
 
 **Please note that any testing you perform with this version is done at your own risk.**
 
-**https://github.com/DH1KLM/AetherSDR/tree/anan-tx-implementation**
+## Feature additions
 
-**The software compiles without errors on Windows.**
+1. **Expanded OpenHPSDR discovery**  
+   Recognizes additional OpenHPSDR board identities and their hardware resources.
 
-![AetherSDR Screenshot](docs/assets/screenshot-anan-3d.jpg)
+2. **Automatic Saturn receive-filter selection**  
+   Selects the appropriate receive band-pass filter from the tuned frequency.
 
+3. **Live receive-antenna selection**  
+   Switches supported RX antenna connections during operation and remembers the selected antenna.
 
+4. **Model-aware Protocol 1 and Protocol 2 support**  
+   Adds receive profiles for Hermes, ANAN-10/10E, ANAN-100/100B, ANAN-100D, ANAN-200D, ANAN-7000DLE/8000DLE, G2/G2E, Anvelina-Pro III and Red Pitaya, using the applicable protocol.
 
-**A cross-platform, open-source client for FlexRadio Systems transceivers**
-
-[![CI](https://github.com/aethersdr/AetherSDR/actions/workflows/ci.yml/badge.svg)](https://github.com/aethersdr/AetherSDR/actions/workflows/ci.yml)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
-[![Qt6](https://img.shields.io/badge/Qt-6-green.svg)](https://www.qt.io/)
-[![Signed Commits](https://img.shields.io/badge/commits-GPG%20signed-brightgreen?logo=gnuprivacyguard)](https://github.com/aethersdr/AetherSDR/commits/main)
-
-AetherSDR brings full FlexRadio operation to Linux, macOS, and Windows — each a native build, no Wine or virtual machines. A native aarch64 build also runs on Raspberry Pi and other embedded ARM devices. Built from the ground up with Qt6 and C++20, it speaks the SmartSDR protocol natively and aims to replicate the full SmartSDR experience.
-
-**Current version: 26.11.1** — CalVer (`YY.M.patch[.hotfix]`). | [Download](https://github.com/aethersdr/AetherSDR/releases/latest) | [Discussions](https://github.com/aethersdr/AetherSDR/discussions) | [What's New](https://github.com/aethersdr/AetherSDR/releases)
-
-> **Native builds for Linux, macOS, and Windows** — Linux AppImage (x86-64 + aarch64), macOS DMG (Apple Silicon + Intel), Windows installer and portable ZIP. Every platform is built, tested in CI, and released together.
-
-
-<p><i>Native. Open. Yours.</i></p>
-
----
-
-## Highlights
-
-- **GPU-accelerated spectrum & waterfall** — QRhi rendering (OpenGL/Metal/D3D11) with a per-pixel FFT trace at up to **60 fps**, optional FFT Smooth and De-comb trace shaping, an optional **3D stacked-trace** mode, ~71% less CPU than the paint path, GPU-composited slice flags and multi-GPU adapter selection
-- **Multi-slice & multi-panadapter** — colour-coded VFO overlays, independent TX assignment, diversity/ESC beamforming, and up to 8 detachable pans with native VITA-49 waterfall tiles and per-flag S-meter / **SmartMTR** views
-- **KiwiSDR and Web-888 public-receiver browser** — find and connect to public receivers worldwide through an API-policy-aware directory, with diversity receive and receive-only TX inhibit
-- **AetherTX and AetherRX** — the transmit and receive chains, one window each. AetherTX is the channel strip (gate, EQ, compressor, de-esser, tube, AetherVoice exciter, reverb, brickwall limiter) with a preset library and scope; AetherRX puts noise reduction, gate, EQ, compressor, tube, AetherVoice and the output meter on tabs down its left edge
-- **Seven client-side noise-reduction engines**, each denoising left and right independently so pans and diversity survive them — NR2 (spectral), RN2 (RNNoise), NR4 (libspecbleach), NNR (WDSP's Neural Noise Reduction), DFNR (DeepFilterNet3), BNR (the NVIDIA Maxine denoiser, in-process on a local RTX/GeForce GPU, Linux + Windows — [`docs/nvidia-bnr.md`](docs/nvidia-bnr.md)) and MNR (macOS)
-- **DAX virtual audio + IQ** — up to 8 RX audio channels (radio-dependent) plus 1 TX, and 4 channels of raw I/Q at 24–192 kHz for WSJT-X / fldigi / VARA / JS8Call, with a per-slice **WFM demodulator** for satellite data
-- **AetherModem packet radio** — KISS-over-TCP TNC, connected-mode AX.25 BBS, a personal mailbox, a WIDE1-1 fill-in digipeater, and an **APRS client** (station table, GPS beacon, messaging) on a Direwolf-derived VHF demodulator
-- **AetherLab** — an experimental vector network analyzer workspace for the RigExpert Stick Pro over USB, a proof of concept with hardware sweeps qualified on one Stick Pro 108 on macOS: SWR, return loss, impedance and series/parallel R, X, L and C with markers and JSON session export
-- **AetherSweep** — in-panadapter SWR analyzer with log scale, threshold-band shading and interpolated bandwidth at SWR ≤ 1.5 / 2.0
-- **SpotHub** — DX Cluster, RBN, WSJT-X, POTA, FreeDV Reporter, N1MM+/DXLog contest bandmap, the EiBi shortwave schedule and the KiwiSDR DX Community database, with auto-mode switch and per-feed colouring
-- **Local voice keyer** — twelve PC-microphone recordings up to 30 seconds each, with preview, import/export and F1–F12 playback; radio DVK remains available separately
-- **CW operator suite** — ggmorse plus download-on-demand DeepCW and DeepFist receive decoders where ONNX Runtime is available (ggmorse only on Intel macOS), MIDI/keyboard straight-key and iambic paddles with full QSK, optional Quindar tones
-- **Copy Assist (speech-to-text)** — on-device transcription of received voice via whisper.cpp, docked under the waterfall with confidence colour-coding, optionally from the audio before noise reduction. CPU or GPU (Vulkan/Metal, auto-detected), download-on-demand models, optional remote OpenAI-compatible endpoint. Not in the Intel macOS build — see [`docs/asr-copy-assist.md`](docs/asr-copy-assist.md)
-- **FreeDV RADE** — AI digital-voice codec with a client-side neural encoder/decoder
-- **AetherMap (PSK Reporter) overlays** — optional global precipitation (LibreWXR, with NOAA, ECCC and EUMETNET OPERA regional radar backups and a per-provider legend), NOAA/NWS weather radar with observation playback ([`docs`](docs/psk-reporter-weather-radar.md)) and a NASA/GSFC VIIRS night-lights layer that fades through civil twilight ([`docs`](docs/psk-reporter-city-lights.md)), on both the 2D map and 3D globe
-- **SmartLink remote, remote over CGNAT, and a TCI server** — Auth0/TLS WAN operation; an in-radio Tailscale node, signed in with a QR code, that carries AetherSDR to a FLEX-8000 or Aurora radio behind CGNAT, and to a FLEX-6000 as a legacy waveform (not yet run end to end from AetherSDR); and CAT + audio + IQ + CW + spots + tune and receiver events over a single TCI WebSocket announcing protocol 2.1
-- **Broad hardware control** — rigctld and virtual-serial CAT, MIDI mapping, the FlexControl knob, serial PTT/CW keying, Multi-Flex operation alongside SmartSDR/Maestro, a CTR2-Max relay over Wi-Fi or USB with negotiated spectrum and CW-text extensions for compatible controllers, and touch gestures (pinch-zoom, press-and-hold, kinetic scrolling) on touch screens
-- **Workspace canvas** — place pans and applets freely as resizable, layered items with edge and grid snapping, across several windows if you want them. Named workspaces recall which applets are open as well as where they sit, and bind to radio profiles. Off by default; the Classic shell is unchanged until you enable it
-- **A user guide at [docs.aethersdr.com](https://docs.aethersdr.com)** — Stable and Next versions, a printable PDF manual signed with each release, and a Log Analyzer that reads a log or support bundle in your browser without uploading it
-- **In-app updates** — a check at launch, at most once a day, that lights an UPDATE badge in the title bar, and an Updates window (File → Update...) that installs the new release as AetherSDR exits — on Windows, on macOS, and on Linux from an install made with Install for updates or `AetherSDR --install` — alongside the radio's firmware releases
-- **Built-in demo mode** — a synthetic backend generating its own RX audio and matching panadapter, with a fault-injection harness, so you can explore the full UI with no radio attached (it cannot transmit)
-
----
-
-## How AetherSDR Is Built
-
-AetherSDR is developed through an AI-augmented open-source workflow. The project
-lead (Jeremy KK7GWY) and a core contributor team work primarily through Claude
-Code; contributors use a mix of AI tools (Codex, Copilot, Cursor, Gemini,
-Aider); and the [AetherClaude](https://github.com/aethersdr/aetherclaude)
-orchestrator bot triages incoming issues, drafts implementation plans and opens
-PRs for anything labelled `aetherclaude-eligible`.
-
-Every change passes the same gate regardless of which tool — or human — produced
-it: branch protection enforces signed commits, green CI and CODEOWNERS review,
-and nothing reaches `main` without human review. The project's
-[Constitution](CONSTITUTION.md) (structured per [Cisco's Foundry
-Constitution](https://github.com/CiscoDevNet/foundry-security-spec) spec)
-codifies the conventions every contributor and every AI tool follows, and
-[`AGENTS.md`](AGENTS.md) is the canonical guide each assistant reads first.
-
-At active pace that is roughly 50 PRs a week across six or more distinct AI
-tools. The full contributor list is auto-generated from commit attribution — see
-the [Contributors graph](https://github.com/aethersdr/AetherSDR/graphs/contributors).
-
----
-
-## Supported Hardware
-
-Works with any FlexRadio transceiver, including:
-
-- FLEX-6000 series: FLEX-6300, FLEX-6400, FLEX-6400M, FLEX-6500, FLEX-6600, FLEX-6600M, FLEX-6700
-- FLEX-8000 series: FLEX-8400, FLEX-8400M, FLEX-8600, FLEX-8600M
-- Aurora series: AU-510, AU-510M, AU-520, AU-520M
-- ML-, CL-, and RT-series devices
-
-Supported external devices include the 4O3A/FlexRadio PGXL (Power Genius XL)
-power amplifier and TGXL (Tuner Genius XL) antenna tuner, and — outside the
-radio seam entirely — ACOM S-series and SPE Expert (original 1K-FA / 1.3K-FA / 1.5K-FA / 2K-FA)
-amplifiers over serial or ser2net TCP, and VK3AMP (600 W / 1000 W / 2000 W)
-amplifiers over TCP control with UDP telemetry, and the Elecraft KPA1500 over
-TCP (not yet validated on hardware), the RF-KIT over its HTTP REST API (tested on an RF2K-S; other RF-KIT models untested), plus KPA500, KAT500 and KXPA100/KXAT100
-over local serial or raw TCP, with Full/Mini applets and Advanced maintenance. Direct TGXL, PGXL and Antenna Genius
-connections authenticate with the device's access code.
-
-Active test target is FLEX-8600 firmware 4.2.18 (SmartSDR protocol v1.4.0.0);
-earlier 4.x firmware works; v3.x is unsupported.
-
-**Other radio families** ride the vendor-neutral `IRadioBackend` seam. None is
-a supported family yet (one Icom model is supported on its own, below), and
-FlexRadio remains the supported target:
-
-- **Hermes-Lite 2** — **experimental**. Four independent receivers, SSB, AM, DSB and simplex FM/NFM voice
-  through WDSP's TXA modulator with a reduction-only ALC, CW/RTTY decoding,
-  AX.25 packet, band switching with hardware filters, manual notch filters, a
-  host-side impulse noise blanker, host frequency calibration, a derived dBm
-  reference, an on-demand wideband bandscope, minimum-phase receive filtering
-  outside CW, a declared board variant (bare HL2, AK4951 companion or
-  SquareSDR 2), receive squelch, the CW audio peaking filter, RIT and XIT per
-  receiver, backend-side FFT averaging, the CL1 external 10 MHz reference and
-  per-radio state restore (AGC mode and threshold, TUNE power per band, FFT
-  averaging, FPS and dBm range, receivers B–D with their own setpoints, and
-  manual notches), and the N2ADR IO board's status registers.
-- **Networked Icom** — **early**. CI-V over the RS-BA1 UDP transport, brought up
-  on the IC-705 (receive, scope, transmit, FT8) and completed against a live
-  IC-7300MK2 (controls, meters, ATU, WSPR, PC Audio routing and the CW decoder).
-  The connect path asks the radio for its own CI-V address rather than assuming
-  one. On the IC-7300MK2 and IC-705, and on the IC-9700, which is not yet
-  verified, the panadapter runs in SCROLL-F, tuning in place and scrolling at
-  its margins as on a Flex, with Center and Fixed selectable. Only the IC-705
-  and IC-7300MK2 are verified against their own CI-V guides
-  — an unrecognised model gets no scope and no transmit rather than optimistic
-  defaults. The **IC-7300MK2 over built-in Ethernet/RS-BA1 is supported** as of
-  v26.9.5 ([RFC #5517](https://github.com/aethersdr/AetherSDR/issues/5517));
-  every other Icom model keeps the early, experimental treatment.
-- **ANAN-G2** — **experimental, receive-only**. openHPSDR Protocol 2 discovery
-  with a single receive path, spectrum and audio, live tuning and zoom, live DDC
-  rate changes, and DDC0 edge-droop compensation derived from the Saturn
-  gateware (an in-app calibration can override it). The panadapter is computed
-  by WDSP's display analyzer at one point per screen pixel, and the S-meter,
-  noise blanker and RF-gain attenuator work. The receiver's AF gain, mute and
-  balance apply, and receive audio also plays through the radio's own speaker.
-  AGC-T spans −20 to 120 dB, NB2 interpolates over impulses, the status bar
-  shows the supply voltage and link, and frequency, mode, step, output level
-  and dBm range are remembered per radio. Front-end settings are under Radio
-  Setup → Radio, including receive band-pass filters that follow the tuned
-  frequency and a speaker-amplifier mute; discovery probes each distinct
-  attached IPv4 subnet. Transmit is a future phase.
-- **RTL-SDR** — **experimental, receive-only**, bundled in every official
-  package. Discovers supported USB dongles through `librtlsdr` and provides one
-  panadapter and, at a normal launch, one host-demodulated slice, publishing
-  only the receive state the dongle confirmed, with capture browsing, a
-  65,536-point zoom FFT, SSB/CW and AM/SAM reception, selected-receiver CW
-  decoding and Copy Assist, WFM stereo, live PPM adjustment, per-receiver squelch
-  and relative meters, and receive DAX/TCI feeds. Two, four or eight receivers
-  are an explicit evaluation, not yet a production claim.
-
-No radio at all? **Demo mode** runs the full UI against a synthetic backend
-that generates its own audio and spectrum.
-
-## Tested Controller Devices
-
-AetherSDR supports external station-control hardware through USB serial, USB HID,
-MIDI, and generic USB-serial adapters:
-
-- FlexRadio FlexControl USB tuning knob
-- Icom RC-28 USB remote encoder
-- Griffin PowerMate USB knob
-- Contour ShuttleXpress and ShuttlePro v2 jog controllers
-- MIDI controllers with learn mode, manual mapping entry, importable/exportable profiles (including vendor-supplied SmartSDR `.map` files), and relative-encoder support
-- AetherPad — an Arduino Giga R1 running the [aether-pad](https://github.com/nigelfenton/aether-pad) RC-28 emulator firmware; over USB HID (hidapi builds) it drives the same RC-28 controls and LEDs
-- Ulanzi Dial Bluetooth HID dial on Linux, Windows (hidapi builds) and macOS, its rotary and buttons mapped in Settings → Ulanzi Dial Mapping...
-- Elgato Stream Deck+ natively over USB HID (hidapi builds), driving the LCD keys and the four encoder dials
-- ELAD/WoodBoxRadio TMate 2 over USB HID (hidapi builds): three encoders, nine keys, and the LCD and backlight
-- Other Stream Deck models, on any platform, through the TCI server or the automation bridge using the control-surface software of your choice — AetherSDR provides the protocol, not the button layer
-- USB-serial PTT/CW interfaces for foot switches, straight keys, iambic paddles,
-  amplifier keying lines, and external sequencers
-
----
-
-## Download
-
-Pre-built binaries are available from [Releases](https://github.com/aethersdr/AetherSDR/releases/latest):
-
-| Platform | Download | Notes |
-|----------|----------|-------|
-| **Linux x86_64** | `AetherSDR-*-x86_64.AppImage` | Single file, no install needed. `chmod +x` and run. |
-| **Linux ARM** | `AetherSDR-*-aarch64.AppImage` | Raspberry Pi, ARM laptops. `chmod +x` and run. |
-| **macOS Apple Silicon** | `AetherSDR-*-macOS-apple-silicon.dmg` | Apple Silicon (M1+), macOS 14.4 or newer. Signed & notarized. |
-| **macOS Intel** | `AetherSDR-*-macOS-intel.dmg` | Intel Macs, macOS 14.4 (Sonoma) or newer. Signed & notarized. |
-| **Windows Installer** | `AetherSDR-*-Windows-x64-setup.exe` | Setup wizard with Start Menu shortcut and uninstaller. |
-| **Windows Portable** | `AetherSDR-*-Windows-x64-portable.zip` | No install needed. Extract and run. |
-
----
-
-## Building from Source
-
-**Qt 6.12 is required** — the Qt every release is built against. Few distros
-package it yet, so Qt comes from `scripts/setup/setup-qt.sh`
-(`setup-qt.ps1` on Windows), which installs exactly the release Qt and
-qtkeychain in one command; CMake then finds it on its own. A distro Qt that is
-already 6.12 or newer also works. See
-[`docs/BUILDING.md`](docs/BUILDING.md#the-release-qt-setup-qtsh) for what the
-script checks and where it installs.
-
-See [BUILD-OPTIONS.md](BUILD-OPTIONS.md) for compile-time switches, defaults and
-prerequisites, including optional decoders and experimental radio backends.
-
-### Dependencies
-
-Everything except Qt and qtkeychain comes from the system. Optional packages
-are noted in the build docs; the build succeeds without them with the
-corresponding features disabled.
-
-```bash
-# Arch / CachyOS / Manjaro
-sudo pacman -S cmake ninja pkgconf autoconf automake libtool python curl git \
-  fftw rtl-sdr portaudio hidapi \
-  libpulse libglvnd fontconfig libsecret wayland libxkbcommon-x11 pipewire \
-  xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm
-
-# Debian / Ubuntu / Linux Mint
-sudo apt install cmake ninja-build pkg-config autoconf automake libtool \
-  python3 python3-venv curl git \
-  libfftw3-dev librtlsdr-dev portaudio19-dev libhidapi-dev \
-  libgl1-mesa-dev libpulse-dev libasound2-dev libpipewire-0.3-dev pipewire-bin \
-  libdbus-1-dev libglib2.0-dev libsecret-1-dev libfontconfig1-dev libfreetype6-dev \
-  libx11-dev libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev \
-  libxcb-cursor0 libxcb-glx0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
-  libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-sync1 libxcb-util1 \
-  libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 \
-  libopengl0 gstreamer1.0-pulseaudio gstreamer1.0-plugins-base
-
-# Fedora
-sudo dnf install cmake ninja-build autoconf automake libtool python3 curl git \
-  fftw3-devel rtl-sdr-devel portaudio-devel hidapi-devel \
-  libglvnd-devel pulseaudio-libs-devel fontconfig-devel freetype-devel \
-  dbus-devel glib2-devel libsecret-devel libX11-devel libxcb-devel \
-  libxkbcommon-devel libxkbcommon-x11-devel \
-  xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm
-
-# macOS (Homebrew); Qt needs Xcode 16 — see docs/BUILDING.md
-brew install ninja cmake pkgconf autoconf automake libtool \
-  fftw librtlsdr portaudio hidapi
-```
-
-### Build & Run
-
-```bash
-git clone https://github.com/aethersdr/AetherSDR.git
-cd AetherSDR
-scripts/setup/setup-qt.sh            # Qt 6.12 (cached per user) + qtkeychain
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build -j$(nproc)
-./build/AetherSDR
-```
-
-RADE-enabled builds use a vendored Opus snapshot, so no additional Opus download
-is required during configure or build.
-
-### Install (optional, Linux)
-
-```bash
-sudo cmake --install build
-```
-
-Source installs depend on the Qt location used at build time. If that Qt
-generation is replaced, rebuild and reinstall AetherSDR before pruning the old
-Qt generation.
-
-> **Platform setup and troubleshooting** — Windows 11 and macOS step-by-step,
-> the dependency-to-feature table, GPU/QRhi rendering and its `AETHER_NO_GPU`
-> escape hatch, Wayland vs XWayland selection, and older-distro Qt: see
-> [`docs/BUILDING.md`](docs/BUILDING.md).
-
----
-
-## Roadmap
-
-Currently in flight:
-
-- **aetherd** — splitting a headless engine from thin UI clients across the
-  vendor-neutral `IRadioBackend` seam that six backends already ride. Local
-  receive control, bounded telemetry and credential-bound transmit grants with
-  Flex PTT handoff have landed, and the desktop's slice receive controls travel
-  as typed backend requests. Radio Setup, TX Band, USB, profile and memory
-  controls, slice lifecycle and split routing, and panadapter/waterfall control
-  now use that seam too; per-client propagation, transmit for the other
-  families and a thin client to replace direct model access have not.
-- **Non-Flex backends** — Hermes-Lite 2 (experimental), networked Icom (early;
-  the IC-7300MK2 over RS-BA1 is supported), and ANAN-G2 and RTL-SDR
-  (experimental, receive-only). Current coverage and
-  remaining work for each is under [Supported Hardware](#supported-hardware).
-- **Workspace canvas** — an experimental alternative shell; remaining work is
-  live cross-window drag and field time against the Classic shell.
-- **The visual canon** — the AetherSDR style guide (RFC #6226) is applied one
-  surface at a time; Callsign Lookup, FreeDV Reporter, Net Scheduler, Memory
-  Channels, MQTT Settings, Keyboard Shortcuts and Ulanzi Dial mapping now join
-  the earlier ones, and a single base-token flip comes last.
-- **Radio connection workspace** (RFC #6561) — Locations, operator profiles and
-  SmartLink accounts in one workspace; the implementation is in review.
-- **AppSettings nested-JSON refactor** — storage is on SQLite with per-radio
-  versioned feature documents; the legacy flat keys still need migrating.
-- **Flathub submission** — the AppStream metainfo and manpage are in; the
-  Flathub PR and manifest are the remaining step.
-
-See [`ROADMAP.md`](ROADMAP.md) for the full picture and the community backlog,
-and the [issue tracker](https://github.com/aethersdr/AetherSDR/issues) for
-everything else.
-
----
-
-## Contributing
-
-PRs, bug reports, and feature requests welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-**Development environment:** AetherSDR is developed using [Claude Code](https://claude.com/claude-code) as the primary development tool. We encourage contributors to use Claude Code for consistency. PRs must follow project conventions, pass CI, and include GPG-signed commits.
-
-**Not a developer?** Choose **Help → Submit your Idea... 💡** in AetherSDR to create an AI-assisted bug report or feature request.
-
----
-
-## Related projects
-
-- **[Aether-gate](https://github.com/aethersdr/Aether-gate)** — put *any* radio into
-  AetherSDR. A bridge that presents an Icom/Kenwood/Yaesu/Elecraft CAT rig (via
-  [Hamlib](https://hamlib.github.io/)), an Icom LAN rig, or a SoapySDR dongle to
-  AetherSDR as if it were a FlexRadio — live panadapter, waterfall, and
-  frequency/mode control. Receive + control today (no transmit yet). By Nigel
-  Fenton (G0JKN); GPL-3.0-or-later. *(`aethersdr/Aether-gate` tracks upstream
-  [nigelfenton/Aether-gate](https://github.com/nigelfenton/Aether-gate).)*
-
-AetherSDR integrates radios that earn deep native support directly in-engine; the
-gate covers the long tail of legacy/CAT radios and dongles. Networked Icoms now
-have an in-engine CI-V backend, so for those the gate is the fallback for models
-the native backend does not yet cover.
-
----
-
-## Verifying Downloads
-
-Linux and Windows binaries are GPG-signed. macOS artifacts are Apple notarized. Each release includes `.asc` signatures and `SHA256SUMS.txt`.
-
-```bash
-curl -sSL https://raw.githubusercontent.com/aethersdr/AetherSDR/main/docs/RELEASE-SIGNING-KEY.pub.asc | gpg --import
-gpg --verify AetherSDR-vX.Y.Z-x86_64.AppImage.asc AetherSDR-vX.Y.Z-x86_64.AppImage
-```
-
-See [docs/VERIFYING-RELEASES.md](docs/VERIFYING-RELEASES.md) for full instructions.
-
----
-
-## License
-
-AetherSDR is free and open-source software licensed under the [GNU General Public License v3](LICENSE).
-
-Bundled third-party libraries retain their own licenses (see each `third_party/<lib>/LICENSE`), all GPLv3-compatible. Notably, on-device speech-to-text uses **[whisper.cpp](https://github.com/ggml-org/whisper.cpp) and ggml** (MIT) — vendored under `third_party/whisper.cpp/` (Vulkan/Metal GPU backends included); Whisper model weights are downloaded on demand and are MIT-licensed, not redistributed in this repository.
-
-*AetherSDR is an independent project and is not affiliated with or endorsed by FlexRadio Systems.*
-*D-STAR is a registered trademark of Icom Inc. AetherSDR is not affiliated with or endorsed by Icom Inc.*
+5. **Manual model selection and board overrides**  
+   Allows direct-IP connections to use an explicitly selected model profile, including supported DIY hardware combinations, with saved per-device assignments.
+
+6. **On-demand local discovery**  
+   Adds an explicit scan button for searching the local network again.
+
+7. **Integrated hardware setup**  
+   Organizes model-specific hardware settings into Nereus-inspired tabs covering filters, antennas, ADCs and other hardware options.
+
+8. **Configurable ALEX filter banks**  
+   Provides model-dependent HPF, BPF and LPF configuration, bypass controls, active-filter indicators and independent Alex-2 receive ranges.
+
+9. **Dedicated receive-input routing**  
+   Exposes the separate RX inputs and antenna paths available on each model.
+
+10. **ALEX attenuation and preamplifier presets**  
+    Adds model-aware front-end attenuation and preamplifier settings.
+
+11. **CTUN tuning**  
+    Allows receiver tuning within the captured spectrum while keeping the capture center fixed.
+
+12. **Regional band views**  
+    Adds regional band markings and a spectrum view fitted to the selected band.
+
+13. **Per-band tuning-view memory**  
+    Remembers CTUN and band-view preferences separately for each band.
+
+14. **Multiple receivers and independent receive windows**  
+    Supports multiple independently demodulated slices within a capture and additional hardware receive windows, within the selected model’s resources.
+
+15. **Live sample-rate selection**  
+    Changes the receive capture rate and available spectrum span during operation.
+
+16. **Per-band receive antennas**  
+    Stores and recalls the selected RX antenna when changing bands.
+
+17. **Band and SWL open-collector outputs**  
+    Adds separate output assignments for amateur bands and shortwave-listening ranges.
+
+18. **Manual digital outputs**  
+    Provides direct operator control of supported hardware output pins.
+
+19. **Receive frequency and level calibration**  
+    Adds reference-based frequency and signal-level calibration, including separate ADC corrections and hardware-specific storage.
+
+20. **Native Windows ASIO receive audio**  
+    Adds ASIO speaker output with driver, clock and buffer settings.
+
+21. **Separate original and extended Saturn implementations**  
+    Keeps the original Saturn/G2 receiver and the DH1KLM implementation independently selectable, with separate implementation-owned settings.
+
+22. **Automatic AGC-T per receiver**  
+    Adjusts each slice’s AGC threshold using its estimated noise floor.
+
+23. **Model-specific microphone hardware settings**  
+    Adds applicable microphone wiring, bias and PTT configuration options.
+
+24. **Protocol 2 transmit foundation**  
+    Adds transmit IQ encoding, SSB DSP, packet pacing and an authorization-controlled transmit path.
+
+25. **Per-band PA profiles and power limits**  
+    Stores PA gain and operator power limits by band, model and protocol.
+
+26. **Extended Protocol 1 and Protocol 2 transmission**  
+    Adds transmit paths for USB/LSB, DIGU/DIGL, AM/SAM, DSB, FM, CW and TUNE.
+
+27. **Digital transmit-audio integration**  
+    Connects TCI audio, WSPR and AetherModem/AX.25 host audio to the ANAN transmitter.
+
+28. **RF power and SWR telemetry**  
+    Adds model-dependent forward-power, reflected-power and SWR readings, together with band-specific drive recall.
+
+29. **External front-panel integration**  
+    Adds Andromeda USB/serial and G2-V2 TCP support, including control mappings, softkey menus and panel feedback.
+
+30. **Supply-current and DIY sensor configuration**  
+    Adds model-dependent current telemetry and configurable sensor parameters for supported DIY hardware.
+
+31. **Transmit selection across multiple receivers**  
+    Allows an eligible slice to become the TX source independently of the displayed receive windows.
+
+32. **Live PA gain and ADC routing**  
+    Adds live PA-gain adjustment, ADC assignment per capture and a graphical receiver/DDC/ADC routing view.
+
+33. **Live transmit-filter controls**  
+    Allows USB/LSB low-cut and high-cut adjustment during operation.
+
+34. **Expanded transmit-audio controls and monitoring**  
+    Adds compression controls, TX audio meters, adjustment sliders and local monitoring of processed transmit audio.
+
+35. **ASIO microphone input**  
+    Adds microphone capture through ASIO, including input-channel selection and active-status indication.
+
+36. **Coherent IQ diversity reception**  
+    Combines compatible receive paths with adjustable phase and weighting.
+
+37. **Standalone phasing controls**  
+    Provides a dedicated window for adjusting the diversity combination.
+
+38. **Pure Signal predistortion**  
+    Adds a transmit-feedback and correction path intended to reduce transmitter distortion.
+
+39. **Dedicated Pure Signal workspace**  
+    Brings correction controls, feedback status and diagnostics into one operating window.
+
+40. **TX-DSP two-tone generator**  
+    Generates a two-tone test signal through the transmit DSP for adjustment and signal-quality assessment.
+
+41. **Pure Signal feedback attenuation**  
+    Coordinates attenuation of the feedback signal used by the correction path.
+
+42. **Paired spectrum and distortion measurements**  
+    Compares transmit-reference and feedback spectra and displays derived distortion measurements.
+
+43. **Live Pure Signal feedback diagnostics**  
+    Shows feedback routing and signal activity, with shortcuts to relevant hardware settings.
+	
+	License: GPL v3, same as upstream (see LICENSE).
