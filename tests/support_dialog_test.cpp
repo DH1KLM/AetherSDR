@@ -12,9 +12,11 @@
 
 #include <QAbstractScrollArea>
 #include <QApplication>
+#include <QByteArray>
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QDialog>
+#include <QFont>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
@@ -200,6 +202,14 @@ void categoriesRemainLegible()
         }
         check(fullSize, "all category labels and indicators keep their full width and height");
         check(reachable, "every category, including the first and last rows, scrolls fully into view");
+        if (scroll->horizontalScrollBar()->maximum() != 0) {
+            std::printf("  %s: scroll=%d minimum=%d frame=%d viewport=%d page=%d pageMin=%d bar=%d range=%d\n",
+                        theme, scroll->width(), scroll->minimumWidth(), scroll->frameWidth(),
+                        scroll->viewport()->width(), scroll->widget()->width(),
+                        scroll->widget()->minimumSizeHint().width(),
+                        scroll->verticalScrollBar()->sizeHint().width(),
+                        scroll->horizontalScrollBar()->maximum());
+        }
         check(scroll->horizontalScrollBar()->maximum() == 0,
               "all category columns fit without horizontal scrolling");
         dialog.hide();
@@ -216,12 +226,24 @@ void geometryCarriesOver()
     const QSize chosen(restored.minimumWidth() + 30, restored.minimumHeight() + 20);
     QDialog legacy;
     legacy.resize(chosen);
-    settings.setValue(kKey, QString::fromLatin1(legacy.saveGeometry().toBase64()));
+    const QByteArray saved = legacy.saveGeometry();
+    settings.setValue(kKey, QString::fromLatin1(saved.toBase64()));
+    // Qt constrains legacy geometry to the test screen; offscreen screens can
+    // be narrower than the logging categories' minimum width.
+    QDialog reference;
+    reference.setMinimumSize(restored.minimumSize());
+    check(reference.restoreGeometry(saved), "the legacy geometry is valid for Qt");
+    const QSize expected = reference.size();
+    check(expected.height() > restored.minimumHeight(),
+          "the saved height distinguishes restoration from the default minimum");
     restored.show();
     QTest::qWaitForWindowExposed(&restored);
-    for (int i = 0; i < 50 && restored.size() != chosen; ++i)
+    for (int i = 0; i < 50 && restored.size() != expected; ++i)
         QTest::qWait(20);
-    check(restored.size() == chosen, "geometry saved by the old dialog restores under its key");
+    std::printf("  geometry expected=%dx%d actual=%dx%d minimum=%dx%d\n",
+                expected.width(), expected.height(), restored.width(), restored.height(),
+                restored.minimumWidth(), restored.minimumHeight());
+    check(restored.size() == expected, "geometry saved by the old dialog restores under its key");
     restored.hide();
 }
 
@@ -239,6 +261,15 @@ int main(int argc, char** argv)
     closePaths();
     legibleAtMinimum();
     categoriesRemainLegible();
+    // The category grid inherits a pixel-sized canon font. Small, wide platform
+    // font metrics expose measurements made before that inherited style is polished.
+    const QFont originalFont = app.font();
+    QFont smallFont = originalFont;
+    smallFont.setPointSize(8);
+    smallFont.setStretch(150);
+    app.setFont(smallFont);
+    categoriesRemainLegible();
+    app.setFont(originalFont);
     geometryCarriesOver();
 
     qInstallMessageHandler(g_previous);

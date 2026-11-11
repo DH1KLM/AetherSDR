@@ -31,6 +31,7 @@
 
 #include "DssRenderer.h"
 #include "SpectrumPreviewLogic.h"
+#include "SpectrumTraceBins.h"
 #include "WaterfallHistoryBuffer.h"
 #include "WaterfallTimeMarkers.h"
 #include "WaterfallTimeScaleLock.h"
@@ -217,6 +218,8 @@ public:
     Q_INVOKABLE QVariantMap automationDssSetScrollback(bool live,
                                                        int offsetRows);
     Q_INVOKABLE QVariantMap traceDebugSnapshot();
+    // The trace's bins themselves, for `get tracedebug <pan> bins` (#5806).
+    Q_INVOKABLE QVariantMap traceBinsSnapshot() const;
     // Every value the Display panel owns, as one flat map keyed by the panel's
     // own control names. Exists so "Clone to all Pans" (and any future
     // display-preference change) is provable field-by-field over the automation
@@ -257,8 +260,10 @@ public:
                         const QString& id,
                         int durationMs = 5000);
 
-    // Feed a new FFT frame. bins are scaled dBm values.
-    void updateSpectrum(const QVector<float>& binsDbm, const SpectrumDecodeScale& decodeScale = {});
+    // Feed a new FFT frame. bins are scaled dBm values. heldForPresentation:
+    // Receive Sync queued it; `get tracedebug <pan> bins` refuses it.
+    void updateSpectrum(const QVector<float>& binsDbm, const SpectrumDecodeScale& decodeScale = {},
+                        bool heldForPresentation = false);
 
     // Feed a single waterfall row from a VITA-49 waterfall tile.
     // lowFreqMhz/highFreqMhz describe the tile's frequency span.
@@ -471,24 +476,35 @@ public:
         m_resetFftSmoothingOnNextFrame = true;
     }
 
-    // Flex keeps its radio-owned B/S toggles. ANAN B toggles the regional
-    // CTUN band view and previous span; S remains unavailable there.
-    void setBandSegmentZoomAvailable(bool available, bool localBandView = false)
+    // Retain radio-owned/native span zoom and ANAN's local CTUN band view.
+    void setBandSegmentZoomAvailable(bool available, bool nativeSpan = false,
+                                     const QString& blockedReason = {}, bool localBandView = false)
     {
-        const QString unavailable = tr("Band/segment zoom is available on FlexRadio only.");
+        const QString tip = localBandView
+            ? tr("Toggle CTUN band view; a second press restores the previous span without changing RX")
+            : !available
+            ? (!blockedReason.isEmpty() ? blockedReason
+               : nativeSpan ? tr("Waiting for the radio's scope geometry.")
+                            : tr("Band and segment zoom are not available."))
+            : nativeSpan
+                ? tr("Zoom using the radio's scope span; the tuned frequency stays unchanged.")
+                : QString();
+        // Refreshed on capability, limit and placement changes: skip no-ops.
+        if (m_zoomBandBtn && m_zoomBandBtn->isEnabled() == (available || localBandView)
+            && m_zoomBandBtn->toolTip() == tip) {
+            return;
+        }
         if (m_zoomBandBtn) {
-            const QString tip = available ? tr("Zoom to band") : localBandView
-                ? tr("Toggle CTUN band view; a second press restores the previous span without changing RX") : unavailable;
             m_zoomBandBtn->setAccessibleName(localBandView ? tr("Toggle CTUN band view") : tr("Zoom to band"));
             m_zoomBandBtn->setEnabled(available || localBandView);
             m_zoomBandBtn->setToolTip(tip);
             m_zoomBandBtn->setAccessibleDescription(tip);
         }
         if (m_zoomSegBtn) {
-            const QString tip = available ? tr("Zoom to segment") : unavailable;
-            m_zoomSegBtn->setEnabled(available);
-            m_zoomSegBtn->setToolTip(tip);
-            m_zoomSegBtn->setAccessibleDescription(tip);
+            m_zoomSegBtn->setEnabled(available && !localBandView);
+            const QString segmentTip = localBandView ? tr("Segment zoom is not available on this radio.") : tip;
+            m_zoomSegBtn->setToolTip(segmentTip);
+            m_zoomSegBtn->setAccessibleDescription(segmentTip);
         }
     }
     void setZoomModeState(bool band, bool segment)
@@ -1043,7 +1059,7 @@ signals:
     void frequencyRangeChanged(double centerMhz, double bandwidthMhz);
     // Emitted when the user drags the frequency scale bar to change bandwidth.
     void bandwidthChangeRequested(double newBandwidthMhz);
-    // Band/segment zoom: radio handles center/bandwidth (SmartSDR pcap: "band_zoom=1" / "segment_zoom=1")
+    // Band/segment zoom: the connected backend handles radio flags or native span.
     void bandZoomRequested();
     void segmentZoomRequested();
     // Emitted when the user drags the waterfall to pan the center frequency.
@@ -1682,6 +1698,9 @@ private:
     std::function<bool()> m_dbmRangeCommandEligible;
     qint64 m_encoderRangeChangedMs{0};
     quint64 m_fftFrameSequence{0};
+    // The last frame as received, for `get tracedebug <pan> bins`; only
+    // updateSpectrum() writes it. See noteTraceGeometryChange().
+    SpectrumTraceBins::FrameCapture m_traceCapture;
     quint64 m_renderedFftFrameSequence{0};
     quint64 m_renderedEncoderRangeGeneration{0};
     qint64 m_renderedTraceMs{0};
@@ -2557,6 +2576,12 @@ private:
                             double newCenterMhz, double newBandwidthMhz);
     bool reprojectSpectrum(double oldCenterMhz, double oldBandwidthMhz,
                            double newCenterMhz, double newBandwidthMhz);
+    // Called wherever the displayed or requested centre/bandwidth changes, so
+    // traceBinsSnapshot() refuses until the new geometry has settled frames.
+    void noteTraceGeometryChange() { m_traceCapture.noteGeometryChange(); }
+    // A range, centre or edge-pan request the widget sent to the radio.
+    void noteTraceGeometryRequest(double centerMhz, double bandwidthMhz);
+    bool traceGeometryInFlight() const;
 };
 
 } // namespace AetherSDR

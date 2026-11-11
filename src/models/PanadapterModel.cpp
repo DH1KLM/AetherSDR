@@ -60,6 +60,7 @@ void PanadapterModel::setClientHandle(const QString& h)
 {
     const bool ownerChanged = m_ownerHandle != parseHandleHex(h);
     if (ownerChanged) {
+        cancelIqBinding();
         ++m_controlRevision;
         ++m_ownershipRevision;
         m_reportedCenterHz.reset();
@@ -145,6 +146,15 @@ void PanadapterModel::setScopeModeIndex(int index)
     emit scopeModeIndexChanged(m_scopeModeIndex);
 }
 
+void PanadapterModel::setZoomPlacement(PanZoomPlacement placement)
+{
+    if (placement == m_zoomPlacement) {
+        return;
+    }
+    m_zoomPlacement = placement;
+    emit zoomPlacementChanged(m_zoomPlacement);
+}
+
 bool PanadapterModel::setCenterBandwidth(double centerMhz, double bandwidthMhz)
 {
     bool changed = false;
@@ -192,6 +202,7 @@ void PanadapterModel::recordGeometryObservation(double centerMhz, double bandwid
 
 void PanadapterModel::resetCenterKnownForReconnect()
 {
+    cancelIqBinding();
     ++m_controlRevision;
     m_displayIntentRevisions.fill(0);
     ++m_ownershipRevision;

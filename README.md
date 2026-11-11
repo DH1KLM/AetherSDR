@@ -1,6 +1,10 @@
 # AetherSDR — DH1KLM Fork Extensions
 
+**Current version: 26.11.2** · Upstream integrated through `963521db`.
+
 This unofficial fork extends [AetherSDR](https://github.com/aethersdr/AetherSDR) v26.10.4 into a broader, model-aware OpenHPSDR implementation with multiple receivers, transmit support, additional hardware controls, diversity reception and Pure Signal.
+
+The connection workspace retains separate Saturn implementation paths, and ASIO microphone capture remains integrated with the audio-input status.
 
 The following list follows implementation order. It covers feature additions and bug fixes developed in this fork, excluding internal refactoring and features inherited from upstream.
 

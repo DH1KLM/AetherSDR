@@ -68,6 +68,8 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <iterator>
 #include <optional>
@@ -2022,6 +2024,7 @@ void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
     // showUnsupportedControlNotice() (sendCmd never runs); NotConnected/NoPan
     // stay silent.
     auto* pan = panId.isEmpty() ? nullptr : m_radioModel.panadapter(panId);
+    const auto zoom = m_radioModel.backendCapabilities().panZoomModes;
     if (!segmentZoom && pan && m_radioModel.isConnected()
         && m_radioModel.backendDeclaresExtension(QStringLiteral("anan"))) {
         const auto notice = [this](const QString& text) {
@@ -2092,7 +2095,7 @@ void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
     }
     const auto refusal = panZoomModeRefusal(
         m_radioModel.isConnected(),
-        m_radioModel.backendCapabilities().panZoomModes.has_value(),
+        zoom.has_value(),
         /*panKnown=*/pan != nullptr);
     if (refusal == PanZoomModeRefusal::NotDeclared) {
         qCWarning(lcDevices)
@@ -2104,6 +2107,67 @@ void MainWindow::togglePanZoomModeForPan(const QString& panId, bool segmentZoom)
     if (refusal != PanZoomModeRefusal::None) {
         return;
     }
+    if (zoom->control == RadioCapabilities::PanZoomModes::Control::NativeScopeSpan) {
+        // Past the gate the button is enabled, so every refusal below is
+        // announced: a press that does nothing silently is the failure
+        // PanZoomModeGate.h exists to prevent.
+        const char* what = segmentZoom ? "segment zoom" : "band zoom";
+        if (const auto blocked = nativePanZoomBlockedReason(pan)) {
+            qCWarning(lcDevices).noquote() << what << "refused:" << *blocked;
+            statusBar()->showMessage(*blocked, 5000);
+            return;
+        }
+        if (!m_bandPlanMgr || zoom->nativeWidthsHz.isEmpty()) {
+            qCWarning(lcDevices) << what << "refused: no band plan or declared scope widths";
+            showUnsupportedControlNotice();
+            return;
+        }
+        SliceModel* slice = preferredMemorySlice(panId);
+        if (!slice) {
+            qCWarning(lcDevices) << what << "refused: no receiver on this panadapter";
+            statusBar()->showMessage(tr("No receiver on this panadapter to zoom around."), 5000);
+            return;
+        }
+        const auto region = bandPlanZoomRegion(slice->frequency(), segmentZoom);
+        if (!region) {
+            // Reachable: the IARU plans stop at 6 m, and no shipped plan has 23 cm.
+            qCWarning(lcDevices) << what << "refused: the active band plan has no"
+                                 << (segmentZoom ? "segment" : "band") << "at"
+                                 << slice->frequency() << "MHz";
+            statusBar()->showMessage(
+                tr("The active band plan has no %1 at %2 MHz.")
+                    .arg(segmentZoom ? tr("segment") : tr("band"))
+                    .arg(slice->frequency(), 0, 'f', 3),
+                6000);
+            return;
+        }
+        const auto request = nativePanZoomRequest(
+            pan->zoomPlacement() == PanZoomPlacement::CenterAllocation,
+            pan->centerMhz(), slice->frequency(), pan->maxBandwidthMhz(),
+            region->first, region->second,
+            {zoom->nativeWidthsHz.constData(),
+             static_cast<std::size_t>(zoom->nativeWidthsHz.size())});
+        if (!request) {
+            qCWarning(lcDevices) << what << "refused: no native scope window fits"
+                                 << region->first << "-" << region->second << "MHz";
+            showUnsupportedControlNotice();
+            return;
+        }
+        const bool widthSame = qFuzzyCompare(pan->bandwidthMhz(), request->widthMhz);
+        if (request->centerMhz) {
+            if (widthSame
+                && std::llround(pan->centerMhz() * 1.0e6)
+                       == std::llround(*request->centerMhz * 1.0e6)) {
+                return;
+            }
+            m_radioModel.requestPanCenter(panId, *request->centerMhz, request->widthMhz);
+        } else if (!widthSame) {
+            m_radioModel.requestPanBandwidth(panId, request->widthMhz);
+        }
+        return;
+    }
+    // Flex keeps its zoom flags in radio status, so a manual pan/zoom clears
+    // the model flag before the next toggle. The backend handles exclusion.
     const bool on = segmentZoom ? !pan->segmentZoomOn() : !pan->bandZoomOn();
     m_radioModel.requestPanControl(pan, {
         segmentZoom ? PanControlField::SegmentZoom : PanControlField::BandZoom, on});
@@ -2154,10 +2218,9 @@ void MainWindow::zoomActivePanadapter(double factor)
 
 void MainWindow::setPanZoomMode(bool segmentZoom, bool enable)
 {
-    // THE CAPABILITY RUNG FIRST, ahead of the slice and pan lookup. Whether
-    // this radio takes band_zoom=/segment_zoom= at all is a property of the
-    // RADIO, not of which pan the write would land on, so it is asked with the
-    // pan taken as present -- the same question, and the same call shape, that
+    // The capability rung comes first, ahead of the slice and pan lookup.
+    // Whether this radio accepts zoom at all is a property of the radio, so
+    // ask with the pan taken as present -- the same question and call shape that
     // bandSegmentZoomAvailable() asks for the B/S buttons. Asking it here also
     // means the refusal is announced even when no slice happens to be active,
     // rather than disappearing into the `!s` return below.
@@ -2180,15 +2243,23 @@ void MainWindow::setPanZoomMode(bool segmentZoom, bool enable)
         ? s->panId()
         : (m_panStack ? m_panStack->activePanId() : m_radioModel.panId());
     // The remaining rungs, through the same predicate as
-    // togglePanZoomModeForPan above -- and it must be the same one: this is
-    // the explicit-state form of the identical wire text, reached from the
-    // FlexControl and RC28 wheel handlers. It checked isConnected() and a pan
+    // togglePanZoomModeForPan above. This explicit-state form is reached from
+    // the FlexControl and RC28 wheel handlers. It checked isConnected() and a pan
     // id and never the capability. NotDeclared is already handled at the top
     // of this function, so what is left here is NotConnected and NoPan, both
     // of which were silent early returns before this PR and stay silent.
     auto* pan = panId.isEmpty() ? nullptr : m_radioModel.panadapter(panId);
     if (!panZoomModeWritable(m_radioModel.isConnected(), panZoomDeclared,
                              /*panKnown=*/pan != nullptr)) {
+        return;
+    }
+    const auto zoom = m_radioModel.backendCapabilities().panZoomModes;
+    if (zoom->control == RadioCapabilities::PanZoomModes::Control::NativeScopeSpan) {
+        // Native span has no mode to clear, so "off" is a no-op here: a
+        // FlexControl or RC28 wheel zooms one way on these radios, by design.
+        if (enable) {
+            togglePanZoomModeForPan(panId, segmentZoom);
+        }
         return;
     }
     const bool current = segmentZoom ? pan->segmentZoomOn() : pan->bandZoomOn();

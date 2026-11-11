@@ -7,11 +7,14 @@
 #include "core/backends/icom/IcomSettings.h"
 #include "core/backends/anan/AnanSettings.h"
 #include "gui/ConnectionPanel.h"
+#include "models/ConnectionWorkspace.h"
 #include "core/backends/anan/AnanImplementation.h"
 #include "core/backends/anan/AnanModel.h"
 
 #include <QAbstractButton>
 #include <QApplication>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <QComboBox>
 #include <QFont>
 #include <QHostAddress>
@@ -437,6 +440,8 @@ void checkFooterReachable(QApplication& app,
 void checkIcomUsesRoutedRetention()
 {
     auto& settings = AppSettings::instance();
+    const QJsonObject previousWorkspace = settings.radioFeatureExact("local", "", "ConnectionWorkspace");
+    settings.removeRadioFeature("local", "", "ConnectionWorkspace");
     const QString previousProfiles =
         settings.value(QStringLiteral("RoutedProfilesJson"), QStringLiteral("{}")).toString();
     settings.setValue(
@@ -487,6 +492,8 @@ void checkIcomUsesRoutedRetention()
     report("manual Icom carries the selected source-path settings",
            emitted && requested.bindSettings.mode == RadioBindMode::Auto);
 
+    settings.removeRadioFeature("local", "", "ConnectionWorkspace");
+    if (!previousWorkspace.isEmpty()) { settings.setRadioFeature("local", "", "ConnectionWorkspace", 1, previousWorkspace); }
     settings.setValue(QStringLiteral("RoutedProfilesJson"), previousProfiles);
     settings.save();
 }
@@ -854,6 +861,16 @@ int main(int argc, char** argv)
 
 
     {
+        const QJsonObject previousWorkspace = ConnectionWorkspace::load();
+        QJsonObject workspace = previousWorkspace;
+        QJsonArray stations = workspace.value("stations").toArray();
+        for (qsizetype i = 0; i < stations.size(); ++i) {
+            QJsonObject station = stations[i].toObject();
+            station["connections"] = QJsonArray{};
+            stations[i] = station;
+        }
+        workspace["stations"] = stations;
+        report("variant fixture uses empty saved connections", ConnectionWorkspace::save(workspace));
         ConnectionPanel variants;
         auto* profiles = variants.findChild<QComboBox*>(QStringLiteral("connectionManualAnanProfileCombo"));
         const QStringList expectedProfiles{QStringLiteral("Use saved model"),
@@ -893,11 +910,45 @@ int main(int argc, char** argv)
         QObject::connect(&variants, &ConnectionPanel::connectRequested, &variants, [&](const RadioInfo& chosen) {
             selectedOriginal = chosen.implementation == anan::AnanImplementation::originalId();
         });
+        auto* variantPaths = variants.findChild<QComboBox*>(QStringLiteral("connectionWorkspacePath"));
+        auto* workspaceConnect = variants.findChild<QPushButton*>(QStringLiteral("connectionWorkspaceConnect"));
+        int originalPath = -1;
+        if (variantPaths) {
+            for (int i = 0; i < variantPaths->count(); ++i) {
+                if (variantPaths->itemData(i).toJsonObject().value("implementation").toString()
+                    == anan::AnanImplementation::originalId()) { originalPath = i; }
+            }
+        }
+        report("workspace preserves both Saturn implementation paths",
+               variantPaths && variantPaths->count() == 2 && originalPath >= 0);
+        if (originalPath >= 0 && workspaceConnect) {
+            variantPaths->setCurrentIndex(originalPath);
+            workspaceConnect->click();
+        }
+        report("workspace selection dispatches the chosen original implementation", selectedOriginal);
+        auto* saveToLocation = variants.findChild<QPushButton*>(QStringLiteral("connectionSaveToStation"));
+        if (saveToLocation) { saveToLocation->click(); }
+        report("saving the original implementation retains its path",
+               variantPaths && variantPaths->count() == 1
+                   && variantPaths->currentData().toJsonObject().value("implementation").toString()
+                       == anan::AnanImplementation::originalId());
+        auto* nearby = variants.findChild<QPushButton*>(QStringLiteral("connectionNearbyRadios"));
+        if (nearby) { nearby->click(); }
         QString error;
+        variants.automationConnectLocalSerial(radio.serial, &error);
+        auto* saveLocal = variants.findChild<QPushButton*>(QStringLiteral("connectionSaveLocal"));
+        if (saveLocal) { saveLocal->click(); }
+        report("saving the other implementation retains both connection paths",
+               variantPaths && variantPaths->count() == 2);
+        report("saving the implementation keeps it selected",
+               variantPaths && variantPaths->currentData().toJsonObject()
+                   .value("implementation").toString().isEmpty());
+        selectedOriginal = false;
         variants.automationConnectLocalSerial(radio.serial + QStringLiteral("|tropo1234"), &error);
         report("original discovery row routes the original implementation", selectedOriginal);
         variants.onRadioLost(radio.serial);
         report("Saturn expiry removes both variants", variants.automationLocalRadios().isEmpty());
+        report("variant fixture restores the previous workspace", ConnectionWorkspace::save(previousWorkspace));
     }
     app.setFont(originalFont);
     checkIcomManualGuidanceIsModelNeutral();

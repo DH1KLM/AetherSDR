@@ -55,8 +55,10 @@ A Saturn radio discovered on Protocol 2 has two choices:
 
 Select the implementation under **Settings → Radio Setup → ANAN Hardware →
 Saturn implementation** while disconnected. This sets the next Saturn
-connection preference. Discovery lists both choices for the same physical
-MAC/IP; selecting a row explicitly chooses that implementation. Under
+connection preference. Discovery retains both choices for the same physical
+MAC/IP. In the connection workspace, select the **Discovery / USB · …** path
+for the implementation you want. **Save to location** keeps that choice; both
+implementations can be saved as separate connections for the same radio. Under
 **Connect by IP**, choose **ANAN-G2** for DH1KLM or
 **Saturn (ANAN G2) — tropo1234** for the original in **Receive profile**, or use
 **Use saved model** to retain the saved implementation. Other hardware,
@@ -623,7 +625,7 @@ resources separately from ordinary receiver windows.
 
 ## Setup
 
-The G2 is found automatically on your LAN: open **File → Connect to Radio...** → **On This Network**, select it and click **Connect Selected Radio**.
+The G2 is found automatically on your LAN: open **File → Connect to Radio...** → **Nearby radios**, select it and click **Connect Selected Radio**.
 
 Discovery also sends a directed broadcast to each attached IPv4 subnet. This can find a G2 on a second NIC with its own subnet. Two NICs sharing a subnet still use the preferred route; VPNs and routers may block broadcast discovery. If the G2 does not appear, use **Connect by IP** with **Radio type:** set to **ANAN / OpenHPSDR (P1/P2)** (see [Manual Connection](./manual-connection.md)).
 

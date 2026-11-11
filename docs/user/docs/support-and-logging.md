@@ -35,10 +35,9 @@ Choosing **Support & Diagnostics...** while it is open brings the window to the 
 
 ### Diagnostic Logging
 
-A compact four-column grid contains one checkbox per log category. Enabled categories have a cyan-filled indicator and bold text. Categories run from top to bottom in each column, with narrow row spacing. The grid scrolls independently, so the log and action buttons remain accessible in smaller windows. Hover a box for what it covers. Turn on the categories relevant to your problem, then reproduce it. The dialog advises restarting AetherSDR after changing categories so the new settings are in effect from startup.
+A grid of checkboxes, one per log category. The three columns stay fully visible at the window’s minimum width; scroll vertically to reach the remaining categories. Hover a box for what it covers. Turn on the categories relevant to your problem, then reproduce it. The dialog advises restarting AetherSDR after changing categories so the new settings are in effect from startup.
 
-The ANAN categories are grouped at the end of the grid. The smaller text keeps
-more categories visible; checked boxes retain a distinct cyan indicator.
+The ANAN categories are grouped at the end of the grid.
 
 **Enable All** / **Disable All** toggle every category at once. The categories, and which are on by default, are listed under [Log categories](#log-categories).
 
