@@ -66,7 +66,7 @@ including HermesC10 / ANAN-G2E, uses the extended implementation.
 
 The Setup selector shows the active implementation and is locked during a
 connection. Disconnect before switching. Both choices target one physical
-radio; they cannot run simultaneously. Both remain receive-only.
+radio; they cannot run simultaneously. The original implementation remains receive-only; supported extended-backend transmission is configured on **Transmit**.
 
 Original and extended connection options, operating-state memory and droop
 calibration are independent. Existing extended settings are retained without
@@ -461,6 +461,12 @@ settings**. The divider is the multiplier `(R1 + R2) / R2`. Defaults follow Thet
 the selected model. These settings are saved per radio/model/board/protocol.
 They configure display conversion, not a protection interlock or RF calibration.
 
+The **Calibration → Volts/Amps Calibration** section points to these existing
+sensor settings; it does not contain a second set of sensitivity or offset
+values. **TX Display Cal** is unavailable because a separate TX spectrum display
+offset is not implemented. This limitation does not disable transmission or
+Pure Signal.
+
 ## Mouse-related receive diagnostics
 
 The extended ANAN receiver waits for each WDSP output exchange, following
@@ -854,7 +860,7 @@ not create another receiver or alter ADC0 limits. TX/PureSignal bypass and
 The 6m LNA and TX/PureSignal bypass switches are grouped above the HPF/BPF
 filter grid; **6m/ByPass on RX** is below the LPF grid.
 
-The **Receive-only settings. Switches apply immediately…** note is directly below the HPF/BPF and LPF tables on **Alex-1 Filters**.
+The **Switches apply immediately…** note is directly below the HPF/BPF and LPF tables on **Alex-1 Filters**. It points to **Transmit** and **Tools → Pure Signal**; disabled overrides state their own limitation.
 
 **Restore model defaults** is above the hardware tabs, with the save / error
 status directly below. There is no Apply button: switches and selections
@@ -901,8 +907,8 @@ relay movement.
 
 **Commanded ADC0 / ADC1 / LPF** indicates the software's requested filter,
 not physical relay feedback. The status reports automatic save completion or a refusal. The
-page controls receive filters, antennas and the RX OC matrix; it does not add
-transmit or PureSignal. Unsupported Nereus-style sections remain visible and
+page contains filter, antenna and RX OC settings. Configure supported transmission
+on **Transmit** and feedback calibration under **Tools → Pure Signal**. Unsupported Nereus-style sections remain visible and
 disabled rather than presenting working controls.
 
 ### Check ADC1 and Alex-2

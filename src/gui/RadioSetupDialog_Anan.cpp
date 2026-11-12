@@ -184,7 +184,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
     micForm->addRow(QStringLiteral("Bias:"), micBias);
     micForm->addRow(QStringLiteral("PTT:"), micPtt);
     micForm->addRow(QStringLiteral("Input:"), micInput);
-    auto* micHint = new QLabel(QStringLiteral("Connect a supported Orion/Saturn receiver. These settings configure the radio's microphone socket; ANAN operation remains receive-only."), micGroup);
+    auto* micHint = new QLabel(QStringLiteral("Connect a supported Orion/Saturn receiver. These settings configure the radio's microphone socket. Supported transmission is configured on Transmit."), micGroup);
     micHint->setWordWrap(true);
     micForm->addRow(micHint);
     auto* micApply = new QPushButton(QStringLiteral("Apply microphone options"), micGroup);
@@ -442,7 +442,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
         parent->addWidget(group);
         return group;
     };
-    const QString txReason = QStringLiteral("Unavailable: ANAN transmit is not implemented");
+    const QString txReason = QStringLiteral("Unavailable: this legacy antenna / relay override is not connected. Use Transmit for supported ANAN TX settings.");
     const QString bandAntennaReason = QStringLiteral("Separate ANT1/2/3 and RX-only choices for ADC0. RX1 controls the shared path; other slices follow. Clear both external inputs to use the ANT bank.");
     auto* bandAntennasEnabled = new QCheckBox(QStringLiteral("Enable RX antenna per band"), antennaControl);
     bandAntennasEnabled->setObjectName(QStringLiteral("ananBandAntennasEnabled"));
@@ -637,7 +637,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
             auto* band = new QLabel(ocBandNames[row], result->group);
             grid->addWidget(band, row+1, 0);
             const bool supported = !tx && row < 11;
-            const QString reason = tx ? QStringLiteral("Unavailable: ANAN transmit is not implemented")
+            const QString reason = tx ? QStringLiteral("Unavailable: the TX OC matrix on this page is not implemented; this does not disable ANAN transmission.")
                 : QStringLiteral("Unavailable: 2m, independent GEN/WWV and transverter OC routing are not implemented; the RX matrix covers 160m through 6m");
             if (!supported) {
                 band->setEnabled(false);
@@ -657,7 +657,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
             }
         }
         if (tx) {
-            result->group->setAccessibleDescription(QStringLiteral("Unavailable: ANAN transmit is not implemented"));
+            result->group->setAccessibleDescription(QStringLiteral("Unavailable: the TX OC matrix on this page is not implemented; this does not disable ANAN transmission."));
             result->group->setToolTip(result->group->accessibleDescription());
             result->group->setEnabled(false);
         }
@@ -853,11 +853,12 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
         button->setEnabled(false);
         button->setAccessibleDescription(QStringLiteral("Unavailable without a connected ANAN receive profile"));
     }
-    auto* txCal = calGroup(calRight,QStringLiteral("TX Display Cal"),QStringLiteral("Unavailable: ANAN transmit is not implemented."));
-    unavailableNumber(txCal,QStringLiteral("Offset (dB):"),-100,100,0,1);
-    auto* currentCal = calGroup(calRight,QStringLiteral("Volts/Amps Calibration"),QStringLiteral("Unavailable: ANAN current calibration is not implemented. No measured values are shown."));
-    unavailableNumber(currentCal,QStringLiteral("Sensitivity:"),0.001,5000,1,3);
-    unavailableNumber(currentCal,QStringLiteral("Offset:"),-1000,1000,0,3);
+    const QString txDisplayReason = QStringLiteral("Unavailable: a separate ANAN TX spectrum display offset is not implemented. This does not disable transmission or Pure Signal.");
+    auto* txCal = calGroup(calRight,QStringLiteral("TX Display Cal"),txDisplayReason);
+    auto* txDisplayOffset = unavailableNumber(txCal,QStringLiteral("Offset (dB):"),-100,100,0,1);
+    txDisplayOffset->setAccessibleDescription(txDisplayReason);
+    txDisplayOffset->setToolTip(txDisplayReason);
+    calGroup(calRight,QStringLiteral("Volts/Amps Calibration"),QStringLiteral("Configure sensor conversion in Serial & Controllers → ANAN voltage / current sensors: Zero-current offset, Sensitivity, ADC reference and Voltage divider. Apply sensor settings saves the configuration for this radio. These are display-conversion settings, not RF calibration; no separate calibration values are stored here."));
     calLeft->addStretch(); calRight->addStretch();
     auto* droop = new QPushButton(QStringLiteral("Open Droop Correction"), calibrationPage);
     droop->setAutoDefault(false);
@@ -989,7 +990,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
     for (const auto& text : {QStringLiteral("HPF Bypass on TX"), QStringLiteral("HPF Bypass on PureSignal feedback"),
             QStringLiteral("Disable 6m LNA on TX")}) {
         receiveOptions->insertWidget(optionRow++, unavailableCheck(receiveGroup, text,
-            QStringLiteral("Unavailable: ANAN TX and PureSignal are not implemented")));
+            QStringLiteral("Unavailable: this individual TX / Pure Signal filter override is not implemented; supported transmit and feedback routing remain available.")));
     }
     auto* disable6mRx = new QCheckBox(QStringLiteral("Disable 6m LNA on RX"), receiveGroup);
     disable6mRx->setAccessibleName(QStringLiteral("Disable 6m LNA on receive"));
@@ -999,7 +1000,7 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
     receive->setAccessibleName(QStringLiteral("ADC receive filter frequency ranges"));
     auto* lpf = makeFilterGrid(lpfGroup, 7);
     lpf->setAccessibleName(QStringLiteral("ALEX low pass filter frequency ranges"));
-    auto* lpfNote = new QLabel(QStringLiteral("TX-side filters are not keyed: the ANAN backend supports receive only."), lpfGroup);
+    auto* lpfNote = new QLabel(QStringLiteral("LPF selection follows the supported hardware routing. Indicators show commanded filters, not physical relay feedback."), lpfGroup);
     lpfNote->setWordWrap(true);
     auto* lpfOptions = qobject_cast<QVBoxLayout*>(lpfGroup->layout());
     lpfOptions->insertWidget(0, lpfNote);
@@ -1028,8 +1029,8 @@ QWidget* RadioSetupDialog::buildAnanExtendedHardwareTab()
     actions->addStretch();
     outer->insertLayout(0, actions);
     outer->insertWidget(1, status);
-    auto* note = new QLabel(QStringLiteral("Receive-only settings. Switches apply immediately; frequency limits apply on Enter or when leaving the field. Settings are saved for this device and model. "
-        "Filter indicators show commands, not physical relay feedback. TX and PureSignal are unavailable. OC outputs are configured on their own tab."));
+    auto* note = new QLabel(QStringLiteral("Switches apply immediately; frequency limits apply on Enter or when leaving the field. Settings are saved for this device and model. "
+        "Filter indicators show commands, not physical relay feedback. Configure transmission on Transmit and Pure Signal under Tools → Pure Signal. OC outputs are configured on their own tab."));
     note->setWordWrap(true);
     layout->addWidget(note);
     auto* alex2Note = new QLabel(note->text(), alex2);

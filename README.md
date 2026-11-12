@@ -10,6 +10,8 @@ The following list follows implementation order. It covers feature additions and
 
 Hardware availability depends on the selected model and protocol. Implementation does not imply hardware validation on every supported profile.
 
+ANAN Hardware describes unavailable filter overrides individually. Calibration points to the existing voltage/current sensor settings under Serial & Controllers; a separate TX display offset remains unavailable.
+
 ## Supported transceivers
 
 The DH1KLM implementation supports the following OpenHPSDR model profiles. Discovery identifies the board family rather than the exact transceiver. Select the appropriate **Receive profile** when connecting; supported DIY combinations can use an explicit **Board override**.
